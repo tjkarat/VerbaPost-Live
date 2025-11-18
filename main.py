@@ -1,1 +1,1 @@
-print("VerbaMail is alive on Mac!")
+print("VerbaPost is active.")
