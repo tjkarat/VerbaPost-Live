@@ -1,5 +1,5 @@
 import streamlit as st
-from audio_recorder_streamlit import audio_recorder # <-- NEW LIBRARY
+from audio_recorder_streamlit import audio_recorder
 import ai_engine
 import database
 import letter_format
@@ -33,7 +33,14 @@ with st.container():
         city = st.text_input("City", placeholder="e.g. Mt Juliet")
         state_zip = st.text_input("State & Zip Code", placeholder="e.g. TN 37122")
 
-# --- RECORDING SECTION ---
+# --- CONDITIONAL RENDERING (The Fix) ---
+# We check if ALL fields have text. If not, we stop here.
+if not recipient_name or not street or not city or not state_zip:
+    st.divider()
+    st.info("👇 **Please fill out the full address above to unlock the recorder.**")
+    st.stop() # This command halts the script here. Nothing below runs.
+
+# --- RECORDING SECTION (Only visible if address is full) ---
 st.divider()
 st.subheader("🎙️ Dictate Message")
 
@@ -54,12 +61,10 @@ if recording_mode == "🖥️ Local Mac Microphone (Dev Mode)":
             st.session_state.audio_path = path
         st.success("Recording Complete! Click Generate below.")
 
-# --- MODE 2: BROWSER (UPDATED) ---
+# --- MODE 2: BROWSER ---
 else:
     st.info("Click the microphone icon below to start/stop recording.")
     
-    # NEW RECORDER WIDGET
-    # It saves directly to 'audio_bytes' when you stop recording
     audio_bytes = audio_recorder(
         text="",
         recording_color="#e8b62c",
@@ -78,35 +83,32 @@ if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
     st.audio(st.session_state.audio_path) # Playback
     
     if st.button("📮 Generate & Mail Letter", type="primary"):
-        if not recipient_name or not street or not city or not state_zip:
-            st.error("⚠️ Please fill in ALL address fields first.")
-        else:
-            full_address = f"{recipient_name}\n{street}\n{city}, {state_zip}"
-            
-            with st.spinner("🤖 AI is thinking..."):
-                try:
-                    text_content = ai_engine.transcribe_audio(st.session_state.audio_path)
-                except Exception as e:
-                    st.error(f"AI Error: {e}")
-                    text_content = ""
+        full_address = f"{recipient_name}\n{street}\n{city}, {state_zip}"
+        
+        with st.spinner("🤖 AI is thinking..."):
+            try:
+                text_content = ai_engine.transcribe_audio(st.session_state.audio_path)
+            except Exception as e:
+                st.error(f"AI Error: {e}")
+                text_content = ""
 
-                if text_content:
-                    if not os.path.exists("verbapost.db"):
-                        database.init_db()
-                    database.create_letter(text_content)
-                    
-                    pdf_path = letter_format.create_pdf(text_content, full_address, "final_letter.pdf")
-                    
-                    st.balloons()
-                    st.success("Letter Generated!")
-                    st.text_area("Message Preview:", value=text_content)
-                    
-                    with open(pdf_path, "rb") as pdf_file:
-                        st.download_button(
-                            label="📄 Download PDF",
-                            data=pdf_file,
-                            file_name="VerbaPost_Letter.pdf",
-                            mime="application/pdf"
-                        )
-                    
-                    mailer.send_letter(pdf_path)
+            if text_content:
+                if not os.path.exists("verbapost.db"):
+                    database.init_db()
+                database.create_letter(text_content)
+                
+                pdf_path = letter_format.create_pdf(text_content, full_address, "final_letter.pdf")
+                
+                st.balloons()
+                st.success("Letter Generated!")
+                st.text_area("Message Preview:", value=text_content)
+                
+                with open(pdf_path, "rb") as pdf_file:
+                    st.download_button(
+                        label="📄 Download PDF",
+                        data=pdf_file,
+                        file_name="VerbaPost_Letter.pdf",
+                        mime="application/pdf"
+                    )
+                
+                mailer.send_letter(pdf_path)
