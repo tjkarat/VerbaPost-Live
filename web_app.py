@@ -8,11 +8,9 @@ import mailer
 import os
 from PIL import Image
 from datetime import datetime
-from uszipcode import SearchEngine
+import zipcodes # <--- NEW LIGHTWEIGHT LIBRARY
 
-# --- ROBUST IMPORT (The Fix) ---
-# We wrap this in a try/except block. 
-# If 'sounddevice' is missing (Cloud), we just disable local mode.
+# --- ROBUST IMPORT ---
 try:
     import recorder
     local_rec_available = True
@@ -24,22 +22,20 @@ st.set_page_config(page_title="VerbaPost", page_icon="📮")
 if "audio_path" not in st.session_state:
     st.session_state.audio_path = None
 
-# Validation Engine (Lightweight)
-search = SearchEngine()
-
 def validate_zip(city, state, zipcode):
-    # Quick check: Is it 5 digits?
-    if len(zipcode) != 5 or not zipcode.isdigit():
-        return False, "Zip code must be 5 digits."
-    
-    # Database check
-    result = search.by_zipcode(zipcode)
-    if not result:
+    # 1. Check if it exists in the US Database
+    is_valid = zipcodes.is_real(zipcode)
+    if not is_valid:
         return False, "Zip code does not exist."
     
-    # State Match Check (Basic)
-    if result.state and state.upper() not in result.state:
-         return False, f"Zip {zipcode} belongs to {result.state}, not {state}."
+    # 2. Check if it matches the State
+    # Get details for this zip
+    details = zipcodes.matching(zipcode)
+    if details:
+        # details is a list of dicts, usually just one
+        actual_state = details[0]['state']
+        if actual_state != state.upper():
+             return False, f"Zip {zipcode} is in {actual_state}, not {state}."
          
     return True, "Valid"
 
@@ -97,20 +93,17 @@ canvas_result = st_canvas(
     height=120, width=300, drawing_mode="freedraw", key="sig"
 )
 
-# --- 4. RECORDER (Optimized) ---
+# --- 4. RECORDER ---
 st.divider()
 st.subheader("🎙️ Dictate")
 
-# UI Layout
 c_rec, c_inst = st.columns([1, 2])
 with c_inst:
     st.caption("Tap the Mic. Speak. Tap again to Stop.")
     st.caption("⚠️ **Wait 2 seconds** after speaking before stopping.")
 
 with c_rec:
-    # Check availability
     if local_rec_available:
-        # If local is available, user sees both options
         mode = st.toggle("Dev Mode (Local Mic)", value=False)
         if mode:
             if st.button("🔴 Record Local"):
@@ -121,7 +114,6 @@ with c_rec:
         else:
             audio_bytes = audio_recorder(text="", icon_size="80px", pause_threshold=2.0)
     else:
-        # Cloud mode only
         audio_bytes = audio_recorder(text="", icon_size="80px", pause_threshold=2.0)
 
 if audio_bytes:
@@ -137,9 +129,7 @@ if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
     st.audio(st.session_state.audio_path)
     
     if st.button("📮 Generate Letter", type="primary", use_container_width=True):
-        # Format Address Blocks
         full_recipient = f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}"
-        # (Logic to include Return Address in PDF would go here in Day 3)
         
         with st.spinner("Processing..."):
             try:

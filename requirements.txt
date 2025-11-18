@@ -6,4 +6,4 @@ fpdf2
 sqlalchemy
 requests
 numpy
-uszipcode
+zipcodes
