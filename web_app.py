@@ -1,10 +1,13 @@
 import streamlit as st
 from audio_recorder_streamlit import audio_recorder
+from streamlit_drawable_canvas import st_canvas
 import ai_engine
 import database
 import letter_format
 import mailer
 import os
+from PIL import Image
+import io
 
 # --- ROBUST IMPORT ---
 try:
@@ -15,77 +18,83 @@ except ImportError:
 
 st.set_page_config(page_title="VerbaPost", page_icon="📮")
 
-# --- INIT SESSION STATE ---
 if "audio_path" not in st.session_state:
     st.session_state.audio_path = None
 
 st.title("VerbaPost 📮")
-st.markdown("**Turn your voice into a mailed letter.**")
+st.markdown("**The Authenticity Engine.**")
 
-# --- ADDRESS INPUT ---
-with st.container():
-    st.subheader("📍 Recipient Details")
-    col1, col2 = st.columns(2)
-    with col1:
-        recipient_name = st.text_input("Recipient Name", placeholder="e.g. John Doe")
-        street = st.text_input("Street Address", placeholder="e.g. 123 Main St")
-    with col2:
-        city = st.text_input("City", placeholder="e.g. Mt Juliet")
-        state_zip = st.text_input("State & Zip Code", placeholder="e.g. TN 37122")
+# --- 1. SERVICE TIER ---
+st.subheader("1. Choose Your Service")
+service_tier = st.radio("Select Style:", 
+    ["⚡ Standard ($2.50)", "🏺 Heirloom ($5.00)"], 
+    captions=["API Fulfillment, Window Envelope", "Hand-stamped, Premium Paper, Handwritten Envelope"]
+)
 
-# --- CONDITIONAL RENDERING (The Fix) ---
-# We check if ALL fields have text. If not, we stop here.
-if not recipient_name or not street or not city or not state_zip:
-    st.divider()
-    st.info("👇 **Please fill out the full address above to unlock the recorder.**")
-    st.stop() # This command halts the script here. Nothing below runs.
-
-# --- RECORDING SECTION (Only visible if address is full) ---
+# --- 2. ADDRESS ---
 st.divider()
-st.subheader("🎙️ Dictate Message")
+st.subheader("2. Recipient")
+col1, col2 = st.columns(2)
+with col1:
+    recipient_name = st.text_input("Name", placeholder="John Doe")
+    street = st.text_input("Street", placeholder="123 Main St")
+with col2:
+    city = st.text_input("City", placeholder="Mt Juliet")
+    state_zip = st.text_input("State/Zip", placeholder="TN 37122")
+
+if not recipient_name or not street or not city or not state_zip:
+    st.warning("Please fill out the address to proceed.")
+    st.stop()
+
+# --- 3. SIGNATURE (UPDATED) ---
+st.divider()
+st.subheader("3. Sign Your Letter")
+st.markdown("Draw your signature below:")
+
+# Updated Canvas with WHITE background
+canvas_result = st_canvas(
+    fill_color="rgba(255, 165, 0, 0.3)",
+    stroke_width=2,
+    stroke_color="#000000",
+    background_color="#ffffff", # <--- CHANGED TO WHITE
+    height=150,
+    width=400,
+    drawing_mode="freedraw",
+    key="signature",
+)
+
+# --- 4. RECORDING ---
+st.divider()
+st.subheader("4. Dictate Message")
 
 if local_rec_available:
-    recording_mode = st.radio("Microphone Source:", 
-                              ["🖥️ Local Mac Microphone (Dev Mode)", "🌐 Browser Microphone (Deploy Mode)"])
+    recording_mode = st.radio("Mic Source:", ["🖥️ Local Mac (Dev)", "🌐 Browser (Cloud)"])
 else:
-    st.info("☁️ Running in Cloud Mode")
-    recording_mode = "🌐 Browser Microphone (Deploy Mode)"
+    recording_mode = "🌐 Browser (Cloud)"
 
-# --- MODE 1: LOCAL MAC ---
-if recording_mode == "🖥️ Local Mac Microphone (Dev Mode)":
-    st.info("Uses your Mac's hardware. Reliable.")
-    if st.button("🔴 Record (5 Seconds)"):
-        with st.spinner("Recording... Speak Now!"):
+if recording_mode == "🖥️ Local Mac (Dev)":
+    if st.button("🔴 Record (5s)"):
+        with st.spinner("Recording..."):
             path = "temp_letter.wav"
             recorder.record_audio(filename=path, duration=5)
             st.session_state.audio_path = path
-        st.success("Recording Complete! Click Generate below.")
-
-# --- MODE 2: BROWSER ---
+        st.success("Done.")
 else:
-    st.info("Click the microphone icon below to start/stop recording.")
-    
-    audio_bytes = audio_recorder(
-        text="",
-        recording_color="#e8b62c",
-        neutral_color="#6aa36f",
-        icon_size="60px",
-    )
-    
+    audio_bytes = audio_recorder(text="", icon_size="50px")
     if audio_bytes:
         path = "temp_browser_recording.wav"
         with open(path, "wb") as f:
             f.write(audio_bytes)
         st.session_state.audio_path = path
 
-# --- GENERATE SECTION ---
+# --- 5. GENERATE ---
 if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
-    st.audio(st.session_state.audio_path) # Playback
+    st.audio(st.session_state.audio_path)
     
-    if st.button("📮 Generate & Mail Letter", type="primary"):
+    if st.button("📮 Generate Letter", type="primary"):
         full_address = f"{recipient_name}\n{street}\n{city}, {state_zip}"
         
-        with st.spinner("🤖 AI is thinking..."):
+        with st.spinner("🧠 AI Transcribing & Rendering..."):
             try:
                 text_content = ai_engine.transcribe_audio(st.session_state.audio_path)
             except Exception as e:
@@ -93,22 +102,20 @@ if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
                 text_content = ""
 
             if text_content:
-                if not os.path.exists("verbapost.db"):
-                    database.init_db()
-                database.create_letter(text_content)
-                
+                sig_path = None
+                if canvas_result.image_data is not None:
+                    img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
+                    sig_path = "temp_signature.png"
+                    img.save(sig_path)
+
                 pdf_path = letter_format.create_pdf(text_content, full_address, "final_letter.pdf")
                 
                 st.balloons()
-                st.success("Letter Generated!")
-                st.text_area("Message Preview:", value=text_content)
-                
+                if "Heirloom" in service_tier:
+                    st.success("💌 Order Queued (Heirloom Tier)")
+                else:
+                    st.success("🚀 Sent to API (Standard Tier)")
+                    mailer.send_letter(pdf_path)
+
                 with open(pdf_path, "rb") as pdf_file:
-                    st.download_button(
-                        label="📄 Download PDF",
-                        data=pdf_file,
-                        file_name="VerbaPost_Letter.pdf",
-                        mime="application/pdf"
-                    )
-                
-                mailer.send_letter(pdf_path)
+                    st.download_button("📄 Download Preview", pdf_file, "letter.pdf")

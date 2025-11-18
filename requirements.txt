@@ -1,5 +1,6 @@
 streamlit
 audio-recorder-streamlit
+streamlit-drawable-canvas
 openai-whisper
 fpdf2
 sqlalchemy
