@@ -8,7 +8,7 @@ import mailer
 import os
 from PIL import Image
 from datetime import datetime
-import zipcodes # <--- NEW LIGHTWEIGHT LIBRARY
+import zipcodes
 
 # --- ROBUST IMPORT ---
 try:
@@ -17,35 +17,24 @@ try:
 except (ImportError, OSError):
     local_rec_available = False
 
-# --- CONFIG & SETUP ---
 st.set_page_config(page_title="VerbaPost", page_icon="📮")
 if "audio_path" not in st.session_state:
     st.session_state.audio_path = None
 
-def validate_zip(city, state, zipcode):
-    # 1. Check if it exists in the US Database
+# --- ADDRESS VALIDATION ---
+def validate_zip(zipcode, state):
     is_valid = zipcodes.is_real(zipcode)
-    if not is_valid:
-        return False, "Zip code does not exist."
-    
-    # 2. Check if it matches the State
-    # Get details for this zip
+    if not is_valid: return False, "Invalid Zip"
     details = zipcodes.matching(zipcode)
-    if details:
-        # details is a list of dicts, usually just one
-        actual_state = details[0]['state']
-        if actual_state != state.upper():
-             return False, f"Zip {zipcode} is in {actual_state}, not {state}."
-         
+    if details and details[0]['state'] != state.upper():
+         return False, f"Zip is in {details[0]['state']}"
     return True, "Valid"
 
-# --- HEADER ---
 st.title("VerbaPost 📮")
 st.markdown("**The Authenticity Engine.**")
 
 # --- 1. ADDRESS SECTION ---
 st.subheader("1. Addressing")
-
 col_to, col_from = st.tabs(["👉 To (Recipient)", "👈 From (Return Address)"])
 
 with col_to:
@@ -57,7 +46,7 @@ with col_to:
     to_zip = c2.text_input("Zip Code", max_chars=5)
 
 with col_from:
-    st.info("Required for the post office to return undelivered mail.")
+    st.info("Required for the PDF.")
     from_name = st.text_input("Your Name")
     from_street = st.text_input("Your Street")
     c3, c4 = st.columns(2)
@@ -65,24 +54,15 @@ with col_from:
     from_state = c4.text_input("Your State", max_chars=2)
     from_zip = c4.text_input("Your Zip", max_chars=5)
 
-# --- VALIDATION GATE ---
-address_valid = False
-if to_name and to_street and to_city and to_state and to_zip:
-    is_valid, msg = validate_zip(to_city, to_state, to_zip)
-    if is_valid:
-        st.success("✅ Destination Address Verified")
-        address_valid = True
-    else:
-        st.error(f"⚠️ Address Error: {msg}")
-else:
+# Validation Check
+if not (to_name and to_street and to_city and to_state and to_zip):
     st.info("👇 Fill out the **Recipient** tab to unlock the recorder.")
-
-if not address_valid:
     st.stop()
 
 # --- 2. SERVICE TIER ---
 st.divider()
 service_tier = st.radio("Service Level:", ["⚡ Standard ($2.50)", "🏺 Heirloom ($5.00)"], horizontal=True)
+is_heirloom = "Heirloom" in service_tier
 
 # --- 3. SIGNATURE ---
 st.divider()
@@ -93,18 +73,18 @@ canvas_result = st_canvas(
     height=120, width=300, drawing_mode="freedraw", key="sig"
 )
 
-# --- 4. RECORDER ---
+# --- 4. RECORDER (Fixing the Silence Issue) ---
 st.divider()
 st.subheader("🎙️ Dictate")
 
 c_rec, c_inst = st.columns([1, 2])
 with c_inst:
-    st.caption("Tap the Mic. Speak. Tap again to Stop.")
-    st.caption("⚠️ **Wait 2 seconds** after speaking before stopping.")
+    st.caption("1. Tap Mic. 2. Speak Clearly. 3. Tap Stop.")
+    st.warning("⚠️ Only stop AFTER you finish speaking.")
 
 with c_rec:
     if local_rec_available:
-        mode = st.toggle("Dev Mode (Local Mic)", value=False)
+        mode = st.toggle("Dev Mode (Local)", value=False)
         if mode:
             if st.button("🔴 Record Local"):
                 path = "temp_letter.wav"
@@ -112,17 +92,21 @@ with c_rec:
                 st.session_state.audio_path = path
             audio_bytes = None
         else:
-            audio_bytes = audio_recorder(text="", icon_size="80px", pause_threshold=2.0)
+            # Increased thresholds to prevent "Ghost" recordings
+            audio_bytes = audio_recorder(text="", icon_size="80px", pause_threshold=3.0, energy_threshold=400)
     else:
-        audio_bytes = audio_recorder(text="", icon_size="80px", pause_threshold=2.0)
+        audio_bytes = audio_recorder(text="", icon_size="80px", pause_threshold=3.0, energy_threshold=400)
 
 if audio_bytes:
-    if len(audio_bytes) > 500: 
+    # Stricter Check: Filter out files smaller than 2KB (usually empty headers)
+    if len(audio_bytes) > 2000: 
         path = "temp_browser_recording.wav"
         with open(path, "wb") as f:
             f.write(audio_bytes)
         st.session_state.audio_path = path
-        st.success("Audio Captured!")
+        st.success(f"✅ Audio Captured! ({len(audio_bytes)} bytes)")
+    else:
+        st.error("❌ Audio too short/silent. Please try again closer to the mic.")
 
 # --- 5. GENERATE ---
 if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
@@ -130,6 +114,7 @@ if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
     
     if st.button("📮 Generate Letter", type="primary", use_container_width=True):
         full_recipient = f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}"
+        full_return = f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else ""
         
         with st.spinner("Processing..."):
             try:
@@ -139,19 +124,31 @@ if st.session_state.audio_path and os.path.exists(st.session_state.audio_path):
                 text_content = ""
 
             if text_content:
-                sig_path = None
-                if canvas_result.image_data is not None:
-                    img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
-                    sig_path = "temp_signature.png"
-                    img.save(sig_path)
+                # Filter out the specific Whisper hallucination
+                if "1 oz" in text_content or len(text_content.strip()) < 2:
+                     st.error("⚠️ Audio was unclear. The AI heard only silence/static. Please re-record.")
+                else:
+                    sig_path = None
+                    if canvas_result.image_data is not None:
+                        img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
+                        sig_path = "temp_signature.png"
+                        img.save(sig_path)
 
-                pdf_path = letter_format.create_pdf(text_content, full_recipient, "final_letter.pdf", sig_path)
-                
-                st.balloons()
-                st.success("Letter Ready!")
-                
-                safe_name = "".join(x for x in to_name if x.isalnum())
-                unique_name = f"Letter_{safe_name}_{datetime.now().strftime('%H%M')}.pdf"
+                    # Pass new arguments to PDF Engine
+                    pdf_path = letter_format.create_pdf(
+                        text_content, 
+                        full_recipient, 
+                        full_return, 
+                        is_heirloom, 
+                        "final_letter.pdf", 
+                        sig_path
+                    )
+                    
+                    st.balloons()
+                    st.success("Letter Ready!")
+                    
+                    safe_name = "".join(x for x in to_name if x.isalnum())
+                    unique_name = f"Letter_{safe_name}_{datetime.now().strftime('%H%M')}.pdf"
 
-                with open(pdf_path, "rb") as pdf_file:
-                    st.download_button("📄 Download PDF", pdf_file, unique_name, "application/pdf", use_container_width=True)
+                    with open(pdf_path, "rb") as pdf_file:
+                        st.download_button("📄 Download PDF", pdf_file, unique_name, "application/pdf", use_container_width=True)
