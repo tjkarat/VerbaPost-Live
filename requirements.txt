@@ -1,6 +1,4 @@
-streamlit
-audio-recorder-streamlit
-streamlit-drawable-canvas
+streamlit>=1.40.0
 openai-whisper
 fpdf2
 sqlalchemy
