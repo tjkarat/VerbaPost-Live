@@ -15,6 +15,12 @@ import payment_engine
 # --- CONFIGURATION ---
 MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
 
+# --- PRICING ENGINE (The Source of Truth) ---
+COST_STANDARD = 2.99
+COST_HEIRLOOM = 5.99
+COST_CIVIC = 6.99
+COST_OVERAGE = 1.00
+
 def validate_zip(zipcode, state):
     if not zipcodes.is_real(zipcode): return False, "Invalid Zip Code"
     details = zipcodes.matching(zipcode)
@@ -72,8 +78,17 @@ def show_main_app():
     c_set, c_sig = st.columns(2)
     with c_set:
         st.subheader("Settings")
-        service_tier = st.radio("Service Level:", ["⚡ Standard ($2.50)", "🏺 Heirloom ($5.00)", "🏛️ Civic ($6.00)"])
+        # Dynamic Labels based on Constants
+        service_tier = st.radio("Service Level:", 
+            [
+                f"⚡ Standard (${COST_STANDARD})", 
+                f"🏺 Heirloom (${COST_HEIRLOOM})", 
+                f"🏛️ Civic (${COST_CIVIC})"
+            ]
+        )
         is_heirloom = "Heirloom" in service_tier
+        is_civic = "Civic" in service_tier
+
     with c_sig:
         st.subheader("Sign")
         canvas_result = st_canvas(
@@ -88,7 +103,7 @@ def show_main_app():
     if st.session_state.app_mode == "recording":
         st.divider()
         st.subheader("🎙️ Dictate")
-        st.warning("⏱️ **Time Limit:** 3 Minutes.")
+        st.warning(f"⏱️ **Time Limit:** 3 Minutes (+${COST_OVERAGE} fee for overage).")
 
         audio_value = st.audio_input("Record your letter")
 
@@ -103,7 +118,7 @@ def show_main_app():
                 if file_size > MAX_BYTES_THRESHOLD:
                     status.update(label="⚠️ Recording too long!", state="error")
                     st.error("Recording exceeds 3 minutes.")
-                    if st.button("💳 Agree to +$1.00 Charge"):
+                    if st.button(f"💳 Agree to +${COST_OVERAGE} Charge"):
                         st.session_state.overage_agreed = True
                         st.session_state.app_mode = "transcribing"
                         st.rerun()
@@ -135,10 +150,10 @@ def show_main_app():
     elif st.session_state.app_mode == "editing":
         st.divider()
         st.subheader("📝 Review")
-        st.audio(st.session_state.audio_path)
         
+        st.audio(st.session_state.audio_path)
         if st.session_state.overage_agreed:
-            st.caption("💲 Overage Fee Applied: +$1.00")
+            st.caption(f"💲 Overage Fee Applied: +${COST_OVERAGE}")
 
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
         
@@ -165,12 +180,19 @@ def show_main_app():
         st.divider()
         st.subheader("💰 Checkout")
 
-        base_price = 5.00 if is_heirloom else 2.50
-        final_price = base_price + (1.00 if st.session_state.overage_agreed else 0.00)
+        # CALCULATE PRICE (Updated Logic)
+        if is_heirloom:
+            base_price = COST_HEIRLOOM
+        elif is_civic:
+            base_price = COST_CIVIC
+        else:
+            base_price = COST_STANDARD
+
+        final_price = base_price + (COST_OVERAGE if st.session_state.overage_agreed else 0.00)
+        
         st.info(f"Total: ${final_price:.2f}")
 
         if not st.session_state.payment_complete:
-            # ERROR HANDLING: Check if link generation failed
             checkout_url = payment_engine.create_checkout_session(
                 product_name=f"VerbaPost {service_tier}",
                 amount_in_cents=int(final_price * 100),
@@ -179,11 +201,11 @@ def show_main_app():
             )
             
             if "Error" in checkout_url:
-                st.error("⚠️ Stripe Error: Keys not found. Please add keys to Streamlit Secrets.")
-                st.code(checkout_url) # Show the exact error to debug
+                st.error("⚠️ Stripe Error: Keys not found.")
             else:
                 st.link_button(f"💳 Pay ${final_price:.2f}", checkout_url)
                 st.markdown("---")
+                st.caption("Use Stripe Test Card: 4242 4242 4242 4242")
                 if st.button("✅ I Have Paid"):
                     st.session_state.payment_complete = True
                     st.rerun()
