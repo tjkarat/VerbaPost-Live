@@ -1,10 +1,10 @@
 import streamlit as st
 
 def show_splash():
-    # --- PRICING CONFIGURATION ---
-    PRICE_STANDARD = "$2.99"
-    PRICE_HEIRLOOM = "$5.99"
-    PRICE_CIVIC = "$6.99"
+    # --- PRICING CONSTANTS ---
+    P_STANDARD = ".99"
+    P_HEIRLOOM = ".99"
+    P_CIVIC = ".99"
 
     st.title("VerbaPost 📮")
     st.subheader("The Authenticity Engine.")
@@ -23,21 +23,21 @@ def show_splash():
     
     with c1:
         st.markdown("### ⚡ Standard")
-        st.caption(f"**{PRICE_STANDARD} / letter**")
+        st.caption(f"**{P_STANDARD} / letter**")
         st.write("API Fulfillment")
         st.write("Window Envelope")
         st.write("Mailed in 24hrs")
 
     with c2:
         st.markdown("### 🏺 Heirloom")
-        st.caption(f"**{PRICE_HEIRLOOM} / letter**")
+        st.caption(f"**{P_HEIRLOOM} / letter**")
         st.write("Hand-stamped")
         st.write("Premium Paper")
         st.write("Mailed from Nashville, TN")
 
     with c3:
         st.markdown("### 🏛️ Civic")
-        st.caption(f"**{PRICE_CIVIC} / blast**")
+        st.caption(f"**{P_CIVIC} / blast**")
         st.write("Mail your Senators")
         st.write("Auto-lookup")
         st.write("(Coming Soon)")
@@ -45,8 +45,11 @@ def show_splash():
     st.divider()
 
     # --- Call to Action ---
-    if st.button("🚀 Start Writing Now", type="primary", use_container_width=True):
-        st.session_state.current_view = "main_app"
+    # KEY ARGUMENT ADDED to prevent duplicate ID error
+    if st.button("🚀 Start Writing Now", type="primary", use_container_width=True, key="splash_start"):
+        st.session_state.current_view = "login"
         st.rerun()
 
-    st.markdown("Already a member? [Log In](#)")
+    if st.button("Already a member? Log In", key="splash_login"):
+        st.session_state.current_view = "login"
+        st.rerun()
