@@ -1,5 +1,4 @@
 import streamlit as st
-from audio_recorder_streamlit import audio_recorder
 from streamlit_drawable_canvas import st_canvas
 import os
 from PIL import Image
@@ -13,7 +12,9 @@ import mailer
 import zipcodes
 
 # --- CONFIGURATION ---
-MAX_BYTES_THRESHOLD = 10 * 1024 * 1024 
+# 3 Minutes of WAV (44.1kHz, 16-bit) is roughly 30-32MB.
+# We set the limit to 35MB to be safe.
+MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
 
 def validate_zip(zipcode, state):
     if not zipcodes.is_real(zipcode): return False, "Invalid Zip Code"
@@ -69,7 +70,8 @@ def show_main_app():
     c_set, c_sig = st.columns(2)
     with c_set:
         st.subheader("Settings")
-        service_tier = st.radio("Tier:", ["⚡ Standard (.50)", "🏺 Heirloom (.00)", "🏛️ Civic (.00)"])
+        # Explicit pricing in labels
+        service_tier = st.radio("Service Level:", ["⚡ Standard ($2.50)", "🏺 Heirloom ($5.00)", "🏛️ Civic ($6.00)"])
         is_heirloom = "Heirloom" in service_tier
     with c_sig:
         st.subheader("Sign")
@@ -80,65 +82,65 @@ def show_main_app():
         )
 
     # ==================================================
-    #  STATE 1: RECORDING
+    #  STATE 1: RECORDING (Native Waveform)
     # ==================================================
     if st.session_state.app_mode == "recording":
         st.divider()
         st.subheader("🎙️ Dictate")
         
-        st.warning("⏱️ 3 Minute Limit (.00 Overage Fee applies after)")
+        # WARNING BOX
+        st.warning("⏱️ **Time Limit:** 3 Minutes. (Longer recordings add +$1.00 fee).")
 
-        st.markdown("""
-        <div style="text-align:center; margin-bottom:20px;">
-            <h3 style="color:#28a745;">👇 Tap GREEN to Start</h3>
-            <h3 style="color:#dc3545;">👇 Tap RED to Stop</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        # NATIVE RECORDER
+        audio_value = st.audio_input("Record your letter")
 
-        c1, c2, c3 = st.columns([1, 1, 1])
-        with c2:
-            audio_bytes = audio_recorder(
-                text="",
-                recording_color="#dc3545",
-                neutral_color="#28a745",
-                icon_size="100px",
-                pause_threshold=300.0,
-            )
+        if audio_value:
+            # IMMEDIATE FEEDBACK INDICATOR
+            with st.status("⚙️ Processing Audio...", expanded=True) as status:
+                
+                # 1. Check Size
+                file_size = audio_value.getbuffer().nbytes
+                st.write(f"📏 Size: {round(file_size/(1024*1024), 2)} MB")
 
-        if audio_bytes:
-            file_size = len(audio_bytes)
-            with st.status("⏳ Uploading Audio...", expanded=True) as status:
+                # 2. Save File
                 path = "temp_browser_recording.wav"
                 with open(path, "wb") as f:
-                    f.write(audio_bytes)
+                    f.write(audio_value.getvalue())
                 st.session_state.audio_path = path
-                status.update(label="✅ Upload Complete!", state="complete")
-
-            if file_size > MAX_BYTES_THRESHOLD:
-                st.error(f"⚠️ Long Recording ({round(file_size/(1024*1024),1)} MB).")
-                if st.button("💳 Agree to +.00 & Continue"):
-                    st.session_state.overage_agreed = True
+                
+                # 3. Overage Logic
+                if file_size > MAX_BYTES_THRESHOLD:
+                    status.update(label="⚠️ Recording too long!", state="error")
+                    st.error("Recording exceeds 3 minutes.")
+                    
+                    col_pay, col_del = st.columns(2)
+                    if col_pay.button("💳 Accept +$1.00 Charge"):
+                        st.session_state.overage_agreed = True
+                        st.session_state.app_mode = "transcribing"
+                        st.rerun()
+                    if col_del.button("🗑️ Delete & Retry"):
+                        reset_app()
+                    
+                    st.stop() # Halt here until they choose
+                
+                else:
+                    status.update(label="✅ Uploaded! Starting Transcription...", state="complete")
                     st.session_state.app_mode = "transcribing"
                     st.rerun()
-                if st.button("🗑️ Delete & Retry"):
-                    reset_app()
-            else:
-                st.session_state.app_mode = "transcribing"
-                st.rerun()
 
     # ==================================================
-    #  STATE 1.5: TRANSCRIBING
+    #  STATE 1.5: TRANSCRIBING (Auto)
     # ==================================================
     elif st.session_state.app_mode == "transcribing":
-        st.info("🧠 AI is listening...")
-        try:
-            text = ai_engine.transcribe_audio(st.session_state.audio_path)
-            st.session_state.transcribed_text = text
-            st.session_state.app_mode = "editing"
-            st.rerun()
-        except Exception as e:
-            st.error(f"Transcription Error: {e}")
-            if st.button("Try Again"): reset_app()
+        with st.spinner("🧠 AI is writing your letter..."):
+            try:
+                text = ai_engine.transcribe_audio(st.session_state.audio_path)
+                st.session_state.transcribed_text = text
+                st.session_state.app_mode = "editing"
+                st.rerun()
+            except Exception as e:
+                st.error(f"Transcription Error: {e}")
+                if st.button("Try Again"): reset_app()
 
     # ==================================================
     #  STATE 2: EDITING
@@ -146,12 +148,18 @@ def show_main_app():
     elif st.session_state.app_mode == "editing":
         st.divider()
         st.subheader("📝 Review")
+        
+        # Show Audio Player to reference
         st.audio(st.session_state.audio_path)
         
         if st.session_state.overage_agreed:
-            st.caption("💲 Overage Fee Applied: +.00")
+            st.caption("💲 Overage Fee Applied: +$1.00")
 
-        edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
+        edited_text = st.text_area(
+            "Edit Text:", 
+            value=st.session_state.transcribed_text, 
+            height=300
+        )
         
         c_ai, c_reset = st.columns([1, 3])
         with c_ai:
@@ -185,12 +193,17 @@ def show_main_app():
                 img.save(sig_path)
 
             pdf_path = letter_format.create_pdf(
-                st.session_state.transcribed_text, full_recipient, full_return, is_heirloom, "final_letter.pdf", sig_path
+                st.session_state.transcribed_text, 
+                full_recipient, 
+                full_return, 
+                is_heirloom, 
+                "final_letter.pdf", 
+                sig_path
             )
             
             if not is_heirloom:
-                # mailer.send_letter(pdf_path) # Uncomment when live
-                pass
+                st.write("🚀 Sending to API...")
+                # mailer.send_letter(pdf_path)
             
             st.write("✅ Done!")
 
