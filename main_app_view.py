@@ -37,6 +37,16 @@ def reset_app():
     st.rerun()
 
 def show_main_app():
+    # --- SIDEBAR CONTROLS (THE FIX) ---
+    with st.sidebar:
+        st.subheader("Controls")
+        # This button is always here. Click it if you get stuck.
+        if st.button("🔄 Start New Letter", type="primary", use_container_width=True):
+            reset_app()
+            
+        st.divider()
+        st.caption(f"Current Mode: {st.session_state.get('app_mode', 'unknown')}")
+
     # --- INIT STATE ---
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "recording"
@@ -102,7 +112,7 @@ def show_main_app():
     if st.session_state.app_mode == "recording":
         st.divider()
         st.subheader("🎙️ Dictate")
-        st.warning(f"⏱️ **Time Limit:** 3 Minutes (+${COST_OVERAGE} fee for overage).")
+        st.warning(f"⏱️ **Time Limit:** 3 Minutes.")
 
         audio_value = st.audio_input("Record your letter")
 
@@ -160,3 +170,98 @@ def show_main_app():
         with c_ai:
             if st.button("✨ AI Polish"):
                 polished = ai_engine.polish_text(edited_text)
+                st.session_state.transcribed_text = polished
+                st.rerun()
+        with c_reset:
+            if st.button("🗑️ Trash & Retry"):
+                reset_app()
+
+        st.markdown("---")
+        if st.button("🚀 Approve & Generate PDF", type="primary", use_container_width=True):
+            st.session_state.transcribed_text = edited_text
+            st.session_state.app_mode = "finalizing"
+            st.rerun()
+
+    # ==================================================
+    #  STATE 3: PAYMENT & FINALIZING
+    # ==================================================
+    elif st.session_state.app_mode == "finalizing":
+        st.divider()
+        st.subheader("💰 Checkout")
+
+        # CALCULATE PRICE
+        if is_heirloom:
+            base_price = COST_HEIRLOOM
+        elif is_civic:
+            base_price = COST_CIVIC
+        else:
+            base_price = COST_STANDARD
+
+        final_price = base_price + (COST_OVERAGE if st.session_state.overage_agreed else 0.00)
+        
+        st.info(f"Total: ${final_price:.2f}")
+
+        if not st.session_state.payment_complete:
+            checkout_url = payment_engine.create_checkout_session(
+                product_name=f"VerbaPost {service_tier}",
+                amount_in_cents=int(final_price * 100),
+                success_url="https://google.com", 
+                cancel_url="https://google.com"
+            )
+            
+            if "Error" in checkout_url:
+                st.error("⚠️ Stripe Error: Keys not found.")
+            else:
+                st.link_button(f"💳 Pay ${final_price:.2f}", checkout_url)
+                st.caption("Use Stripe Test Card: 4242 4242 4242 4242")
+                if st.button("✅ I Have Paid"):
+                    st.session_state.payment_complete = True
+                    st.rerun()
+
+        else:
+            with st.status("✉️ Processing...", expanded=True):
+                full_recipient = f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}"
+                full_return = f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else ""
+
+                sig_path = None
+                if canvas_result.image_data is not None:
+                    img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
+                    sig_path = "temp_signature.png"
+                    img.save(sig_path)
+
+                # PASS THE LANGUAGE HERE
+                pdf_path = letter_format.create_pdf(
+                    st.session_state.transcribed_text, 
+                    full_recipient, 
+                    full_return, 
+                    is_heirloom, 
+                    language=st.session_state.get("language", "English"),
+                    filename="final_letter.pdf", 
+                    signature_path=sig_path
+                )
+                
+                if not is_heirloom:
+                    # Construct address objects for Lob
+                    addr_to = {
+                        'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip
+                    }
+                    addr_from = {
+                        'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip
+                    }
+                    
+                    st.write("🚀 Transmitting to Lob...")
+                    mailer.send_letter(pdf_path, addr_to, addr_from)
+                else:
+                    st.info("🏺 Heirloom: Added to Manual Print Queue")
+            
+            st.balloons()
+            st.success("Order Complete!")
+            
+            safe_name = "".join(x for x in to_name if x.isalnum())
+            unique_name = f"Letter_{safe_name}_{datetime.now().strftime('%H%M')}.pdf"
+
+            with open(pdf_path, "rb") as pdf_file:
+                st.download_button("📄 Download Receipt", pdf_file, unique_name, "application/pdf", use_container_width=True)
+
+            if st.button("Start New Letter"):
+                reset_app()
