@@ -1,54 +1,63 @@
-import lob
+import requests
 import streamlit as st
 import os
 
-# Initialize Lob
+# Load API Key
 try:
-    lob.api_key = st.secrets["lob"]["api_key"]
+    LOB_API_KEY = st.secrets["lob"]["api_key"]
     LOB_AVAILABLE = True
 except:
     LOB_AVAILABLE = False
-    # We don't print an error here to avoid cluttering the logs if just testing UI
+    LOB_API_KEY = ""
 
 def send_letter(pdf_path):
     """
-    Uploads the generated PDF to Lob and sends a letter.
+    Uploads the PDF to Lob using direct API calls (No library required).
     """
     if not LOB_AVAILABLE:
-        print("⚠️ Simulation: Mail sent (No Lob API Key found).")
+        print("⚠️ Simulation: Mail sent (No Lob API Key).")
         return True
 
-    print(f"📮 Sending to Lob: {os.path.basename(pdf_path)}")
+    print(f"📮 Sending to Lob (Direct API): {os.path.basename(pdf_path)}")
+    
+    url = "https://api.lob.com/v1/letters"
     
     try:
-        # 1. Open the PDF
         with open(pdf_path, 'rb') as file:
-            # 2. Create the Letter via API
-            # Note: In 'Test' mode, this validates the request but doesn't actually mail it.
-            response = lob.Letter.create(
-                description = "VerbaPost Letter",
-                to_address = {
-                    'name': 'VerbaPost User', # In Day 4 we will pull real names
-                    'address_line1': '185 Berry St',
-                    'address_city': 'San Francisco',
-                    'address_state': 'CA',
-                    'address_zip': '94107'
-                },
-                from_address = {
-                    'name': 'Tarak Robbana',
-                    'address_line1': '1008 Brandon Court',
-                    'address_city': 'Mt Juliet',
-                    'address_state': 'TN',
-                    'address_zip': '37122'
-                },
-                file = file,
-                color = False # Black & White is cheaper ($1.00 vs $2.00)
+            # Define the letter data
+            # In Day 4, we will make these addresses dynamic variables!
+            payload = {
+                "description": "VerbaPost Letter",
+                "to[name]": "VerbaPost User",
+                "to[address_line1]": "185 Berry St",
+                "to[address_city]": "San Francisco",
+                "to[address_state]": "CA",
+                "to[address_zip]": "94107",
+                "from[name]": "Tarak Robbana",
+                "from[address_line1]": "1008 Brandon Court",
+                "from[address_city]": "Mt Juliet",
+                "from[address_state]": "TN",
+                "from[address_zip]": "37122",
+                "color": "false"
+            }
+            
+            # Send the request with Basic Auth (Key is username, password is blank)
+            response = requests.post(
+                url, 
+                auth=(LOB_API_KEY, ''), 
+                data=payload, 
+                files={'file': file}
             )
-        
-        print(f"✅ Lob Success! ID: {response['id']}")
-        return True
+            
+            if response.status_code == 200:
+                print(f"✅ Lob Success: {response.json()['id']}")
+                return True
+            else:
+                error_msg = response.json().get('error', {}).get('message', 'Unknown Error')
+                print(f"❌ Lob Error: {error_msg}")
+                st.error(f"Mailing Failed: {error_msg}")
+                return False
 
     except Exception as e:
-        print(f"❌ Lob Error: {e}")
-        st.error(f"Mailing Failed: {e}")
+        st.error(f"Connection Error: {e}")
         return False
