@@ -1,16 +1,18 @@
+cat <<EOF > login_view.py
 import streamlit as st
-import auth_engine
 import time
 
 def show_login():
-    # Center the login box
+    # Import logic is now inside the function, preventing global crash
+    import auth_engine 
+    
+    # Use columns to center the form on desktop
     c1, c2, c3 = st.columns([1, 2, 1])
     
     with c2:
         st.title("VerbaPost 📮")
         st.subheader("Member Access")
         
-        # Test connection immediately to show error on screen instead of blank page
         client, err = auth_engine.get_supabase_client()
         if err:
             st.error(f"⚠️ System Error: {err}")
@@ -24,8 +26,8 @@ def show_login():
 
         # --- LOGIN TAB ---
         with tab_login:
-            email = st.text_input("Email", key="l_email")
-            password = st.text_input("Password", type="password", key="l_pass")
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_pass")
             
             if st.button("Log In", type="primary", use_container_width=True):
                 with st.spinner("Verifying credentials..."):
@@ -40,7 +42,6 @@ def show_login():
                         # LOAD SAVED DATA
                         saved_addr = auth_engine.get_current_address(email)
                         if saved_addr:
-                            # Populate session state with saved address for autofill
                             st.session_state["from_name"] = saved_addr.get("name", "")
                             st.session_state["from_street"] = saved_addr.get("street", "")
                             st.session_state["from_city"] = saved_addr.get("city", "")
@@ -52,8 +53,8 @@ def show_login():
 
         # --- SIGN UP TAB ---
         with tab_signup:
-            new_email = st.text_input("Email", key="s_email")
-            new_pass = st.text_input("Password", type="password", key="s_pass")
+            new_email = st.text_input("Email", key="new_email")
+            new_pass = st.text_input("Password", type="password", key="new_pass")
             
             if st.button("Create Account", use_container_width=True):
                 with st.spinner("Creating account..."):
@@ -71,3 +72,4 @@ def show_login():
         if st.button("⬅️ Back to Home", type="secondary"):
             st.session_state.current_view = "splash"
             st.rerun()
+EOF
