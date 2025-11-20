@@ -1,43 +1,52 @@
 import streamlit as st
-from gotrue.client import Client
-import database
+from supabase import create_client, Client
 
 # --- LOAD SECRETS SAFELY ---
 try:
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    auth_client = Client(url=url, headers={"apikey": key})
-    AUTH_ACTIVE = True
+    # We use .get() to avoid crashing if keys are missing
+    url = st.secrets.get("supabase", {}).get("url", "")
+    key = st.secrets.get("supabase", {}).get("key", "")
+    
+    if url and key:
+        supabase: Client = create_client(url, key)
+        AUTH_ACTIVE = True
+    else:
+        supabase = None
+        AUTH_ACTIVE = False
+        print("⚠️ Supabase Secrets missing.")
 except Exception as e:
-    # Logs to the console (Manage App -> Logs) instead of crashing the UI
     print(f"⚠️ Auth Init Error: {e}")
-    auth_client = None
+    supabase = None
     AUTH_ACTIVE = False
 
 def sign_up(email, password):
-    if not AUTH_ACTIVE: return None, "System Error: Supabase Secrets missing."
+    if not AUTH_ACTIVE: return None, "System Error: Auth not configured."
     
     try:
-        response = auth_client.sign_up(email=email, password=password)
-        if response:
-             try:
-                 database.create_or_get_user(email)
-             except Exception as db_err:
-                 print(f"DB Sync Error: {db_err}")
-        return response, None
+        response = supabase.auth.sign_up({"email": email, "password": password})
+        # Check if user was created (Supabase returns a User object)
+        if response.user:
+             return response, None
+        return None, "Signup failed"
     except Exception as e:
         return None, str(e)
 
 def sign_in(email, password):
-    if not AUTH_ACTIVE: return None, "System Error: Supabase Secrets missing."
+    if not AUTH_ACTIVE: return None, "System Error: Auth not configured."
     
     try:
-        response = auth_client.sign_in(email=email, password=password)
-        return response, None
+        response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        if response.user:
+            return response, None
+        return None, "Login failed"
     except Exception as e:
         return None, str(e)
 
 def get_current_address(email):
+    """
+    Fetches the saved address from the SQL database (via database.py logic, not Supabase API)
+    """
+    import database # Import inside function to avoid circular loops
     try:
         user = database.get_user_by_email(email)
         if user:
