@@ -22,6 +22,13 @@ COST_HEIRLOOM = 5.99
 COST_CIVIC = 6.99
 COST_OVERAGE = 1.00
 
+def validate_zip(zipcode, state):
+    if not zipcodes.is_real(zipcode): return False, "Invalid Zip Code"
+    details = zipcodes.matching(zipcode)
+    if details and details[0]['state'] != state.upper():
+         return False, f"Zip is in {details[0]['state']}, not {state}"
+    return True, "Valid"
+
 def reset_app():
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
@@ -29,18 +36,31 @@ def reset_app():
     st.session_state.overage_agreed = False
     st.session_state.payment_complete = False
     st.query_params.clear()
+    if "stripe_url" in st.session_state:
+        del st.session_state.stripe_url
+    if "last_config" in st.session_state:
+        del st.session_state.last_config
     st.rerun()
 
 def show_main_app():
-    # --- AUTO-DETECT RETURN FROM STRIPE ---
+    # --- 0. AUTO-DETECT RETURN FROM STRIPE (FIXED) ---
+    # Initialize the 'Used Receipts' list
+    if "processed_ids" not in st.session_state:
+        st.session_state.processed_ids = []
+
     if "session_id" in st.query_params:
         session_id = st.query_params["session_id"]
-        if payment_engine.check_payment_status(session_id):
-            st.session_state.payment_complete = True
-            st.toast("✅ Payment Confirmed! Recorder Unlocked.")
-            st.query_params.clear() 
-        else:
-            st.error("Payment verification failed.")
+        
+        # Check if we already used this receipt
+        if session_id not in st.session_state.processed_ids:
+            if payment_engine.check_payment_status(session_id):
+                st.session_state.payment_complete = True
+                st.session_state.processed_ids.append(session_id) # Mark as used
+                st.toast("✅ Payment Confirmed! Recorder Unlocked.")
+                st.query_params.clear() 
+            else:
+                st.error("Payment verification failed.")
+        # If it IS in processed_ids, we simply ignore it.
 
     # --- INIT STATE ---
     if "app_mode" not in st.session_state:
@@ -53,6 +73,12 @@ def show_main_app():
         st.session_state.overage_agreed = False
     if "payment_complete" not in st.session_state:
         st.session_state.payment_complete = False
+    
+    # --- SIDEBAR RESET ---
+    with st.sidebar:
+        st.subheader("Controls")
+        if st.button("🔄 Start New Letter", type="primary", use_container_width=True):
+            reset_app()
     
     # --- 1. ADDRESSING ---
     st.subheader("1. Addressing")
@@ -87,7 +113,11 @@ def show_main_app():
     with c_set:
         st.subheader("2. Settings")
         service_tier = st.radio("Service Level:", 
-            [f"⚡ Standard (${COST_STANDARD})", f"🏺 Heirloom (${COST_HEIRLOOM})", f"🏛️ Civic (${COST_CIVIC})"],
+            [
+                f"⚡ Standard (${COST_STANDARD})", 
+                f"🏺 Heirloom (${COST_HEIRLOOM})", 
+                f"🏛️ Civic (${COST_CIVIC})"
+            ],
             key="tier_select"
         )
         is_heirloom = "Heirloom" in service_tier
@@ -112,10 +142,12 @@ def show_main_app():
     # ==================================================
     if not st.session_state.payment_complete:
         st.subheader("4. Payment")
-        st.info(f"Please pay **${price}** to unlock the recorder.")
+        st.info(f"Total: **${final_price:.2f}**")
         
-        if "stripe_url" not in st.session_state:
-             # IMPORTANT: Generate only when needed
+        # Ensure config string includes tier AND price to force refresh if changed
+        current_config = f"{service_tier}_{final_price}"
+
+        if "last_config" not in st.session_state or st.session_state.last_config != current_config:
              url, session_id = payment_engine.create_checkout_session(
                 product_name=f"VerbaPost {service_tier}",
                 amount_in_cents=int(final_price * 100),
@@ -124,12 +156,13 @@ def show_main_app():
             )
              st.session_state.stripe_url = url
              st.session_state.stripe_session_id = session_id
+             st.session_state.last_config = current_config
         
         if st.session_state.stripe_url:
             st.link_button(f"💳 Pay ${final_price:.2f} & Unlock Recorder", st.session_state.stripe_url, type="primary")
             st.caption("Secure checkout via Stripe.")
             
-            if st.button("🔄 I've Paid (Refresh)"):
+            if st.button("🔄 I've Paid (Refresh Status)"):
                  st.rerun()
         else:
             st.error("Connection Error. Please refresh.")
@@ -218,16 +251,19 @@ def show_main_app():
                 sig_path = "temp_signature.png"
                 img.save(sig_path)
 
+            # Create PDF
+            lang = st.session_state.get("language", "English")
             pdf_path = letter_format.create_pdf(
                 st.session_state.transcribed_text, 
                 f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
                 f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else "", 
                 is_heirloom, 
-                st.session_state.get("language", "English"),
+                lang, 
                 "final_letter.pdf", 
                 sig_path
             )
             
+            # Auto-Send
             if not is_heirloom:
                 addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
                 addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
