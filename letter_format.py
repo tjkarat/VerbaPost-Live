@@ -4,10 +4,12 @@ import os
 def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, language="English", filename="output_letter.pdf", signature_path="temp_signature.png"):
     print(f"📄 Formatting PDF in {language}...")
     
+    # A4 is safer for Lob globally, but Letter is standard US. 
+    # We use 'Letter' (215.9 mm x 279.4 mm)
     pdf = FPDF(orientation='P', unit='mm', format='Letter')
     pdf.add_page()
     
-    # --- FONT SELECTION ---
+    # --- FONT SETUP ---
     font_family = "Helvetica"
     font_map = {
         "English": "IndieFlower-Regular.ttf",
@@ -20,26 +22,29 @@ def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, l
         pdf.add_font('Handwriting', '', target_font)
         font_family = 'Handwriting'
 
-    # --- ADDRESS LOGIC (The Fix) ---
+    # --- LAYOUT LOGIC ---
     if is_heirloom:
-        # HEIRLOOM: Print everything so you can hand-write the envelope
+        # HEIRLOOM: Needs addresses printed so YOU can see them to hand-write the envelope
+        # 1. Return Address (Top Left)
         pdf.set_font("Helvetica", size=10)
         pdf.set_xy(10, 10)
         if return_address_info:
             pdf.multi_cell(0, 5, return_address_info)
         
+        # 2. Recipient Address (Window Position)
         pdf.set_y(45)
         pdf.set_font("Helvetica", size=12)
         pdf.multi_cell(0, 6, recipient_info)
         
-        # Start body lower down
+        # 3. Start Body below address
         pdf.set_y(80)
-    
+        
     else:
-        # STANDARD (LOB): Do NOT print addresses. 
-        # Lob generates a cover page. We just want the body text on a nice clean page.
-        # We start 40mm down to give it a "Letterhead" feel.
-        pdf.set_y(40)
+        # STANDARD (LOB): 
+        # Lob prints the address on a separate page 1.
+        # We just want the letter content to start comfortably at the top of Page 2.
+        # Standard margin is 10mm, let's give it 20mm to look nice.
+        pdf.set_y(20)
 
     # --- BODY TEXT ---
     body_size = 16 if language in ["Chinese", "Japanese"] else 14
@@ -50,7 +55,7 @@ def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, l
     pdf.ln(10)
     if os.path.exists(signature_path):
         try:
-            # Use current X position, calculate Y to prevent overlap
+            # Use current X, auto Y
             pdf.image(signature_path, w=40) 
         except:
             pass
