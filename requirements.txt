@@ -10,3 +10,4 @@ zipcodes
 stripe
 psycopg2-binary
 lob-python
+gotrue
