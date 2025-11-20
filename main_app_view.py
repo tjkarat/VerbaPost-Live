@@ -14,6 +14,8 @@ import payment_engine
 
 # --- CONFIGURATION ---
 MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
+# REPLACE THIS WITH YOUR ACTUAL APP URL FROM THE BROWSER BAR
+YOUR_APP_URL = "https://verbapost-hqfbfjywb7b24qgfwxetfm.streamlit.app" 
 
 # --- PRICING ---
 COST_STANDARD = 2.99
@@ -34,9 +36,25 @@ def reset_app():
     st.session_state.app_mode = "recording"
     st.session_state.overage_agreed = False
     st.session_state.payment_complete = False
+    # Clear URL params so we don't get stuck in a loop
+    st.query_params.clear()
     st.rerun()
 
 def show_main_app():
+    # --- 0. AUTO-DETECT RETURN FROM STRIPE ---
+    # Check if the URL has ?session_id=...
+    query_params = st.query_params
+    if "session_id" in query_params:
+        session_id = query_params["session_id"]
+        # Verify with Stripe
+        if payment_engine.check_payment_status(session_id):
+            st.session_state.payment_complete = True
+            st.toast("✅ Payment Confirmed! Recorder Unlocked.")
+            # Clear the param so a refresh doesn't re-trigger
+            st.query_params.clear()
+        else:
+            st.error("Payment verification failed.")
+
     # --- INIT STATE ---
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "recording"
@@ -69,17 +87,13 @@ def show_main_app():
         from_state = c3.text_input("Your State", max_chars=2)
         from_zip = c4.text_input("Your Zip", max_chars=5)
 
-    # Strict Validation
-    recipient_valid = to_name and to_street and to_city and to_state and to_zip
-    sender_valid = from_name and from_street and from_city and from_state and from_zip
+    if not (to_name and to_street and to_city and to_state and to_zip):
+        st.info("👇 Fill out the **Recipient** tab to unlock the tools.")
+        return
 
-    if not recipient_valid:
-        st.info("👇 Please fill out the **Recipient** tab.")
-        return 
-    
-    if not sender_valid:
-        st.warning("👇 Please fill out the **Sender** tab (Return Address) for the post office.")
-        return 
+    if not (from_name and from_street and from_city and from_state and from_zip):
+         st.warning("👇 Fill out the **Sender** tab (Required for mail).")
+         return
 
     # --- 2. SETTINGS & SIGNATURE ---
     st.divider()
@@ -105,7 +119,7 @@ def show_main_app():
         )
 
     # ==================================================
-    #  PAYMENT GATE
+    #  PAYMENT GATE (Auto-Redirect)
     # ==================================================
     st.divider()
     
@@ -117,36 +131,30 @@ def show_main_app():
         st.subheader("4. Payment")
         st.info(f"Please pay **${price}** to unlock the recorder.")
         
-        # FIX IS HERE: Unpacking the tuple (url, id) correctly
-        checkout_url, session_id = payment_engine.create_checkout_session(
-            product_name=f"VerbaPost {service_tier}",
-            amount_in_cents=int(price * 100),
-            success_url="https://google.com", 
-            cancel_url="https://google.com"
-        )
-        
-        # If checkout_url is None, session_id contains the error message
-        if not checkout_url:
-            st.error(f"⚠️ Payment Error: {session_id}")
-        else:
-            c_pay, c_verify = st.columns(2)
-            with c_pay:
-                # Now we pass ONLY the url string to the button
-                st.link_button(f"💳 Pay ${price}", checkout_url, type="primary")
-            with c_verify:
-                if st.button("✅ I Have Paid"):
-                    st.session_state.payment_complete = True
-                    st.rerun()
+        # 1. Create Session & Get URL
+        # We generate this dynamically so it's fresh every click
+        if st.button(f"💳 Pay ${price} & Unlock"):
+            checkout_url, session_id = payment_engine.create_checkout_session(
+                product_name=f"VerbaPost {service_tier}",
+                amount_in_cents=int(price * 100),
+                return_url=YOUR_APP_URL # Pass our app URL so Stripe sends them back
+            )
             
-            st.caption("Secure payment via Stripe.")
-            return 
+            if checkout_url:
+                # Redirect logic via markdown hack or link button
+                st.link_button("👉 Click here to Pay (Secure Stripe Checkout)", checkout_url)
+                st.caption("You will be redirected back here automatically after payment.")
+            else:
+                st.error(f"Payment Error: {session_id}")
+        
+        st.stop() # Halt app until paid
 
     # ==================================================
-    #  STATE 1: RECORDING
+    #  STATE 1: RECORDING (Visible after Auto-Return)
     # ==================================================
     if st.session_state.app_mode == "recording":
         st.subheader("🎙️ 5. Dictate")
-        st.success("🔓 Recorder Unlocked!")
+        st.success("🔓 Payment Verified. Recorder Unlocked!")
         
         audio_value = st.audio_input("Record your letter")
 
@@ -161,12 +169,9 @@ def show_main_app():
                 if file_size > MAX_BYTES_THRESHOLD:
                     status.update(label="⚠️ Recording too long!", state="error")
                     st.error("Recording exceeds 3 minutes.")
-                    if st.button(f"💳 Agree to +${COST_OVERAGE} Charge"):
-                        st.session_state.overage_agreed = True
-                        st.session_state.app_mode = "transcribing"
+                    if st.button("🗑️ Delete & Retry (Free)"):
+                        st.session_state.audio_path = None
                         st.rerun()
-                    if st.button("🗑️ Delete & Retry"):
-                        reset_app()
                     st.stop()
                 else:
                     status.update(label="✅ Uploaded! Starting Transcription...", state="complete")
@@ -193,11 +198,7 @@ def show_main_app():
     elif st.session_state.app_mode == "editing":
         st.divider()
         st.subheader("📝 Review")
-        
         st.audio(st.session_state.audio_path)
-        if st.session_state.overage_agreed:
-            st.caption(f"💲 Overage Fee Applied: +${COST_OVERAGE}")
-
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
         
         c_ai, c_reset = st.columns([1, 3])
@@ -208,7 +209,8 @@ def show_main_app():
                 st.rerun()
         with c_reset:
             if st.button("🗑️ Re-Record (Free)"):
-                reset_app()
+                st.session_state.app_mode = "recording"
+                st.rerun()
 
         st.markdown("---")
         if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
@@ -222,9 +224,6 @@ def show_main_app():
     elif st.session_state.app_mode == "finalizing":
         st.divider()
         with st.status("✉️ Sending...", expanded=True):
-            full_recipient = f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}"
-            full_return = f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else ""
-
             sig_path = None
             if canvas_result.image_data is not None:
                 img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
@@ -233,38 +232,21 @@ def show_main_app():
 
             pdf_path = letter_format.create_pdf(
                 st.session_state.transcribed_text, 
-                full_recipient, 
-                full_return, 
+                f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else "", 
                 is_heirloom, 
                 st.session_state.get("language", "English"),
                 "final_letter.pdf", 
                 sig_path
             )
             
-            # AUTO-SEND LOGIC
             if not is_heirloom:
+                addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
+                addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                
+                # Actual Send
                 st.write("🚀 Transmitting to Lob...")
-                
-                addr_to = {
-                    'name': to_name, 
-                    'street': to_street, 
-                    'city': to_city, 
-                    'state': to_state, 
-                    'zip': to_zip
-                }
-                addr_from = {
-                    'name': from_name, 
-                    'street': from_street, 
-                    'city': from_city, 
-                    'state': from_state, 
-                    'zip': from_zip
-                }
-                
-                success = mailer.send_letter(pdf_path, addr_to, addr_from)
-                if success:
-                    st.success("✅ Accepted by Postal Service API")
-                else:
-                    st.error("❌ Postal Service Rejected Address.")
+                mailer.send_letter(pdf_path, addr_to, addr_from)
             else:
                 st.info("🏺 Added to Heirloom Queue")
             
@@ -273,11 +255,8 @@ def show_main_app():
         st.balloons()
         st.success("Letter Sent!")
         
-        safe_name = "".join(x for x in to_name if x.isalnum())
-        unique_name = f"Letter_{safe_name}_{datetime.now().strftime('%H%M')}.pdf"
-
-        with open(pdf_path, "rb") as pdf_file:
-            st.download_button("📄 Download Receipt", pdf_file, unique_name, "application/pdf", use_container_width=True)
+        with open(pdf_path, "rb") as f:
+            st.download_button("📄 Download Receipt", f, "letter.pdf", use_container_width=True)
 
         if st.button("Start New Letter"):
             reset_app()

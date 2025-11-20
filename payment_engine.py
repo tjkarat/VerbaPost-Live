@@ -7,13 +7,12 @@ try:
 except Exception as e:
     pass
 
-def create_checkout_session(product_name, amount_in_cents, success_url, cancel_url):
+def create_checkout_session(product_name, amount_in_cents, return_url):
     """
     Creates a Stripe Checkout Session.
-    Returns: (checkout_url, session_id)
+    return_url: The URL of your app (e.g., https://verbapost.streamlit.app)
     """
     try:
-        # Verify key exists
         if not stripe.api_key:
             return None, "Error: Stripe API Key is missing."
 
@@ -30,19 +29,17 @@ def create_checkout_session(product_name, amount_in_cents, success_url, cancel_u
                 'quantity': 1,
             }],
             mode='payment',
-            success_url=success_url, 
-            cancel_url=cancel_url,
+            # Stripe will append ?session_id={CHECKOUT_SESSION_ID} to this URL automatically
+            success_url=f"{return_url}?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=return_url,
         )
-        # RETURN TWO VALUES (Tuple)
         return session.url, session.id
     except Exception as e:
-        # RETURN TWO VALUES (None, Error Message)
         return None, str(e)
 
 def check_payment_status(session_id):
     """
-    Checks if a specific session has been paid.
-    Returns: True/False
+    Verifies a session ID with Stripe to ensure it is actually paid.
     """
     try:
         session = stripe.checkout.Session.retrieve(session_id)
