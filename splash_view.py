@@ -32,13 +32,11 @@ def show_splash():
     # --- PRICING TIERS (HTML GRID) ---
     st.subheader("Simple Pricing")
     
-    # We are using raw HTML here to ensure perfect column alignment and custom colors 
-    # (Streamlit's st.columns/st.metric are often unstable on mobile for complex grids)
     html_pricing = """
     <style>
         .price-card {
             background-color: #f9f9f9;
-            padding: 15px;
+            padding: 20px;
             border-radius: 10px;
             text-align: center;
             border: 1px solid #ddd;
@@ -49,24 +47,30 @@ def show_splash():
         }
         .price-tag {
             color: #E63946;
-            font-size: 32px;
+            font-size: 36px;
             font-weight: bold;
-            margin: 10px 0;
+            margin: 15px 0;
         }
         .price-title {
             font-size: 18px;
             font-weight: 600;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
         }
         .price-desc {
             font-size: 14px;
             color: #555;
-            line-height: 1.4;
+            line-height: 1.6;
         }
         .grid-container {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        @media (max-width: 768px) {
+            .grid-container {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 
@@ -74,24 +78,36 @@ def show_splash():
         <div class="price-card">
             <div>
                 <div class="price-title">⚡ Standard</div>
-                <div class="price-tag">&#36;2.99</div>
-                <div class="price-desc">API Fulfillment<br>Window Envelope<br>Mailed in 24hrs</div>
+                <div class="price-tag">$2.99</div>
+                <div class="price-desc">
+                    API Fulfillment<br>
+                    Window Envelope<br>
+                    Mailed in 24hrs
+                </div>
             </div>
         </div>
 
         <div class="price-card" style="border: 2px solid #4CAF50; background-color: #f0fff4;">
             <div>
                 <div class="price-title">🏺 Heirloom</div>
-                <div class="price-tag">&#36;5.99</div>
-                <div class="price-desc">Hand-Stamped<br>Premium Paper<br>Mailed from Nashville</div>
+                <div class="price-tag">$5.99</div>
+                <div class="price-desc">
+                    Hand-Stamped<br>
+                    Premium Paper<br>
+                    Mailed from Nashville
+                </div>
             </div>
         </div>
 
         <div class="price-card">
             <div>
                 <div class="price-title">🏛️ Civic Blast</div>
-                <div class="price-tag">&#36;6.99</div>
-                <div class="price-desc">Activism Mode<br>Auto-Find Reps<br>Mails Senate + House</div>
+                <div class="price-tag">$6.99</div>
+                <div class="price-desc">
+                    Activism Mode<br>
+                    Auto-Find Reps<br>
+                    Mails Senate + House
+                </div>
             </div>
         </div>
     </div>
