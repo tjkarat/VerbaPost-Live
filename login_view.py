@@ -1,11 +1,8 @@
-cat <<EOF > login_view.py
 import streamlit as st
+import auth_engine
 import time
 
 def show_login():
-    # Import logic is now inside the function, preventing global crash
-    import auth_engine 
-    
     # Use columns to center the form on desktop
     c1, c2, c3 = st.columns([1, 2, 1])
     
@@ -13,15 +10,8 @@ def show_login():
         st.title("VerbaPost 📮")
         st.subheader("Member Access")
         
-        client, err = auth_engine.get_supabase_client()
-        if err:
-            st.error(f"⚠️ System Error: {err}")
-            st.info("Please ensure your Supabase URL and Key are in Streamlit Secrets.")
-            if st.button("Back"):
-                st.session_state.current_view = "splash"
-                st.rerun()
-            st.stop()
-
+        # We are intentionally removing the upfront connection check here
+        
         tab_login, tab_signup = st.tabs(["Log In", "Create Account"])
 
         # --- LOGIN TAB ---
@@ -30,12 +20,13 @@ def show_login():
             password = st.text_input("Password", type="password", key="login_pass")
             
             if st.button("Log In", type="primary", use_container_width=True):
+                # The connection check and logic now happens inside the button
                 with st.spinner("Verifying credentials..."):
                     user, error = auth_engine.sign_in(email, password)
                     if error:
                         st.error(f"Login Failed: {error}")
                     else:
-                        st.success("Welcome!")
+                        st.success("Success!")
                         st.session_state.user = user
                         st.session_state.user_email = email
                         
@@ -62,7 +53,7 @@ def show_login():
                     if error:
                         st.error(f"Error: {error}")
                     else:
-                        st.success("Account created! Logged in.")
+                        st.success("Account created! You are now logged in.")
                         st.session_state.user = user
                         st.session_state.user_email = new_email
                         st.session_state.current_view = "main_app"
@@ -72,4 +63,3 @@ def show_login():
         if st.button("⬅️ Back to Home", type="secondary"):
             st.session_state.current_view = "splash"
             st.rerun()
-EOF
