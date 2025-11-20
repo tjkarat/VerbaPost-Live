@@ -1,13 +1,14 @@
 from fpdf import FPDF
 import os
 
-def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, language="English", filename="output_letter.pdf", signature_path=None):
+def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, language="English", filename="output_letter.pdf", signature_path="temp_signature.png"):
     print(f"📄 Formatting PDF in {language}...")
     
     pdf = FPDF(orientation='P', unit='mm', format='Letter')
     pdf.add_page()
     
-    # --- FONT SELECTION ---
+    # --- FONT SETUP ---
+    font_family = "Helvetica"
     font_map = {
         "English": "IndieFlower-Regular.ttf",
         "Chinese": "MaShanZheng-Regular.ttf",
@@ -18,12 +19,9 @@ def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, l
     if os.path.exists(target_font):
         pdf.add_font('Handwriting', '', target_font)
         font_family = 'Handwriting'
-    else:
-        font_family = "Helvetica"
 
-    # --- ADDRESS LOGIC ---
+    # --- LAYOUT LOGIC ---
     if is_heirloom:
-        # HEIRLOOM: Print addresses
         pdf.set_font("Helvetica", size=10)
         pdf.set_xy(10, 10)
         if return_address_info:
@@ -33,9 +31,7 @@ def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, l
         pdf.set_font("Helvetica", size=12)
         pdf.multi_cell(0, 6, recipient_info)
         pdf.set_y(80)
-        
     else:
-        # STANDARD (LOB): Leave top blank
         pdf.set_y(110)
 
     # --- BODY TEXT ---
@@ -43,9 +39,8 @@ def create_pdf(text_content, recipient_info, return_address_info, is_heirloom, l
     pdf.set_font(font_family, size=body_size)
     pdf.multi_cell(0, 8, text_content)
     
-    # --- SIGNATURE (THE FIX) ---
+    # --- SIGNATURE ---
     pdf.ln(10)
-    # We check if signature_path IS NOT NONE and EXISTS
     if signature_path and os.path.exists(signature_path):
         try:
             if pdf.get_y() > 250: pdf.add_page()

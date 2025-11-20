@@ -4,17 +4,14 @@ import os
 from PIL import Image
 from datetime import datetime
 import urllib.parse
-import io
-import zipfile # <--- NEW FOR BUNDLING
 
 # Import core logic
-import ai_engine
+import voice_processor  # <--- Correct Import
 import database
 import letter_format
 import mailer
 import zipcodes
 import payment_engine
-import civic_engine # <--- NEW ENGINE
 
 # --- CONFIGURATION ---
 MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
@@ -82,9 +79,7 @@ def show_main_app():
     def get_val(key): return st.session_state.get(key, st.query_params.get(key, ""))
 
     with col_to:
-        # Disable Recipient input if Civic Mode is active (we find them auto)
-        # For now, we keep it open but ignore it in Civic logic
-        to_name = st.text_input("Recipient Name", value=get_val("to_name"), key="to_name", placeholder="Ignored for Civic Mode")
+        to_name = st.text_input("Recipient Name", value=get_val("to_name"), key="to_name")
         to_street = st.text_input("Street Address", value=get_val("to_street"), key="to_street")
         c1, c2 = st.columns(2)
         to_city = c1.text_input("City", value=get_val("to_city"), key="to_city")
@@ -99,10 +94,14 @@ def show_main_app():
         from_state = c3.text_input("Your State", value=get_val("from_state"), max_chars=2, key="from_state")
         from_zip = c4.text_input("Your Zip", value=get_val("from_zip"), max_chars=5, key="from_zip")
 
-    # Logic: For Civic mode, we only need SENDER address to look up reps.
-    # For others, we need both.
-    
-    # --- 2. SETTINGS ---
+    if not (to_name and to_street and to_city and to_state and to_zip):
+        st.info("👇 Fill out the **Recipient** tab to unlock the tools.")
+        return
+    if not (from_name and from_street and from_city and from_state and from_zip):
+         st.warning("👇 Fill out the **Sender** tab.")
+         return
+
+    # --- 2. SETTINGS & SIGNATURE ---
     st.divider()
     c_set, c_sig = st.columns(2)
     with c_set:
@@ -120,30 +119,21 @@ def show_main_app():
             height=100, width=200, drawing_mode="freedraw", key="sig"
         )
 
-    # Validation Logic
-    if not is_civic:
-        if not (to_name and to_street and to_city and to_state and to_zip):
-            st.info("👇 Fill out Recipient to unlock.")
-            return
-    else:
-        # For Civic, we need Sender address to find reps
-        if not (from_street and from_city and from_state and from_zip):
-            st.info("👇 Fill out **Sender** address to find your Representatives.")
-            return
-
     st.divider()
     
-    # --- PAYMENT ---
+    # --- PRICE CALCULATION ---
     if is_heirloom: price = COST_HEIRLOOM
     elif is_civic: price = COST_CIVIC
     else: price = COST_STANDARD
     final_price = price + (COST_OVERAGE if st.session_state.overage_agreed else 0.00)
 
+    # ==================================================
+    #  PAYMENT GATE
+    # ==================================================
     if not st.session_state.payment_complete:
         st.subheader("4. Payment")
         st.info(f"Total: **${final_price:.2f}**")
         
-        # URL Params persistence
         params = {
             "to_name": to_name, "to_street": to_street, "to_city": to_city, "to_state": to_state, "to_zip": to_zip,
             "from_name": from_name, "from_street": from_street, "from_city": from_city, "from_state": from_state, "from_zip": from_zip
@@ -166,6 +156,7 @@ def show_main_app():
         if st.session_state.stripe_url:
             st.link_button(f"💳 Pay ${final_price:.2f} & Unlock Recorder", st.session_state.stripe_url, type="primary")
             st.caption("Secure checkout via Stripe.")
+            
             if st.button("🔄 I've Paid (Refresh Status)"):
                  if payment_engine.check_payment_status(st.session_state.stripe_session_id):
                      st.session_state.payment_complete = True
@@ -176,17 +167,17 @@ def show_main_app():
             st.error("Connection Error. Please refresh.")
         st.stop() 
 
-    # --- RECORDING ---
+    # ==================================================
+    #  STATE 1: RECORDING
+    # ==================================================
     if st.session_state.app_mode == "recording":
         st.subheader("🎙️ 5. Dictate")
-        
-        # Show who we are messaging if Civic
-        if is_civic:
-            st.info("🏛️ **Civic Mode Active:** This one voice note will be sent to your 2 Senators and 1 Representative.")
+        st.success("🔓 Payment Verified.")
         
         audio_value = st.audio_input("Record your letter")
+
         if audio_value:
-            with st.status("⚙️ Processing...", expanded=True):
+            with st.status("⚙️ Processing Audio...", expanded=True) as status:
                 path = "temp_browser_recording.wav"
                 with open(path, "wb") as f:
                     f.write(audio_value.getvalue())
@@ -194,140 +185,95 @@ def show_main_app():
                 
                 file_size = audio_value.getbuffer().nbytes
                 if file_size > MAX_BYTES_THRESHOLD:
-                    st.error("Recording too long.")
-                    if st.button(f"💳 Agree to +${COST_OVERAGE}"):
+                    status.update(label="⚠️ Recording too long!", state="error")
+                    st.error("Recording exceeds 3 minutes.")
+                    if st.button(f"💳 Agree to +${COST_OVERAGE} Charge"):
                         st.session_state.overage_agreed = True
                         st.session_state.app_mode = "transcribing"
                         st.rerun()
-                    if st.button("🗑️ Retry"):
+                    if st.button("🗑️ Delete & Retry"):
                         st.session_state.audio_path = None
                         st.rerun()
                     st.stop()
                 else:
+                    status.update(label="✅ Uploaded! Starting Transcription...", state="complete")
                     st.session_state.app_mode = "transcribing"
                     st.rerun()
 
-    # --- TRANSCRIPT ---
+    # ==================================================
+    #  STATE 1.5: TRANSCRIBING
+    # ==================================================
     elif st.session_state.app_mode == "transcribing":
-        with st.spinner("🧠 AI is writing..."):
+        with st.spinner("🧠 AI is writing your letter..."):
             try:
-                text = ai_engine.transcribe_audio(st.session_state.audio_path)
+                # FIXED CALL TO VOICE_PROCESSOR
+                text = voice_processor.transcribe_audio(st.session_state.audio_path)
                 st.session_state.transcribed_text = text
                 st.session_state.app_mode = "editing"
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
-                if st.button("Retry"): reset_app()
+                st.error(f"Transcription Error: {e}")
+                if st.button("Try Again"): reset_app()
 
-    # --- EDITING ---
+    # ==================================================
+    #  STATE 2: EDITING
+    # ==================================================
     elif st.session_state.app_mode == "editing":
         st.divider()
         st.subheader("📝 Review")
         st.audio(st.session_state.audio_path)
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
-        
         c1, c2 = st.columns([1, 3])
         if c1.button("✨ AI Polish"):
-             st.session_state.transcribed_text = ai_engine.polish_text(edited_text)
+             # FIXED CALL TO VOICE_PROCESSOR
+             st.session_state.transcribed_text = voice_processor.polish_text(edited_text)
              st.rerun()
-        if c2.button("🗑️ Re-Record"):
+        if c2.button("🗑️ Re-Record (Free)"):
              st.session_state.app_mode = "recording"
              st.rerun()
-
         st.markdown("---")
         if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
             st.session_state.transcribed_text = edited_text
             st.session_state.app_mode = "finalizing"
             st.rerun()
 
-    # --- FINALIZING (CIVIC BLAST LOGIC) ---
+    # ==================================================
+    #  STATE 3: FINALIZING
+    # ==================================================
     elif st.session_state.app_mode == "finalizing":
         st.divider()
-        with st.status("✉️ Processing...", expanded=True) as status:
-            
+        with st.status("✉️ Sending...", expanded=True):
             sig_path = None
             if canvas_result.image_data is not None:
                 img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                 sig_path = "temp_signature.png"
                 img.save(sig_path)
 
-            full_return_str = f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}"
-            addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
-            lang = st.session_state.get("language", "English")
-
-            final_files = [] # Store (filename, path) for zip
-
-            if is_civic:
-                st.write("🏛️ Finding your Representatives via Google API...")
-                # Lookup logic
-                full_user_address = f"{from_street}, {from_city}, {from_state} {from_zip}"
-                targets = civic_engine.get_reps(full_user_address)
-                
-                if not targets:
-                    st.error("Could not find representatives for this address. Generating generic letter instead.")
-                    # Fallback list? Or just stop? 
-                    # Let's stop to be safe, or generate one PDF to user.
-                
-                for i, target in enumerate(targets):
-                    st.write(f"📄 Generating letter for {target['title']} {target['name']}...")
-                    
-                    # Create unique filename
-                    fname = f"Letter_to_{target['name'].replace(' ', '')}.pdf"
-                    
-                    # Format Recipient String
-                    t_addr = target['address_obj']
-                    full_recipient_str = f"{target['name']}\n{t_addr['street']}\n{t_addr['city']}, {t_addr['state']} {t_addr['zip']}"
-                    
-                    # Generate PDF
-                    pdf_path = letter_format.create_pdf(
-                        st.session_state.transcribed_text, full_recipient_str, full_return_str, 
-                        False, lang, fname, sig_path
-                    )
-                    final_files.append(pdf_path)
-                    
-                    # Send to Lob
-                    st.write(f"🚀 Mailing to {target['name']}...")
-                    mailer.send_letter(pdf_path, t_addr, addr_from)
-
+            pdf_path = letter_format.create_pdf(
+                st.session_state.transcribed_text, 
+                f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else "", 
+                is_heirloom, 
+                st.session_state.get("language", "English"),
+                "final_letter.pdf", 
+                sig_path
+            )
+            
+            if not is_heirloom:
+                addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
+                addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                st.write("🚀 Transmitting to Lob...")
+                mailer.send_letter(pdf_path, addr_to, addr_from)
             else:
-                # STANDARD FLOW
-                st.write("📄 Generating PDF...")
-                full_recipient_str = f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}"
-                pdf_path = letter_format.create_pdf(
-                    st.session_state.transcribed_text, full_recipient_str, full_return_str, 
-                    is_heirloom, lang, "final_letter.pdf", sig_path
-                )
-                final_files.append(pdf_path)
-                
-                if not is_heirloom:
-                    addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
-                    st.write("🚀 Transmitting to Lob...")
-                    mailer.send_letter(pdf_path, addr_to, addr_from)
+                st.info("🏺 Added to Heirloom Queue")
             
             st.write("✅ Done!")
-            status.update(label="Complete!", state="complete")
 
         st.balloons()
-        st.success("All letters sent!")
+        st.success("Letter Sent!")
         
-        # --- DOWNLOAD LOGIC (ZIP OR PDF) ---
-        if len(final_files) > 1:
-            # ZIP THEM UP
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w") as zf:
-                for file_path in final_files:
-                    zf.write(file_path, os.path.basename(file_path))
-            
-            st.download_button(
-                label="📦 Download All Letters (ZIP)",
-                data=zip_buffer.getvalue(),
-                file_name="VerbaPost_Civic_Blast.zip",
-                mime="application/zip",
-                use_container_width=True
-            )
-        elif len(final_files) == 1:
-            with open(final_files[0], "rb") as f:
-                st.download_button("📄 Download Copy", f, "letter.pdf", use_container_width=True)
+        with open(pdf_path, "rb") as f:
+            st.download_button("📄 Download Receipt", f, "letter.pdf", use_container_width=True)
 
         if st.button("Start New"):
             reset_app()
