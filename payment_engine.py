@@ -1,23 +1,21 @@
 import stripe
 import streamlit as st
 
-# --- LOAD THE KEY ---
+# --- LOAD KEYS ---
 try:
-    # FIX: Changed from ["api_key"] to ["secret_key"] to match your secrets.toml
     stripe.api_key = st.secrets["stripe"]["secret_key"]
 except Exception as e:
-    # If secrets are missing, we print this to the logs for debugging
-    print(f"Secret loading error: {e}")
     pass
 
-def create_checkout_session(product_name, amount_in_cents, success_url, cancel_url):
+def create_checkout_session(product_name, amount_in_cents):
     """
-    Creates a Stripe Checkout Session and returns the URL.
+    Creates a Stripe Checkout Session.
+    Returns: (checkout_url, session_id)
     """
     try:
-        # Verify key exists before trying
+        # Verify key exists
         if not stripe.api_key:
-            return "Error: Stripe API Key is missing. Check Streamlit Secrets."
+            return None, "Error: Stripe API Key is missing."
 
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
@@ -32,9 +30,23 @@ def create_checkout_session(product_name, amount_in_cents, success_url, cancel_u
                 'quantity': 1,
             }],
             mode='payment',
-            success_url=success_url,
-            cancel_url=cancel_url,
+            # We redirect them to a generic success page just to close the loop
+            success_url="https://verbapost.com/success", 
+            cancel_url="https://verbapost.com/cancel",
         )
-        return session.url
+        return session.url, session.id
     except Exception as e:
-        return f"Error: {e}"
+        return None, str(e)
+
+def check_payment_status(session_id):
+    """
+    Checks if a specific session has been paid.
+    Returns: True/False
+    """
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        if session.payment_status == 'paid':
+            return True
+    except:
+        pass
+    return False

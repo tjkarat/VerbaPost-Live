@@ -3,6 +3,7 @@ from streamlit_drawable_canvas import st_canvas
 import os
 from PIL import Image
 from datetime import datetime
+import time # <--- NEW IMPORT FOR DELAY
 
 # Import core logic
 import ai_engine
@@ -13,7 +14,7 @@ import zipcodes
 import payment_engine
 
 # --- CONFIGURATION ---
-MAX_BYTES_THRESHOLD = 10 * 1024 * 1024 
+MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
 
 # --- PRICING ---
 COST_STANDARD = 2.99
@@ -31,13 +32,12 @@ def reset_app():
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
     st.session_state.app_mode = "recording"
-    # We DO NOT reset payment_complete here, so they can re-record without paying again
-    st.rerun()
-
-def full_reset():
-    # This is for "Start New Letter" where we DO want to reset payment
+    st.session_state.overage_agreed = False
     st.session_state.payment_complete = False
-    reset_app()
+    # Reset session ID so we don't keep polling old payments
+    if "stripe_session_id" in st.session_state:
+        del st.session_state.stripe_session_id
+    st.rerun()
 
 def show_main_app():
     # --- INIT STATE ---
@@ -70,9 +70,8 @@ def show_main_app():
         from_state = c3.text_input("Your State", max_chars=2)
         from_zip = c4.text_input("Your Zip", max_chars=5)
 
-    # Validation Gate
     if not (to_name and to_street and to_city and to_state and to_zip):
-        st.info("👇 Fill out the **Recipient** tab to proceed.")
+        st.info("👇 Fill out the **Recipient** tab to unlock the tools.")
         return
 
     # --- 2. SETTINGS & SIGNATURE ---
@@ -99,11 +98,10 @@ def show_main_app():
         )
 
     # ==================================================
-    #  THE PAYMENT GATE
+    #  PAYMENT GATE (POLLING LOGIC)
     # ==================================================
     st.divider()
     
-    # Calculate Price
     if is_heirloom: price = COST_HEIRLOOM
     elif is_civic: price = COST_CIVIC
     else: price = COST_STANDARD
@@ -112,27 +110,45 @@ def show_main_app():
         st.subheader("4. Payment")
         st.info(f"Please pay **${price}** to unlock the recorder.")
         
-        checkout_url = payment_engine.create_checkout_session(
-            product_name=f"VerbaPost {service_tier}",
-            amount_in_cents=int(price * 100),
-            success_url="https://google.com", 
-            cancel_url="https://google.com"
-        )
+        # 1. Generate Link (Only once)
+        if "stripe_session_id" not in st.session_state:
+            url, session_id = payment_engine.create_checkout_session(
+                product_name=f"VerbaPost {service_tier}",
+                amount_in_cents=int(price * 100)
+            )
+            if url:
+                st.session_state.stripe_url = url
+                st.session_state.stripe_session_id = session_id
+            else:
+                st.error(f"Payment Error: {session_id}")
+                st.stop()
+
+        # 2. Show Pay Button
+        st.link_button(f"💳 Pay ${price} in New Tab", st.session_state.stripe_url)
         
-        if "Error" in checkout_url:
-            st.error("⚠️ Stripe Error: Keys not found.")
-        else:
-            c_pay, c_verify = st.columns(2)
-            with c_pay:
-                st.link_button(f"💳 Pay ${price}", checkout_url, type="primary")
-            with c_verify:
-                if st.button("✅ I Have Paid"):
-                    st.session_state.payment_complete = True
-                    st.rerun()
+        # 3. THE LISTENER LOOP
+        # This box creates a live "Waiting" state without refreshing the whole page
+        with st.status("Waiting for payment confirmation...", expanded=True) as status:
+            st.write("Please complete payment in the new tab...")
             
-            st.caption("Secure payment via Stripe. Test Card: 4242 4242 4242 4242")
-            # STOP HERE if not paid. Do not render anything below.
-            return 
+            # Check just once per script run to avoid blocking UI? 
+            # No, user expects instant feedback. We use a button or a manual refresh?
+            # Better: A "Check Status" button is safest, but a loop is cooler.
+            # Let's try a polite loop.
+            
+            if st.button("🔄 Check Payment Status"):
+                 is_paid = payment_engine.check_payment_status(st.session_state.stripe_session_id)
+                 if is_paid:
+                     status.update(label="✅ Payment Received!", state="complete")
+                     st.session_state.payment_complete = True
+                     st.rerun()
+                 else:
+                     st.warning("Not paid yet. Keep this tab open!")
+            
+            st.caption("Test Card: 4242 4242 4242 4242")
+            
+        # Stop rendering until paid
+        st.stop() 
 
     # ==================================================
     #  STATE 1: RECORDING (Only Visible After Payment)
@@ -140,9 +156,9 @@ def show_main_app():
     if st.session_state.app_mode == "recording":
         st.subheader("🎙️ 5. Dictate")
         st.success("🔓 Recorder Unlocked!")
-        
-        # NATIVE RECORDER
-        audio_value = st.audio_input("Record your letter (Max 3 Minutes)")
+        st.warning(f"⏱️ **Time Limit:** 3 Minutes.")
+
+        audio_value = st.audio_input("Record your letter")
 
         if audio_value:
             with st.status("⚙️ Processing Audio...", expanded=True) as status:
@@ -154,9 +170,9 @@ def show_main_app():
                 file_size = audio_value.getbuffer().nbytes
                 if file_size > MAX_BYTES_THRESHOLD:
                     status.update(label="⚠️ Recording too long!", state="error")
-                    st.error("Recording exceeds 3 minutes limit.")
+                    st.error("Recording exceeds 3 minutes.")
                     if st.button("🗑️ Delete & Retry (Free)"):
-                        reset_app() # Retry allowed since they already paid
+                        reset_app() 
                     st.stop()
                 else:
                     status.update(label="✅ Uploaded! Starting Transcription...", state="complete")
@@ -199,7 +215,6 @@ def show_main_app():
                 reset_app()
 
         st.markdown("---")
-        # Button is "Send" because they paid at Step 4
         if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
             st.session_state.transcribed_text = edited_text
             st.session_state.app_mode = "finalizing"
@@ -232,7 +247,7 @@ def show_main_app():
                 sig_path
             )
             
-            # Auto-Send (Because they paid at Step 4)
+            # Auto-Send
             if not is_heirloom:
                 addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
                 addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
@@ -250,7 +265,7 @@ def show_main_app():
         unique_name = f"Letter_{safe_name}_{datetime.now().strftime('%H%M')}.pdf"
 
         with open(pdf_path, "rb") as pdf_file:
-            st.download_button("📄 Download Copy", pdf_file, unique_name, "application/pdf", use_container_width=True)
+            st.download_button("📄 Download Receipt", pdf_file, unique_name, "application/pdf", use_container_width=True)
 
         if st.button("Start New Letter"):
-            full_reset()
+            reset_app()
