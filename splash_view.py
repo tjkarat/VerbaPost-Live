@@ -1,33 +1,26 @@
+cat <<EOF > splash_view.py
 import streamlit as st
 
+# Version 3.0 - Final HTML Grid
 def show_splash():
-    # --- CONFIG ---
-    P_STANDARD = "$2.99"
-    P_HEIRLOOM = "$5.99"
-    P_CIVIC = "$6.99"
-
-    # --- HERO ---
     st.title("VerbaPost 📮")
     st.subheader("The Authenticity Engine.")
     st.markdown("##### Texts are trivial. Emails are ignored. Real letters get read.")
     
     st.divider()
 
-    # --- HOW IT WORKS (Updated Verbiage) ---
+    # --- HOW IT WORKS ---
     st.subheader("How it Works")
-    step1, step2, step3 = st.columns(3)
-    
-    with step1:
-        st.markdown("### 🎙️ 1. Dictate")
-        st.write("Tap the mic and speak naturally. Our AI transcribes, polishes, and prepares your message.")
-    
-    with step2:
-        st.markdown("### ✍️ 2. Sign")
-        st.write("Review the text, sign your name on the screen, and choose your style.")
-    
-    with step3:
-        st.markdown("### 📮 3. We Mail")
-        st.write("We print, stamp, and mail it for you.")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("🎙️ **1. Dictate**")
+        st.caption("Tap the mic. AI handles the typing.")
+    with c2:
+        st.markdown("✍️ **2. Sign**")
+        st.caption("Sign your name on screen.")
+    with c3:
+        st.markdown("📮 **3. We Mail**")
+        st.caption("We print, stamp, and mail it.")
 
     st.divider()
 
