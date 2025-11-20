@@ -18,7 +18,7 @@ def show_splash():
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("🎙️ **1. Dictate**")
-        st.caption("Tap the mic. AI handles the typing.")
+        st.caption("Tap the mic. AI handles the typing. You edit as needed.")
     with c2:
         st.markdown("✍️ **2. Sign**")
         st.caption("Sign your name on screen.")
