@@ -3,30 +3,38 @@ import auth_engine
 import time
 
 def show_login():
-    # Use columns to center the form on desktop
+    # Center the login box
     c1, c2, c3 = st.columns([1, 2, 1])
     
     with c2:
         st.title("VerbaPost 📮")
         st.subheader("Member Access")
         
-        # We are intentionally removing the upfront connection check here
-        
+        # --- DIAGNOSTIC CHECK (Prevents Blank Page) ---
+        client, err = auth_engine.get_supabase_client()
+        if err:
+            st.error(f"❌ Configuration Error: {err}")
+            st.info("Please ensure your Supabase URL and Key are exactly right in Streamlit Secrets.")
+            if st.button("Back"):
+                st.session_state.current_view = "splash"
+                st.rerun()
+            st.stop()
+        # --- END DIAGNOSTIC CHECK ---
+
         tab_login, tab_signup = st.tabs(["Log In", "Create Account"])
 
         # --- LOGIN TAB ---
         with tab_login:
-            email = st.text_input("Email", key="login_email")
-            password = st.text_input("Password", type="password", key="login_pass")
+            email = st.text_input("Email", key="l_email")
+            password = st.text_input("Password", type="password", key="l_pass")
             
             if st.button("Log In", type="primary", use_container_width=True):
-                # The connection check and logic now happens inside the button
                 with st.spinner("Verifying credentials..."):
                     user, error = auth_engine.sign_in(email, password)
                     if error:
                         st.error(f"Login Failed: {error}")
                     else:
-                        st.success("Success!")
+                        st.success("Welcome!")
                         st.session_state.user = user
                         st.session_state.user_email = email
                         
@@ -44,8 +52,8 @@ def show_login():
 
         # --- SIGN UP TAB ---
         with tab_signup:
-            new_email = st.text_input("Email", key="new_email")
-            new_pass = st.text_input("Password", type="password", key="new_pass")
+            new_email = st.text_input("Email", key="s_email")
+            new_pass = st.text_input("Password", type="password", key="s_pass")
             
             if st.button("Create Account", use_container_width=True):
                 with st.spinner("Creating account..."):
@@ -53,7 +61,7 @@ def show_login():
                     if error:
                         st.error(f"Error: {error}")
                     else:
-                        st.success("Account created! You are now logged in.")
+                        st.success("Account created! Logged in.")
                         st.session_state.user = user
                         st.session_state.user_email = new_email
                         st.session_state.current_view = "main_app"
