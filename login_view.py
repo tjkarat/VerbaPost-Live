@@ -2,8 +2,6 @@ import streamlit as st
 import auth_engine
 import time
 
-# FIX: Renamed 'index' to 'default_index' - This is the line that's causing the crash
-# We will revert this line to use the old keyword 'index'
 def show_login(handle_login, handle_signup): 
     # Center the login box
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -22,8 +20,9 @@ def show_login(handle_login, handle_signup):
                 st.rerun()
             st.stop()
 
-        # FIX: Reverting to the old 'index' keyword to avoid Type Error on the deployed server
-        tab_login, tab_signup = st.tabs(["Log In", "Create Account"], index=1 if st.session_state.get('initial_mode', 'login') == 'signup' else 0) 
+        # FIX: Using the correct modern keyword 'default_index'
+        initial_tab_index = 1 if st.session_state.get('initial_mode', 'login') == 'signup' else 0
+        tab_login, tab_signup = st.tabs(["Log In", "Create Account"], default_index=initial_tab_index) 
 
         # --- LOGIN TAB ---
         with tab_login:
