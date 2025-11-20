@@ -6,7 +6,7 @@ from datetime import datetime
 import urllib.parse
 
 # Import core logic
-import ai_engine
+import voice_processor  # <--- NEW IMPORT NAME
 import database
 import letter_format
 import mailer
@@ -44,7 +44,7 @@ def reset_app():
     st.rerun()
 
 def show_main_app():
-    # --- 0. AUTO-DETECT RETURN FROM STRIPE ---
+    # --- AUTO-DETECT RETURN FROM STRIPE ---
     if "session_id" in st.query_params:
         session_id = st.query_params["session_id"]
         if payment_engine.check_payment_status(session_id):
@@ -75,7 +75,7 @@ def show_main_app():
     # --- 1. ADDRESSING ---
     st.subheader("1. Addressing")
     col_to, col_from = st.tabs(["👉 Recipient", "👈 Sender"])
-
+    
     def get_val(key): return st.session_state.get(key, st.query_params.get(key, ""))
 
     with col_to:
@@ -87,7 +87,6 @@ def show_main_app():
         to_zip = c2.text_input("Zip", value=get_val("to_zip"), max_chars=5, key="to_zip")
 
     with col_from:
-        # The 'value' here will now be auto-filled if the user logged in!
         from_name = st.text_input("Your Name", value=get_val("from_name"), key="from_name")
         from_street = st.text_input("Your Street", value=get_val("from_street"), key="from_street")
         from_city = st.text_input("Your City", value=get_val("from_city"), key="from_city")
@@ -135,7 +134,6 @@ def show_main_app():
         st.subheader("4. Payment")
         st.info(f"Total: **${final_price:.2f}**")
         
-        # Build URL params
         params = {
             "to_name": to_name, "to_street": to_street, "to_city": to_city, "to_state": to_state, "to_zip": to_zip,
             "from_name": from_name, "from_street": from_street, "from_city": from_city, "from_state": from_state, "from_zip": from_zip
@@ -175,6 +173,7 @@ def show_main_app():
     if st.session_state.app_mode == "recording":
         st.subheader("🎙️ 5. Dictate")
         st.success("🔓 Payment Verified.")
+        
         audio_value = st.audio_input("Record your letter")
 
         if audio_value:
@@ -207,7 +206,8 @@ def show_main_app():
     elif st.session_state.app_mode == "transcribing":
         with st.spinner("🧠 AI is writing your letter..."):
             try:
-                text = ai_engine.transcribe_audio(st.session_state.audio_path)
+                # NEW CALL TO VOICE_PROCESSOR
+                text = voice_processor.transcribe_audio(st.session_state.audio_path)
                 st.session_state.transcribed_text = text
                 st.session_state.app_mode = "editing"
                 st.rerun()
@@ -225,7 +225,8 @@ def show_main_app():
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
         c1, c2 = st.columns([1, 3])
         if c1.button("✨ AI Polish"):
-             st.session_state.transcribed_text = ai_engine.polish_text(edited_text)
+             # NEW CALL TO VOICE_PROCESSOR
+             st.session_state.transcribed_text = voice_processor.polish_text(edited_text)
              st.rerun()
         if c2.button("🗑️ Re-Record (Free)"):
              st.session_state.app_mode = "recording"
@@ -265,19 +266,9 @@ def show_main_app():
                 mailer.send_letter(pdf_path, addr_to, addr_from)
             else:
                 st.info("🏺 Added to Heirloom Queue")
-
-            # --- AUTO-SAVE USER ADDRESS (THE MEMORY HOOK) ---
-            if st.session_state.get("user"):
-                try:
-                    user_email = st.session_state.user.user.email
-                    database.update_user_address(user_email, from_name, from_street, from_city, from_state, from_zip)
-                    st.caption("💾 Return Address Saved to Profile")
-                except Exception as e:
-                    print(f"Save failed: {e}")
-
+            
             st.write("✅ Done!")
 
-        st.balloons()
         st.success("Letter Sent!")
         
         with open(pdf_path, "rb") as f:

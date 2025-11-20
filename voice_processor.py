@@ -3,12 +3,11 @@ import sys
 import re
 import os
 
-# Load model once at module level
-# We use a try/except block so it doesn't crash if the model download fails temporarily
+# Load model safely
 try:
     model = whisper.load_model("base")
 except Exception as e:
-    print(f"Model loading error (non-fatal): {e}")
+    print(f"Model loading error: {e}")
     model = None
 
 def transcribe_audio(filename):
@@ -21,7 +20,7 @@ def transcribe_audio(filename):
 
 def polish_text(text):
     """
-    Basic AI Cleanup: Removes filler words.
+    Basic AI Cleanup.
     """
     fillers = ["um", "uh", "ah", "like, you know", "you know"]
     polished = text
