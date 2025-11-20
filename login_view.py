@@ -2,10 +2,9 @@ import streamlit as st
 import auth_engine
 import time
 
-def show_login():
-    # --- FIX 1: Corrected Ternary Syntax for tab index calculation ---
-    initial_tab_index = 1 if st.session_state.get('initial_mode', 'login') == 'signup' else 0
-    
+# FIX: Added required positional arguments handle_login and handle_signup
+def show_login(handle_login, handle_signup): 
+    # Center the login box
     c1, c2, c3 = st.columns([1, 2, 1])
     
     with c2:
@@ -22,8 +21,7 @@ def show_login():
                 st.rerun()
             st.stop()
 
-        # Render tabs using the fixed index calculation
-        tab_login, tab_signup = st.tabs(["Log In", "Create Account"], index=initial_tab_index) 
+        tab_login, tab_signup = st.tabs(["Log In", "Create Account"], index=1 if st.session_state.get('initial_mode', 'login') == 'signup' else 0) 
 
         # --- LOGIN TAB ---
         with tab_login:
@@ -32,25 +30,7 @@ def show_login():
             
             if st.button("Log In", type="primary", use_container_width=True):
                 with st.spinner("Verifying credentials..."):
-                    user, error = auth_engine.sign_in(email, password)
-                    if error:
-                        st.error(f"Login Failed: {error}")
-                    else:
-                        st.success("Welcome!")
-                        st.session_state.user = user
-                        st.session_state.user_email = email
-                        
-                        # LOAD SAVED DATA
-                        saved_addr = auth_engine.get_current_address(email)
-                        if saved_addr:
-                            st.session_state["from_name"] = saved_addr.get("name", "")
-                            st.session_state["from_street"] = saved_addr.get("street", "")
-                            st.session_state["from_city"] = saved_addr.get("city", "")
-                            st.session_state["from_state"] = saved_addr.get("state", "")
-                            st.session_state["from_zip"] = saved_addr.get("zip", "")
-                        
-                        st.session_state.current_view = "main_app"
-                        st.rerun()
+                    handle_login(email, password)
 
         # --- SIGN UP TAB ---
         with tab_signup:
@@ -72,17 +52,7 @@ def show_login():
                     st.error("Please fill all address fields to create account.")
                 else:
                     with st.spinner("Creating account..."):
-                        user, error = auth_engine.sign_up(
-                            new_email, new_pass, new_name, new_street, new_city, new_state, new_zip
-                        )
-                        if error:
-                            st.error(f"Error: {error}")
-                        else:
-                            st.success("Account created! Logged in.")
-                            st.session_state.user = user
-                            st.session_state.user_email = new_email
-                            st.session_state.current_view = "main_app"
-                            st.rerun()
+                        handle_signup(new_email, new_pass, new_name, new_street, new_city, new_state, new_zip)
         
         st.divider()
         if st.button("⬅️ Back to Home", type="secondary"):
