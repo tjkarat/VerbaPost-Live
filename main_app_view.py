@@ -31,22 +31,16 @@ def validate_zip(zipcode, state):
     return True, "Valid"
 
 def reset_app():
-    # NUCLEAR RESET: Clear EVERYTHING related to the previous letter
-    keys_to_wipe = [
-        "audio_path", 
-        "transcribed_text", 
-        "overage_agreed", 
-        "payment_complete", 
-        "stripe_url", 
-        "stripe_session_id", 
-        "last_config"
-    ]
-    for key in keys_to_wipe:
-        if key in st.session_state:
-            del st.session_state[key]
-            
+    st.session_state.audio_path = None
+    st.session_state.transcribed_text = ""
     st.session_state.app_mode = "recording"
+    st.session_state.overage_agreed = False
+    st.session_state.payment_complete = False
     st.query_params.clear()
+    if "stripe_url" in st.session_state:
+        del st.session_state.stripe_url
+    if "last_config" in st.session_state:
+        del st.session_state.last_config
     st.rerun()
 
 def show_main_app():
@@ -57,16 +51,19 @@ def show_main_app():
         if payment_engine.check_payment_status(session_id):
             st.session_state.payment_complete = True
             st.toast("✅ Payment Confirmed! Recorder Unlocked.")
-            # Clear params immediately to prevent "Sticky" payment state on refresh
             st.query_params.clear() 
         else:
-            st.error("Payment verification failed or session expired.")
+            st.error("Payment verification failed.")
 
     # --- INIT STATE ---
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "recording"
     if "audio_path" not in st.session_state:
         st.session_state.audio_path = None
+    if "transcribed_text" not in st.session_state:
+        st.session_state.transcribed_text = ""
+    if "overage_agreed" not in st.session_state:
+        st.session_state.overage_agreed = False
     if "payment_complete" not in st.session_state:
         st.session_state.payment_complete = False
     
@@ -80,7 +77,6 @@ def show_main_app():
     st.subheader("1. Addressing")
     col_to, col_from = st.tabs(["👉 Recipient", "👈 Sender"])
 
-    # Data Persistence: We use get_param to check URL first, then session state
     def get_val(key): return st.session_state.get(key, st.query_params.get(key, ""))
 
     with col_to:
@@ -147,9 +143,8 @@ def show_main_app():
         query_string = urllib.parse.urlencode(params)
         success_link = f"{YOUR_APP_URL}?{query_string}"
 
-        # Force fresh link generation if tier changes or link is missing
+        # Force fresh link generation
         current_config = f"{service_tier}_{final_price}"
-        
         if "stripe_url" not in st.session_state or st.session_state.get("last_config") != current_config:
              url, session_id = payment_engine.create_checkout_session(
                 product_name=f"VerbaPost {service_tier}",
@@ -162,12 +157,10 @@ def show_main_app():
              st.session_state.last_config = current_config
         
         if st.session_state.stripe_url:
-            # THE ONE BUTTON
             st.link_button(f"💳 Pay ${final_price:.2f} & Unlock Recorder", st.session_state.stripe_url, type="primary")
             st.caption("Secure checkout via Stripe.")
             
-            # Manual check 
-            if st.button("🔄 Check Status (If not redirected)"):
+            if st.button("🔄 I've Paid (Refresh Status)"):
                  if payment_engine.check_payment_status(st.session_state.stripe_session_id):
                      st.session_state.payment_complete = True
                      st.rerun()
@@ -234,7 +227,7 @@ def show_main_app():
         st.audio(st.session_state.audio_path)
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
         
-        c1, c2 = st.columns([1, 3])
+        c_ai, c_reset = st.columns([1, 3])
         if c1.button("✨ AI Polish"):
              st.session_state.transcribed_text = ai_engine.polish_text(edited_text)
              st.rerun()
@@ -243,4 +236,47 @@ def show_main_app():
              st.rerun()
 
         st.markdown("---")
-        if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True
+        if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
+            st.session_state.transcribed_text = edited_text
+            st.session_state.app_mode = "finalizing"
+            st.rerun()
+
+    # ==================================================
+    #  STATE 3: FINALIZING
+    # ==================================================
+    elif st.session_state.app_mode == "finalizing":
+        st.divider()
+        with st.status("✉️ Sending...", expanded=True):
+            sig_path = None
+            if canvas_result.image_data is not None:
+                img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
+                sig_path = "temp_signature.png"
+                img.save(sig_path)
+
+            pdf_path = letter_format.create_pdf(
+                st.session_state.transcribed_text, 
+                f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else "", 
+                is_heirloom, 
+                st.session_state.get("language", "English"),
+                "final_letter.pdf", 
+                sig_path
+            )
+            
+            if not is_heirloom:
+                addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
+                addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                st.write("🚀 Transmitting to Lob...")
+                mailer.send_letter(pdf_path, addr_to, addr_from)
+            else:
+                st.info("🏺 Added to Heirloom Queue")
+            
+            st.write("✅ Done!")
+
+        st.success("Letter Sent!")
+        
+        with open(pdf_path, "rb") as f:
+            st.download_button("📄 Download Receipt", f, "letter.pdf", use_container_width=True)
+
+        if st.button("Start New"):
+            reset_app()
