@@ -15,7 +15,7 @@ import payment_engine
 # --- CONFIGURATION ---
 MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
 # REPLACE THIS WITH YOUR ACTUAL APP URL FROM THE BROWSER BAR
-YOUR_APP_URL = "https://verbapost-hqfbfjywb7b24qgfwxetfm.streamlit.app" 
+YOUR_APP_URL = "https://verbapost.streamlit.app" 
 
 # --- PRICING ---
 COST_STANDARD = 2.99
