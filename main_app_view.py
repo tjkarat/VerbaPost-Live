@@ -69,17 +69,17 @@ def show_main_app():
         from_state = c3.text_input("Your State", max_chars=2)
         from_zip = c4.text_input("Your Zip", max_chars=5)
 
-    # --- STRICT VALIDATION (The Fix) ---
+    # Strict Validation
     recipient_valid = to_name and to_street and to_city and to_state and to_zip
     sender_valid = from_name and from_street and from_city and from_state and from_zip
 
     if not recipient_valid:
         st.info("👇 Please fill out the **Recipient** tab.")
-        return # Stop here
+        return 
     
     if not sender_valid:
         st.warning("👇 Please fill out the **Sender** tab (Return Address) for the post office.")
-        return # Stop here
+        return 
 
     # --- 2. SETTINGS & SIGNATURE ---
     st.divider()
@@ -117,25 +117,28 @@ def show_main_app():
         st.subheader("4. Payment")
         st.info(f"Please pay **${price}** to unlock the recorder.")
         
-        checkout_url = payment_engine.create_checkout_session(
+        # FIX IS HERE: Unpacking the tuple (url, id) correctly
+        checkout_url, session_id = payment_engine.create_checkout_session(
             product_name=f"VerbaPost {service_tier}",
             amount_in_cents=int(price * 100),
             success_url="https://google.com", 
             cancel_url="https://google.com"
         )
         
-        if "Error" in checkout_url:
-            st.error("⚠️ Stripe Error: Keys not found.")
+        # If checkout_url is None, session_id contains the error message
+        if not checkout_url:
+            st.error(f"⚠️ Payment Error: {session_id}")
         else:
             c_pay, c_verify = st.columns(2)
             with c_pay:
+                # Now we pass ONLY the url string to the button
                 st.link_button(f"💳 Pay ${price}", checkout_url, type="primary")
             with c_verify:
                 if st.button("✅ I Have Paid"):
                     st.session_state.payment_complete = True
                     st.rerun()
             
-            st.caption("Secure payment via Stripe. Test Card: 4242 4242 4242 4242")
+            st.caption("Secure payment via Stripe.")
             return 
 
     # ==================================================
@@ -242,7 +245,6 @@ def show_main_app():
             if not is_heirloom:
                 st.write("🚀 Transmitting to Lob...")
                 
-                # PASSING THE ADDRESS DATA TO LOB
                 addr_to = {
                     'name': to_name, 
                     'street': to_street, 
@@ -262,7 +264,7 @@ def show_main_app():
                 if success:
                     st.success("✅ Accepted by Postal Service API")
                 else:
-                    st.error("❌ Postal Service Rejected Address. Please check details.")
+                    st.error("❌ Postal Service Rejected Address.")
             else:
                 st.info("🏺 Added to Heirloom Queue")
             
