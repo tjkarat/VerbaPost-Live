@@ -3,7 +3,7 @@ from streamlit_drawable_canvas import st_canvas
 import os
 from PIL import Image
 from datetime import datetime
-import time # <--- NEW IMPORT FOR DELAY
+import time
 
 # Import core logic
 import ai_engine
@@ -34,7 +34,6 @@ def reset_app():
     st.session_state.app_mode = "recording"
     st.session_state.overage_agreed = False
     st.session_state.payment_complete = False
-    # Reset session ID so we don't keep polling old payments
     if "stripe_session_id" in st.session_state:
         del st.session_state.stripe_session_id
     st.rerun()
@@ -49,6 +48,12 @@ def show_main_app():
         st.session_state.transcribed_text = ""
     if "payment_complete" not in st.session_state:
         st.session_state.payment_complete = False
+    
+    # --- SIDEBAR ---
+    with st.sidebar:
+        st.subheader("Controls")
+        if st.button("🔄 Start New Letter", type="primary", use_container_width=True):
+            reset_app()
     
     # --- 1. ADDRESSING ---
     st.subheader("1. Addressing")
@@ -97,45 +102,36 @@ def show_main_app():
             height=100, width=200, drawing_mode="freedraw", key="sig"
         )
 
-    # ==================================================
-    #  PAYMENT GATE (POLLING LOGIC)
-    # ==================================================
     st.divider()
     
+    # --- PRICE CALCULATION ---
     if is_heirloom: price = COST_HEIRLOOM
     elif is_civic: price = COST_CIVIC
     else: price = COST_STANDARD
 
+    # --- PAYMENT GATE ---
     if not st.session_state.payment_complete:
         st.subheader("4. Payment")
         st.info(f"Please pay **${price}** to unlock the recorder.")
         
-        # 1. Generate Link (Only once)
         if "stripe_session_id" not in st.session_state:
             url, session_id = payment_engine.create_checkout_session(
                 product_name=f"VerbaPost {service_tier}",
-                amount_in_cents=int(price * 100)
+                amount_in_cents=int(price * 100),
+                success_url="https://google.com", 
+                cancel_url="https://google.com"
             )
             if url:
                 st.session_state.stripe_url = url
                 st.session_state.stripe_session_id = session_id
             else:
-                st.error(f"Payment Error: {session_id}")
+                st.error("⚠️ Payment Error. Check Secrets.")
                 st.stop()
 
-        # 2. Show Pay Button
         st.link_button(f"💳 Pay ${price} in New Tab", st.session_state.stripe_url)
         
-        # 3. THE LISTENER LOOP
-        # This box creates a live "Waiting" state without refreshing the whole page
-        with st.status("Waiting for payment confirmation...", expanded=True) as status:
-            st.write("Please complete payment in the new tab...")
-            
-            # Check just once per script run to avoid blocking UI? 
-            # No, user expects instant feedback. We use a button or a manual refresh?
-            # Better: A "Check Status" button is safest, but a loop is cooler.
-            # Let's try a polite loop.
-            
+        with st.status("Waiting for payment...", expanded=True) as status:
+            st.write("Complete payment in the new tab, then click check.")
             if st.button("🔄 Check Payment Status"):
                  is_paid = payment_engine.check_payment_status(st.session_state.stripe_session_id)
                  if is_paid:
@@ -143,25 +139,18 @@ def show_main_app():
                      st.session_state.payment_complete = True
                      st.rerun()
                  else:
-                     st.warning("Not paid yet. Keep this tab open!")
-            
-            st.caption("Test Card: 4242 4242 4242 4242")
-            
-        # Stop rendering until paid
-        st.stop() 
+                     st.warning("Not paid yet.")
+        st.stop()
 
-    # ==================================================
-    #  STATE 1: RECORDING (Only Visible After Payment)
-    # ==================================================
+    # --- RECORDING ---
     if st.session_state.app_mode == "recording":
         st.subheader("🎙️ 5. Dictate")
         st.success("🔓 Recorder Unlocked!")
-        st.warning(f"⏱️ **Time Limit:** 3 Minutes.")
-
+        
         audio_value = st.audio_input("Record your letter")
 
         if audio_value:
-            with st.status("⚙️ Processing Audio...", expanded=True) as status:
+            with st.status("⚙️ Processing...", expanded=True) as status:
                 path = "temp_browser_recording.wav"
                 with open(path, "wb") as f:
                     f.write(audio_value.getvalue())
@@ -169,50 +158,39 @@ def show_main_app():
                 
                 file_size = audio_value.getbuffer().nbytes
                 if file_size > MAX_BYTES_THRESHOLD:
-                    status.update(label="⚠️ Recording too long!", state="error")
-                    st.error("Recording exceeds 3 minutes.")
-                    if st.button("🗑️ Delete & Retry (Free)"):
-                        reset_app() 
+                    st.error("Recording too long.")
+                    if st.button("🗑️ Retry"): reset_app()
                     st.stop()
                 else:
-                    status.update(label="✅ Uploaded! Starting Transcription...", state="complete")
                     st.session_state.app_mode = "transcribing"
                     st.rerun()
 
-    # ==================================================
-    #  STATE 1.5: TRANSCRIBING
-    # ==================================================
+    # --- TRANSCRIBING ---
     elif st.session_state.app_mode == "transcribing":
-        with st.spinner("🧠 AI is writing your letter..."):
+        with st.spinner("🧠 AI Transcribing..."):
             try:
                 text = ai_engine.transcribe_audio(st.session_state.audio_path)
                 st.session_state.transcribed_text = text
                 st.session_state.app_mode = "editing"
                 st.rerun()
             except Exception as e:
-                st.error(f"Transcription Error: {e}")
-                if st.button("Try Again"): reset_app()
+                st.error(f"Error: {e}")
+                if st.button("Retry"): reset_app()
 
-    # ==================================================
-    #  STATE 2: EDITING
-    # ==================================================
+    # --- EDITING ---
     elif st.session_state.app_mode == "editing":
         st.divider()
         st.subheader("📝 Review")
-        
         st.audio(st.session_state.audio_path)
-
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
         
-        c_ai, c_reset = st.columns([1, 3])
-        with c_ai:
-            if st.button("✨ AI Polish"):
-                polished = ai_engine.polish_text(edited_text)
-                st.session_state.transcribed_text = polished
-                st.rerun()
-        with c_reset:
-            if st.button("🗑️ Re-Record (Free)"):
-                reset_app()
+        c1, c2 = st.columns([1, 3])
+        if c1.button("✨ AI Polish"):
+             st.session_state.transcribed_text = ai_engine.polish_text(edited_text)
+             st.rerun()
+        if c2.button("🗑️ Re-Record"):
+             st.session_state.app_mode = "recording"
+             st.rerun()
 
         st.markdown("---")
         if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
@@ -220,52 +198,38 @@ def show_main_app():
             st.session_state.app_mode = "finalizing"
             st.rerun()
 
-    # ==================================================
-    #  STATE 3: FINALIZING
-    # ==================================================
+    # --- FINALIZING ---
     elif st.session_state.app_mode == "finalizing":
         st.divider()
-        with st.status("✉️ Finalizing...", expanded=True):
-            full_recipient = f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}"
-            full_return = f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else ""
-
+        with st.status("✉️ Sending...", expanded=True):
             sig_path = None
             if canvas_result.image_data is not None:
                 img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                 sig_path = "temp_signature.png"
                 img.save(sig_path)
 
-            # Create PDF
-            lang = st.session_state.get("language", "English")
             pdf_path = letter_format.create_pdf(
                 st.session_state.transcribed_text, 
-                full_recipient, 
-                full_return, 
+                f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else "", 
                 is_heirloom, 
-                lang, 
+                st.session_state.get("language", "English"),
                 "final_letter.pdf", 
                 sig_path
             )
             
-            # Auto-Send
             if not is_heirloom:
                 addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
                 addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
-                st.write("🚀 Transmitting to Lob...")
                 mailer.send_letter(pdf_path, addr_to, addr_from)
-            else:
-                st.info("🏺 Added to Heirloom Queue")
             
             st.write("✅ Done!")
 
         st.balloons()
         st.success("Letter Sent!")
         
-        safe_name = "".join(x for x in to_name if x.isalnum())
-        unique_name = f"Letter_{safe_name}_{datetime.now().strftime('%H%M')}.pdf"
-
-        with open(pdf_path, "rb") as pdf_file:
-            st.download_button("📄 Download Receipt", pdf_file, unique_name, "application/pdf", use_container_width=True)
-
-        if st.button("Start New Letter"):
-            reset_app()
+        # Download logic...
+        with open(pdf_path, "rb") as f:
+            st.download_button("Download Copy", f, "letter.pdf")
+            
+        if st.button("Start New"): reset_app()
