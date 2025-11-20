@@ -10,7 +10,6 @@ def show_login():
 
         tab_login, tab_signup = st.tabs(["Log In", "Create Account"])
 
-        # --- LOGIN ---
         with tab_login:
             email = st.text_input("Email", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
@@ -21,10 +20,10 @@ def show_login():
                     if error:
                         st.error(f"Failed: {error}")
                     else:
-                        st.success("Welcome back!")
+                        st.success("Welcome!")
                         st.session_state.user = user
                         
-                        # --- MAGIC: LOAD SAVED ADDRESS ---
+                        # Load address
                         saved_addr = auth_engine.get_current_address(email)
                         if saved_addr:
                             st.session_state["from_name"] = saved_addr.get("name", "")
@@ -36,23 +35,22 @@ def show_login():
                         st.session_state.current_view = "main_app"
                         st.rerun()
 
-        # --- SIGN UP ---
         with tab_signup:
             new_email = st.text_input("Email", key="new_email")
             new_pass = st.text_input("Password", type="password", key="new_pass")
             
             if st.button("Create Account", use_container_width=True):
-                with st.spinner("Creating account..."):
+                with st.spinner("Creating..."):
                     user, error = auth_engine.sign_up(new_email, new_pass)
                     if error:
                         st.error(f"Error: {error}")
                     else:
-                        st.success("Account created! You are logged in.")
+                        st.success("Account created! Logged in.")
                         st.session_state.user = user
                         st.session_state.current_view = "main_app"
                         st.rerun()
         
         st.divider()
-        if st.button("⬅️ Back to Home"):
+        if st.button("⬅️ Back"):
             st.session_state.current_view = "splash"
             st.rerun()
