@@ -8,7 +8,7 @@ import io
 import zipfile
 
 # Import core logic
-import voice_processor  # <--- FIXED IMPORT
+import voice_processor 
 import database
 import letter_format
 import mailer
@@ -213,7 +213,6 @@ def show_main_app():
     elif st.session_state.app_mode == "transcribing":
         with st.spinner("🧠 AI is writing your letter..."):
             try:
-                # FIXED CALL TO VOICE_PROCESSOR
                 text = voice_processor.transcribe_audio(st.session_state.audio_path)
                 st.session_state.transcribed_text = text
                 st.session_state.app_mode = "editing"
@@ -248,7 +247,7 @@ def show_main_app():
     # ==================================================
     elif st.session_state.app_mode == "finalizing":
         st.divider()
-        with st.status("✉️ Sending...", expanded=True):
+        with st.status("✉️ Sending...", expanded=True) as status:
             sig_path = None
             if canvas_result.image_data is not None:
                 img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
@@ -262,7 +261,12 @@ def show_main_app():
                 targets = civic_engine.get_reps(full_user_address)
                 
                 if not targets:
-                    st.error("Could not find representatives. Please check your address.")
+                    # ERROR HANDLING: If no reps found, stop and warn user.
+                    st.error("❌ Could not find representatives. Please check your address.")
+                    st.info("Check that your Zip Code and Street Address are correct.")
+                    if st.button("Edit Address"):
+                        st.session_state.app_mode = "recording" # Go back but keep recording
+                        st.rerun()
                     st.stop()
                 
                 final_files = []
@@ -273,7 +277,6 @@ def show_main_app():
                     fname = f"Letter_to_{target['name'].replace(' ', '')}.pdf"
                     t_addr = target['address_obj']
                     
-                    # Generate
                     pdf_path = letter_format.create_pdf(
                         st.session_state.transcribed_text, 
                         f"{target['name']}\n{t_addr['street']}\n{t_addr['city']}, {t_addr['state']} {t_addr['zip']}",
@@ -284,12 +287,9 @@ def show_main_app():
                         sig_path
                     )
                     final_files.append(pdf_path)
-                    
-                    # Send
                     t_addr_lob = {'name': target['name'], 'street': t_addr['street'], 'city': t_addr['city'], 'state': t_addr['state'], 'zip': t_addr['zip']}
                     mailer.send_letter(pdf_path, t_addr_lob, addr_from)
 
-                # Zip
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w") as zf:
                     for fp in final_files: zf.write(fp, os.path.basename(fp))

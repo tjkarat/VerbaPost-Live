@@ -8,10 +8,6 @@ except:
     API_KEY = None
 
 def get_reps(address):
-    """
-    Returns a list of dictionaries: [{'name': '...', 'address': '...', 'title': '...'}]
-    for the 2 US Senators and 1 US Representative.
-    """
     if not API_KEY:
         return []
 
@@ -28,20 +24,18 @@ def get_reps(address):
         data = r.json()
         
         if "error" in data:
-            print(f"Google API Error: {data['error']}")
+            # Print error to logs for debugging
+            print(f"Google API Error: {data['error']['message']}")
             return []
 
         targets = []
         
-        # Google separates "offices" (jobs) and "officials" (people). We match them up.
         for office in data.get('offices', []):
-            # We only want Congress
             if "United States Senate" in office['name'] or "House of Representatives" in office['name']:
                 for index in office['officialIndices']:
                     official = data['officials'][index]
-                    
-                    # Parse Address (Google returns a list, we take the first one)
                     addr_raw = official.get('address', [{}])[0]
+                    
                     clean_address = {
                         'name': official['name'],
                         'street': addr_raw.get('line1', ''),
@@ -50,7 +44,6 @@ def get_reps(address):
                         'zip': addr_raw.get('zip', '')
                     }
                     
-                    # Only add if we found a valid address
                     if clean_address['street']:
                         targets.append({
                             'name': official['name'],
@@ -61,5 +54,5 @@ def get_reps(address):
         return targets
 
     except Exception as e:
-        print(f"Civic Engine Error: {e}")
+        print(f"Civic Engine Crash: {e}")
         return []
