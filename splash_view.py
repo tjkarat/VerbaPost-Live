@@ -1,12 +1,33 @@
 import streamlit as st
 
-# Version 6.0 - Final HTML Grid
+# Version 7.0 - Native Metric + CSS Styling (The Stable Fix)
 def show_splash():
-    # --- CONFIG ---
-    P_STANDARD = "$2.99"
-    P_HEIRLOOM = "$5.99"
-    P_CIVIC = "$6.99"
-
+    # --- CSS INJECTION TO STYLE METRICS AS CARDS ---
+    st.markdown("""
+        <style>
+        /* 1. Make Metric Value Red and Sized Correctly */
+        [data-testid="stMetricValue"] {
+            color: #E63946 !important; 
+            font-size: 2.0rem !important;
+        }
+        /* 2. Custom Card Styling (Achieve the background/border look) */
+        .price-card-style {
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            height: 100%;
+        }
+        .standard-bg { background-color: #f9f9f9; border: 1px solid #ddd;}
+        .heirloom-bg { background-color: #f0fff4; border: 2px solid #4CAF50;}
+        .civic-bg { background-color: #fff8e1; border: 1px solid #ddd;}
+        /* 3. Ensure columns fill height */
+        [data-testid="stColumn"] {
+            display: flex;
+            flex-direction: column;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    
     # --- HERO ---
     st.title("VerbaPost 📮")
     st.subheader("The Authenticity Engine.")
@@ -29,91 +50,35 @@ def show_splash():
 
     st.divider()
 
-    # --- PRICING TIERS (HTML GRID) ---
+    # --- PRICING TIERS (NATIVE STREAMLIT + CSS STYLING) ---
     st.subheader("Simple Pricing")
+
+    col1, col2, col3 = st.columns(3)
+
+    # STANDARD CARD
+    with col1:
+        st.markdown('<div class="price-card-style standard-bg">', unsafe_allow_html=True)
+        st.markdown('### ⚡ Standard')
+        st.metric(label="Cost", value="$2.99", label_visibility="collapsed")
+        st.caption("API Fulfillment • Window Envelope • Mailed in 24hrs")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # HEIRLOOM CARD
+    with col2:
+        st.markdown('<div class="price-card-style heirloom-bg">', unsafe_allow_html=True)
+        st.markdown('### 🏺 Heirloom')
+        st.metric(label="Cost", value="$5.99", label_visibility="collapsed")
+        st.caption("Hand-Stamped • Premium Paper • Mailed from Nashville, TN")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # CIVIC CARD
+    with col3:
+        st.markdown('<div class="price-card-style civic-bg">', unsafe_allow_html=True)
+        st.markdown('### 🏛️ Civic Blast')
+        st.metric(label="Cost", value="$6.99", label_visibility="collapsed")
+        st.caption("Activism Mode • Auto-Find Reps • Mails Senate + House")
+        st.markdown('</div>', unsafe_allow_html=True)
     
-    html_pricing = """
-    <style>
-        .price-card {
-            background-color: #f9f9f9;
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-            border: 1px solid #ddd;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }
-        .price-tag {
-            color: #E63946;
-            font-size: 36px;
-            font-weight: bold;
-            margin: 15px 0;
-        }
-        .price-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 10px;
-        }
-        .price-desc {
-            font-size: 14px;
-            color: #555;
-            line-height: 1.6;
-        }
-        .grid-container {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 20px;
-            margin: 20px 0;
-        }
-        @media (max-width: 768px) {
-            .grid-container {
-                grid-template-columns: 1fr;
-            }
-        }
-    </style>
-
-    <div class="grid-container">
-        <div class="price-card">
-            <div>
-                <div class="price-title">⚡ Standard</div>
-                <div class="price-tag">$2.99</div>
-                <div class="price-desc">
-                    API Fulfillment<br>
-                    Window Envelope<br>
-                    Mailed in 24hrs
-                </div>
-            </div>
-        </div>
-
-        <div class="price-card" style="border: 2px solid #4CAF50; background-color: #f0fff4;">
-            <div>
-                <div class="price-title">🏺 Heirloom</div>
-                <div class="price-tag">$5.99</div>
-                <div class="price-desc">
-                    Hand-Stamped<br>
-                    Premium Paper<br>
-                    Mailed from Nashville
-                </div>
-            </div>
-        </div>
-
-        <div class="price-card">
-            <div>
-                <div class="price-title">🏛️ Civic Blast</div>
-                <div class="price-tag">$6.99</div>
-                <div class="price-desc">
-                    Activism Mode<br>
-                    Auto-Find Reps<br>
-                    Mails Senate + House
-                </div>
-            </div>
-        </div>
-    </div>
-    """
-    st.markdown(html_pricing, unsafe_allow_html=True) 
-
     st.divider()
 
     # --- CTA ---
