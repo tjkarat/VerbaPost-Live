@@ -1,9 +1,8 @@
 import streamlit as st
+import auth_engine
 import time
 
-def show_login(on_login_attempt, on_signup_attempt):
-    """Renders the login form and accepts callback functions for login/signup."""
-    
+def show_login():
     # Center the login box
     c1, c2, c3 = st.columns([1, 2, 1])
     
@@ -11,31 +10,64 @@ def show_login(on_login_attempt, on_signup_attempt):
         st.title("VerbaPost 📮")
         st.subheader("Member Access")
         
-        # Test the button connection before showing forms
-        if not on_login_attempt:
-            st.error("⚠️ System initialization failed. Try refreshing.")
+        # --- DIAGNOSTIC CHECK ---
+        client, err = auth_engine.get_supabase_client()
+        if err:
+            st.error(f"⚠️ Configuration Error: {err}")
+            st.info("Please ensure your Supabase URL and Key are in Streamlit Secrets.")
+            if st.button("Back"):
+                st.session_state.current_view = "splash"
+                st.rerun()
             st.stop()
 
-        tab_login, tab_signup = st.tabs(["Log In", "Create Account"])
+        # --- MODE TOGGLE (Fix for missing Sign Up tab) ---
+        login_mode = st.radio("Mode:", ["Log In", "Create Account"], horizontal=True)
 
-        # --- LOGIN TAB ---
-        with tab_login:
+        st.markdown("---")
+
+        # --- LOGIN FORM ---
+        if login_mode == "Log In":
             email = st.text_input("Email", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
             
-            # The button now calls the external handler function
             if st.button("Log In", type="primary", use_container_width=True):
                 with st.spinner("Verifying credentials..."):
-                    on_login_attempt(email, password)
+                    user, error = auth_engine.sign_in(email, password)
+                    if error:
+                        st.error(f"Login Failed: {error}")
+                    else:
+                        st.success("Welcome!")
+                        st.session_state.user = user
+                        st.session_state.user_email = email
+                        
+                        # LOAD SAVED DATA (Logic remains the same)
+                        saved_addr = auth_engine.get_current_address(email)
+                        if saved_addr:
+                            st.session_state["from_name"] = saved_addr.get("name", "")
+                            st.session_state["from_street"] = saved_addr.get("street", "")
+                            st.session_state["from_city"] = saved_addr.get("city", "")
+                            st.session_state["from_state"] = saved_addr.get("state", "")
+                            st.session_state["from_zip"] = saved_addr.get("zip", "")
+                        
+                        st.session_state.current_view = "main_app"
+                        st.rerun()
 
-        # --- SIGN UP TAB ---
-        with tab_signup:
-            new_email = st.text_input("Email", key="new_email")
-            new_pass = st.text_input("Password", type="password", key="new_pass")
+        # --- SIGN UP FORM ---
+        elif login_mode == "Create Account":
+            new_email = st.text_input("Email", key="s_email")
+            new_pass = st.text_input("Password", type="password", key="s_pass")
             
-            if st.button("Create Account", use_container_width=True):
+            if st.button("Create Account", type="primary", use_container_width=True):
                 with st.spinner("Creating account..."):
-                    on_signup_attempt(new_email, new_pass)
+                    user, error = auth_engine.sign_up(new_email, new_pass)
+                    if error:
+                        st.error(f"Error: {error}")
+                    else:
+                        st.success("Account created! Logged in.")
+                        st.session_state.user = user
+                        st.session_state.user_email = new_email
+                        st.session_state.current_view = "main_app"
+                        st.rerun()
         
         st.divider()
         if st.button("⬅️ Back to Home", type="secondary"):
