@@ -7,7 +7,7 @@ try:
 except Exception as e:
     pass
 
-def create_checkout_session(product_name, amount_in_cents):
+def create_checkout_session(product_name, amount_in_cents, success_url, cancel_url):
     """
     Creates a Stripe Checkout Session.
     Returns: (checkout_url, session_id)
@@ -30,12 +30,13 @@ def create_checkout_session(product_name, amount_in_cents):
                 'quantity': 1,
             }],
             mode='payment',
-            # We redirect them to a generic success page just to close the loop
-            success_url="https://verbapost.com/success", 
-            cancel_url="https://verbapost.com/cancel",
+            success_url=success_url, 
+            cancel_url=cancel_url,
         )
+        # RETURN TWO VALUES (Tuple)
         return session.url, session.id
     except Exception as e:
+        # RETURN TWO VALUES (None, Error Message)
         return None, str(e)
 
 def check_payment_status(session_id):
