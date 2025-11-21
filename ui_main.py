@@ -8,7 +8,7 @@ import io
 import zipfile
 
 # Import core logic
-import ai_engine  # <--- CORRECTED IMPORT
+import ai_engine 
 import database
 import letter_format
 import mailer
@@ -47,27 +47,30 @@ def reset_app():
     st.rerun()
 
 def show_main_app():
-    # --- 0. AUTO-DETECT RETURN FROM STRIPE ---
+    # --- INIT STATE ---
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "recording"
+    if "audio_path" not in st.session_state: st.session_state.audio_path = None
+    if "payment_complete" not in st.session_state: st.session_state.payment_complete = False
+    if "processed_ids" not in st.session_state: st.session_state.processed_ids = [] # Track used receipts
+
+    # --- AUTO-DETECT RETURN FROM STRIPE (SECURE) ---
     if "session_id" in st.query_params:
         session_id = st.query_params["session_id"]
-        if payment_engine.check_payment_status(session_id):
-            st.session_state.payment_complete = True
-            st.toast("✅ Payment Confirmed! Recorder Unlocked.")
-            st.query_params.clear() 
+        
+        # CHECK 1: Have we already used this receipt?
+        if session_id in st.session_state.processed_ids:
+            # If yes, do nothing. Let the user hit the pay wall.
+            pass
         else:
-            st.error("Payment verification failed.")
+            # CHECK 2: Is it valid with Stripe?
+            if payment_engine.check_payment_status(session_id):
+                st.session_state.payment_complete = True
+                st.session_state.processed_ids.append(session_id) # Mark as used
+                st.toast("✅ Payment Confirmed! Recorder Unlocked.")
+                st.query_params.clear() 
+            else:
+                st.error("Payment verification failed.")
 
-    # --- INIT STATE ---
-    if "app_mode" not in st.session_state:
-        st.session_state.app_mode = "recording"
-    if "audio_path" not in st.session_state:
-        st.session_state.audio_path = None
-    if "transcribed_text" not in st.session_state:
-        st.session_state.transcribed_text = ""
-    if "overage_agreed" not in st.session_state:
-        st.session_state.overage_agreed = False
-    if "payment_complete" not in st.session_state:
-        st.session_state.payment_complete = False
     
     # --- SIDEBAR RESET ---
     with st.sidebar:
@@ -97,7 +100,7 @@ def show_main_app():
         from_state = c3.text_input("Your State", value=get_val("from_state"), max_chars=2, key="from_state")
         from_zip = c4.text_input("Your Zip", value=get_val("from_zip"), max_chars=5, key="from_zip")
 
-    # Validation Logic
+    # Settings & Logic Switch
     service_tier = st.radio("Service Level:", 
         [f"⚡ Standard (${COST_STANDARD})", f"🏺 Heirloom (${COST_HEIRLOOM})", f"🏛️ Civic (${COST_CIVIC})"],
         key="tier_select"
@@ -105,6 +108,7 @@ def show_main_app():
     is_heirloom = "Heirloom" in service_tier
     is_civic = "Civic" in service_tier
 
+    # Validation Gates
     if is_civic:
         st.info("🏛️ **Civic Mode:** We will find your reps based on your Return Address.")
         if not (from_name and from_street and from_city and from_state and from_zip):
@@ -112,7 +116,7 @@ def show_main_app():
              return
     else:
         if not (to_name and to_street and to_city and to_state and to_zip):
-            st.info("👇 Fill out the **Recipient** tab to unlock the tools.")
+            st.info("👇 Fill out the **Recipient** tab.")
             return
         if not (from_name and from_street and from_city and from_state and from_zip):
              st.warning("👇 Fill out the **Sender** tab.")
@@ -135,7 +139,7 @@ def show_main_app():
     final_price = price + (COST_OVERAGE if st.session_state.overage_agreed else 0.00)
 
     # ==================================================
-    #  PAYMENT GATE
+    #  PAYMENT GATE (SECURE)
     # ==================================================
     if not st.session_state.payment_complete:
         st.subheader("4. Payment")
@@ -167,6 +171,7 @@ def show_main_app():
             if st.button("🔄 I've Paid (Refresh Status)"):
                  if payment_engine.check_payment_status(st.session_state.stripe_session_id):
                      st.session_state.payment_complete = True
+                     st.session_state.processed_ids.append(st.session_state.stripe_session_id) # Mark Used
                      st.rerun()
                  else:
                      st.error("Payment not found. Please pay first.")
@@ -261,7 +266,8 @@ def show_main_app():
                 targets = civic_engine.get_reps(full_user_address)
                 
                 if not targets:
-                    st.error("❌ Could not find representatives. Please check your address.")
+                    st.error("❌ Could not find representatives.")
+                    st.caption("Try simplifying your address or checking the Zip Code.")
                     if st.button("Edit Address"):
                         st.session_state.app_mode = "recording"
                         st.rerun()
