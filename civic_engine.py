@@ -2,85 +2,71 @@ import requests
 import streamlit as st
 import urllib.parse
 
-# Load Key
 try:
     API_KEY = st.secrets["google"]["civic_key"]
 except:
     API_KEY = None
 
 def get_reps(address):
-    # 1. STRICT VALIDATION
-    if not address or len(address.strip()) < 10:
-        st.error("❌ Address Error: Please enter a full US street address.")
-        return []
-
     if not API_KEY:
-        st.error("❌ Config Error: Google API Key missing.")
+        st.error("❌ Google API Key missing.")
         return []
 
-    # 2. OFFICIAL ENDPOINT
-    url = "https://www.googleapis.com/civicinfo/v2/representatives"
+    base_url = "https://www.googleapis.com/civicinfo/v2/representatives"
     
-    params = {
-        'key': API_KEY,
-        'address': address,
-        'levels': 'country',
-        'roles': ['legislatorUpperBody', 'legislatorLowerBody']
-    }
+    # Function to call API
+    def fetch_data(addr_str):
+        params = {
+            'key': API_KEY,
+            'address': addr_str,
+            'levels': 'country',
+            'roles': ['legislatorUpperBody', 'legislatorLowerBody']
+        }
+        return requests.get(base_url, params=params)
 
-    try:
-        r = requests.get(url, params=params)
-        data = r.json()
-        
-        # 3. ERROR DECODING
-        if "error" in data:
-            msg = data['error'].get('message', 'Unknown')
-            code = data['error'].get('code', 0)
-            if code == 404:
-                st.warning(f"⚠️ Address Not Found: Google could not match '{address}' to a voting district.")
-            else:
-                st.error(f"❌ Google API Error {code}: {msg}")
-            return []
+    # 1. Try Full Address
+    r = fetch_data(address)
+    
+    # 2. Fallback: If 404 or empty, try just Zip Code
+    if r.status_code != 200 or 'offices' not in r.json():
+        print(f"Specific address failed, retrying with Zip Code...")
+        # Extract Zip from string (simple heuristic)
+        zip_code = address.split()[-1] 
+        if len(zip_code) == 5 and zip_code.isdigit():
+             st.warning(f"⚠️ Exact address not matched. Searching by Zip Code ({zip_code}) instead.")
+             r = fetch_data(zip_code)
 
-        targets = []
-        if 'offices' not in data:
-            st.warning("⚠️ No representatives found for this location.")
-            return []
-
-        # 4. PARSING
-        for office in data.get('offices', []):
-            name = office['name'].lower()
-            if "senate" in name or "senator" in name or "representative" in name:
-                for index in office['officialIndices']:
-                    official = data['officials'][index]
-                    
-                    # Address Fallback
-                    addr_list = official.get('address', [])
-                    if addr_list:
-                        raw = addr_list[0]
-                        addr_obj = {
-                            'name': official['name'],
-                            'street': raw.get('line1', ''),
-                            'city': raw.get('city', ''),
-                            'state': raw.get('state', ''),
-                            'zip': raw.get('zip', '')
-                        }
-                    else:
-                        # Fallback for safety
-                        addr_obj = {
-                            'name': official['name'], 
-                            'street': 'United States Capitol', 
-                            'city': 'Washington', 'state': 'DC', 'zip': '20515'
-                        }
-                    
-                    targets.append({
-                        'name': official['name'],
-                        'title': office['name'],
-                        'address_obj': addr_obj
-                    })
-        
-        return targets
-
-    except Exception as e:
-        st.error(f"System Error: {e}")
+    data = r.json()
+    
+    if "error" in data:
+        st.error(f"❌ API Error: {data['error'].get('message', 'Unknown')}")
         return []
+
+    targets = []
+    for office in data.get('offices', []):
+        name_lower = office['name'].lower()
+        if "senate" in name_lower or "senator" in name_lower or "representative" in name_lower:
+            for index in office['officialIndices']:
+                official = data['officials'][index]
+                
+                # Address Parsing
+                addr_list = official.get('address', [])
+                if not addr_list:
+                    clean_address = {'name': official['name'], 'street': 'United States Capitol', 'city': 'Washington', 'state': 'DC', 'zip': '20510'}
+                else:
+                    raw = addr_list[0]
+                    clean_address = {
+                        'name': official['name'],
+                        'street': raw.get('line1', ''),
+                        'city': raw.get('city', ''),
+                        'state': raw.get('state', ''),
+                        'zip': raw.get('zip', '')
+                    }
+                
+                targets.append({
+                    'name': official['name'],
+                    'title': office['name'],
+                    'address_obj': clean_address
+                })
+    
+    return targets

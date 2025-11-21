@@ -1,5 +1,4 @@
 import streamlit as st
-# CORRECTED IMPORTS
 from ui_splash import show_splash
 from ui_main import show_main_app
 from ui_login import show_login
@@ -21,7 +20,6 @@ def inject_custom_css():
         """, unsafe_allow_html=True)
 inject_custom_css()
 
-# --- HANDLERS ---
 def handle_login(email, password):
     user, error = auth_engine.sign_in(email, password)
     if error:
@@ -30,13 +28,17 @@ def handle_login(email, password):
         st.success("Welcome!")
         st.session_state.user = user
         st.session_state.user_email = email
+        
+        # --- MEMORY RESTORATION ---
         saved = auth_engine.get_current_address(email)
         if saved:
+            # Force these into session state so inputs auto-fill
             st.session_state["from_name"] = saved.get("name", "")
             st.session_state["from_street"] = saved.get("street", "")
             st.session_state["from_city"] = saved.get("city", "")
             st.session_state["from_state"] = saved.get("state", "")
             st.session_state["from_zip"] = saved.get("zip", "")
+            
         st.session_state.current_view = "main_app"
         st.rerun()
 
@@ -51,12 +53,8 @@ def handle_signup(email, password, name, street, city, state, zip_code):
         st.session_state.current_view = "main_app"
         st.rerun()
 
-# --- ROUTER ---
-if "session_id" in st.query_params:
-    if payment_engine.check_payment_status(st.query_params["session_id"]):
-        st.session_state.current_view = "main_app"
-        st.session_state.payment_complete = True
-        st.query_params.clear() 
+# --- PAYMENT ROUTER CHECK ---
+# We do NOT auto-approve here anymore. We let ui_main handle it to track used IDs.
 
 if "current_view" not in st.session_state:
     st.session_state.current_view = "splash" 
@@ -69,9 +67,9 @@ elif st.session_state.current_view == "login":
     show_login(handle_login, handle_signup)
 elif st.session_state.current_view == "main_app":
     with st.sidebar:
-        if st.button("🏠 Home"):
+        if st.button("🏠 Home", use_container_width=True):
             st.session_state.current_view = "splash"
             st.rerun()
-        if st.session_state.get("user"):
+        if st.session_state.user:
             st.caption(f"User: {st.session_state.user_email}")
     show_main_app()
