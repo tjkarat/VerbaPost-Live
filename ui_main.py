@@ -236,7 +236,6 @@ def show_main_app():
         st.subheader("📝 Review")
         st.audio(st.session_state.audio_path)
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
-        
         c1, c2 = st.columns([1, 3])
         if c1.button("✨ AI Polish"):
              st.session_state.transcribed_text = ai_engine.polish_text(edited_text)
@@ -244,7 +243,6 @@ def show_main_app():
         if c2.button("🗑️ Re-Record (Free)"):
              st.session_state.app_mode = "recording"
              st.rerun()
-
         st.markdown("---")
         if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
             st.session_state.transcribed_text = edited_text
@@ -262,6 +260,11 @@ def show_main_app():
                 img = Image.fromarray(canvas_result.image_data.astype('uint8'), 'RGBA')
                 sig_path = "temp_signature.png"
                 img.save(sig_path)
+            
+            # --- SAFE STRING CONSTRUCTION FOR PDF ---
+            full_recipient_str = f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}"
+            full_return_str = f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}"
+            current_lang = st.session_state.get("language", "English")
 
             # --- CIVIC LOGIC ---
             if is_civic:
@@ -270,13 +273,11 @@ def show_main_app():
                 
                 try:
                     targets = civic_engine.get_reps(full_user_address)
-                except Exception as e:
-                     st.error(f"Civic Engine Error: {e}")
-                     targets = []
+                except: targets = []
 
                 if not targets:
                     status.update(label="❌ Error: Address Lookup Failed", state="error")
-                    st.error("Could not find representatives. Please check your address.")
+                    st.error("Could not find representatives.")
                     if st.button("Edit Address"):
                         st.session_state.app_mode = "recording"
                         st.rerun()
@@ -290,16 +291,15 @@ def show_main_app():
                     fname = f"Letter_to_{target['name'].replace(' ', '')}.pdf"
                     t_addr = target['address_obj']
                     
+                    # Construct specific recipient string for this rep
+                    rep_recipient_str = f"{target['name']}\n{t_addr['street']}\n{t_addr['city']}, {t_addr['state']} {t_addr['zip']}"
+
                     pdf_path = letter_format.create_pdf(
                         st.session_state.transcribed_text, 
-                        f"{target['name']}
-{t_addr['street']}
-{t_addr['city']}, {t_addr['state']} {t_addr['zip']}",
-                        f"{from_name}
-{from_street}
-{from_city}, {from_state} {from_zip}",
+                        rep_recipient_str,
+                        full_return_str,
                         False, 
-                        st.session_state.get("language", "English"),
+                        current_lang,
                         fname, 
                         sig_path
                     )
@@ -318,14 +318,10 @@ def show_main_app():
             else:
                 pdf_path = letter_format.create_pdf(
                     st.session_state.transcribed_text, 
-                    f"{to_name}
-{to_street}
-{to_city}, {to_state} {to_zip}", 
-                    f"{from_name}
-{from_street}
-{from_city}, {from_state} {from_zip}" if from_name else "", 
+                    full_recipient_str, 
+                    full_return_str, 
                     is_heirloom, 
-                    st.session_state.get("language", "English"),
+                    current_lang,
                     "final_letter.pdf", 
                     sig_path
                 )
