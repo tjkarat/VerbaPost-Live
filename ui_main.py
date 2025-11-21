@@ -284,3 +284,62 @@ def show_main_app():
                 
                 final_files = []
                 addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                
+                for target in targets:
+                    st.write(f"Processing for {target['name']}...")
+                    fname = f"Letter_to_{target['name'].replace(' ', '')}.pdf"
+                    t_addr = target['address_obj']
+                    
+                    pdf_path = letter_format.create_pdf(
+                        st.session_state.transcribed_text, 
+                        f"{target['name']}\n{t_addr['street']}\n{t_addr['city']}, {t_addr['state']} {t_addr['zip']}",
+                        f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}",
+                        False, 
+                        st.session_state.get("language", "English"),
+                        fname, 
+                        sig_path
+                    )
+                    final_files.append(pdf_path)
+                    t_addr_lob = {'name': target['name'], 'street': t_addr['street'], 'city': t_addr['city'], 'state': t_addr['state'], 'zip': t_addr['zip']}
+                    mailer.send_letter(pdf_path, t_addr_lob, addr_from)
+
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w") as zf:
+                    for fp in final_files: zf.write(fp, os.path.basename(fp))
+                
+                st.success("All 3 Letters Sent!")
+                st.download_button("📦 Download All", zip_buffer.getvalue(), "Civic_Blast.zip", "application/zip")
+
+            # --- STANDARD LOGIC ---
+            else:
+                pdf_path = letter_format.create_pdf(
+                    st.session_state.transcribed_text, 
+                    f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                    f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}" if from_name else "", 
+                    is_heirloom, 
+                    st.session_state.get("language", "English"),
+                    "final_letter.pdf", 
+                    sig_path
+                )
+                
+                if not is_heirloom:
+                    addr_to = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
+                    addr_from = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                    st.write("🚀 Transmitting to Lob...")
+                    mailer.send_letter(pdf_path, addr_to, addr_from)
+                else:
+                    st.info("🏺 Added to Heirloom Queue")
+                
+                st.write("✅ Done!")
+                st.success("Letter Sent!")
+                with open(pdf_path, "rb") as f:
+                    st.download_button("📄 Download Receipt", f, "letter.pdf", use_container_width=True)
+            
+            # AUTO-SAVE
+            if st.session_state.get("user"):
+                try:
+                    database.update_user_address(st.session_state.user.user.email, from_name, from_street, from_city, from_state, from_zip)
+                except: pass
+
+        if st.button("Start New"):
+            reset_app()
