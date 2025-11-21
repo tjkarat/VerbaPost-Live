@@ -26,13 +26,6 @@ COST_HEIRLOOM = 5.99
 COST_CIVIC = 6.99
 COST_OVERAGE = 1.00
 
-def validate_zip(zipcode, state):
-    if not zipcodes.is_real(zipcode): return False, "Invalid Zip Code"
-    details = zipcodes.matching(zipcode)
-    if details and details[0]['state'] != state.upper():
-         return False, f"Zip is in {details[0]['state']}, not {state}"
-    return True, "Valid"
-
 def reset_app():
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
@@ -47,33 +40,37 @@ def reset_app():
     st.rerun()
 
 def show_main_app():
-    # --- 0. SAFETY CHECK: INITIALIZE SESSION STATE ---
-    # This block MUST run before anything else to prevent AttributeError
-    defaults = {
-        "app_mode": "recording",
-        "audio_path": None,
-        "transcribed_text": "",
-        "overage_agreed": False,
-        "payment_complete": False,
-        "processed_ids": [],
-        "stripe_url": None,
-        "last_config": None
-    }
-    for key, val in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = val
-
-    # --- 1. AUTO-DETECT RETURN FROM STRIPE ---
+    # --- 0. AUTO-DETECT RETURN FROM STRIPE (FIXED) ---
     if "session_id" in st.query_params:
         session_id = st.query_params["session_id"]
-        if session_id not in st.session_state.processed_ids:
+        
+        # Only verify if we haven't already
+        if session_id not in st.session_state.get("processed_ids", []):
             if payment_engine.check_payment_status(session_id):
                 st.session_state.payment_complete = True
+                if "processed_ids" not in st.session_state:
+                    st.session_state.processed_ids = []
                 st.session_state.processed_ids.append(session_id)
+                
+                # CRITICAL FIX: Set state to "recording" explicitly so the UI shows the mic
+                st.session_state.app_mode = "recording" 
+                
                 st.toast("✅ Payment Confirmed! Recorder Unlocked.")
                 st.query_params.clear() 
             else:
                 st.error("Payment verification failed.")
+
+    # --- INIT STATE ---
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "recording"
+    if "audio_path" not in st.session_state:
+        st.session_state.audio_path = None
+    if "transcribed_text" not in st.session_state:
+        st.session_state.transcribed_text = ""
+    if "overage_agreed" not in st.session_state:
+        st.session_state.overage_agreed = False
+    if "payment_complete" not in st.session_state:
+        st.session_state.payment_complete = False
     
     # --- SIDEBAR RESET ---
     with st.sidebar:
@@ -81,7 +78,7 @@ def show_main_app():
         if st.button("🔄 Start New Letter", type="primary", use_container_width=True):
             reset_app()
     
-    # --- 2. ADDRESSING ---
+    # --- 1. ADDRESSING ---
     st.subheader("1. Addressing")
     col_to, col_from = st.tabs(["👉 Recipient", "👈 Sender"])
 
@@ -124,7 +121,7 @@ def show_main_app():
              st.warning("👇 Fill out the **Sender** tab.")
              return
 
-    # --- 3. SIGNATURE ---
+    # --- 2. SIGNATURE ---
     st.divider()
     st.subheader("3. Sign")
     canvas_result = st_canvas(
@@ -138,10 +135,7 @@ def show_main_app():
     if is_heirloom: price = COST_HEIRLOOM
     elif is_civic: price = COST_CIVIC
     else: price = COST_STANDARD
-    
-    # Safe Overage Calculation (This line was crashing before)
-    overage = COST_OVERAGE if st.session_state.overage_agreed else 0.00
-    final_price = price + overage
+    final_price = price + (COST_OVERAGE if st.session_state.overage_agreed else 0.00)
 
     # ==================================================
     #  PAYMENT GATE
@@ -150,6 +144,7 @@ def show_main_app():
         st.subheader("4. Payment")
         st.info(f"Total: **${final_price:.2f}**")
         
+        # URL Params for persistence
         params = {
             "to_name": to_name, "to_street": to_street, "to_city": to_city, "to_state": to_state, "to_zip": to_zip,
             "from_name": from_name, "from_street": from_street, "from_city": from_city, "from_state": from_state, "from_zip": from_zip
@@ -238,6 +233,7 @@ def show_main_app():
         st.subheader("📝 Review")
         st.audio(st.session_state.audio_path)
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
+        
         c1, c2 = st.columns([1, 3])
         if c1.button("✨ AI Polish"):
              st.session_state.transcribed_text = ai_engine.polish_text(edited_text)
@@ -245,6 +241,7 @@ def show_main_app():
         if c2.button("🗑️ Re-Record (Free)"):
              st.session_state.app_mode = "recording"
              st.rerun()
+
         st.markdown("---")
         if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
             st.session_state.transcribed_text = edited_text
@@ -267,8 +264,14 @@ def show_main_app():
             if is_civic:
                 st.write("🏛️ Finding your Representatives...")
                 full_user_address = f"{from_street}, {from_city}, {from_state} {from_zip}"
-                targets = civic_engine.get_reps(full_user_address)
                 
+                # Geocodio Call
+                try:
+                    targets = civic_engine.get_reps(full_user_address)
+                except Exception as e:
+                     st.error(f"Civic Engine Error: {e}")
+                     targets = []
+
                 if not targets:
                     status.update(label="❌ Error: Address Lookup Failed", state="error")
                     st.error("Could not find representatives. Please check your address.")
