@@ -26,13 +26,6 @@ COST_HEIRLOOM = 5.99
 COST_CIVIC = 6.99
 COST_OVERAGE = 1.00
 
-def validate_zip(zipcode, state):
-    if not zipcodes.is_real(zipcode): return False, "Invalid Zip Code"
-    details = zipcodes.matching(zipcode)
-    if details and details[0]['state'] != state.upper():
-         return False, f"Zip is in {details[0]['state']}, not {state}"
-    return True, "Valid"
-
 def reset_app():
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
@@ -47,9 +40,11 @@ def reset_app():
     st.rerun()
 
 def show_main_app():
-    # --- 0. AUTO-DETECT RETURN FROM STRIPE ---
-    if "session_id" in st.query_params:
+    # --- 0. AUTO-DETECT PAYMENT (RUNS ON LOAD) ---
+    # If returning from Stripe, verify and unlock immediately
+    if "session_id" in st.query_params and not st.session_state.get("payment_complete"):
         session_id = st.query_params["session_id"]
+        # Only check if we haven't processed this ID yet
         if session_id not in st.session_state.get("processed_ids", []):
             if payment_engine.check_payment_status(session_id):
                 st.session_state.payment_complete = True
@@ -57,21 +52,14 @@ def show_main_app():
                     st.session_state.processed_ids = []
                 st.session_state.processed_ids.append(session_id)
                 st.toast("✅ Payment Confirmed! Recorder Unlocked.")
+                # Clear params to clean URL
                 st.query_params.clear() 
-            else:
-                st.error("Payment verification failed.")
+                st.rerun()
 
     # --- INIT STATE ---
-    if "app_mode" not in st.session_state:
-        st.session_state.app_mode = "recording"
-    if "audio_path" not in st.session_state:
-        st.session_state.audio_path = None
-    if "transcribed_text" not in st.session_state:
-        st.session_state.transcribed_text = ""
-    if "overage_agreed" not in st.session_state:
-        st.session_state.overage_agreed = False
-    if "payment_complete" not in st.session_state:
-        st.session_state.payment_complete = False
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "recording"
+    if "audio_path" not in st.session_state: st.session_state.audio_path = None
+    if "payment_complete" not in st.session_state: st.session_state.payment_complete = False
     
     # --- SIDEBAR RESET ---
     with st.sidebar:
@@ -145,6 +133,7 @@ def show_main_app():
         st.subheader("4. Payment")
         st.info(f"Total: **${final_price:.2f}**")
         
+        # Build URL Params for persistence
         params = {
             "to_name": to_name, "to_street": to_street, "to_city": to_city, "to_state": to_state, "to_zip": to_zip,
             "from_name": from_name, "from_street": from_street, "from_city": from_city, "from_state": from_state, "from_zip": from_zip
@@ -167,13 +156,7 @@ def show_main_app():
         if st.session_state.stripe_url:
             st.link_button(f"💳 Pay ${final_price:.2f} & Unlock Recorder", st.session_state.stripe_url, type="primary")
             st.caption("Secure checkout via Stripe.")
-            
-            if st.button("🔄 I've Paid (Refresh Status)"):
-                 if payment_engine.check_payment_status(st.session_state.stripe_session_id):
-                     st.session_state.payment_complete = True
-                     st.rerun()
-                 else:
-                     st.error("Payment not found. Please pay first.")
+            # No manual check button needed now, auto-detect handles it
         else:
             st.error("Connection Error. Please refresh.")
         st.stop() 
@@ -233,6 +216,7 @@ def show_main_app():
         st.subheader("📝 Review")
         st.audio(st.session_state.audio_path)
         edited_text = st.text_area("Edit Text:", value=st.session_state.transcribed_text, height=300)
+        
         c1, c2 = st.columns([1, 3])
         if c1.button("✨ AI Polish"):
              st.session_state.transcribed_text = ai_engine.polish_text(edited_text)
@@ -240,6 +224,7 @@ def show_main_app():
         if c2.button("🗑️ Re-Record (Free)"):
              st.session_state.app_mode = "recording"
              st.rerun()
+
         st.markdown("---")
         if st.button("🚀 Approve & Send Now", type="primary", use_container_width=True):
             st.session_state.transcribed_text = edited_text
@@ -262,17 +247,11 @@ def show_main_app():
             if is_civic:
                 st.write("🏛️ Finding your Representatives...")
                 full_user_address = f"{from_street}, {from_city}, {from_state} {from_zip}"
+                targets = civic_engine.get_reps(full_user_address)
                 
-                # Call to Civic Engine
-                try:
-                    targets = civic_engine.get_reps(full_user_address)
-                except Exception as e:
-                     st.error(f"Civic Engine Error: {e}")
-                     targets = []
-
                 if not targets:
                     status.update(label="❌ Error: Address Lookup Failed", state="error")
-                    st.error("Could not find representatives. Please check your address.")
+                    st.error("Could not find representatives.")
                     if st.button("Edit Address"):
                         st.session_state.app_mode = "recording"
                         st.rerun()
@@ -331,7 +310,7 @@ def show_main_app():
                 with open(pdf_path, "rb") as f:
                     st.download_button("📄 Download Receipt", f, "letter.pdf", use_container_width=True)
             
-            # AUTO-SAVE USER ADDRESS
+            # AUTO-SAVE
             if st.session_state.get("user"):
                 try:
                     database.update_user_address(st.session_state.user.user.email, from_name, from_street, from_city, from_state, from_zip)
