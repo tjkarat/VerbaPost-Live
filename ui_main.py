@@ -19,8 +19,6 @@ import civic_engine
 # --- CONFIGURATION ---
 MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
 YOUR_APP_URL = "https://verbapost.streamlit.app" 
-
-# --- PRICING ---
 COST_STANDARD = 2.99
 COST_HEIRLOOM = 5.99
 COST_CIVIC = 6.99
@@ -68,11 +66,18 @@ def show_main_app():
         if session_id not in st.session_state.processed_ids:
             if payment_engine.check_payment_status(session_id):
                 st.session_state.payment_complete = True
+                if "processed_ids" not in st.session_state:
+                    st.session_state.processed_ids = []
                 st.session_state.processed_ids.append(session_id)
                 st.toast("✅ Payment Confirmed! Recorder Unlocked.")
                 st.query_params.clear() 
             else:
                 st.error("Payment verification failed.")
+
+    # --- INIT STATE ---
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "recording"
+    if "audio_path" not in st.session_state: st.session_state.audio_path = None
+    if "payment_complete" not in st.session_state: st.session_state.payment_complete = False
     
     # --- SIDEBAR RESET ---
     with st.sidebar:
@@ -102,7 +107,7 @@ def show_main_app():
         from_state = c3.text_input("Your State", value=get_val("from_state"), max_chars=2, key="from_state")
         from_zip = c4.text_input("Your Zip", value=get_val("from_zip"), max_chars=5, key="from_zip")
 
-    # Validation
+    # Validation Logic
     service_tier = st.radio("Service Level:", 
         [f"⚡ Standard (${COST_STANDARD})", f"🏺 Heirloom (${COST_HEIRLOOM})", f"🏛️ Civic (${COST_CIVIC})"],
         key="tier_select"
@@ -128,7 +133,7 @@ def show_main_app():
     st.subheader("3. Sign")
     canvas_result = st_canvas(
         fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, stroke_color="#000", background_color="#fff",
-        height=200, width=350, drawing_mode="freedraw", key="sig"
+        height=100, width=200, drawing_mode="freedraw", key="sig"
     )
 
     st.divider()
@@ -137,7 +142,9 @@ def show_main_app():
     if is_heirloom: price = COST_HEIRLOOM
     elif is_civic: price = COST_CIVIC
     else: price = COST_STANDARD
-    final_price = price + (COST_OVERAGE if st.session_state.get("overage_agreed", False) else 0.00)
+    
+    overage = COST_OVERAGE if st.session_state.get("overage_agreed", False) else 0.00
+    final_price = price + overage
 
     # ==================================================
     #  PAYMENT GATE
@@ -155,28 +162,15 @@ def show_main_app():
 
         current_config = f"{service_tier}_{final_price}"
         if "stripe_url" not in st.session_state or st.session_state.get("last_config") != current_config:
-             # GET LETTER ID (DRAFT)
-             # We create the draft NOW so we have an ID
-             user_email = st.session_state.get("user_email", "guest@verbapost.com")
-             try:
-                 draft_id = database.save_draft(user_email, to_name, to_street, to_city, to_state, to_zip)
-                 st.session_state.current_letter_id = draft_id
-                 
-                 # Append ID to return link
-                 final_success_link = f"{success_link}&letter_id={draft_id}"
-                 
-                 url, session_id = payment_engine.create_checkout_session(
-                    product_name=f"VerbaPost {service_tier}",
-                    amount_in_cents=int(final_price * 100),
-                    success_url=final_success_link, 
-                    cancel_url=YOUR_APP_URL
-                )
-                 st.session_state.stripe_url = url
-                 st.session_state.stripe_session_id = session_id
-                 st.session_state.last_config = current_config
-             except:
-                 st.error("Database Error: Could not save draft.")
-                 st.stop()
+             url, session_id = payment_engine.create_checkout_session(
+                product_name=f"VerbaPost {service_tier}",
+                amount_in_cents=int(final_price * 100),
+                success_url=success_link, 
+                cancel_url=YOUR_APP_URL
+            )
+             st.session_state.stripe_url = url
+             st.session_state.stripe_session_id = session_id
+             st.session_state.last_config = current_config
         
         if st.session_state.stripe_url:
             st.link_button(f"💳 Pay ${final_price:.2f} & Unlock Recorder", st.session_state.stripe_url, type="primary")
@@ -198,6 +192,7 @@ def show_main_app():
     if st.session_state.app_mode == "recording":
         st.subheader("🎙️ 5. Dictate")
         st.success("🔓 Payment Verified.")
+        
         audio_value = st.audio_input("Record your letter")
 
         if audio_value:
@@ -275,11 +270,14 @@ def show_main_app():
             if is_civic:
                 st.write("🏛️ Finding your Representatives...")
                 full_user_address = f"{from_street}, {from_city}, {from_state} {from_zip}"
-                try: targets = civic_engine.get_reps(full_user_address)
+                
+                try:
+                    targets = civic_engine.get_reps(full_user_address)
                 except: targets = []
 
                 if not targets:
-                    st.error("❌ Could not find representatives.")
+                    status.update(label="❌ Error: Address Lookup Failed", state="error")
+                    st.error("Could not find representatives.")
                     if st.button("Edit Address"):
                         st.session_state.app_mode = "recording"
                         st.rerun()
@@ -309,6 +307,8 @@ def show_main_app():
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w") as zf:
                     for fp in final_files: zf.write(fp, os.path.basename(fp))
+                
+                st.success("All 3 Letters Sent!")
                 st.download_button("📦 Download All", zip_buffer.getvalue(), "Civic_Blast.zip", "application/zip")
 
             # --- STANDARD LOGIC ---
@@ -330,17 +330,13 @@ def show_main_app():
                     mailer.send_letter(pdf_path, addr_to, addr_from)
                 else:
                     st.info("🏺 Added to Heirloom Queue")
-                    # UPDATE STATUS TO QUEUED
-                    lid = st.session_state.get("current_letter_id")
-                    if lid:
-                        database.update_letter_status(lid, "Queued", st.session_state.transcribed_text)
                 
                 st.write("✅ Done!")
                 st.success("Letter Sent!")
                 with open(pdf_path, "rb") as f:
                     st.download_button("📄 Download Receipt", f, "letter.pdf", use_container_width=True)
             
-            # AUTO-SAVE ADDRESS
+            # AUTO-SAVE
             if st.session_state.get("user"):
                 try:
                     database.update_user_address(st.session_state.user.user.email, from_name, from_street, from_city, from_state, from_zip)
