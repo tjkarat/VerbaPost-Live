@@ -1,12 +1,7 @@
 import streamlit as st
 
-# Version 11.0 - Split CSS/HTML (Syntax Fix)
+# Version 12.0 - The ".replace()" Safety Fix
 def show_splash():
-    # --- CONFIG ---
-    P_STANDARD = "2.99"
-    P_HEIRLOOM = "5.99"
-    P_CIVIC = "6.99"
-
     # --- HERO ---
     st.title("VerbaPost 📮")
     st.subheader("The Authenticity Engine.")
@@ -31,8 +26,8 @@ def show_splash():
     # --- PRICING TIERS ---
     st.subheader("Simple Pricing")
     
-    # 1. CSS (Normal String - No escaping needed)
-    css = """
+    # RAW STRING (No 'f' prefix) - Python ignores curly braces here!
+    html_template = """
     <style>
         .price-card {
             background-color: #f9f9f9;
@@ -68,16 +63,12 @@ def show_splash():
             gap: 15px;
         }
     </style>
-    """
 
-    # 2. HTML (f-string - Injects prices)
-    # Note: We use $ to show a literal dollar sign
-    html_content = f"""
     <div class="grid-container">
         <div class="price-card">
             <div>
                 <div class="price-title">⚡ Standard</div>
-                <div class="price-tag">${P_STANDARD}</div>
+                <div class="price-tag">PRICE_STANDARD</div>
                 <div class="price-desc">API Fulfillment<br>Window Envelope<br>Mailed in 24hrs</div>
             </div>
         </div>
@@ -85,7 +76,7 @@ def show_splash():
         <div class="price-card" style="border: 2px solid #4CAF50; background-color: #f0fff4;">
             <div>
                 <div class="price-title">🏺 Heirloom</div>
-                <div class="price-tag">${P_HEIRLOOM}</div>
+                <div class="price-tag">PRICE_HEIRLOOM</div>
                 <div class="price-desc">Hand-Stamped<br>Premium Paper<br>Mailed from Nashville</div>
             </div>
         </div>
@@ -93,15 +84,19 @@ def show_splash():
         <div class="price-card">
             <div>
                 <div class="price-title">🏛️ Civic Blast</div>
-                <div class="price-tag">${P_CIVIC}</div>
+                <div class="price-tag">PRICE_CIVIC</div>
                 <div class="price-desc">Activism Mode<br>Auto-Find Reps<br>Mails Senate + House</div>
             </div>
         </div>
     </div>
     """
     
-    # Combine and Render
-    st.markdown(css + html_content, unsafe_allow_html=True) 
+    # SAFE INJECTION
+    final_html = html_template.replace("PRICE_STANDARD", ".99")
+    final_html = final_html.replace("PRICE_HEIRLOOM", ".99")
+    final_html = final_html.replace("PRICE_CIVIC", ".99")
+
+    st.markdown(final_html, unsafe_allow_html=True) 
 
     st.divider()
 
