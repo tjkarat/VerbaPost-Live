@@ -238,4 +238,3 @@ def show_main_app():
                 except: pass
 
             if st.button("Start Another"): reset_app()
-EOF
