@@ -1,13 +1,26 @@
 import streamlit as st
+import auth_engine 
+import payment_engine
+import database
+
+# 1. INTERCEPT STRIPE RETURN BEFORE ANYTHING ELSE
+# This must run first to capture the session_id before the app resets state
+qp = st.query_params
+if "session_id" in qp:
+    # Force view to main_app immediately
+    if "current_view" not in st.session_state:
+        st.session_state.current_view = "main_app"
+
+# 2. IMPORTS (After state logic to avoid circular issues)
 from ui_splash import show_splash
 from ui_main import show_main_app
 from ui_login import show_login
-from ui_admin import show_admin # <--- NEW IMPORT
-import auth_engine 
-import payment_engine
+from ui_admin import show_admin
 
+# 3. PAGE CONFIG
 st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="centered")
 
+# 4. CSS INJECTOR (Styling)
 def inject_custom_css():
     st.markdown("""
         <style>
@@ -21,7 +34,7 @@ def inject_custom_css():
         """, unsafe_allow_html=True)
 inject_custom_css()
 
-# --- HANDLERS ---
+# 5. AUTH HANDLERS (Passed to Login View)
 def handle_login(email, password):
     user, error = auth_engine.sign_in(email, password)
     if error:
@@ -30,13 +43,19 @@ def handle_login(email, password):
         st.success("Welcome!")
         st.session_state.user = user
         st.session_state.user_email = email
-        saved = auth_engine.get_current_address(email)
-        if saved:
-            st.session_state["from_name"] = saved.get("name", "")
-            st.session_state["from_street"] = saved.get("street", "")
-            st.session_state["from_city"] = saved.get("city", "")
-            st.session_state["from_state"] = saved.get("state", "")
-            st.session_state["from_zip"] = saved.get("zip", "")
+        
+        # Fetch saved address to auto-fill session
+        try:
+            saved = auth_engine.get_current_address(email)
+            if saved:
+                st.session_state["from_name"] = saved.get("name", "")
+                st.session_state["from_street"] = saved.get("street", "")
+                st.session_state["from_city"] = saved.get("city", "")
+                st.session_state["from_state"] = saved.get("state", "")
+                st.session_state["from_zip"] = saved.get("zip", "")
+        except:
+            pass
+            
         st.session_state.current_view = "main_app"
         st.rerun()
 
@@ -51,27 +70,25 @@ def handle_signup(email, password, name, street, city, state, zip_code):
         st.session_state.current_view = "main_app"
         st.rerun()
 
-# --- ROUTER ---
-if "session_id" in st.query_params:
-    if payment_engine.check_payment_status(st.query_params["session_id"]):
-        st.session_state.current_view = "main_app"
-        st.session_state.payment_complete = True
-        st.query_params.clear() 
-
+# 6. INITIALIZE DEFAULT STATE
 if "current_view" not in st.session_state:
     st.session_state.current_view = "splash" 
 if "user" not in st.session_state:
     st.session_state.user = None
 
-# ADMIN ROUTE
-if st.session_state.current_view == "admin":
+# 7. ROUTER (View Controller)
+if st.session_state.current_view == "splash":
+    show_splash()
+
+elif st.session_state.current_view == "login":
+    # Pass handlers to the view
+    show_login(handle_login, handle_signup)
+
+elif st.session_state.current_view == "admin":
     show_admin()
 
-elif st.session_state.current_view == "splash":
-    show_splash()
-elif st.session_state.current_view == "login":
-    show_login(handle_login, handle_signup)
 elif st.session_state.current_view == "main_app":
+    # Sidebar Navigation
     with st.sidebar:
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.current_view = "splash"
@@ -80,14 +97,15 @@ elif st.session_state.current_view == "main_app":
         if st.session_state.get("user"):
             st.caption(f"User: {st.session_state.user_email}")
             
-            # SECRET ADMIN BUTTON
-            # Only shows if the logged in email matches
-            if st.session_state.user_email == "tjkarat@gmail.com": # <--- Update this to your exact login email!
+            # ADMIN BUTTON (Only visible to Admin Email)
+            # Change this email to match your login!
+            if st.session_state.user_email == "tjkarat@gmail.com": 
                 if st.button("🔐 Admin Panel", type="primary"):
-                     st.session_state.current_view = "admin"
-                     st.rerun()
+                    st.session_state.current_view = "admin"
+                    st.rerun()
 
             if st.button("Log Out"):
+                # Clear session
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
