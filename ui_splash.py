@@ -1,9 +1,8 @@
 import streamlit as st
 
-# Version 19.0 - Clean & Minimal Design
+# Version 20.0 - Added Legal Footer
 def show_splash():
     # --- HERO ---
-    # Centered, bold, direct.
     st.markdown("""
     <div style="text-align: center; padding-bottom: 20px;">
         <h1 style="margin-bottom:0;">VerbaPost 📮</h1>
@@ -16,7 +15,7 @@ def show_splash():
     
     st.divider()
 
-    # --- HOW IT WORKS (Icons & 5 Words max) ---
+    # --- HOW IT WORKS ---
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("### 🎙️ 1. Dictate")
@@ -30,7 +29,7 @@ def show_splash():
 
     st.divider()
     
-    # --- WHO IS IT FOR? (Simplified) ---
+    # --- USE CASES ---
     st.subheader("Why VerbaPost?")
     
     u1, u2, u3 = st.columns(3)
@@ -52,10 +51,9 @@ def show_splash():
 
     st.divider()
 
-    # --- PRICING (Minimalist) ---
+    # --- PRICING ---
     st.subheader("Pricing")
     
-    # Custom CSS for big price numbers
     st.markdown("""
     <style>
         [data-testid="stMetricValue"] {
@@ -96,4 +94,13 @@ def show_splash():
         if st.button("Log In", type="secondary", use_container_width=True):
             st.session_state.current_view = "login"
             st.session_state.initial_mode = "login"
+            st.rerun()
+
+    # --- LEGAL FOOTER (VISIBLE) ---
+    st.markdown("---")
+    f1, f2, f3 = st.columns([1, 2, 1])
+    with f2:
+        st.caption("© 2025 VerbaPost LLC")
+        if st.button("⚖️ Privacy Policy & Terms of Service", type="secondary", use_container_width=True):
+            st.session_state.current_view = "legal"
             st.rerun()

@@ -9,7 +9,6 @@ def show_login(handle_login, handle_signup):
         st.title("VerbaPost 📮")
         st.subheader("Member Access")
         
-        # Check connection
         client, err = auth_engine.get_supabase_client()
         if err: st.error(f"System Error: {err}")
 
@@ -20,7 +19,6 @@ def show_login(handle_login, handle_signup):
             with st.form("login_form"):
                 email = st.text_input("Email")
                 password = st.text_input("Password", type="password")
-                
                 if st.form_submit_button("Log In", type="primary", use_container_width=True):
                     with st.spinner("Verifying..."):
                         handle_login(email, password)
@@ -30,14 +28,12 @@ def show_login(handle_login, handle_signup):
             with st.form("signup_form"):
                 st.caption("Create your secure account")
                 new_email = st.text_input("Email")
-                
                 c_p1, c_p2 = st.columns(2)
                 new_pass = c_p1.text_input("Password", type="password")
                 confirm_pass = c_p2.text_input("Confirm Password", type="password")
 
                 st.markdown("---")
                 st.caption("Return Address")
-                
                 new_name = st.text_input("Full Name")
                 new_street = st.text_input("Street Address")
                 c_a, c_b = st.columns(2)
@@ -58,6 +54,12 @@ def show_login(handle_login, handle_signup):
                             handle_signup(new_email, new_pass, new_name, new_street, new_city, new_state, new_zip, new_lang)
         
         st.divider()
-        if st.button("⬅️ Back to Home", type="secondary"):
-            st.session_state.current_view = "splash"
-            st.rerun()
+        c_back, c_legal = st.columns(2)
+        with c_back:
+            if st.button("⬅️ Home", type="secondary", use_container_width=True):
+                st.session_state.current_view = "splash"
+                st.rerun()
+        with c_legal:
+            if st.button("⚖️ Terms", type="secondary", use_container_width=True):
+                st.session_state.current_view = "legal"
+                st.rerun()
