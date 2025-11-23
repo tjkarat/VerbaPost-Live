@@ -1,7 +1,11 @@
 import streamlit as st
+import analytics  # <-- Import the new file
+import promo_engine # <-- Import for the hidden admin tool
 
-# Version 20.0 - Added Legal Footer
 def show_splash():
+    # 1. INJECT ANALYTICS
+    analytics.inject_ga()
+
     # --- HERO ---
     st.markdown("""
     <div style="text-align: center; padding-bottom: 20px;">
@@ -29,7 +33,7 @@ def show_splash():
 
     st.divider()
     
-    # --- USE CASES ---
+    # --- USE CASES (Refined Layout) ---
     st.subheader("Why VerbaPost?")
     
     u1, u2, u3 = st.columns(3)
@@ -37,17 +41,18 @@ def show_splash():
     with u1:
         with st.container(border=True):
             st.write("**🧡 Families & Inmates**")
-            st.caption("Stay connected with loved ones in prison. No stamps needed. Facility compliant.")
+            # UPDATED: Concise text, removed "Mail Photos" implication
+            st.caption("Direct prison delivery. Facility compliant. No stamps required.")
 
     with u2:
         with st.container(border=True):
             st.write("**🏡 Realtors & Sales**")
-            st.caption("Stand out with handwritten direct mail. High open rates. Instant follow-up.")
+            st.caption("Handwritten direct mail. High open rates. Instant follow-up.")
 
     with u3:
         with st.container(border=True):
             st.write("**🗳️ Civic Activists**")
-            st.caption("Write to Congress. Auto-find your Reps. Physical petitions get noticed.")
+            st.caption("Write to Congress. Physical petitions get noticed.")
 
     st.divider()
 
@@ -96,7 +101,7 @@ def show_splash():
             st.session_state.initial_mode = "login"
             st.rerun()
 
-    # --- LEGAL FOOTER (VISIBLE) ---
+    # --- LEGAL FOOTER & HIDDEN ADMIN ---
     st.markdown("---")
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:
@@ -104,3 +109,10 @@ def show_splash():
         if st.button("⚖️ Privacy Policy & Terms of Service", type="secondary", use_container_width=True):
             st.session_state.current_view = "legal"
             st.rerun()
+    
+    # HIDDEN ADMIN TOOL: Only appears if you type "?admin=true" in URL or just uncomment for now
+    # For simplicity, let's put it inside a collapsed expander that only you know about
+    with st.expander("Admin", expanded=False):
+        if st.button("Generate Single-Use Promo"):
+            code = promo_engine.generate_code()
+            st.success(f"New Code: {code}")

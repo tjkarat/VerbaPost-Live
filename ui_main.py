@@ -16,6 +16,7 @@ import mailer
 import zipcodes
 import payment_engine
 import civic_engine
+import promo_engine  # <--- NEW IMPORT
 
 # --- CONFIG ---
 MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
@@ -117,32 +118,62 @@ def show_main_app():
             if user_lang in options: default_idx = options.index(user_lang)
             language = st.selectbox("Language:", options, index=default_idx, key="lang_select")
         
+        # Calculate Price
         if "Standard" in service_tier: price = COST_STANDARD; tier_name = "Standard"
         elif "Heirloom" in service_tier: price = COST_HEIRLOOM; tier_name = "Heirloom"
         elif "Civic" in service_tier: price = COST_CIVIC; tier_name = "Civic"
         
+        # --- PROMO CODE LOGIC ---
+        promo_code = st.text_input("Promo Code (Optional)", key="promo_input")
+        valid_promo = False
+        
+        if promo_code:
+            if promo_engine.validate_code(promo_code):
+                valid_promo = True
+                price = 0.00
+                st.success("✅ Promo Code Applied! Total: $0.00")
+            else:
+                st.error("❌ Invalid or Expired Code")
+        # ------------------------
+
         st.info(f"**Total: ${price}**")
         
-        current_config = f"{service_tier}_{price}_{language}"
-        if "stripe_url" not in st.session_state or st.session_state.get("last_config") != current_config:
-             success_link = f"{YOUR_APP_URL}?tier={tier_name}&lang={language}"
-             user_email = st.session_state.get("user_email", "guest@verbapost.com")
-             draft_id = database.save_draft(user_email, "", "", "", "", "")
-             
-             if draft_id:
-                 success_link += f"&letter_id={draft_id}"
-                 url, session_id = payment_engine.create_checkout_session(
-                    f"VerbaPost {service_tier}", int(price * 100), success_link, YOUR_APP_URL
-                )
-                 st.session_state.stripe_url = url
-                 st.session_state.stripe_session_id = session_id
-                 st.session_state.last_config = current_config
-             
-        if st.session_state.stripe_url:
-            st.warning("⚠️ **Note:** Payment opens in a **New Tab**. You will return here automatically.")
-            st.link_button(f"💳 Pay ${price} & Start", st.session_state.stripe_url, type="primary")
+        # Logic Fork: Free (Promo) vs Paid (Stripe)
+        if valid_promo:
+            if st.button("🚀 Start (Free)", type="primary"):
+                # Burn the code
+                if promo_engine.redeem_code(promo_code):
+                    st.session_state.payment_complete = True
+                    st.session_state.app_mode = "workspace"
+                    st.session_state.locked_tier = tier_name
+                    st.session_state.selected_language = language
+                    st.toast("Code Redeemed! Starting...")
+                    st.rerun()
+                else:
+                    st.error("Error redeeming code. Please try again.")
+
         else:
-            st.error("System Error: Payment link failed.")
+            # ORIGINAL STRIPE FLOW
+            current_config = f"{service_tier}_{price}_{language}"
+            if "stripe_url" not in st.session_state or st.session_state.get("last_config") != current_config:
+                 success_link = f"{YOUR_APP_URL}?tier={tier_name}&lang={language}"
+                 user_email = st.session_state.get("user_email", "guest@verbapost.com")
+                 draft_id = database.save_draft(user_email, "", "", "", "", "")
+                 
+                 if draft_id:
+                     success_link += f"&letter_id={draft_id}"
+                     url, session_id = payment_engine.create_checkout_session(
+                        f"VerbaPost {service_tier}", int(price * 100), success_link, YOUR_APP_URL
+                    )
+                     st.session_state.stripe_url = url
+                     st.session_state.stripe_session_id = session_id
+                     st.session_state.last_config = current_config
+                 
+            if st.session_state.stripe_url:
+                st.warning("⚠️ **Note:** Payment opens in a **New Tab**. You will return here automatically.")
+                st.link_button(f"💳 Pay ${price} & Start", st.session_state.stripe_url, type="primary")
+            else:
+                st.error("System Error: Payment link failed.")
 
     # ==================================================
     #  PHASE 2: THE WORKSPACE
