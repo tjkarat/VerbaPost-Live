@@ -1,12 +1,8 @@
 import streamlit as st
-import importlib
-import ui_splash
+# REMOVED importlib to fix crash
 import auth_engine 
 import payment_engine
 import database
-
-# FORCE RELOAD
-importlib.reload(ui_splash)
 
 # 1. INTERCEPT STRIPE RETURN
 qp = st.query_params
@@ -74,6 +70,7 @@ def handle_signup(email, password, name, street, city, state, zip_code, language
 if "current_view" not in st.session_state: st.session_state.current_view = "splash" 
 if "user" not in st.session_state: st.session_state.user = None
 
+# 6. ROUTER
 if st.session_state.current_view == "splash":
     show_splash()
 elif st.session_state.current_view == "login":
@@ -89,8 +86,9 @@ elif st.session_state.current_view == "main_app":
         if st.session_state.get("user"):
             st.caption(f"User: {st.session_state.user_email}")
             
-            # SECURE ADMIN CHECK
+            # ADMIN CHECK
             try:
+                # Check secrets for admin email
                 admin_email = st.secrets["admin"]["email"]
                 if st.session_state.user.user.email == admin_email: 
                     if st.button("🔐 Admin Panel", type="primary"):
@@ -104,7 +102,7 @@ elif st.session_state.current_view == "main_app":
                 
     show_main_app()
 
-# 6. FOOTER
+# 7. FOOTER
 with st.sidebar:
     st.divider()
     st.markdown("📧 **Help:** support@verbapost.com")
