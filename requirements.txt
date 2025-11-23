@@ -8,3 +8,4 @@ streamlit-drawable-canvas
 requests
 sqlalchemy
 psycopg2-binary
+fpdf2
