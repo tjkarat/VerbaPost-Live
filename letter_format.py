@@ -8,13 +8,25 @@ CAVEAT_URL = "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Regular
 CJK_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 
 def ensure_fonts():
-    """Downloads Caveat font if missing."""
-    if not os.path.exists("Caveat-Regular.ttf"):
+    """Downloads Caveat font if missing or corrupt."""
+    font_path = "Caveat-Regular.ttf"
+    
+    # Check for corruption (files < 5KB are likely error pages)
+    if os.path.exists(font_path):
+        if os.path.getsize(font_path) < 5000:
+            try: os.remove(font_path)
+            except: pass
+    
+    # Download if missing
+    if not os.path.exists(font_path):
         try:
             print("⬇️ Downloading Caveat Font...")
             r = requests.get(CAVEAT_URL, allow_redirects=True)
-            with open("Caveat-Regular.ttf", "wb") as f:
-                f.write(r.content)
+            if r.status_code == 200:
+                with open(font_path, "wb") as f:
+                    f.write(r.content)
+            else:
+                print(f"❌ Font Download Failed: {r.status_code}")
         except Exception as e:
             print(f"Font Download Error: {e}")
 
@@ -25,31 +37,34 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language, file
     pdf.add_page()
     
     # --- FONT SELECTION ---
-    font_family = 'Helvetica' # Fallback
-    
+    font_family = 'Helvetica' # Default Fallback
+    body_size = 12
+
     if language == "English":
         if os.path.exists("Caveat-Regular.ttf"):
-            pdf.add_font('Caveat', '', "Caveat-Regular.ttf", uni=True)
-            font_family = 'Caveat'
-            body_size = 16 # Handwriting needs to be bigger
-        else:
-            font_family = 'Helvetica'
-            body_size = 12
-            
+            try:
+                # Try loading. If file is bad, this throws exception.
+                pdf.add_font('Caveat', '', "Caveat-Regular.ttf", uni=True)
+                font_family = 'Caveat'
+                body_size = 16 
+            except Exception as e:
+                print(f"⚠️ Font Error (Using Helvetica): {e}")
+                # Delete corrupt file to retry next time
+                try: os.remove("Caveat-Regular.ttf") 
+                except: pass
+                font_family = 'Helvetica'
+                body_size = 12
+    
     elif language in ["Japanese", "Chinese", "Korean"]:
         if os.path.exists(CJK_PATH):
             try:
                 pdf.add_font('NotoCJK', '', CJK_PATH, uni=True)
                 font_family = 'NotoCJK'
-                body_size = 12
             except: pass
-    else:
-        body_size = 12
-
+    
     # --- LAYOUT ---
     
     # 1. Return Address
-    # Use standard font for address to ensure postal readability
     pdf.set_font('Helvetica', '', 10) 
     pdf.set_xy(10, 10)
     pdf.multi_cell(0, 5, return_addr)
@@ -64,7 +79,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language, file
     pdf.set_font('Helvetica', '', 10)
     pdf.cell(0, 10, datetime.now().strftime("%Y-%m-%d"), ln=True, align='R')
     
-    # 4. Body Content (Custom Font)
+    # 4. Body Content
     pdf.set_xy(10, 80)
     pdf.set_font(font_family, '', body_size)
     pdf.multi_cell(0, 8, content)

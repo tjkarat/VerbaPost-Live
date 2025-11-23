@@ -40,7 +40,6 @@ def handle_login(email, password):
         st.success("Welcome!")
         st.session_state.user = user
         st.session_state.user_email = email
-        
         try:
             saved = auth_engine.get_current_address(email)
             if saved:
@@ -49,14 +48,11 @@ def handle_login(email, password):
                 st.session_state["from_city"] = saved.get("city", "")
                 st.session_state["from_state"] = saved.get("state", "")
                 st.session_state["from_zip"] = saved.get("zip", "")
-                # Load Language
                 st.session_state["selected_language"] = saved.get("language", "English")
         except: pass
-            
         st.session_state.current_view = "main_app"
         st.rerun()
 
-# UPDATED: Accepts language
 def handle_signup(email, password, name, street, city, state, zip_code, language):
     user, error = auth_engine.sign_up(email, password, name, street, city, state, zip_code, language)
     if error:
@@ -65,7 +61,6 @@ def handle_signup(email, password, name, street, city, state, zip_code, language
         st.success("Created!")
         st.session_state.user = user
         st.session_state.user_email = email
-        # Save language to session immediately
         st.session_state.selected_language = language
         st.session_state.current_view = "main_app"
         st.rerun()
@@ -85,6 +80,7 @@ elif st.session_state.current_view == "main_app":
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.current_view = "splash"
             st.rerun()
+        
         if st.session_state.get("user"):
             st.caption(f"User: {st.session_state.user_email}")
             if st.session_state.user.user.email == "tjkarat@gmail.com": 
@@ -94,4 +90,10 @@ elif st.session_state.current_view == "main_app":
             if st.button("Log Out"):
                 for key in list(st.session_state.keys()): del st.session_state[key]
                 st.rerun()
+                
     show_main_app()
+
+# 6. GLOBAL FOOTER
+with st.sidebar:
+    st.divider()
+    st.markdown("📧 **Help:** support@verbapost.com")
