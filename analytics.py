@@ -1,11 +1,14 @@
 import streamlit.components.v1 as components
 
+import streamlit.components.v1 as components
+import streamlit as st
+
 def inject_ga():
-    # YOUR MEASUREMENT ID
+    # REPLACE 'G-XXXXXXXXXX' with your actual Measurement ID
     measurement_id = 'G-D3P178CESF' 
     
-    # This script logs to the browser console to help you debug if it's running
-    ga_code = f"""
+    # Option 1: Component Injection (Standard)
+    ga_js = f"""
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id={measurement_id}"></script>
     <script>
@@ -15,8 +18,7 @@ def inject_ga():
         gtag('config', '{measurement_id}', {{
             'cookie_flags': 'SameSite=None;Secure'
         }});
-        console.log("GA4 Injected: {measurement_id}");
+        console.log('GA4 Loaded: {measurement_id}');
     </script>
     """
-    # height=0 ensures it's invisible but present
-    components.html(ga_code, height=0, width=0)
+    components.html(ga_js, height=0, width=0)
