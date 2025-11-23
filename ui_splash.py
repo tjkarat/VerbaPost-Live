@@ -1,74 +1,65 @@
 import streamlit as st
 
-# Version 18.0 - SEO & Targeting Update
+# Version 19.0 - Clean & Minimal Design
 def show_splash():
-    # --- CONFIG ---
-    P_STANDARD = "$2.99"
-    P_HEIRLOOM = "$5.99"
-    P_CIVIC = "$6.99"
-
-    # --- HERO (H1 - Main Keywords) ---
-    st.title("VerbaPost 📮")
-    st.subheader("Send Physical Mail from your Phone.")
-    st.markdown("##### Dictate letters, upload photos, and we print & mail them for you.")
+    # --- HERO ---
+    # Centered, bold, direct.
+    st.markdown("""
+    <div style="text-align: center; padding-bottom: 20px;">
+        <h1 style="margin-bottom:0;">VerbaPost 📮</h1>
+        <h3 style="font-weight:normal; margin-top:0;">Turn your voice into a real letter.</h3>
+        <p style="font-size:18px; color:#666;">
+            Texts are trivial. Emails are ignored. <b>Real letters get read.</b>
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.divider()
 
-    # --- HOW IT WORKS ---
+    # --- HOW IT WORKS (Icons & 5 Words max) ---
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.info("🎙️ **1. Dictate**")
-        st.caption("Tap the mic. AI handles the typing.")
+        st.markdown("### 🎙️ 1. Dictate")
+        st.caption("You speak. AI types.")
     with c2:
-        st.warning("✍️ **2. Sign**")
-        st.caption("Review the text, sign on screen.")
+        st.markdown("### ✍️ 2. Sign")
+        st.caption("Sign on your screen.")
     with c3:
-        st.success("📮 **3. We Mail**")
-        st.caption("We print, stamp, and mail it.")
+        st.markdown("### 📮 3. We Mail")
+        st.caption("Printed, stamped, & sent.")
 
     st.divider()
     
-    # --- USE CASES (SEO HEAVY SECTION) ---
-    st.subheader("Who uses VerbaPost?")
+    # --- WHO IS IT FOR? (Simplified) ---
+    st.subheader("Why VerbaPost?")
     
     u1, u2, u3 = st.columns(3)
     
     with u1:
-        st.markdown("### 🧡 Families & Inmates")
-        st.markdown("""
-        Stay connected with loved ones in **Prison or Jail**. 
-        * Send letters without buying stamps.
-        * **Mail photos** easily from your phone.
-        * Compliant with correctional facility mail rules (White paper, standard envelope).
-        """)
+        with st.container(border=True):
+            st.write("**🧡 Families & Inmates**")
+            st.caption("Stay connected with loved ones in prison. No stamps needed. Facility compliant.")
 
     with u2:
-        st.markdown("### 🏡 Realtors & Sales")
-        st.markdown("""
-        Stand out with **Handwritten Direct Mail**.
-        * Perfect for **Real Estate Prospecting**.
-        * "Heirloom" tier uses real ink and stamps for high open rates.
-        * Follow up with leads personally, instantly.
-        """)
+        with st.container(border=True):
+            st.write("**🏡 Realtors & Sales**")
+            st.caption("Stand out with handwritten direct mail. High open rates. Instant follow-up.")
 
     with u3:
-        st.markdown("### 🗳️ Civic Activists")
-        st.markdown("""
-        Make your voice heard in Washington.
-        * **Write to Congress** and the Senate instantly.
-        * Our **Civic Blast** feature auto-detects your representatives.
-        * Send physical petitions that can't be ignored like email.
-        """)
+        with st.container(border=True):
+            st.write("**🗳️ Civic Activists**")
+            st.caption("Write to Congress. Auto-find your Reps. Physical petitions get noticed.")
 
     st.divider()
 
-    # --- PRICING TIERS ---
-    st.subheader("Simple Pricing")
+    # --- PRICING (Minimalist) ---
+    st.subheader("Pricing")
     
+    # Custom CSS for big price numbers
     st.markdown("""
     <style>
         [data-testid="stMetricValue"] {
-            font-size: 2.5rem !important;
+            font-size: 2.2rem !important;
             color: #E63946 !important;
         }
     </style>
@@ -78,21 +69,18 @@ def show_splash():
 
     with p1:
         with st.container(border=True):
-            st.markdown("### ⚡ Standard")
-            st.metric(label="Price", value=P_STANDARD, label_visibility="collapsed")
-            st.caption("For: **Inmate Mail**, Business Invoices, Quick Notes.")
+            st.metric(label="⚡ Standard", value="$2.99")
+            st.caption("API Fulfillment • 24hr Speed")
 
     with p2:
         with st.container(border=True):
-            st.markdown("### 🏺 Heirloom")
-            st.metric(label="Price", value=P_HEIRLOOM, label_visibility="collapsed")
-            st.caption("For: **Real Estate Marketing**, Love Letters, Thank You Notes.")
+            st.metric(label="🏺 Heirloom", value="$5.99")
+            st.caption("Hand-Stamped • Premium Paper")
 
     with p3:
         with st.container(border=True):
-            st.markdown("### 🏛️ Civic Blast")
-            st.metric(label="Price", value=P_CIVIC, label_visibility="collapsed")
-            st.caption("For: **Political Activism**, Petitions, Community Organizing.")
+            st.metric(label="🏛️ Civic Blast", value="$6.99")
+            st.caption("Mail Senate + House (3 Letters)")
 
     st.divider()
 
@@ -105,8 +93,7 @@ def show_splash():
             st.rerun()
         
         st.write("")
-        
-        if st.button("Already a member? Log In", type="secondary", use_container_width=True):
+        if st.button("Log In", type="secondary", use_container_width=True):
             st.session_state.current_view = "login"
             st.session_state.initial_mode = "login"
             st.rerun()
