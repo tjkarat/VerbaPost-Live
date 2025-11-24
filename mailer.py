@@ -3,43 +3,40 @@ import lob
 
 # Load API Key
 try:
-    lob.api_key = st.secrets["lob"]["api_key"]
-except:
-    pass
+    # Attempt to get key from secrets
+    LOB_API_KEY = st.secrets["LOB_API_KEY"]
+    lob.api_key = LOB_API_KEY
+except Exception:
+    LOB_API_KEY = None
 
 def send_letter(pdf_path, to_address, from_address):
     """
-    Sends a physical letter via Lob.
-    Handles key mapping (street -> address_line1) automatically.
+    Sends a PDF letter via Lob.
+    to_address and from_address should be dictionaries with keys:
+    name, address_line1, address_city, address_state, address_zip
     """
+    if not LOB_API_KEY:
+        print("❌ Error: Lob API Key missing.")
+        return None
+
     try:
-        # Helper to map keys safely
-        def map_address(addr):
-            return {
-                'name': addr.get('name'),
-                'address_line1': addr.get('address_line1') or addr.get('street'),
-                'address_city': addr.get('address_city') or addr.get('city'),
-                'address_state': addr.get('address_state') or addr.get('state'),
-                'address_zip': addr.get('address_zip') or addr.get('zip')
-            }
-
-        clean_to = map_address(to_address)
-        clean_from = map_address(from_address)
-
-        # Validation
-        if not clean_to['address_line1']:
-            return {"error": "Missing address line for recipient"}
-
+        # 1. Create the address objects in Lob (optional but good for validation)
+        # For simplicity in this demo, we pass dicts directly to the letter endpoint
+        
+        # 2. Upload and Send
         with open(pdf_path, 'rb') as file:
             response = lob.Letter.create(
-                description="VerbaPost Letter",
-                to_address=clean_to,
-                from_address=clean_from,
+                description=f"VerbaPost to {to_address['name']}",
+                to_address=to_address,
+                from_address=from_address,
                 file=file,
-                color=True
+                color=False,    # B&W is cheaper
+                double_sided=True
             )
-            return response
+            
+        return response
 
     except Exception as e:
-        st.error(f"Mailer Error: {e}")
+        print(f"❌ Lob Error: {e}")
+        st.error(f"Mailing Error: {e}")
         return None
