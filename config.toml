@@ -7,3 +7,9 @@ textColor = "#2d3748"
 font = "sans serif"
 [server]
 fileWatcherType = "none"
+[browser]
+gatherUsageStats = false
+
+[global]
+# This line is often necessary to force the sidebar to load on older deployments:
+showSidebarNavigation = true
