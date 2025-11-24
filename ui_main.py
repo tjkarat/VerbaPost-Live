@@ -74,9 +74,6 @@ def render_legal_page():
 
 # --- MAIN LOGIC ---
 def show_main_app():
-    # Force sidebar to be visible
-    st.set_page_config(page_title="VerbaPost", initial_sidebar_state="expanded")
-    
     if 'analytics' in globals(): analytics.inject_ga()
 
     # Defaults
@@ -174,9 +171,7 @@ def show_main_app():
 
     # --- 4. SIDEBAR & ADMIN ---
     with st.sidebar:
-        if st.button("Reset App"): reset_app(); st.rerun()
-        
-        # === FULL DEBUG PANEL ===
+        # === ALWAYS SHOW DEBUG (even if not logged in) ===
         with st.expander("🐛 DEBUG INFO", expanded=True):
             st.write("**App State:**")
             st.write(f"- app_mode: `{st.session_state.get('app_mode')}`")
@@ -214,7 +209,13 @@ def show_main_app():
                 st.write(f"- Match: `{user_clean == admin_clean}`")
                 st.write(f"- Lengths: user={len(user_clean)}, admin={len(admin_clean)}")
         
-        # === ORIGINAL LOGIC (kept for actual functionality) ===
+        st.divider()
+        
+        if st.button("Reset App"): 
+            reset_app()
+            st.rerun()
+        
+        # === ORIGINAL LOGIC (only if logged in) ===
         if st.session_state.get("user"):
             st.divider()
             u_email = st.session_state.get("user_email", "")
