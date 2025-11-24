@@ -1,66 +1,94 @@
 import streamlit as st
-import database
+from supabase import create_client
 
-# Try to import library safely
-try:
-    from supabase import create_client, Client
-    LIB_AVAILABLE = True
-except ImportError:
-    LIB_AVAILABLE = False
-
-def get_supabase_client():
-    if not LIB_AVAILABLE: return None, "Library 'supabase' not installed."
+# --- HELPER: CONNECT TO DB ---
+def get_client():
+    """Connects to Supabase using FLAT secrets (SUPABASE_URL)"""
     try:
-        supabase_secrets = st.secrets.get("supabase", None)
-        if not supabase_secrets: return None, "Missing [supabase] section."
-        url = supabase_secrets.get("url")
-        key = supabase_secrets.get("key")
-        if not url or not key: return None, "Missing 'url' or 'key'."
-        return create_client(url, key), None
-    except Exception as e: return None, f"Connection Error: {e}"
+        # 1. Look for the FLAT keys you prefer
+        if "SUPABASE_URL" in st.secrets:
+            url = st.secrets["SUPABASE_URL"]
+            key = st.secrets["SUPABASE_KEY"]
+            return create_client(url, key), None
+            
+        # 2. Fallback: Look for the [nested] keys (just in case)
+        elif "supabase" in st.secrets:
+            url = st.secrets["supabase"]["url"]
+            key = st.secrets["supabase"]["key"]
+            return create_client(url, key), None
+            
+        else:
+            return None, "❌ Secrets Missing: Please add SUPABASE_URL and SUPABASE_KEY to secrets."
+            
+    except Exception as e:
+        return None, f"Connection Error: {e}"
 
-def sign_up(email, password, name, street, city, state, zip_code, language="English"):
-    client, err = get_supabase_client()
+# --- AUTH FUNCTIONS ---
+
+def sign_in(email, password):
+    """Log in an existing user"""
+    client, err = get_client()
     if err: return None, err
     
     try:
-        response = client.auth.sign_up({"email": email, "password": password})
-        if response.user:
-             try:
-                 # Ensure user row exists
-                 database.create_or_get_user(email)
-                 # Update Profile with Language
-                 database.update_user_profile(email, name, street, city, state, zip_code, language)
-             except Exception as db_err:
-                 print(f"DB Sync Error: {db_err}")
-             return response, None
-        return None, "Signup failed"
+        res = client.auth.sign_in_with_password({"email": email, "password": password})
+        return res, None
     except Exception as e:
-        return None, str(e)
+        return None, f"Login Failed: {e}"
 
-def sign_in(email, password):
-    client, err = get_supabase_client()
+def sign_up(email, password, name, street, city, state, zip_code, language):
+    """Create a new user and save their profile"""
+    client, err = get_client()
     if err: return None, err
+    
     try:
-        response = client.auth.sign_in_with_password({"email": email, "password": password})
-        if response.user:
-            try: database.create_or_get_user(email)
-            except: pass
-            return response, None
-        return None, "Login failed"
-    except Exception as e: return None, str(e)
+        # 1. Create Auth User
+        res = client.auth.sign_up({
+            "email": email, 
+            "password": password,
+            "options": {"data": {"full_name": name}}
+        })
+        
+        # 2. If successful, try to save the address to the database table
+        if res.user:
+            try:
+                # We try to insert into a 'users' table if it exists
+                # If this fails, we still allow the signup to proceed so they can log in
+                profile_data = {
+                    "id": res.user.id,
+                    "email": email,
+                    "full_name": name,
+                    "address_line1": street,
+                    "address_city": city,
+                    "address_state": state,
+                    "address_zip": zip_code,
+                    "language_preference": language
+                }
+                client.table("user_profiles").upsert(profile_data).execute()
+            except:
+                pass # Fail silently on profile creation if table doesn't exist yet
+                
+        return res, None
+    except Exception as e:
+        return None, f"Signup Failed: {e}"
 
 def get_current_address(email):
+    """Fetch address for the logged-in user"""
+    client, err = get_client()
+    if err: return None
+    
     try:
-        user = database.get_user_by_email(email)
-        if user:
+        res = client.table("user_profiles").select("*").eq("email", email).execute()
+        if res.data and len(res.data) > 0:
+            d = res.data[0]
             return {
-                "name": user.address_name or "",
-                "street": user.address_street or "",
-                "city": user.address_city or "",
-                "state": user.address_state or "",
-                "zip": user.address_zip or "",
-                "language": user.language or "English"
+                "name": d.get("full_name", ""),
+                "street": d.get("address_line1", ""),
+                "city": d.get("address_city", ""),
+                "state": d.get("address_state", ""),
+                "zip": d.get("address_zip", ""),
+                "language": d.get("language_preference", "English")
             }
-    except: pass
-    return {}
+    except:
+        return None
+    return None
