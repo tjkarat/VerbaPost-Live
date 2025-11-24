@@ -82,6 +82,7 @@ def show_main_app():
                 if "tier" in qp: st.session_state.locked_tier = qp["tier"]
                 if "lang" in qp: st.session_state.selected_language = qp["lang"]
                 
+                # Force Workspace
                 st.session_state.app_mode = "workspace"
                 st.query_params.clear()
                 st.rerun()
@@ -164,8 +165,8 @@ def show_main_app():
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
             
-            # --- ADMIN DEBUGGER ---
-            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            # --- ADMIN DEBUGGER (LOGIC) ---
+            admin_target = st.secrets.get("admin", {}).get("email", "MISSING").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
             # VISUAL PROOF (Checks for hidden spaces/case errors)
@@ -245,7 +246,7 @@ def show_main_app():
                     to_street = st.text_input("Street Address", key="std_tostreet")
                     c1, c2, c3 = st.columns(3)
                     to_city = c1.text_input("City", key="std_tocity")
-                    to_state = st.text_input("State", key="std_tostate")
+                    to_state = c2.text_input("State", key="std_tostate")
                     to_zip = c3.text_input("Zip", key="std_tozip")
                 with t2:
                     from_name = st.text_input("Your Name", value=def_name, key="std_fname")
@@ -302,16 +303,38 @@ def show_main_app():
                 f_name = st.session_state.get("std_fname", ""); f_street = st.session_state.get("std_fstreet", ""); f_city = st.session_state.get("std_fcity", ""); f_state = st.session_state.get("std_fstate", ""); f_zip = st.session_state.get("std_fzip", "")
                 t_name = st.session_state.get("std_toname", ""); t_street = st.session_state.get("std_tostreet", ""); t_city = st.session_state.get("std_tocity", ""); t_state = st.session_state.get("std_tostate", ""); t_zip = st.session_state.get("std_tozip", "")
 
-            # Construct Objects
-            to_a = {'name': t_name, 'address_line1': t_street, 'address_city': t_city, 'address_state': t_state, 'address_zip': t_zip}
-            from_a = {'name': f_name, 'address_line1': f_street, 'address_city': f_city, 'address_state': f_state, 'address_zip': f_zip}
+            # --- VIEW: ADDRESS VERIFICATION ---
+            with st.expander("2. Verify Addresses (Click to Edit)", expanded=True):
+                if "Civic" not in tier:
+                    st.markdown("**Recipient**")
+                    fin_toname = st.text_input("Name", value=t_name, key="rev_toname")
+                    fin_tostreet = st.text_input("Street", value=t_street, key="rev_tostreet")
+                    fin_tocity = st.text_input("City", value=t_city, key="rev_tocity")
+                    fin_tostate = st.text_input("State", value=t_state, key="rev_tostate")
+                    fin_tozip = st.text_input("Zip", value=t_zip, key="rev_tozip")
+                else:
+                     st.caption("Recipient: Your Representatives (Auto-Detected)")
+                     fin_toname = t_name 
+
+                st.markdown("**Sender**")
+                fin_fname = st.text_input("Your Name", value=f_name, key="rev_fname")
+                fin_fstreet = st.text_input("Your Street", value=f_street, key="rev_fstreet")
+                fin_fcity = st.text_input("City", value=f_city, key="rev_fcity")
+                fin_fstate = st.text_input("State", value=f_state, key="rev_fstate")
+                fin_fzip = st.text_input("Zip", value=f_zip, key="rev_fzip")
             
-            # Validation
-            if not to_a.get('name') or not to_a.get('address_line1') and "Civic" not in tier:
+            # Construct Final Payload
+            if "Civic" in tier:
+                to_a = {'name': 'Civic', 'address_line1': 'Civic'}
+            else:
+                to_a = {'name': fin_toname, 'address_line1': fin_tostreet, 'address_city': fin_tocity, 'address_state': fin_tostate, 'address_zip': fin_tozip}
+            
+            from_a = {'name': fin_fname, 'address_line1': fin_fstreet, 'address_city': fin_fcity, 'address_state': fin_fstate, 'address_zip': fin_fzip}
+            
+            if not to_a.get('name') or not to_a.get('address_line1'):
                 st.error("❌ Error: Recipient Street and Name are required.")
                 return
 
-            # Generate PDF Strings
             to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}"
             from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}"
             is_heirloom = "Heirloom" in tier
