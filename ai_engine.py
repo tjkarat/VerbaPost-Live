@@ -1,46 +1,41 @@
 import streamlit as st
 import os
-import re
 import tempfile
 
 @st.cache_resource
 def load_model():
     """Loads the lightweight AI model."""
     import whisper 
-    print("⬇️ Loading Whisper Model (Tiny)...")
-    # CHANGED: 'base' -> 'tiny' (Prevents crashing on free cloud servers)
-    return whisper.load_model("tiny")
-
-def polish_text(text):
-    fillers = ["um", "uh", "ah", "like, you know", "you know"]
-    polished = text
-    for filler in fillers:
-        pattern = re.compile(re.escape(filler), re.IGNORECASE)
-        polished = pattern.sub("", polished)
-    polished = " ".join(polished.split())
-    return polished
+    print("⬇️ STARTING MODEL LOAD...")
+    # 'tiny' is 75MB. 'base' is 150MB. Tiny is safest for cloud.
+    model = whisper.load_model("tiny")
+    print("✅ MODEL LOADED SUCCESSFULLY")
+    return model
 
 def transcribe_audio(uploaded_file):
     try:
+        # 1. Load the model
         model = load_model()
         
-        # Save temp file
+        # 2. Save temp file (Standard Streamlit Pattern)
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
             tmp_file.write(uploaded_file.getvalue())
             tmp_path = tmp_file.name
         
-        print(f"🎧 Transcribing {tmp_path}...")
+        print(f"🎧 Transcribing file: {tmp_path}")
         
-        # fp16=False is CRITICAL for CPU servers
+        # 3. Transcribe with CPU settings
+        # fp16=False is MANDATORY for CPU servers
         result = model.transcribe(tmp_path, fp16=False)
         
+        # 4. Cleanup
         os.remove(tmp_path)
         
-        raw_text = result["text"]
-        return polish_text(raw_text)
+        print("✅ Transcription success")
+        return result["text"]
         
     except ImportError:
-        return "Error: Libraries missing."
+        return "❌ Error: 'openai-whisper' library not installed."
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"❌ ERROR: {e}")
         return f"Error: {e}"

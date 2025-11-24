@@ -13,12 +13,13 @@ except: letter_format = None
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 
 def render_hero(title, subtitle):
+    # FIXED: Added !important to force White text despite Global Light Mode
     st.markdown(f"""
     <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
-                padding: 40px; border-radius: 15px; color: white; text-align: center; 
+                padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: #e0e0e0;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: #e0e0e0 !important;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -115,26 +116,24 @@ def render_workspace_page():
     with c_mic:
         st.write("🎤 **Dictation**")
         
-        # --- INSTRUCTIONS ---
         with st.expander("ℹ️ **How to Record**", expanded=True):
-            st.write("""
-            1. Click the **Microphone Icon** below.
-            2. Speak clearly. (Example: "Dear Mom, I hope you are well...")
-            3. Click the **Red Square** to stop.
-            4. Wait a moment for the AI to type it out.
-            """)
+            st.write("1. Click the **Microphone**. 2. Speak. 3. Click **Red Square** to stop.")
             
         audio = st.audio_input("Record Message")
         
         if audio:
-            with st.status("🤖 AI is listening & typing...", expanded=True) as status:
-                st.write("Processing audio file...")
+            # FIXED: Better status messaging so you know if it's loading or frozen
+            with st.status("🤖 AI Status", expanded=True) as status:
+                st.write("1. Uploading audio...")
                 if ai_engine:
+                    st.write("2. Loading AI Model (This may take 10s)...")
                     text = ai_engine.transcribe_audio(audio)
+                    
                     if "Error" in text:
                         status.update(label="❌ Failed", state="error")
                         st.error(text)
                     else:
+                        st.write("3. Cleaning text...")
                         status.update(label="✅ Complete!", state="complete")
                         st.session_state.transcribed_text = text
                         st.session_state.app_mode = "review"
