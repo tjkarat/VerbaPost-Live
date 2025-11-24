@@ -7,3 +7,7 @@ Pillow
 openai-whisper
 sqlalchemy
 psycopg2-binary
+fpdf
+zipcodes
+requests
+python-dotenv
