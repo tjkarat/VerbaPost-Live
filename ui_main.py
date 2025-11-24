@@ -27,7 +27,8 @@ def get_supabase():
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
         return create_client(url, key)
-    except Exception:
+    except Exception as e:
+        print(f"Supabase Error: {e}") # Print to logs
         return None
 
 def reset_app():
@@ -65,6 +66,9 @@ def render_forgot_password_page():
         if st.button("Send Code", type="primary"):
             if email:
                 supabase = get_supabase()
+                if not supabase:
+                    st.error("System Error: Database connection failed.")
+                    return
                 try:
                     supabase.auth.reset_password_email(email)
                     st.session_state['reset_email'] = email
@@ -88,6 +92,9 @@ def render_verify_reset_code():
                 st.error("Invalid input.")
                 return
             supabase = get_supabase()
+            if not supabase:
+                 st.error("System Error: Database connection failed.")
+                 return
             email = st.session_state.get('reset_email')
             try:
                 session = supabase.auth.verify_otp({"email": email, "token": code, "type": "recovery"})
@@ -144,7 +151,9 @@ def show_main_app():
     #  PHASE 0: LOGIN / SIGNUP SCREEN
     # ==================================================
     if st.session_state.app_mode == "login":
-        st.markdown("<h1 style='text-align: center;'>Welcome Back</h1>", unsafe_allow_html=True)
+        # Using a spacer to push content down slightly
+        st.write("")
+        st.markdown("<h1 style='text-align: center; margin-bottom: 20px;'>Welcome Back</h1>", unsafe_allow_html=True)
         
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
@@ -152,36 +161,47 @@ def show_main_app():
                 email = st.text_input("Email Address")
                 password = st.text_input("Password", type="password")
                 
+                st.write("") # Spacer
+                
+                # --- FIXED BUTTON LAYOUT ---
                 b1, b2 = st.columns(2)
                 with b1:
                     if st.button("Log In", type="primary", use_container_width=True):
                         supabase = get_supabase()
-                        try:
-                            res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                            st.session_state.user = res
-                            st.session_state.app_mode = "workspace"
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                        if not supabase:
+                            st.error("❌ Connection Failed. Check Secrets.")
+                        else:
+                            try:
+                                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                                st.session_state.user = res
+                                st.session_state.app_mode = "workspace"
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
                 with b2:
-                    if st.button("Create Account", use_container_width=True):
-                         # For now, simplistic signup flow:
+                    # Changed text to "Sign Up" to fix sizing
+                    if st.button("Sign Up", use_container_width=True):
                         supabase = get_supabase()
-                        try:
-                            res = supabase.auth.sign_up({"email": email, "password": password})
-                            st.success("Account created! Check email.")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
+                        if not supabase:
+                            st.error("❌ Connection Failed. Check Secrets.")
+                        else:
+                            try:
+                                res = supabase.auth.sign_up({"email": email, "password": password})
+                                st.success("Account created! Check email.")
+                            except Exception as e:
+                                st.error(f"Error: {e}")
 
                 st.write("")        
                 if st.button("Forgot Password?", type="secondary", use_container_width=True):
                     st.session_state.app_mode = "forgot_password"
                     st.rerun()
                     
-        if st.button("← Back"):
-             st.session_state.app_mode = "splash"
-             st.rerun()
-        return # Stop execution here so we don't show the store
+        c_back1, c_back2, c_back3 = st.columns([1, 1, 1])
+        with c_back2:
+            if st.button("← Back to Home", use_container_width=True):
+                 st.session_state.app_mode = "splash"
+                 st.rerun()
+        return
 
     # --- STRIPE RETURN CHECK ---
     qp = st.query_params
@@ -212,7 +232,13 @@ def show_main_app():
             reset_app()
         if st.session_state.get("user"):
             st.divider()
-            st.caption(f"Logged in: {st.session_state.user.user.email}")
+            try:
+                # Handle both object structures depending on login method
+                u_email = st.session_state.user.user.email 
+            except:
+                u_email = st.session_state.user.email
+
+            st.caption(f"Logged in: {u_email}")
             if st.button("Sign Out"):
                 st.session_state.pop("user")
                 reset_app()
@@ -385,7 +411,6 @@ def show_main_app():
             locked_lang = st.session_state.get("selected_language", "English")
             is_civic = "Civic" in locked_tier; is_heirloom = "Heirloom" in locked_tier
             
-            # Gather Data
             to_addr = {
                 'name': st.session_state.get("to_name"),
                 'address_line1': st.session_state.get("to_street"),
@@ -415,10 +440,8 @@ def show_main_app():
                 filename_pdf = f"VerbaPost_{safe_name}_{today_str}.pdf"
 
                 if is_civic:
-                    # (Simplified Civic Logic for brevity)
                     st.info("Civic mailing logic here.")
                 else:
-                    # 1. Create PDF
                     pdf_path = letter_format.create_pdf(
                         st.session_state.transcribed_text, 
                         f"{to_addr['name']}\n{to_addr['address_line1']}...", 
@@ -427,11 +450,9 @@ def show_main_app():
                     )
                     
                     if not is_heirloom:
-                         # 2. Send via Lob (Standard)
                          res = mailer.send_letter(pdf_path, to_addr, from_addr)
                          if res: st.success("Mailed via Lob!")
                     else:
-                         # 3. Heirloom Queue
                          st.success("Added to Heirloom Queue.")
 
                     with open(pdf_path, "rb") as f:
