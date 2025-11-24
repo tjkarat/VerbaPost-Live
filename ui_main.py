@@ -40,27 +40,6 @@ def reset_app():
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="hero-banner"><div class="hero-title">{title}</div><div class="hero-subtitle">{subtitle}</div></div>""", unsafe_allow_html=True)
 
-# --- NEW: EMBEDDED AUTH CALLBACKS (No st.rerun calls here!) ---
-
-def login_callback(email, password):
-    sb = get_supabase()
-    if not sb: st.error("❌ Connection Failed. Check Secrets."); return
-    try:
-        res = sb.auth.sign_in_with_password({"email": email, "password": password})
-        st.session_state.user = res
-        st.session_state.user_email = email 
-        reset_app()
-        st.session_state.app_mode = "store" # State set, script will rerun naturally
-    except Exception as e: st.error(f"Login failed: {e}")
-
-def signup_callback(email, password):
-    sb = get_supabase()
-    if not sb: st.error("❌ Connection Failed. Check Secrets."); return
-    try:
-        sb.auth.sign_up({"email": email, "password": password})
-        st.success("Check email for confirmation.")
-    except Exception as e: st.error(f"Signup failed: {e}")
-
 # --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
@@ -69,6 +48,9 @@ def render_legal_page():
         with st.container(border=True):
             st.subheader("1. Service Usage")
             st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+            st.subheader("2. Refunds")
+            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
+
     with tab_privacy:
         with st.container(border=True):
             st.subheader("Data Handling")
@@ -100,7 +82,6 @@ def show_main_app():
                 if "tier" in qp: st.session_state.locked_tier = qp["tier"]
                 if "lang" in qp: st.session_state.selected_language = qp["lang"]
                 
-                # Force Workspace
                 st.session_state.app_mode = "workspace"
                 st.query_params.clear()
                 st.rerun()
@@ -111,8 +92,6 @@ def show_main_app():
 
     # --- 2. ROUTING ---
     if st.session_state.app_mode == "legal": render_legal_page(); return
-
-    # --- FORGOT PASSWORD FLOW ---
     if st.session_state.app_mode == "forgot_password":
         render_hero("Recovery", "Reset Password")
         with st.container(border=True):
@@ -147,27 +126,32 @@ def show_main_app():
                 except Exception as e: st.error(f"Error: {e}")
         return
 
-    # --- 3. LOGIN PAGE (Renders the form that calls the callbacks above) ---
+    # --- 3. LOGIN ---
     if st.session_state.app_mode == "login":
-        st.markdown("<h1 style='text-align: center;'>Welcome Back</h1>", unsafe_allow_html=True)
-        
-        c1, c2, c3 = st.columns([1, 2, 1])
+        st.markdown("<h1 style='text-align: center;'>Welcome</h1>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([1,2,1])
         with c2:
             with st.container(border=True):
-                # Pass data via keys to callbacks
-                email = st.text_input("Email Address", key="login_email")
-                password = st.text_input("Password", type="password", key="login_password")
-                
-                # Buttons call the embedded functions
-                st.button("Log In", type="primary", use_container_width=True, 
-                          on_click=login_callback, args=(st.session_state.login_email, st.session_state.login_password))
-                st.button("Sign Up", use_container_width=True, 
-                          on_click=signup_callback, args=(st.session_state.login_email, st.session_state.login_password))
-                
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                if st.button("Log In", type="primary", use_container_width=True):
+                    sb = get_supabase()
+                    try:
+                        res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                        st.session_state.user = res
+                        st.session_state.user_email = email 
+                        reset_app()
+                        st.session_state.app_mode = "store"
+                        st.rerun()
+                    except Exception as e: st.error(f"Login failed: {e}")
+                if st.button("Sign Up", use_container_width=True):
+                    sb = get_supabase()
+                    try:
+                        sb.auth.sign_up({"email": email, "password": password})
+                        st.success("Check email for confirmation.")
+                    except Exception as e: st.error(f"Signup failed: {e}")
                 if st.button("Forgot Password?", type="secondary", use_container_width=True):
-                    st.session_state.app_mode = "forgot_password"
-                    st.rerun()
-        
+                    st.session_state.app_mode = "forgot_password"; st.rerun()
         if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
         return
 
@@ -220,7 +204,6 @@ def show_main_app():
                 if "Civic" in tier: price = 6.99
                 st.metric("Total", f"${price}")
                 st.info("⚠️ **Note:** Payment opens in a new tab.")
-                
                 if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
                     user = st.session_state.get("user_email", "guest")
                     database.save_draft(user, "", tier, price)
@@ -311,6 +294,36 @@ def show_main_app():
         tier = st.session_state.get("locked_tier", "Standard")
         
         if st.button("🚀 Send Letter", type="primary"):
-            # ... (Rest of send logic) ...
-            pass
-        if st.button("Finish"): reset_app()
+            # RECOVERY OF VALUES (Pulls directly from the final state of the text inputs)
+            if "Civic" in tier:
+                f_name = st.session_state.get("civic_fname", ""); f_street = st.session_state.get("civic_fstreet", ""); f_city = st.session_state.get("civic_fcity", ""); f_state = st.session_state.get("civic_fstate", ""); f_zip = st.session_state.get("civic_fzip", "")
+                t_name = "Civic Representative"; t_street, t_city, t_state, t_zip = "", "", "", ""
+            else:
+                f_name = st.session_state.get("std_fname", ""); f_street = st.session_state.get("std_fstreet", ""); f_city = st.session_state.get("std_fcity", ""); f_state = st.session_state.get("std_fstate", ""); f_zip = st.session_state.get("std_fzip", "")
+                t_name = st.session_state.get("std_toname", ""); t_street = st.session_state.get("std_tostreet", ""); t_city = st.session_state.get("std_tocity", ""); t_state = st.session_state.get("std_tostate", ""); t_zip = st.session_state.get("std_tozip", "")
+
+            # Construct Objects
+            to_a = {'name': t_name, 'address_line1': t_street, 'address_city': t_city, 'address_state': t_state, 'address_zip': t_zip}
+            from_a = {'name': f_name, 'address_line1': f_street, 'address_city': f_city, 'address_state': f_state, 'address_zip': f_zip}
+            
+            # Validation
+            if not to_a.get('name') or not to_a.get('address_line1') and "Civic" not in tier:
+                st.error("❌ Error: Recipient Street and Name are required.")
+                return
+
+            # Generate PDF Strings
+            to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}"
+            from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}"
+            is_heirloom = "Heirloom" in tier
+            lang = st.session_state.get("selected_language", "English")
+
+            pdf = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang) 
+            
+            if "Civic" in tier:
+                st.info("Civic Mode: Sending to representatives...")
+                st.success("Civic Letters Sent!")
+            else:
+                res = mailer.send_letter(pdf, to_a, from_a)
+                if res: st.success("Letter Mailed via USPS!")
+                
+            if st.button("Finish"): reset_app()
