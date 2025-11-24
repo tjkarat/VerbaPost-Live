@@ -1,24 +1,26 @@
-import stripe
 import streamlit as st
+import stripe
 
-# --- LOAD KEYS ---
+# --- 1. ROBUST KEY LOADING ---
+# This tries both "secrets.stripe.secret_key" AND "STRIPE_SECRET_KEY"
 try:
-    stripe.api_key = st.secrets["stripe"]["secret_key"]
-except Exception as e:
-    pass
+    if "stripe" in st.secrets:
+        stripe.api_key = st.secrets["stripe"]["secret_key"]
+    else:
+        stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+except Exception:
+    stripe.api_key = None
 
-def create_checkout_session(product_name, amount_in_cents, success_url, cancel_url):
+def create_checkout_session(product_name, amount_cents, success_url, cancel_url):
     """
     Creates a Stripe Checkout Session.
+    Returns (url, session_id) or (None, None) if failed.
     """
+    if not stripe.api_key:
+        print("❌ Error: Stripe API Key is missing.")
+        return None, None
+
     try:
-        if not stripe.api_key:
-            return None, "Error: Stripe API Key is missing."
-
-        # SMART JOIN: Ensure we append session_id correctly
-        join_char = "&" if "?" in success_url else "?"
-        final_success_url = f"{success_url}{join_char}session_id={{CHECKOUT_SESSION_ID}}"
-
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
             line_items=[{
@@ -27,23 +29,27 @@ def create_checkout_session(product_name, amount_in_cents, success_url, cancel_u
                     'product_data': {
                         'name': product_name,
                     },
-                    'unit_amount': amount_in_cents,
+                    'unit_amount': amount_cents,
                 },
                 'quantity': 1,
             }],
             mode='payment',
-            success_url=final_success_url,
+            success_url=success_url + "&session_id={CHECKOUT_SESSION_ID}",
             cancel_url=cancel_url,
         )
         return session.url, session.id
     except Exception as e:
-        return None, str(e)
+        print(f"❌ Stripe Error: {e}")
+        return None, None
 
 def check_payment_status(session_id):
+    """
+    Verifies if a session was actually paid.
+    """
+    if not stripe.api_key: return False
+    
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        if session.payment_status == 'paid':
-            return True
-    except:
-        pass
-    return False
+        return session.payment_status == 'paid'
+    except Exception:
+        return False
