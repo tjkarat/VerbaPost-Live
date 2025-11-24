@@ -26,11 +26,36 @@ def show_splash():
     # --- FEATURES ---
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown("### 🎙️ **1. Dictate**")
-        st.write("You speak. AI types.")
+        with st.container(border=True):
+            st.markdown("### 🎙️ **1. Dictate**")
+            st.write("You speak. AI types. We capture your tone perfectly.")
     with c2:
-        st.markdown("### ✍️ **2. Sign**")
-        st.write("Sign on your screen.")
+        with st.container(border=True):
+            st.markdown("### ✍️ **2. Sign**")
+            st.write("Sign directly on your screen. Your real signature.")
     with c3:
-        st.markdown("### 📮 **3. We Mail**")
-        st.write("Printed, stamped, & sent.")
+        with st.container(border=True):
+            st.markdown("### 📮 **3. We Mail**")
+            st.write("We print, fold, stamp, and mail it within 24 hours.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- USE CASES (The Missing Section) ---
+    st.subheader("Why VerbaPost?")
+    uc1, uc2, uc3 = st.columns(3)
+    
+    with uc1:
+        st.info("**🏘️ Realtors & Sales**\n\nHandwritten direct mail gets 99% open rates.")
+    with uc2:
+        st.info("**🏛️ Civic Activists**\n\nPhysical petitions on desks get noticed.")
+    with uc3:
+        st.info("**🧡 Families & Inmates**\n\nDirect prison delivery. Facility compliant.")
+
+    # --- PRICING ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.subheader("Simple Pricing")
+    
+    p1, p2, p3 = st.columns(3)
+    p1.metric("⚡ Standard", "$2.99", "Includes Postage")
+    p2.metric("🏺 Heirloom", "$5.99", "Premium Paper")
+    p3.metric("🏛️ Civic Blast", "$6.99", "3 Reps (Senate/House)")
