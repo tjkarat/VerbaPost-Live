@@ -135,8 +135,6 @@ def show_main_app():
 
     # --- LOGIN ---
     if st.session_state.app_mode == "login":
-        # Note: The login UI should be in ui_login.py, but this code handles the routing logic
-        # if the login form is embedded here.
         st.markdown("<h1 style='text-align: center;'>Welcome</h1>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1,2,1])
         with c2:
@@ -165,9 +163,32 @@ def show_main_app():
         return
 
     # --- SIDEBAR & ADMIN ---
-    # NOTE: The sidebar is primarily controlled by web_app.py to ensure the Admin Panel button 
-    # renders consistently. The logic below is redundant but kept for now.
+    # NOTE: The sidebar button logic is handled in web_app.py, but this UI renders when web_app.py
+    # calls ui_main.show_main_app().
     with st.sidebar:
+        
+        # === TEMPORARY DEBUG CODE ===
+        if st.session_state.get("user"):
+            st.sidebar.markdown("---")
+            st.sidebar.error("🚨 ADMIN DEBUG VALUES 🚨")
+            try:
+                # 1. Get Admin Email
+                admin_target = st.secrets.get("admin", {}).get("email", "N/A")
+                admin_clean = admin_target.strip().lower()
+                
+                # 2. Get User Email
+                user_raw = st.session_state.user.user.email
+                user_clean = user_raw.strip().lower()
+                
+                # 3. Display Comparison
+                st.sidebar.write(f"Secret Admin: **{repr(admin_clean)}**")
+                st.sidebar.write(f"Logged-in User: **{repr(user_clean)}**")
+                st.sidebar.write(f"Match Check: **{user_clean == admin_clean}**")
+            except Exception as e:
+                st.sidebar.write(f"Error reading emails: {e}")
+            st.sidebar.markdown("---")
+        # === END TEMPORARY DEBUG CODE ===
+
         if st.button("Reset App"): reset_app(); st.rerun()
         if st.session_state.get("user"):
             st.divider()
@@ -176,11 +197,10 @@ def show_main_app():
             
             st.caption(f"User: {u_email}")
             
-            # ADMIN CHECK 
+            # ADMIN CHECK (Logic for the button that takes you to admin page)
             admin_secret = st.secrets.get("admin", {}).get("email", "").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
-            # Check if user is an Admin
             is_admin = (user_clean and admin_secret and user_clean == admin_secret)
 
             if is_admin:
