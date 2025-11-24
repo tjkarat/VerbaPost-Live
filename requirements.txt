@@ -12,3 +12,5 @@ zipcodes
 requests
 python-dotenv
 lob-python
+lob
+mailer
