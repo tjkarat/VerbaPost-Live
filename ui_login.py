@@ -1,121 +1,74 @@
 import streamlit as st
-import time
+from streamlit_drawable_canvas import st_canvas
 
-def show_login(handle_login, handle_signup): 
-    # --- LAZY IMPORTS (Fixes KeyError/Circular Import) ---
-    import auth_engine
-    import analytics
-    # -----------------------------------------------------
-
-    # --- INJECT ANALYTICS ---
-    analytics.inject_ga() 
-
-    c1, c2, c3 = st.columns([1, 2, 1])
+def show_login(login_func, signup_func):
+    # --- CENTER THE LOGIN FORM ---
+    # We use columns [1, 2, 1] to create empty space on left/right
+    # This fixes the "Too Wide" look
+    c1, c2, c3 = st.columns([1, 1.5, 1])
     
     with c2:
-        st.title("VerbaPost 📮")
-        st.subheader("Member Access")
-        
-        client, err = auth_engine.get_supabase_client()
-        if err: st.error(f"System Error: {err}")
+        st.markdown("""
+        <div style="text-align: center; margin-bottom: 20px;">
+            <h1 style="color: #667eea; margin-bottom: 0;">VerbaPost 📮</h1>
+            <p style="font-size: 1.1em; color: #666;">Member Access</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-        # --- ROBUST NAVIGATION STATE ---
-        if "auth_mode" not in st.session_state:
-            st.session_state.auth_mode = st.session_state.get("initial_mode", "login")
-
-        # Create the switcher
-        # Note: using a unique key ensures the state tracks correctly
-        mode = st.radio("Select Mode:", ["Log In", "Create Account"], 
-                        index=0 if st.session_state.auth_mode == "login" else 1,
-                        horizontal=True, 
-                        label_visibility="collapsed",
-                        key="auth_mode_radio")
-
-        # Update session state based on switcher
-        if mode == "Log In":
-            st.session_state.auth_mode = "login"
-        else:
-            st.session_state.auth_mode = "signup"
-
-        st.divider()
-
-        # ==========================================
-        #  LOGIN VIEW
-        # ==========================================
-        if st.session_state.auth_mode == "login":
-            with st.form("login_form"):
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
-                
-                if submitted:
-                    with st.spinner("Verifying..."):
-                        handle_login(email, password)
+        # --- LOGIN CONTAINER ---
+        with st.container(border=True):
+            # Check for error passed from previous attempts
+            if "auth_error" in st.session_state:
+                st.error(st.session_state.auth_error)
+                del st.session_state.auth_error
             
-            # --- REAL PASSWORD RECOVERY ---
-            with st.expander("Forgot Password?"):
-                st.caption("Enter your email to receive a reset link.")
-                reset_email = st.text_input("Reset Email", key="reset_email")
+            tab_login, tab_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
+            
+            # --- LOGIN TAB ---
+            with tab_login:
+                email = st.text_input("Email Address", key="login_email")
+                password = st.text_input("Password", type="password", key="login_pass")
                 
-                if st.button("Send Reset Link"):
-                    if not reset_email:
-                        st.warning("Please enter an email address.")
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                if st.button("Log In", type="primary", use_container_width=True):
+                    if email and password:
+                        # Attempt login
+                        with st.spinner("Verifying credentials..."):
+                            # The main.py router passes the actual auth function here
+                            login_func(email, password)
                     else:
-                        try:
-                            # This actually calls Supabase to trigger the email
-                            client.auth.reset_password_email(reset_email, options={"redirect_to": "https://verbapost.streamlit.app"})
-                            st.success(f"Reset link sent to {reset_email} (if account exists).")
-                            st.info("Check your spam folder if you don't see it.")
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
-        # ==========================================
-        #  SIGN UP VIEW
-        # ==========================================
-        else:
-            with st.form("signup_form"):
-                st.caption("Create your secure account")
-                new_email = st.text_input("Email")
-                
-                # Vertical Passwords (No Columns)
-                new_pass = st.text_input("Password", type="password")
-                confirm_pass = st.text_input("Confirm Password", type="password")
-
+                        st.warning("Please enter email and password")
+            
+            # --- SIGNUP TAB ---
+            with tab_signup:
+                new_email = st.text_input("Email", key="new_email")
+                new_pass = st.text_input("Password", type="password", key="new_pass")
                 st.markdown("---")
-                st.caption("Return Address")
-                new_name = st.text_input("Full Name")
-                new_street = st.text_input("Street Address")
+                c_name, c_lang = st.columns(2)
+                name = c_name.text_input("Full Name")
+                lang = c_lang.selectbox("Language", ["English", "Spanish", "French"])
                 
-                c_a, c_b = st.columns(2)
-                new_city = c_a.text_input("City")
-                new_state = c_b.text_input("State", max_chars=2)
-                new_zip = st.text_input("Zip Code", max_chars=5)
+                st.caption("Address (for return labels)")
+                addr = st.text_input("Street Address")
+                c_city, c_state, c_zip = st.columns([2, 1, 1])
+                city = c_city.text_input("City")
+                state = c_state.text_input("State")
+                zip_code = c_zip.text_input("Zip")
                 
-                st.markdown("---")
-                new_lang = st.selectbox("Preferred Language:", ["English", "Japanese", "Chinese", "Korean"])
+                st.markdown("<br>", unsafe_allow_html=True)
                 
-                if st.form_submit_button("Create Account", type="primary", use_container_width=True):
-                    # 1. Force State Update
-                    st.session_state.auth_mode = "signup"
-                    
-                    # 2. Validation
-                    if new_pass != confirm_pass:
-                        st.error("❌ Passwords do not match.")
-                    elif not (new_name and new_street and new_city and new_state and new_zip):
-                        st.error("❌ Please fill all address fields.")
-                    else:
+                if st.button("Create Account", type="primary", use_container_width=True):
+                    if new_email and new_pass and name:
                         with st.spinner("Creating account..."):
-                            handle_signup(new_email, new_pass, new_name, new_street, new_city, new_state, new_zip, new_lang)
-                            # If successful, handle_signup usually handles redirection, 
-                            # but if it fails, we want to stay here.
-        
-        st.divider()
-        c_back, c_legal = st.columns(2)
-        with c_back:
-            if st.button("⬅️ Home", type="secondary", use_container_width=True):
-                st.session_state.current_view = "splash"
-                st.rerun()
-        with c_legal:
-            if st.button("⚖️ Terms", type="secondary", use_container_width=True):
-                st.session_state.current_view = "legal"
-                st.rerun()
+                            signup_func(new_email, new_pass, name, addr, city, state, zip_code, lang)
+                    else:
+                        st.warning("Please fill in required fields")
+
+    # --- FOOTER NAVIGATION ---
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    f1, f2, f3 = st.columns([1, 2, 1])
+    with f2:
+        if st.button("← Back to Home", type="secondary", use_container_width=True):
+            st.session_state.current_view = "splash"
+            st.rerun()
