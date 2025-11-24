@@ -48,7 +48,6 @@ def reset_app():
     for k in addr_keys:
         st.session_state[k] = ""
     
-    # Do not rerun here if called inside another function that reruns
     st.query_params.clear()
 
 def render_hero(title, subtitle):
@@ -63,7 +62,7 @@ def render_hero(title, subtitle):
 def render_forgot_password_page():
     render_hero("Recover Account", "Let's get you back in.")
     with st.container(border=True):
-        st.write("Enter your email address. We will send you a **6-digit code**.")
+        st.write("Enter your email address. We will send you a recovery code.")
         email = st.text_input("Email Address")
         if st.button("Send Code", type="primary"):
             if email:
@@ -88,34 +87,40 @@ def render_verify_reset_code():
     render_hero("Verify Code", "Check your email inbox.")
     with st.container(border=True):
         st.info(f"We sent a code to **{st.session_state.get('reset_email')}**")
-        code = st.text_input("6-Digit Code", max_chars=6)
+        
+        # FIX: Increased max_chars to 8 to handle Supabase codes
+        code = st.text_input("Recovery Code", max_chars=8)
         new_password = st.text_input("New Password", type="password")
+        
         if st.button("Verify & Update Password", type="primary"):
             if not code or len(new_password) < 6:
                 st.error("Invalid input.")
                 return
+            
             supabase = get_supabase()
             if not supabase:
                  st.error("System Error: Database connection failed.")
                  return
+            
             email = st.session_state.get('reset_email')
             try:
+                # 'recovery' OTP type handles password resets
                 session = supabase.auth.verify_otp({"email": email, "token": code, "type": "recovery"})
                 if session.user:
                     supabase.auth.update_user({"password": new_password})
                     st.success("✅ Password Updated! Logging you in...")
                     st.session_state['user'] = session
-                    reset_app() # Clear old state
+                    reset_app()
                     st.session_state['app_mode'] = "store"
                     st.rerun()
             except Exception as e:
                 st.error(f"Error: {e}")
+                
         if st.button("Cancel"):
             st.session_state.app_mode = "splash"
             st.rerun()
 
 def show_main_app():
-    # --- LAZY IMPORTS ---
     import ai_engine 
     import database
     import letter_format
@@ -189,7 +194,6 @@ def show_main_app():
                             try:
                                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                                 st.session_state.user = res
-                                # --- FIX: Clear state and force STORE ---
                                 reset_app() 
                                 st.session_state.app_mode = "store"
                                 st.rerun()
@@ -252,7 +256,6 @@ def show_main_app():
         if st.session_state.get("user"):
             st.divider()
             try:
-                # Handle inconsistent Supabase object structure
                 current_email = st.session_state.user.user.email 
             except:
                 try:
@@ -262,7 +265,6 @@ def show_main_app():
 
             st.caption(f"Logged in: {current_email}")
             
-            # --- ADMIN DEBUGGER ---
             admin_target = st.secrets.get("admin", {}).get("email", "Not Set")
 
             if current_email and admin_target and current_email.strip().lower() == admin_target.strip().lower():
@@ -324,6 +326,7 @@ def show_main_app():
 
                 st.markdown(f"### Total: **${price}**")
                 
+                # --- FIX: Correct Indentation Block ---
                 if valid_promo:
                     if st.button("Start (Free)", type="primary"):
                         if promo_engine.redeem_code(promo_code):
@@ -337,9 +340,7 @@ def show_main_app():
                     if "stripe_url" not in st.session_state or st.session_state.get("last_config") != current_config:
                          success_link = f"{YOUR_APP_URL}?tier={tier_name}&lang={language}"
                          user_email = st.session_state.get("user_email", "guest@verbapost.com")
-                         
                          draft_id = database.save_draft(user_email, "", "", "", "", "")
-                         
                          if draft_id:
                              success_link += f"&letter_id={draft_id}"
                              url, session_id = payment_engine.create_checkout_session(
@@ -356,7 +357,7 @@ def show_main_app():
                         st.link_button(f"Pay ${price} & Begin", st.session_state.stripe_url, type="primary", use_container_width=True)
                     else:
                         st.error("⚠️ Payment System Offline")
-                        st.caption("Check Streamlit Secrets: Is `STRIPE_SECRET_KEY` set?")
+                        st.caption("Check Streamlit Secrets.")
 
     # ==================================================
     #  PHASE 2: THE WORKSPACE
