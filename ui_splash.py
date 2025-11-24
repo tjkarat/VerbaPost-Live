@@ -1,7 +1,11 @@
 import streamlit as st
-import analytics
 
 def show_splash():
+    # --- LAZY IMPORT (Fixes KeyError) ---
+    import analytics
+    import promo_engine # Only if you need promo logic here, otherwise remove
+    # ------------------------------------
+
     # 1. INJECT ANALYTICS
     analytics.inject_ga()
 
