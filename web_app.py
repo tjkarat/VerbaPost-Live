@@ -8,6 +8,30 @@ import ui_main
 import ui_login
 import ui_admin
 import ui_legal 
+import streamlit.components.v1 as components # <-- ADDED FOR GA INJECTION
+
+# --- GOOGLE ANALYTICS INJECTION ---
+GA_MEASUREMENT_ID = "G-D3P178CESF"
+
+def inject_google_analytics():
+    """Injects the Google Analytics tracking script into the page header."""
+    if GA_MEASUREMENT_ID and GA_MEASUREMENT_ID.startswith("G-"):
+        tracking_script = f"""
+            <script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
+            <script>
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){{dataLayer.push(arguments);}}
+              gtag('js', new Date());
+              gtag('config', '{GA_MEASUREMENT_ID}');
+            </script>
+            """
+        # components.html is often more reliable than st.markdown for scripts
+        components.html(tracking_script, height=0, width=0)
+    else:
+        # Debugging note: if the app is locally hosted, GA won't track anyway.
+        pass
+# --- END GA INJECTION ---
+
 
 # 1. INTERCEPT STRIPE RETURN
 qp = st.query_params
@@ -19,8 +43,8 @@ if "session_id" in qp:
 st.set_page_config(
     page_title="VerbaPost | Send Mail to Inmates, Congress & Homeowners", 
     page_icon="📮", 
-    layout="wide", # <-- Use wide layout for better sidebar visibility
-    initial_sidebar_state="expanded" # <-- Force sidebar to be open
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
 def inject_custom_css():
@@ -77,6 +101,10 @@ if "user" not in st.session_state: st.session_state.user = None
 
 # --- 6. SIDEBAR CONTROLLER (RENDERED DIRECTLY) ---
 
+# Inject GA before the sidebar to ensure it loads early
+inject_google_analytics()
+
+
 with st.sidebar:
     
     # 6.1 Navigation Buttons
@@ -97,7 +125,7 @@ with st.sidebar:
             if user_email == admin_email: 
                 is_admin = True
         except: 
-            # If there's an error accessing st.secrets or st.session_state.user.user.email
+            # Debugging hint: this will only show if the sidebar is visible
             st.warning("Admin check failed. Check st.secrets or user object path.")
             pass
 
