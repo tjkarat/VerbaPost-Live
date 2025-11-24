@@ -1,12 +1,13 @@
 import streamlit as st
-import whisper
 import os
 import re
 
-# --- LAZY LOADER (Prevents App Crash on Startup) ---
+# --- LAZY LOADER ---
 @st.cache_resource
 def load_model():
     """Loads the heavy AI model only when needed."""
+    # 1. Import here so app doesn't crash on startup if missing
+    import whisper 
     print("⬇️ Loading Whisper Model... (This happens once)")
     return whisper.load_model("base")
 
@@ -21,7 +22,7 @@ def polish_text(text):
 
 def transcribe_audio(file_path):
     try:
-        # Load model HERE, not at top level
+        # 2. Load model logic
         model = load_model()
         
         print(f"🎧 Transcribing {file_path}...")
@@ -30,6 +31,8 @@ def transcribe_audio(file_path):
         raw_text = result["text"]
         return polish_text(raw_text)
         
+    except ImportError:
+        return "❌ Error: 'openai-whisper' library not installed. Please add it to requirements.txt"
     except Exception as e:
         print(f"❌ Transcription Error: {e}")
         return f"Error: {e}"
