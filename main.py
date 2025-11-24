@@ -13,7 +13,8 @@ st.set_page_config(
 def inject_global_css():
     st.markdown("""
     <style>
-        /* Force Light Mode Background & Text */
+        /* --- CORE THEME OVERRIDES --- */
+        /* Force Light Mode Background & Text regardless of user settings */
         .stApp {
             background-color: #f8f9fc;
             color: #2d3748; 
@@ -25,10 +26,14 @@ def inject_global_css():
         .stDeployButton {display:none;}
         footer {visibility: hidden;}
         
-        /* HEADERS */
-        h1, h2, h3 { color: #2d3748; font-weight: 700; }
+        /* TEXT COLOR ENFORCEMENT */
+        /* Forces headers and text to be dark grey, fixing the "Invisible Text" in dark mode */
+        h1, h2, h3, h4, h5, h6, p, li, span, div { 
+            color: #2d3748; 
+        }
         
-        /* CARDS (White containers with shadow) */
+        /* --- CARD STYLING --- */
+        /* White containers with soft shadow */
         div[data-testid="stVerticalBlockBorderWrapper"] > div {
             background-color: white;
             border-radius: 20px !important;
@@ -37,12 +42,9 @@ def inject_global_css():
             border: 1px solid #e2e8f0;
             transition: box-shadow 0.3s ease;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"] > div:hover {
-            box-shadow: 0 10px 15px -3px rgba(118, 75, 162, 0.1);
-            /* Removed transform to prevent click errors */
-        }
-
-        /* PRIMARY BUTTONS (Purple Gradient) */
+        
+        /* --- BUTTON STYLING --- */
+        /* Primary Buttons (Purple Gradient) */
         div.stButton > button {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white !important;
@@ -51,33 +53,40 @@ def inject_global_css():
             padding: 0.5rem 1.5rem;
             font-weight: 600;
             box-shadow: 0 4px 6px rgba(102, 126, 234, 0.25);
-            transition: box-shadow 0.3s ease;
         }
-        div.stButton > button:hover {
-            box-shadow: 0 7px 14px rgba(102, 126, 234, 0.4);
-            color: white !important;
-            /* Removed transform to prevent click errors */
-        }
-        
-        /* SECONDARY BUTTONS */
+        /* Secondary Buttons (White with Grey Text) */
         div.stButton > button[kind="secondary"] {
             background: white;
             color: #555 !important;
             border: 1px solid #ddd;
         }
 
-        /* HERO BANNER CLASS */
+        /* --- HERO BANNER --- */
         .hero-banner {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 40px;
             border-radius: 20px;
-            color: white;
+            color: white !important;
             margin-bottom: 30px;
             text-align: center;
             box-shadow: 0 10px 20px rgba(118, 75, 162, 0.3);
         }
+        /* Force white text inside the Hero, overriding the global dark text rule above */
         .hero-title { font-size: 3rem; font-weight: 800; margin: 0; color: white !important; }
         .hero-subtitle { font-size: 1.2rem; opacity: 0.9; margin-top: 10px; font-weight: 300; color: white !important; }
+        .hero-banner p { color: white !important; }
+
+        /* --- PRICING METRICS FIX --- */
+        /* Ensures the $2.99 etc. are visible even if browser requests dark mode */
+        [data-testid="stMetricLabel"] {
+            color: #718096 !important; /* Grey for label */
+        }
+        [data-testid="stMetricValue"] {
+            color: #2d3748 !important; /* Dark for price */
+        }
+        div[data-testid="stCaptionContainer"] {
+            color: #718096 !important;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -90,11 +99,11 @@ def main():
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
 
-    # Routing
+    # Routing Logic
     if st.session_state.app_mode == "splash":
         ui_splash.show_splash()
     else:
-        # Handles 'store', 'workspace', 'forgot_password', etc.
+        # Handles 'store', 'workspace', 'forgot_password', 'legal', etc.
         ui_main.show_main_app()
 
 if __name__ == "__main__":
