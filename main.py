@@ -1,10 +1,10 @@
 import streamlit as st
 import ui_main
 import ui_splash
-# Import necessary modules for the sidebar/admin check, even if they aren't fully defined in this file
-# NOTE: You will need to ensure ui_login and ui_admin are accessible in your environment.
 import ui_login 
 import ui_admin 
+# Import the handlers from ui_main where they are now defined
+from ui_main import handle_login, handle_signup 
 
 # --- 1. GLOBAL PAGE CONFIG ---
 st.set_page_config(
@@ -23,6 +23,7 @@ def inject_global_css_and_ga():
     
     # Inject GA script using st.markdown (must be the first block for best results)
     ga_script = f"""
+        <!-- Google tag (gtag.js) -->
         <script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
         <script>
           window.dataLayer = window.dataLayer || [];
@@ -89,7 +90,7 @@ def main():
     with st.sidebar:
         
         # 3.1 Navigation Buttons
-        if st.button("🏠 Home", use_container_width=True):
+        if st.button("🏠 Home", use_container_width=True, key="sidebar_home_button"):
             st.session_state.app_mode = "splash"
             st.rerun()
         
@@ -101,22 +102,22 @@ def main():
             is_admin = False
             try:
                 # Assuming st.secrets['admin']['email'] is the comparison target
-                admin_email = st.secrets["admin"]["email"].strip().lower()
-                # Assuming st.session_state.user.user.email is the logged-in user's email
+                admin_email = st.secrets.get("admin", {}).get("email", "").strip().lower()
+                # Safely attempt to access the email
                 user_email = st.session_state.user.user.email.strip().lower()
                 if user_email == admin_email: 
                     is_admin = True
             except: 
-                # Debugging warning if keys or objects are missing
                 st.warning("Admin check failed. Log in to initialize session.")
                 pass
 
             if is_admin: 
-                if st.button("🔐 Admin Panel", type="primary", use_container_width=True):
+                # FIX 2: Admin Panel Button with unique key
+                if st.button("🔐 Admin Panel", type="primary", use_container_width=True, key="sidebar_admin_panel"):
                     st.session_state.app_mode = "admin"
                     st.rerun()
 
-            if st.button("Log Out", use_container_width=True):
+            if st.button("Log Out", use_container_width=True, key="sidebar_logout"):
                 # Clear all session state keys upon log out
                 st.session_state.clear()
                 st.session_state.app_mode = "splash"
@@ -124,14 +125,14 @@ def main():
         else:
             # Show Login/Signup if not logged in and not on the splash page
             if st.session_state.app_mode != "login" and st.session_state.app_mode != "splash":
-                if st.button("Log In / Sign Up", use_container_width=True):
+                if st.button("Log In / Sign Up", use_container_width=True, key="sidebar_login_guest"):
                     st.session_state.app_mode = "login"
                     st.rerun()
         
         # 3.3 Footer Links
         st.divider()
         st.markdown("📧 **Help:** support@verbapost.com")
-        if st.button("⚖️ Terms & Privacy", type="secondary", use_container_width=True):
+        if st.button("⚖️ Terms & Privacy", type="secondary", use_container_width=True, key="sidebar_legal"):
             st.session_state.app_mode = "legal"
             st.rerun()
         
@@ -143,12 +144,10 @@ def main():
     if st.session_state.app_mode == "splash":
         ui_splash.show_splash()
     elif st.session_state.app_mode == "admin":
-        # Assumes ui_admin.py has show_admin() defined
         ui_admin.show_admin()
     elif st.session_state.app_mode == "login":
-        # Assumes ui_login.py has show_login() defined, although your handlers 
-        # are elsewhere, this assumes ui_login renders the form.
-        ui_login.show_login() 
+        # FIX 3: Pass required arguments to show_login()
+        ui_login.show_login(handle_login, handle_signup) 
     else:
         # This handles 'legal', 'store', 'workspace', etc.
         ui_main.show_main_app()

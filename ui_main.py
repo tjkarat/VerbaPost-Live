@@ -5,8 +5,9 @@ from datetime import datetime
 import re
 
 # --- STANDARD IMPORTS ---
+# NOTE: Moving database import to the top and ensuring clean access
+import database 
 import ai_engine 
-import database
 import letter_format
 import mailer
 import payment_engine
@@ -22,6 +23,7 @@ COST_CIVIC = 6.99
 # --- HELPER: SUPABASE ---
 @st.cache_resource
 def get_supabase():
+    # We must ensure this logic is also robust
     from supabase import create_client
     try:
         if "SUPABASE_URL" not in st.secrets: return None
@@ -51,7 +53,7 @@ def reset_app():
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="hero-banner"><div class="hero-title">{title}</div><div class="hero-subtitle">{subtitle}</div></div>""", unsafe_allow_html=True)
 
-# --- PAGE: LEGAL (Needs to be moved to ui_legal.py later) ---
+# --- PAGE: LEGAL (Move to dedicated file later, keeping here for now) ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
@@ -68,10 +70,37 @@ def render_legal_page():
         st.session_state.app_mode = "splash"
         st.rerun()
 
+# --- LOGIN HANDLERS (Moved here to satisfy main.py call) ---
+
+def handle_login(email, password):
+    sb = get_supabase()
+    if not sb:
+        st.error("Database connection failed. Cannot log in.")
+        return
+    try:
+        res = sb.auth.sign_in_with_password({"email": email, "password": password})
+        st.session_state.user = res
+        st.session_state.user_email = email 
+        reset_app()
+        st.session_state.app_mode = "store"
+        st.rerun()
+    except Exception as e: 
+        st.error(f"Login failed: {e}")
+
+def handle_signup(email, password):
+    sb = get_supabase()
+    if not sb:
+        st.error("Database connection failed. Cannot sign up.")
+        return
+    try:
+        sb.auth.sign_up({"email": email, "password": password})
+        st.success("Check email for confirmation.")
+    except Exception as e: 
+        st.error(f"Signup failed: {e}")
+
 # --- MAIN LOGIC ---
 def show_main_app():
     if 'analytics' in globals(): analytics.inject_ga()
-    # Note: app_mode should be initialized in the main router (web_app.py)
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
 
@@ -94,11 +123,10 @@ def show_main_app():
         else:
             if st.session_state.payment_complete: st.session_state.app_mode = "workspace"
 
-    # --- ROUTING ---
-    # Note: Splash, Login, and Admin routing are handled by web_app.py
-
+    # --- ROUTING (Internal to ui_main) ---
     if st.session_state.app_mode == "legal": render_legal_page(); return
     
+    # --- Login/Reset Flow (Internal) ---
     if st.session_state.app_mode == "forgot_password":
         render_hero("Recovery", "Reset Password")
         with st.container(border=True):
@@ -133,7 +161,6 @@ def show_main_app():
                 except Exception as e: st.error(f"Error: {e}")
         return
 
-    # --- LOGIN ---
     if st.session_state.app_mode == "login":
         st.markdown("<h1 style='text-align: center;'>Welcome</h1>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns([1,2,1])
@@ -142,87 +169,14 @@ def show_main_app():
                 email = st.text_input("Email")
                 password = st.text_input("Password", type="password")
                 if st.button("Log In", type="primary", use_container_width=True):
-                    sb = get_supabase()
-                    try:
-                        res = sb.auth.sign_in_with_password({"email": email, "password": password})
-                        st.session_state.user = res
-                        st.session_state.user_email = email 
-                        reset_app()
-                        st.session_state.app_mode = "store"
-                        st.rerun()
-                    except Exception as e: st.error(f"Login failed: {e}")
+                    handle_login(email, password)
                 if st.button("Sign Up", use_container_width=True):
-                    sb = get_supabase()
-                    try:
-                        sb.auth.sign_up({"email": email, "password": password})
-                        st.success("Check email for confirmation.")
-                    except Exception as e: st.error(f"Signup failed: {e}")
+                    handle_signup(email, password)
                 if st.button("Forgot Password?", type="secondary", use_container_width=True):
                     st.session_state.app_mode = "forgot_password"; st.rerun()
         if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
         return
-
-    # --- SIDEBAR & ADMIN ---
-    # NOTE: The sidebar button logic is handled in web_app.py, but this UI renders when web_app.py
-    # calls ui_main.show_main_app().
-    with st.sidebar:
         
-        # === TEMPORARY DEBUG CODE ===
-        if st.session_state.get("user"):
-            st.sidebar.markdown("---")
-            st.sidebar.error("🚨 ADMIN DEBUG VALUES 🚨")
-            try:
-                # 1. Get Admin Email
-                admin_target = st.secrets.get("admin", {}).get("email", "N/A")
-                admin_clean = admin_target.strip().lower()
-                
-                # 2. Get User Email
-                user_raw = st.session_state.user.user.email
-                user_clean = user_raw.strip().lower()
-                
-                # 3. Display Comparison
-                st.sidebar.write(f"Secret Admin: **{repr(admin_clean)}**")
-                st.sidebar.write(f"Logged-in User: **{repr(user_clean)}**")
-                st.sidebar.write(f"Match Check: **{user_clean == admin_clean}**")
-            except Exception as e:
-                st.sidebar.write(f"Error reading emails: {e}")
-            st.sidebar.markdown("---")
-        # === END TEMPORARY DEBUG CODE ===
-
-        if st.button("Reset App"): reset_app(); st.rerun()
-        if st.session_state.get("user"):
-            st.divider()
-            u_email = st.session_state.get("user_email", "")
-            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
-            
-            st.caption(f"User: {u_email}")
-            
-            # ADMIN CHECK (Logic for the button that takes you to admin page)
-            admin_secret = st.secrets.get("admin", {}).get("email", "").strip().lower()
-            user_clean = u_email.strip().lower() if u_email else ""
-            
-            is_admin = (user_clean and admin_secret and user_clean == admin_secret)
-
-            if is_admin:
-                st.markdown("---")
-                # ADMIN BUTTON ONLY: This button changes the view state for the web_app.py router
-                if st.button("🔐 Admin Panel", type="primary", use_container_width=True):
-                    st.session_state.current_view = "admin"
-                    st.rerun()
-                # Status display is safe to keep here
-                with st.expander("ℹ️ Status", expanded=True):
-                    st.write("Admin Privileges: Enabled")
-                    if get_supabase(): st.write("DB: Online 🟢")
-                    else: st.error("DB: Offline 🔴")
-            
-            if st.button("Legal / Terms"): st.session_state.app_mode = "legal"; st.rerun()
-            if st.button("Sign Out"): 
-                st.session_state.pop("user", None)
-                st.session_state.pop("user_email", None)
-                reset_app() 
-                st.session_state.app_mode = "splash"
-                st.rerun()
-
     # --- STORE ---
     if st.session_state.app_mode == "store":
         render_hero("Select Service", "Choose your letter type.")
@@ -290,7 +244,6 @@ def show_main_app():
             if "Civic" in tier:
                 st.info("🏛️ **Civic Mode:** We auto-detect reps based on your address.")
                 with st.expander("📍 Your Return Address", expanded=True):
-                    # FIX: Unique keys for Civic Mode inputs
                     from_name = st.text_input("Your Name", value=def_name, key="civic_fname")
                     from_street = st.text_input("Street", value=def_street, key="civic_fstreet")
                     c1, c2, c3 = st.columns(3)
@@ -301,7 +254,6 @@ def show_main_app():
             else:
                 t1, t2 = st.tabs(["👉 Recipient", "👈 Sender"])
                 with t1:
-                    # FIX: Unique keys for Standard Recipient
                     to_name = st.text_input("Recipient Name", key="std_toname")
                     to_street = st.text_input("Street Address", key="std_tostreet")
                     c1, c2, c3 = st.columns(3)
@@ -309,7 +261,6 @@ def show_main_app():
                     to_state = c2.text_input("State", key="std_tostate")
                     to_zip = c3.text_input("Zip", key="std_tozip")
                 with t2:
-                    # FIX: Unique keys for Standard Sender
                     from_name = st.text_input("Your Name", value=def_name, key="std_fname")
                     from_street = st.text_input("Street", value=def_street, key="std_fstreet")
                     c1, c2, c3 = st.columns(3)
@@ -318,7 +269,6 @@ def show_main_app():
                     from_zip = c3.text_input("Zip", value=def_zip, key="std_fzip")
 
             if st.button("Save Addresses"):
-                # Use session state keys for saving
                 if u_email: 
                     database.update_user_profile(
                         u_email, 
