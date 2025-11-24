@@ -7,7 +7,6 @@ def show_splash():
     import analytics
     analytics.inject_ga()
 
-    # Hero
     st.markdown("""
     <div class="hero-banner">
         <div class="hero-title">VerbaPost 📮</div>
@@ -16,7 +15,6 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
     
-    # CTA - Only Login/Signup now
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         st.info("Please Log In or Create an Account to begin.")
@@ -25,8 +23,6 @@ def show_splash():
             st.rerun()
 
     st.divider()
-    
-    # Features
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
     with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on screen.")
@@ -35,4 +31,7 @@ def show_splash():
     st.markdown("---")
     f1, f2 = st.columns([4, 1])
     with f2:
-        if st.button("Legal", type="secondary"): set_mode("legal"); st.rerun()
+        # This now links to the restored Legal page in ui_main.py
+        if st.button("Legal", type="secondary"): 
+            set_mode("legal")
+            st.rerun()
