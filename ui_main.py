@@ -82,7 +82,6 @@ def show_main_app():
                 if "tier" in qp: st.session_state.locked_tier = qp["tier"]
                 if "lang" in qp: st.session_state.selected_language = qp["lang"]
                 
-                # Force Workspace
                 st.session_state.app_mode = "workspace"
                 st.query_params.clear()
                 st.rerun()
@@ -165,23 +164,28 @@ def show_main_app():
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
             
-            # --- ADMIN DEBUGGER (LOGIC) ---
-            admin_target = st.secrets.get("admin", {}).get("email", "MISSING").strip().lower()
+            # --- ADMIN CONSOLE (NOW VISIBLE TO ALL LOGGED IN USERS FOR DEBUG) ---
+            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
-            # VISUAL PROOF (Checks for hidden spaces/case errors)
-            if user_clean != admin_target:
-                st.warning("⚠️ Admin Mismatch Debug:")
-                st.code(f"You:   '{user_clean}'")
-                st.code(f"Admin: '{admin_target}'")
+            # Debug: show emails even if they don't match
+            st.warning("⚠️ Admin Debug:")
+            st.code(f"You:   '{user_clean}'")
+            st.code(f"Admin: '{admin_target}'")
             
-            if user_clean and admin_target and user_clean == admin_target:
+            # CHECK: If ANY user is logged in, show the Console block
+            if st.session_state.get("user"):
                 st.divider()
-                st.success("Admin Access Granted")
+                st.success("Admin Console Displayed (Temporary)")
                 with st.expander("🔐 Console", expanded=True):
-                    if st.button("Generate Code"):
-                        code = promo_engine.generate_code()
-                        st.info(f"Code: `{code}`")
+                    if user_clean and admin_target and user_clean == admin_target:
+                        st.write("Full Admin Privileges")
+                        if st.button("Generate Code"):
+                            code = promo_engine.generate_code()
+                            st.info(f"Code: `{code}`")
+                    else:
+                        st.write("Status View Only") # Show status even if not admin
+                    
                     if get_supabase(): st.write("DB: Online 🟢")
                     else: st.error("DB: Offline 🔴")
             
@@ -322,7 +326,7 @@ def show_main_app():
                 fin_fcity = st.text_input("City", value=f_city, key="rev_fcity")
                 fin_fstate = st.text_input("State", value=f_state, key="rev_fstate")
                 fin_fzip = st.text_input("Zip", value=f_zip, key="rev_fzip")
-            
+        
             # Construct Final Payload
             if "Civic" in tier:
                 to_a = {'name': 'Civic', 'address_line1': 'Civic'}
