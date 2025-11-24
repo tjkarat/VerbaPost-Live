@@ -172,6 +172,46 @@ def show_main_app():
     # --- 4. SIDEBAR & ADMIN ---
     with st.sidebar:
         if st.button("Reset App"): reset_app(); st.rerun()
+        
+        # === FULL DEBUG PANEL ===
+        with st.expander("🐛 DEBUG INFO", expanded=True):
+            st.write("**App State:**")
+            st.write(f"- app_mode: `{st.session_state.get('app_mode')}`")
+            st.write(f"- Has 'user' key: `{bool(st.session_state.get('user'))}`")
+            st.write(f"- user_email: `{st.session_state.get('user_email')}`")
+            
+            st.write("**Admin Check:**")
+            try:
+                admin_dict = st.secrets.get("admin", {})
+                st.write(f"- admin dict exists: `{bool(admin_dict)}`")
+                admin_target = admin_dict.get("email", "NO_EMAIL_KEY")
+                st.write(f"- admin.email raw: `{repr(admin_target)}`")
+                admin_clean = admin_target.strip().lower() if isinstance(admin_target, str) else "N/A"
+                st.write(f"- admin.email clean: `{repr(admin_clean)}`")
+            except Exception as e:
+                st.error(f"Error reading admin secrets: {e}")
+                admin_clean = "ERROR"
+            
+            u_email = st.session_state.get("user_email", "")
+            if not u_email and st.session_state.get("user"):
+                try:
+                    if hasattr(st.session_state.user, 'user'):
+                        u_email = st.session_state.user.user.email
+                        st.write(f"- Extracted from user.user.email: `{u_email}`")
+                except:
+                    st.write("- Failed to extract from user object")
+            
+            user_clean = u_email.strip().lower() if u_email else ""
+            st.write(f"- user_email clean: `{repr(user_clean)}`")
+            
+            is_admin = (user_clean and admin_clean and user_clean == admin_clean)
+            st.write(f"- **IS_ADMIN: `{is_admin}`**")
+            
+            if user_clean and admin_clean:
+                st.write(f"- Match: `{user_clean == admin_clean}`")
+                st.write(f"- Lengths: user={len(user_clean)}, admin={len(admin_clean)}")
+        
+        # === ORIGINAL LOGIC (kept for actual functionality) ===
         if st.session_state.get("user"):
             st.divider()
             u_email = st.session_state.get("user_email", "")
@@ -215,6 +255,9 @@ def show_main_app():
                 reset_app()
                 st.session_state.app_mode = "splash"
                 st.rerun()
+        else:
+            st.divider()
+            st.warning("⚠️ Not logged in - sidebar logic skipped")
 
     # --- 5. THE STORE ---
     if st.session_state.app_mode == "store":
