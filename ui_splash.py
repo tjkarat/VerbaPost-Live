@@ -40,8 +40,6 @@ def show_splash():
     
     u1, u2, u3 = st.columns(3)
     
-    # Using container(border=True) to create the white cards with shadow
-    
     # LEFT: Realtors
     with u1:
         with st.container(border=True):
@@ -87,7 +85,7 @@ def show_splash():
     # --- CTA BUTTONS ---
     col_spacer, col_btn, col_spacer2 = st.columns([1, 2, 1])
     with col_btn:
-        # Primary Action
+        # Primary Action -> Store
         st.button(
             "🚀 Create Your First Letter", 
             type="primary", 
@@ -98,13 +96,14 @@ def show_splash():
         
         st.write("")
         
-        # Secondary Action
+        # Secondary Action -> LOGIN
+        # UPDATED: Now points to 'login' instead of 'store'
         st.button(
             "Log In / Account", 
             type="secondary", 
             use_container_width=True,
             on_click=set_mode,
-            args=("store",)
+            args=("login",)
         )
 
     # --- LEGAL FOOTER ---
@@ -113,11 +112,11 @@ def show_splash():
     with f2:
         st.caption("© 2025 VerbaPost LLC")
         
-        # Restored Legal Button
+        # Legal Button
         st.button(
             "⚖️ Privacy Policy & Terms", 
             type="secondary", 
             use_container_width=True,
             on_click=set_mode,
-            args=("legal",) # Make sure to handle 'legal' routing in main.py if you want a dedicated page
+            args=("legal",) 
         )
