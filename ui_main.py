@@ -77,7 +77,7 @@ def show_main_app():
     if 'analytics' in globals(): analytics.inject_ga()
 
     # Defaults
-    if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "login"
     if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
 
     # --- 1. STRIPE RETURN HANDLER ---
@@ -102,6 +102,19 @@ def show_main_app():
             if st.session_state.payment_complete: st.session_state.app_mode = "workspace"
 
     # --- 2. ROUTING ---
+    if st.session_state.app_mode == "splash":
+        # Splash/Landing page
+        render_hero("VerbaPost", "Voice to Mail")
+        c1, c2, c3 = st.columns([1,2,1])
+        with c2:
+            if st.button("Get Started", type="primary", use_container_width=True):
+                st.session_state.app_mode = "login"
+                st.rerun()
+            if st.button("Continue as Guest", use_container_width=True):
+                st.session_state.app_mode = "store"
+                st.rerun()
+        return
+    
     if st.session_state.app_mode == "legal": render_legal_page(); return
 
     if st.session_state.app_mode == "forgot_password":
