@@ -29,7 +29,26 @@ def inject_global_css():
         h1, h2, h3, h4, h5, h6, p, li, span, div, label { 
             color: #2d3748 !important; 
         }
+        /* --- PATCH FOR BLACK WIDGETS --- */
         
+        /* Force Tabs to be White */
+        .stTabs [data-baseweb="tab-list"] {
+            background-color: white !important;
+        }
+        .stTabs [data-baseweb="tab"] {
+            color: #2d3748 !important;
+        }
+        
+        /* Force Audio Input to be White/Light */
+        .stAudio {
+            background-color: white !important;
+            color: black !important;
+        }
+        
+        /* Force generic buttons to be light if not primary */
+        button {
+            color: #2d3748; 
+        }
         /* --- FIX DROPDOWNS & INPUTS (The Nuclear Option) --- */
         
         /* 1. The Container of the Dropdown Options (The floating black box in your screenshot) */
