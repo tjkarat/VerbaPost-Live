@@ -29,6 +29,10 @@ def get_supabase():
     except: return None
 
 def reset_app():
+    # Preserve login state
+    user = st.session_state.get("user")
+    user_email = st.session_state.get("user_email")
+    
     # Fix: Finish button logic now redirects to 'splash'
     st.session_state.app_mode = "splash" 
     st.session_state.audio_path = None
@@ -37,6 +41,12 @@ def reset_app():
     st.session_state.stripe_url = None
     st.session_state.sig_data = None
     st.query_params.clear()
+    
+    # Restore login state
+    if user: 
+        st.session_state.user = user
+    if user_email: 
+        st.session_state.user_email = user_email
 
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="hero-banner"><div class="hero-title">{title}</div><div class="hero-subtitle">{subtitle}</div></div>""", unsafe_allow_html=True)
@@ -67,7 +77,7 @@ def show_main_app():
     if 'analytics' in globals(): analytics.inject_ga()
 
     # Defaults
-    if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
     if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
 
     # --- 1. STRIPE RETURN HANDLER ---
@@ -141,9 +151,11 @@ def show_main_app():
                     try:
                         res = sb.auth.sign_in_with_password({"email": email, "password": password})
                         st.session_state.user = res
-                        st.session_state.user_email = email 
-                        reset_app()
+                        st.session_state.user_email = email
+                        # Don't call reset_app() - just set the mode
                         st.session_state.app_mode = "store"
+                        st.session_state.payment_complete = False
+                        st.session_state.stripe_url = None
                         st.rerun()
                     except Exception as e: st.error(f"Login failed: {e}")
                 if st.button("Sign Up", use_container_width=True):
@@ -163,43 +175,46 @@ def show_main_app():
         if st.session_state.get("user"):
             st.divider()
             u_email = st.session_state.get("user_email", "")
-            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
+            if not u_email and hasattr(st.session_state.user, 'user'): 
+                u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
             
             # --- ADMIN DEBUGGER ---
             admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
-            # VISUAL PROOF (Checks for hidden spaces/case errors)
-            if user_clean != admin_target:
-                st.warning("⚠️ Admin Mismatch Debug:")
-                st.code(f"You:   '{user_clean}'")
-                st.code(f"Admin: '{admin_target}'")
+            # Check if user is admin
+            is_admin = (user_clean and admin_target and user_clean == admin_target)
             
-            # FIX: Force Console Display if Logged In
-            if st.session_state.get("user"): 
-                st.divider()
-                st.success("Admin Console Displayed (Temporary)")
-                
-                # Check for Actual Admin Match for privileges
-                if user_clean and admin_target and user_clean == admin_target:
-                    with st.expander("🔐 Console", expanded=True):
-                        st.write("Full Admin Privileges")
-                        if st.button("Generate Code"):
-                            code = promo_engine.generate_code()
-                            st.info(f"Code: `{code}`")
-                        if get_supabase(): st.write("DB: Online 🟢")
-                        else: st.error("DB: Offline 🔴")
-                else:
-                    # Show status if not full admin, but logged in
-                    with st.expander("Status", expanded=True):
-                        st.write(f"Logged in as: {user_clean}")
-                        if get_supabase(): st.write("DB: Online 🟢")
-                        else: st.error("DB: Offline 🔴")
-
+            st.divider()
+            
+            if is_admin:
+                with st.expander("🔐 Admin Console", expanded=True):
+                    st.success("✅ Full Admin Privileges")
+                    if st.button("Generate Promo Code"):
+                        code = promo_engine.generate_code()
+                        st.info(f"Code: `{code}`")
+                    if get_supabase(): 
+                        st.write("DB: Online 🟢")
+                    else: 
+                        st.error("DB: Offline 🔴")
+            else:
+                with st.expander("ℹ️ Status", expanded=False):
+                    st.write(f"Logged in as: {user_clean}")
+                    if admin_target:
+                        st.caption(f"Admin email: {admin_target}")
+                    if get_supabase(): 
+                        st.write("DB: Online 🟢")
+                    else: 
+                        st.error("DB: Offline 🔴")
 
             if st.button("Legal / Terms"): st.session_state.app_mode = "legal"; st.rerun()
-            if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.session_state.app_mode = "splash"; st.rerun()
+            if st.button("Sign Out"): 
+                st.session_state.pop("user", None)
+                st.session_state.pop("user_email", None)
+                reset_app()
+                st.session_state.app_mode = "splash"
+                st.rerun()
 
     # --- 5. THE STORE ---
     if st.session_state.app_mode == "store":
@@ -363,4 +378,4 @@ def show_main_app():
                 res = mailer.send_letter(pdf, to_a, from_a)
                 if res: st.success("Letter Mailed via USPS!")
                 
-            if st.button("Finish"): reset_app()
+            if st.button("Finish"): reset_app(); st.rerun()
