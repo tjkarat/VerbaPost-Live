@@ -1,15 +1,15 @@
 import streamlit as st
+import pandas as pd
 
-# --- SAFETY FIRST IMPORTS ---
-# These try/except blocks prevent the "KeyError" crashes
+# --- SAFETY IMPORTS ---
 try: import database
 except ImportError: database = None
 
+try: import letter_format
+except ImportError: letter_format = None
+
 try: import ai_engine
 except ImportError: ai_engine = None
-
-try: import mailer
-except ImportError: mailer = None
 
 try: import analytics
 except ImportError: analytics = None
@@ -17,39 +17,88 @@ except ImportError: analytics = None
 def show_admin():
     st.title("🔐 Admin Console")
     
-    # Visual Check of what is working
-    st.subheader("🔌 System Diagnostics")
+    # --- DIAGNOSTICS ROW ---
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Database", "✅ Connected" if database else "❌ Missing")
+    c2.metric("PDF Engine", "✅ Active" if letter_format else "❌ Missing")
+    c3.metric("GA4", "✅ Active" if analytics else "❌ Missing")
     
-    c1, c2, c3, c4 = st.columns(4)
-    
-    with c1:
-        st.metric("Database", "✅ Connected" if database else "❌ Missing")
-    with c2:
-        st.metric("AI Engine", "✅ Loaded" if ai_engine else "❌ Error")
-    with c3:
-        st.metric("Mailer", "✅ Ready" if mailer else "❌ Missing")
-    with c4:
-        st.metric("Analytics", "✅ Active" if analytics else "❌ Missing")
-
     st.divider()
-    
-    tab1, tab2 = st.tabs(["📊 Overview", "⚙️ Config"])
-    
-    with tab1:
-        if analytics:
-            try:
-                analytics.show_analytics()
-            except Exception as e:
-                st.error(f"Analytics module error: {e}")
-        else:
-            st.warning("Analytics.py file is missing or crashed.")
 
-    with tab2:
-        st.subheader("Secrets Debug")
-        # Show safe version of secrets (keys masked)
-        if "admin" in st.secrets:
-            st.write("Admin Email configured:", st.secrets["admin"]["email"])
-        elif "ADMIN_EMAIL" in st.secrets:
-            st.write("Admin Email configured:", st.secrets["ADMIN_EMAIL"])
+    # --- TABS ---
+    tab_mail, tab_users, tab_config = st.tabs(["🖨️ Mailroom", "👥 Users", "⚙️ Config"])
+    
+    # --- TAB 1: MAILROOM (THE CORE FEATURE) ---
+    with tab_mail:
+        st.subheader("Pending Letters")
+        
+        if database:
+            # 1. Fetch Data
+            letters = database.fetch_pending_letters()
+            
+            if letters:
+                # Convert to DataFrame for easy viewing
+                df = pd.DataFrame(letters)
+                
+                # Show Data Table
+                st.dataframe(
+                    df, 
+                    column_config={
+                        "created_at": "Date",
+                        "tier": "Service Tier",
+                        "status": "Status",
+                        "price": st.column_config.NumberColumn("Price", format="$%.2f")
+                    },
+                    use_container_width=True
+                )
+                
+                st.write("---")
+                
+                # 2. Print Control Panel
+                st.subheader("🖨️ Print Manager")
+                
+                # Select a letter to print
+                letter_options = {row['id']: f"{row['created_at']} - {row['user_email']} ({row['tier']})" for row in letters}
+                selected_id = st.selectbox("Select Letter to Print", options=list(letter_options.keys()), format_func=lambda x: letter_options[x])
+                
+                if selected_id:
+                    # Find the specific letter data
+                    letter_data = next((item for item in letters if item["id"] == selected_id), None)
+                    
+                    if letter_data and letter_format:
+                        # Generate the PDF
+                        # Note: In a real app, you'd pull the addresses from the DB columns. 
+                        # For now, we use placeholders if columns are missing.
+                        pdf_bytes = letter_format.create_pdf(
+                            body_text=letter_data.get("body_text", ""),
+                            recipient_info="Recipient Address Here", # Update database to store this
+                            sender_info="Sender Address Here",       # Update database to store this
+                            is_heirloom=("Heirloom" in letter_data.get("tier", ""))
+                        )
+                        
+                        # DOWNLOAD BUTTON
+                        st.download_button(
+                            label="📄 Download PDF for Printing",
+                            data=pdf_bytes,
+                            file_name=f"letter_{selected_id}.pdf",
+                            mime="application/pdf",
+                            type="primary"
+                        )
+                        
+                        if st.button("Mark as Sent"):
+                            database.mark_as_sent(selected_id)
+                            st.success("Status Updated!")
+                            st.rerun()
+            else:
+                st.info("📭 No pending letters found in database.")
+                st.caption("Tip: Go to the app and create a letter to see it appear here.")
         else:
-            st.error("No Admin Email found in Secrets!")
+            st.error("Database connection missing.")
+
+    # --- TAB 2: USERS ---
+    with tab_users:
+        st.info("User metrics coming soon.")
+
+    # --- TAB 3: CONFIG ---
+    with tab_config:
+        if analytics: analytics.show_analytics()
