@@ -1,158 +1,122 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey, Text
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker, joinedload
-from datetime import datetime
 import streamlit as st
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy.orm import declarative_base, sessionmaker
+from datetime import datetime
+import uuid
 
-Base = declarative_base()
+# --- 1. SETUP DATABASE CONNECTION ---
+# We force it to look for the Postgres URL. 
+# If missing, we print a loud error rather than silently failing to SQLite.
 
-def get_engine() -> Engine:
-    try:
-        db_url = st.secrets["connections"]["database_url"]
-        if db_url.startswith("postgres://"):
-            db_url = db_url.replace("postgres://", "postgresql://", 1)
-        return create_engine(db_url)
-    except:
-        return create_engine('sqlite:///verbapost.db')
+if "DATABASE_URL" in st.secrets:
+    # SQLAlchemy requires 'postgresql://', but Supabase provides 'postgres://' sometimes.
+    # We fix it to ensure compatibility.
+    db_url = st.secrets["DATABASE_URL"].replace("postgres://", "postgresql://")
+else:
+    # FALLBACK (Only for local testing if no secrets, but warns user)
+    print("⚠️ WARNING: No DATABASE_URL found. Using local SQLite (Data will be lost on reboot).")
+    db_url = "sqlite:///local_dev.db"
 
-class User(Base):
-    __tablename__ = 'users'
-    id = Column(Integer, primary_key=True)
-    username = Column(String, unique=True, nullable=False)
-    email = Column(String, unique=True, nullable=False)
-    address_name = Column(String, nullable=True)
-    address_street = Column(String, nullable=True)
-    address_city = Column(String, nullable=True)
-    address_state = Column(String, nullable=True)
-    address_zip = Column(String, nullable=True)
-    # NEW: Language Preference
-    language = Column(String, default="English")
-    letters = relationship("Letter", back_populates="author")
+try:
+    engine = create_engine(db_url, pool_pre_ping=True)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base = declarative_base()
+except Exception as e:
+    print(f"❌ Database Engine Error: {e}")
+    st.error("System Error: Could not connect to Database.")
+    # Create a dummy engine to prevent import crash, but app will fail later
+    engine = create_engine("sqlite:///") 
+    SessionLocal = sessionmaker(bind=engine)
+    Base = declarative_base()
 
-class Letter(Base):
-    __tablename__ = 'letters'
-    id = Column(Integer, primary_key=True)
-    content = Column(Text, nullable=True)
-    status = Column(String, default="Draft") 
+# --- 2. DEFINE TABLES (Models) ---
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    full_name = Column(String)
+    
+    # Saved Addresses
+    address_line1 = Column(String)
+    address_city = Column(String)
+    address_state = Column(String)
+    address_zip = Column(String)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
-    recipient_name = Column(String, nullable=True)
-    recipient_street = Column(String, nullable=True)
-    recipient_city = Column(String, nullable=True)
-    recipient_state = Column(String, nullable=True)
-    recipient_zip = Column(String, nullable=True)
-    user_id = Column(Integer, ForeignKey('users.id'))
-    author = relationship("User", back_populates="letters")
 
-def init_db():
-    Base.metadata.create_all(get_engine())
+class LetterDraft(Base):
+    __tablename__ = "letter_drafts"
 
-def get_session():
-    return sessionmaker(bind=get_engine())()
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String, index=True)
+    
+    # Content
+    transcription = Column(Text)
+    status = Column(String, default="Draft") # Draft, Paid, Sent
+    
+    # Meta
+    tier = Column(String)
+    price = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-def get_user_by_email(email):
-    session = get_session()
-    user = session.query(User).filter_by(email=email).first()
-    session.close()
-    return user
+# --- 3. AUTO-CREATE TABLES ---
+# This line creates the tables in Supabase if they don't exist yet.
+try:
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database Tables Verified")
+except Exception as e:
+    print(f"❌ Error Creating Tables: {e}")
 
-def create_or_get_user(email):
-    session = get_session()
-    user = session.query(User).filter_by(email=email).first()
-    if not user:
-        user = User(username=email, email=email, language="English")
-        session.add(user)
-        session.commit()
-        session.refresh(user)
-    session.close()
-    return user
+# --- 4. HELPER FUNCTIONS ---
 
-# UPDATED: Now saves language too
-def update_user_profile(email, name, street, city, state, zip_code, language="English"):
-    session = get_session()
+def get_db():
+    db = SessionLocal()
     try:
-        user = session.query(User).filter_by(email=email).first()
-        if user:
-            user.address_name = name
-            user.address_street = street
-            user.address_city = city
-            user.address_state = state
-            user.address_zip = zip_code
-            user.language = language
-            session.commit()
-    except Exception as e:
-        print(f"DB Error: {e}")
+        yield db
     finally:
-        session.close()
+        db.close()
 
-# Backwards compatibility wrapper
-def update_user_address(email, name, street, city, state, zip_code):
-    update_user_profile(email, name, street, city, state, zip_code)
-
-def save_draft(email, r_name, r_street, r_city, r_state, r_zip):
-    session = get_session()
+def save_draft(email, text, tier, price, status="Draft", address_data=None):
+    """Saves or updates a draft letter."""
+    db = SessionLocal()
     try:
-        user = session.query(User).filter_by(email=email).first()
-        if not user:
-            user = User(username=email, email=email)
-            session.add(user)
-            session.commit()
-            
-        draft = Letter(
-            author=user,
-            status="Draft",
-            recipient_name=r_name,
-            recipient_street=r_street,
-            recipient_city=r_city,
-            recipient_state=r_state,
-            recipient_zip=r_zip,
-            content=""
+        draft = LetterDraft(
+            user_email=email,
+            transcription=text,
+            tier=tier,
+            price=str(price),
+            status=status
         )
-        session.add(draft)
-        session.commit()
-        session.refresh(draft)
+        db.add(draft)
+        db.commit()
+        db.refresh(draft)
         return draft.id
     except Exception as e:
-        print(f"Draft Error: {e}")
+        print(f"Error saving draft: {e}")
+        db.rollback()
         return None
     finally:
-        session.close()
+        db.close()
 
-def get_letter(letter_id):
-    session = get_session()
-    letter = session.query(Letter).filter_by(id=letter_id).first()
-    session.close()
-    return letter
-
-def get_admin_queue():
-    session = get_session()
+def update_user_profile(email, name, street, city, state, zip_code, lang="English"):
+    """Updates user address profile"""
+    db = SessionLocal()
     try:
-        letters = session.query(Letter).options(joinedload(Letter.author)).filter(Letter.status == 'Queued').order_by(Letter.created_at.desc()).all()
-        session.expunge_all() 
-        return letters
-    finally:
-        session.close()
-
-def mark_as_sent(letter_id):
-    session = get_session()
-    try:
-        letter = session.query(Letter).filter_by(id=letter_id).first()
-        if letter:
-            letter.status = "Sent"
-            session.commit()
-    finally:
-        session.close()
+        user = db.query(UserProfile).filter(UserProfile.email == email).first()
+        if not user:
+            user = UserProfile(email=email)
+            db.add(user)
         
-def update_letter_status(letter_id, new_status, content=None):
-    session = get_session()
-    try:
-        letter = session.query(Letter).filter_by(id=letter_id).first()
-        if letter:
-            letter.status = new_status
-            if content:
-                letter.content = content
-            session.commit()
+        user.full_name = name
+        user.address_line1 = street
+        user.address_city = city
+        user.address_state = state
+        user.address_zip = zip_code
+        
+        db.commit()
+    except Exception as e:
+        print(f"Error updating profile: {e}")
     finally:
-        session.close()
-
-if __name__ == "__main__":
-    init_db()
+        db.close()
