@@ -4,22 +4,13 @@ import os
 from datetime import datetime
 import re
 
-# --- STANDARD IMPORTS ---
-import ai_engine 
-import database
-import letter_format
-import mailer
-import payment_engine
-import analytics
-import promo_engine
-
 # --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 COST_STANDARD = 2.99
 COST_HEIRLOOM = 5.99
 COST_CIVIC = 6.99
 
-# --- HELPER: SUPABASE ---
+# --- HELPER: SUPABASE (Essentials only) ---
 @st.cache_resource
 def get_supabase():
     from supabase import create_client
@@ -63,7 +54,21 @@ def render_legal_page():
 
 # --- MAIN LOGIC ---
 def show_main_app():
-    if 'analytics' in globals(): analytics.inject_ga()
+    # --- LAZY IMPORTS (Centralized for stability) ---
+    # These must be imported here because they were causing KeyErrors at the top level.
+    try:
+        import ai_engine 
+        import database
+        import letter_format
+        import mailer
+        import payment_engine
+        import analytics
+        import promo_engine
+        # Analytics runs here
+        if 'analytics' in locals(): analytics.inject_ga()
+    except ImportError as e:
+        st.error(f"Missing dependency for main logic: {e}. Please check requirements.txt.")
+        return
 
     # Defaults
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
@@ -78,18 +83,15 @@ def show_main_app():
                 st.session_state.payment_complete = True
                 st.session_state.processed_ids.append(session_id)
                 st.toast("✅ Payment Confirmed!")
-                
                 if "tier" in qp: st.session_state.locked_tier = qp["tier"]
                 if "lang" in qp: st.session_state.selected_language = qp["lang"]
-                
                 st.session_state.app_mode = "workspace"
                 st.query_params.clear()
                 st.rerun()
             else:
                 st.error("Payment verification failed.")
         else:
-            if st.session_state.payment_complete:
-                st.session_state.app_mode = "workspace"
+            if st.session_state.payment_complete: st.session_state.app_mode = "workspace"
 
     # --- 2. ROUTING ---
     if st.session_state.app_mode == "legal": render_legal_page(); return
@@ -246,8 +248,8 @@ def show_main_app():
                     to_street = st.text_input("Street Address", key="std_tostreet")
                     c1, c2, c3 = st.columns(3)
                     to_city = c1.text_input("City", key="std_tocity")
-                    to_state = c2.text_input("State", key="std_tostate")
-                    to_zip = c3.text_input("Zip", key="std_tozip")
+                    to_state = st.text_input("State", key="std_tostate")
+                    to_zip = st.text_input("Zip", key="std_tozip")
                 with t2:
                     from_name = st.text_input("Your Name", value=def_name, key="std_fname")
                     from_street = st.text_input("Street", value=def_street, key="std_fstreet")
@@ -257,16 +259,15 @@ def show_main_app():
                     from_zip = c3.text_input("Zip", value=def_zip, key="std_fzip")
 
             if st.button("Save Addresses"):
-                # --- FIX: Removed crashing assignment and rely on widget keys ---
                 if u_email: 
                     # Use the widget values which are already in session state
                     database.update_user_profile(
                         u_email, 
-                        st.session_state.get("std_fname", st.session_state.get("civic_fname")),
-                        st.session_state.get("std_fstreet", st.session_state.get("civic_fstreet")),
-                        st.session_state.get("std_fcity", st.session_state.get("civic_fcity")),
-                        st.session_state.get("std_fstate", st.session_state.get("civic_fstate")),
-                        st.session_state.get("std_fzip", st.session_state.get("civic_fzip"))
+                        st.session_state.get('std_fname', st.session_state.get('civic_fname')),
+                        st.session_state.get('std_fstreet', st.session_state.get('civic_fstreet')),
+                        st.session_state.get('std_fcity', st.session_state.get('civic_fcity')),
+                        st.session_state.get('std_fstate', st.session_state.get('civic_fstate')),
+                        st.session_state.get('std_fzip', st.session_state.get('civic_fzip'))
                     )
                 st.toast("Addresses Saved to Database!")
 
@@ -298,7 +299,6 @@ def show_main_app():
         tier = st.session_state.get("locked_tier", "Standard")
         
         if "Civic" in tier:
-            # CIVIC MODE DATA RECOVERY
             f_name = st.session_state.get("civic_fname", "")
             f_street = st.session_state.get("civic_fstreet", "")
             f_city = st.session_state.get("civic_fcity", "")
@@ -308,7 +308,6 @@ def show_main_app():
             t_name = "Civic Representative"
             t_street, t_city, t_state, t_zip = "", "", "", ""
         else:
-            # STANDARD MODE DATA RECOVERY
             f_name = st.session_state.get("std_fname", "")
             f_street = st.session_state.get("std_fstreet", "")
             f_city = st.session_state.get("std_fcity", "")
@@ -332,6 +331,7 @@ def show_main_app():
                 fin_tozip = st.text_input("Zip", value=t_zip, key="rev_tozip")
             else:
                  st.caption("Recipient: Your Representatives (Auto-Detected)")
+                 fin_toname = t_name # Set final variable for validation
 
             st.markdown("**Sender**")
             fin_fname = st.text_input("Your Name", value=f_name, key="rev_fname")
@@ -342,18 +342,23 @@ def show_main_app():
         
         # --- SEND BUTTON LOGIC ---
         if st.button("🚀 Send Letter", type="primary"):
-            # Validation
-            if not fin_toname and "Civic" not in tier:
-                st.error("❌ Error: Recipient Name is missing.")
-                return
-
+            
             # Construct Final Payload
-            to_a = {'name': fin_toname, 'address_line1': fin_tostreet, 'address_city': fin_tocity, 'address_state': fin_tostate, 'address_zip': fin_tozip}
+            if "Civic" in tier:
+                to_a = {'name': 'Civic', 'address_line1': 'Civic'} # Dummy for Lob
+            else:
+                to_a = {'name': fin_toname, 'address_line1': fin_tostreet, 'address_city': fin_tocity, 'address_state': fin_tostate, 'address_zip': fin_tozip}
+            
             from_a = {'name': fin_fname, 'address_line1': fin_fstreet, 'address_city': fin_fcity, 'address_state': fin_fstate, 'address_zip': fin_fzip}
             
+            # Validation
+            if not to_a.get('name') or not to_a.get('address_line1'):
+                st.error("❌ Error: Recipient Street and Name are required.")
+                return
+
             # Generate PDF Strings
-            to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}\n{to_a.get('address_city')}, {to_a.get('address_state')} {to_a.get('address_zip')}"
-            from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}\n{from_a.get('address_city')}, {from_a.get('address_state')} {from_a.get('address_zip')}"
+            to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}"
+            from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}"
             
             is_heirloom = "Heirloom" in tier
             lang = st.session_state.get("selected_language", "English")
