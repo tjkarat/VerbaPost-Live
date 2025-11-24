@@ -5,3 +5,5 @@ stripe
 openai
 Pillow
 openai-whisper
+sqlalchemy
+psycopg2-binary
