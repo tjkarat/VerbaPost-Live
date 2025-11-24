@@ -17,21 +17,21 @@ def inject_global_css():
         /* Force Light Mode Background & Text regardless of user settings */
         .stApp {
             background-color: #f8f9fc;
-            color: #2d3748; 
+            color: #2d3748;
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
         }
-        
+
         /* HIDE STREAMLIT DEFAULT ELEMENTS */
         header {visibility: hidden;}
         .stDeployButton {display:none;}
         footer {visibility: hidden;}
-        
+
         /* TEXT COLOR ENFORCEMENT */
         /* Forces headers and text to be dark grey, fixing the "Invisible Text" in dark mode */
-        h1, h2, h3, h4, h5, h6, p, li, span, div { 
-            color: #2d3748; 
+        h1, h2, h3, h4, h5, h6, p, li, span, div {
+            color: #2d3748;
         }
-        
+
         /* --- CARD STYLING --- */
         /* White containers with soft shadow */
         div[data-testid="stVerticalBlockBorderWrapper"] > div {
@@ -42,7 +42,7 @@ def inject_global_css():
             border: 1px solid #e2e8f0;
             transition: box-shadow 0.3s ease;
         }
-        
+
         /* --- BUTTON STYLING --- */
         /* Primary Buttons (Purple Gradient) */
         div.stButton > button {
