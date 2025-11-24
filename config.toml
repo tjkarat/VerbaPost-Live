@@ -1,15 +1,12 @@
 [theme]
 base = "light"
-primaryColor = "#667eea"
-backgroundColor = "#f8f9fc"
-secondaryBackgroundColor = "#ffffff"
-textColor = "#2d3748"
+primaryColor = "#2a5298"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#31333F"
 font = "sans serif"
-[server]
-fileWatcherType = "none"
-[browser]
-gatherUsageStats = false
 
-[global]
-# This line is often necessary to force the sidebar to load on older deployments:
-showSidebarNavigation = true
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = false

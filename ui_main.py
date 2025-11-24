@@ -58,19 +58,16 @@ def render_workspace_page():
     
     # --- AUTO-POPULATE LOGIC ---
     user_email = ""
-    # Check if user object exists and get email safely
     if st.session_state.get("user"):
         u = st.session_state.user
         if hasattr(u, "email"): user_email = u.email
         elif hasattr(u, "user"): user_email = u.user.email
         elif isinstance(u, dict): user_email = u.get("email", "")
 
-    # Fetch profile from DB if we have an email
     profile = {}
     if database and user_email:
         profile = database.get_user_profile(user_email)
     
-    # Use profile data or defaults
     def_name = profile.get("full_name", "")
     def_street = profile.get("address_line1", "")
     def_city = profile.get("address_city", "")
@@ -79,9 +76,7 @@ def render_workspace_page():
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
-        
         c_to, c_from = st.columns(2)
-        
         with c_to:
             st.markdown("#### 👉 To (Recipient)")
             st.text_input("Full Name", key="to_name")
@@ -90,34 +85,25 @@ def render_workspace_page():
             r1.text_input("City", key="to_city")
             r2.text_input("State", key="to_state")
             r3.text_input("Zip", key="to_zip")
-
         with c_from:
             st.markdown("#### 👈 From (You)")
-            # Inputs auto-filled with 'value='
             name = st.text_input("Your Name", value=def_name, key="from_name")
             street = st.text_input("Street Address", value=def_street, key="from_street")
             s1, s2, s3 = st.columns([2, 1, 1])
             city = s1.text_input("City", value=def_city, key="from_city")
             state = s2.text_input("State", value=def_state, key="from_state")
             zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
-            
-            # SAVE BUTTON
             if st.button("💾 Save My Address"):
                 if database and user_email:
-                    success = database.update_user_profile(user_email, name, street, city, state, zip_code)
-                    if success: st.toast("✅ Address Saved to Profile!")
-                    else: st.error("Save failed.")
-                else:
-                    st.error("Database unavailable")
+                    database.update_user_profile(user_email, name, street, city, state, zip_code)
+                    st.toast("✅ Saved!")
         
     st.write("---")
     
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        # FIXED: background_color="#ffffff" ensures white background
         st_canvas(
-            fill_color="rgba(255, 165, 0, 0.3)",
             stroke_width=2,
             stroke_color="#000000",
             background_color="#ffffff",
@@ -128,14 +114,31 @@ def render_workspace_page():
     
     with c_mic:
         st.write("🎤 **Dictation**")
+        
+        # --- INSTRUCTIONS ---
+        with st.expander("ℹ️ **How to Record**", expanded=True):
+            st.write("""
+            1. Click the **Microphone Icon** below.
+            2. Speak clearly. (Example: "Dear Mom, I hope you are well...")
+            3. Click the **Red Square** to stop.
+            4. Wait a moment for the AI to type it out.
+            """)
+            
         audio = st.audio_input("Record Message")
+        
         if audio:
-            with st.spinner("Transcribing..."):
+            with st.status("🤖 AI is listening & typing...", expanded=True) as status:
+                st.write("Processing audio file...")
                 if ai_engine:
                     text = ai_engine.transcribe_audio(audio)
-                    st.session_state.transcribed_text = text
-                    st.session_state.app_mode = "review"
-                    st.rerun()
+                    if "Error" in text:
+                        status.update(label="❌ Failed", state="error")
+                        st.error(text)
+                    else:
+                        status.update(label="✅ Complete!", state="complete")
+                        st.session_state.transcribed_text = text
+                        st.session_state.app_mode = "review"
+                        st.rerun()
 
 def render_review_page():
     render_hero("Review Letter", "Finalize and send")
