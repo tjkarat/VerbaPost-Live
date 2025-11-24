@@ -1,225 +1,69 @@
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import os
-from PIL import Image
 from datetime import datetime
-import urllib.parse
-import io
-import zipfile
 import re
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from supabase import create_client, Client
+
+# --- STANDARD IMPORTS ---
+import ai_engine 
+import database
+import letter_format
+import mailer
+import payment_engine
+import analytics
+import promo_engine
 
 # --- CONFIG ---
-MAX_BYTES_THRESHOLD = 35 * 1024 * 1024 
-YOUR_APP_URL = "https://verbapost.streamlit.app" 
+YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 COST_STANDARD = 2.99
 COST_HEIRLOOM = 5.99
 COST_CIVIC = 6.99
-SUPPORT_EMAIL = "support@verbapost.com"
 
-# --- HELPER: INIT SUPABASE ---
+# --- HELPER: SUPABASE ---
 @st.cache_resource
 def get_supabase():
+    from supabase import create_client
     try:
-        if "SUPABASE_URL" not in st.secrets:
-            return None
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-        return create_client(url, key)
-    except Exception as e:
-        print(f"Supabase Connection Error: {e}")
-        return None
+        if "SUPABASE_URL" not in st.secrets: return None
+        return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    except: return None
 
 def reset_app():
-    # SOFT RESET
     st.session_state.app_mode = "store"
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
     st.session_state.payment_complete = False
     st.session_state.stripe_url = None
     st.session_state.sig_data = None
-    
-    # Clear addresses (keep email/user)
-    addr_keys = ["to_name", "to_street", "to_city", "to_state", "to_zip", 
-                 "from_name", "from_street", "from_city", "from_state", "from_zip"]
-    for k in addr_keys:
-        st.session_state[k] = ""
-    
-    # Do not rerun here if called inside another function that reruns
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    st.markdown(f"""
-        <div class="hero-banner">
-            <div class="hero-title">{title}</div>
-            <div class="hero-subtitle">{subtitle}</div>
-        </div>
-    """, unsafe_allow_html=True)
+    st.markdown(f"""<div class="hero-banner"><div class="hero-title">{title}</div><div class="hero-subtitle">{subtitle}</div></div>""", unsafe_allow_html=True)
 
-# --- AUTH FLOWS ---
-def render_forgot_password_page():
-    render_hero("Recover Account", "Let's get you back in.")
-    with st.container(border=True):
-        st.write("Enter your email address. We will send you a **6-digit code**.")
-        email = st.text_input("Email Address")
-        if st.button("Send Code", type="primary"):
-            if email:
-                supabase = get_supabase()
-                if not supabase:
-                    st.error("System Error: Database connection failed.")
-                    return
-                try:
-                    supabase.auth.reset_password_email(email)
-                    st.session_state['reset_email'] = email
-                    st.session_state['app_mode'] = 'verify_reset_code'
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {e}")
-            else:
-                st.warning("Please enter an email.")
-        if st.button("Back"):
-            st.session_state.app_mode = "splash"
-            st.rerun()
-
-def render_verify_reset_code():
-    render_hero("Verify Code", "Check your email inbox.")
-    with st.container(border=True):
-        st.info(f"We sent a code to **{st.session_state.get('reset_email')}**")
-        code = st.text_input("6-Digit Code", max_chars=6)
-        new_password = st.text_input("New Password", type="password")
-        if st.button("Verify & Update Password", type="primary"):
-            if not code or len(new_password) < 6:
-                st.error("Invalid input.")
-                return
-            supabase = get_supabase()
-            if not supabase:
-                 st.error("System Error: Database connection failed.")
-                 return
-            email = st.session_state.get('reset_email')
-            try:
-                session = supabase.auth.verify_otp({"email": email, "token": code, "type": "recovery"})
-                if session.user:
-                    supabase.auth.update_user({"password": new_password})
-                    st.success("✅ Password Updated! Logging you in...")
-                    st.session_state['user'] = session
-                    reset_app() # Clear old state
-                    st.session_state['app_mode'] = "store"
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
-        if st.button("Cancel"):
-            st.session_state.app_mode = "splash"
-            st.rerun()
-
-def show_main_app():
-    # --- LAZY IMPORTS ---
-    import ai_engine 
-    import database
-    import letter_format
-    import mailer
-    import zipcodes
-    import payment_engine
-    import civic_engine
-    import promo_engine
-    import analytics
-
-    analytics.inject_ga()
-
-    # --- SAFETY CHECK ---
-    defaults = {
-        "app_mode": "store",
-        "audio_path": None,
-        "transcribed_text": "",
-        "payment_complete": False,
-        "processed_ids": [],
-        "stripe_url": None,
-        "locked_tier": "Standard",
-        "sig_data": None,
-        "selected_language": "English"
-    }
-    for k, v in defaults.items():
-        if k not in st.session_state: st.session_state[k] = v
-
-    # --- ROUTING ---
-    if st.session_state.app_mode == "forgot_password":
-        render_forgot_password_page()
-        return
-
-    if st.session_state.app_mode == "verify_reset_code":
-        render_verify_reset_code()
-        return
-
-    if st.session_state.app_mode == "legal":
-        render_hero("Legal", "Terms & Privacy")
+# --- PAGE: LEGAL ---
+def render_legal_page():
+    render_hero("Legal Center", "Transparency & Trust")
+    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    with tab_tos:
         with st.container(border=True):
-            st.markdown("### Privacy Policy")
-            st.write("We value your privacy. Your letters are processed securely and deleted from local cache after sending.")
-            st.markdown("### Terms of Service")
-            st.write("By using VerbaPost, you agree not to send threatening or illegal content via US Mail.")
-            st.write("")
-            if st.button("← Back to Home", type="primary"):
-                st.session_state.app_mode = "splash"
-                st.rerun()
-        return 
+            st.subheader("1. Service Usage")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content.")
+    with tab_privacy:
+        with st.container(border=True):
+            st.subheader("Data Handling")
+            st.write("We process your voice data solely for transcription.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("← Return to Home", type="primary", use_container_width=True):
+        st.session_state.app_mode = "splash"
+        st.rerun()
 
-    # ==================================================
-    #  PHASE 0: LOGIN / SIGNUP SCREEN
-    # ==================================================
-    if st.session_state.app_mode == "login":
-        st.write("")
-        st.markdown("<h1 style='text-align: center; margin-bottom: 20px;'>Welcome Back</h1>", unsafe_allow_html=True)
-        
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            with st.container(border=True):
-                email = st.text_input("Email Address")
-                password = st.text_input("Password", type="password")
-                st.write("") 
-                
-                b1, b2 = st.columns(2)
-                with b1:
-                    if st.button("Log In", type="primary", use_container_width=True):
-                        supabase = get_supabase()
-                        if not supabase:
-                            st.error("❌ Connection Failed. Check Secrets.")
-                        else:
-                            try:
-                                res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                                st.session_state.user = res
-                                # --- FIX: Clear state and force STORE ---
-                                reset_app() 
-                                st.session_state.app_mode = "store"
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-                with b2:
-                    if st.button("Sign Up", use_container_width=True):
-                        supabase = get_supabase()
-                        if not supabase:
-                            st.error("❌ Connection Failed. Check Secrets.")
-                        else:
-                            try:
-                                res = supabase.auth.sign_up({"email": email, "password": password})
-                                st.success("Account created! Check email.")
-                            except Exception as e:
-                                st.error(f"Error: {e}")
+# --- MAIN LOGIC ---
+def show_main_app():
+    if 'analytics' in globals(): analytics.inject_ga()
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
+    if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
 
-                st.write("")        
-                if st.button("Forgot Password?", type="secondary", use_container_width=True):
-                    st.session_state.app_mode = "forgot_password"
-                    st.rerun()
-                    
-        c_back1, c_back2, c_back3 = st.columns([1, 1, 1])
-        with c_back2:
-            if st.button("← Back to Home", use_container_width=True):
-                 st.session_state.app_mode = "splash"
-                 st.rerun()
-        return
-
-    # --- STRIPE RETURN CHECK ---
+    # --- STRIPE HANDLER ---
     qp = st.query_params
     if "session_id" in qp:
         session_id = qp["session_id"]
@@ -228,216 +72,232 @@ def show_main_app():
                 st.session_state.payment_complete = True
                 st.session_state.processed_ids.append(session_id)
                 st.toast("✅ Payment Confirmed!")
+                if "tier" in qp: st.session_state.locked_tier = qp["tier"]
+                if "lang" in qp: st.session_state.selected_language = qp["lang"]
                 st.session_state.app_mode = "workspace"
-                # ... (rest of restore logic) ...
+                st.query_params.clear()
+                st.rerun()
             else:
                 st.error("Payment verification failed.")
-        st.query_params.clear() 
+        else:
+            if st.session_state.payment_complete: st.session_state.app_mode = "workspace"
 
-    # ==========================================
-    #  SIDEBAR & ADMIN LOGIC
-    # ==========================================
+    # --- ROUTING ---
+    if st.session_state.app_mode == "legal": render_legal_page(); return
+    if st.session_state.app_mode == "forgot_password":
+        render_hero("Recovery", "Reset Password")
+        with st.container(border=True):
+            email = st.text_input("Enter your email address")
+            if st.button("Send Reset Code", type="primary"):
+                sb = get_supabase()
+                if sb:
+                    try:
+                        sb.auth.reset_password_email(email)
+                        st.session_state.reset_email = email
+                        st.session_state.app_mode = "verify_reset"
+                        st.rerun()
+                    except Exception as e: st.error(f"Error: {e}")
+            if st.button("Cancel"): st.session_state.app_mode = "login"; st.rerun()
+        return
+
+    if st.session_state.app_mode == "verify_reset":
+        render_hero("Verify", "Check Email")
+        with st.container(border=True):
+            st.info(f"Code sent to {st.session_state.get('reset_email')}")
+            code = st.text_input("Enter Code (6-8 digits)")
+            new_pass = st.text_input("New Password", type="password")
+            if st.button("Update Password", type="primary"):
+                sb = get_supabase()
+                try:
+                    res = sb.auth.verify_otp({"email": st.session_state.reset_email, "token": code, "type": "recovery"})
+                    if res.user:
+                        sb.auth.update_user({"password": new_pass})
+                        st.success("Password updated! Login now.")
+                        st.session_state.app_mode = "login"
+                        st.rerun()
+                except Exception as e: st.error(f"Error: {e}")
+        return
+
+    # --- LOGIN ---
+    if st.session_state.app_mode == "login":
+        st.markdown("<h1 style='text-align: center;'>Welcome</h1>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([1,2,1])
+        with c2:
+            with st.container(border=True):
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                if st.button("Log In", type="primary", use_container_width=True):
+                    sb = get_supabase()
+                    try:
+                        res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                        st.session_state.user = res
+                        st.session_state.user_email = email 
+                        reset_app()
+                        st.session_state.app_mode = "store"
+                        st.rerun()
+                    except Exception as e: st.error(f"Login failed: {e}")
+                if st.button("Sign Up", use_container_width=True):
+                    sb = get_supabase()
+                    try:
+                        sb.auth.sign_up({"email": email, "password": password})
+                        st.success("Check email for confirmation.")
+                    except Exception as e: st.error(f"Signup failed: {e}")
+                if st.button("Forgot Password?", type="secondary", use_container_width=True):
+                    st.session_state.app_mode = "forgot_password"; st.rerun()
+        if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
+        return
+
+    # --- SIDEBAR & ADMIN ---
     with st.sidebar:
-        st.subheader("Menu")
-        if st.button("🔄 Restart App", type="secondary"):
-            reset_app()
-            st.session_state.app_mode = "splash"
-            st.rerun()
-            
+        if st.button("Reset App"): reset_app(); st.rerun()
         if st.session_state.get("user"):
             st.divider()
-            try:
-                # Handle inconsistent Supabase object structure
-                current_email = st.session_state.user.user.email 
-            except:
-                try:
-                    current_email = st.session_state.user.email
-                except:
-                    current_email = "Unknown"
-
-            st.caption(f"Logged in: {current_email}")
+            u_email = st.session_state.get("user_email", "")
+            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             
-            # --- ADMIN DEBUGGER (TEMPORARY) ---
-            # This helps us see why it might be failing
-            admin_target = st.secrets.get("admin", {}).get("email", "Not Set")
-            # Uncomment the next line if you still can't see the console
-            # st.caption(f"Debug: Target={admin_target}") 
+            st.caption(f"User: {u_email}")
+            
+            # ADMIN CHECK (Debug Mode)
+            # If email matches secret, show console
+            admin_secret = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            user_clean = u_email.strip().lower() if u_email else ""
+            
+            # Uncomment this line if you still can't see admin panel to verify values
+            # st.caption(f"Debug: You={user_clean} | Admin={admin_secret}")
 
-            if current_email and admin_target and current_email.strip().lower() == admin_target.strip().lower():
+            if user_clean and admin_secret and user_clean == admin_secret:
                 st.markdown("---")
-                with st.expander("🔐 Admin Console"):
-                    st.write("**Promo Codes**")
+                st.success("Admin Mode")
+                with st.expander("🔐 Console", expanded=True):
                     if st.button("Generate Code"):
                         code = promo_engine.generate_code()
-                        st.success(f"Code: `{code}`")
-                    
-                    st.write("**System Status**")
-                    if get_supabase():
-                        st.success("Database: Connected")
-                    else:
-                        st.error("Database: Disconnected")
+                        st.info(f"Code: `{code}`")
+                    if get_supabase(): st.write("DB: Online 🟢")
+                    else: st.error("DB: Offline 🔴")
+            
+            if st.button("Legal / Terms"): st.session_state.app_mode = "legal"; st.rerun()
+            if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.session_state.app_mode = "splash"; st.rerun()
 
-            if st.button("Sign Out"):
-                st.session_state.pop("user")
-                reset_app()
-                st.session_state.app_mode = "splash"
-                st.rerun()
-
-    # ==================================================
-    #  PHASE 1: THE STORE
-    # ==================================================
+    # --- STORE ---
     if st.session_state.app_mode == "store":
-        render_hero("VerbaPost", "Voice to Letter. Mailed physically.")
-        
-        col1, col2 = st.columns([2, 1])
-        with col1:
+        render_hero("Select Service", "Choose your letter type.")
+        c1, c2 = st.columns([2, 1])
+        with c1:
             with st.container(border=True):
-                st.subheader("1. Customize")
-                c_tier, c_lang = st.columns(2)
-                with c_tier:
-                    service_tier = st.radio("Service Tier", 
-                        [f"⚡ Standard (${COST_STANDARD})", f"🏺 Heirloom (${COST_HEIRLOOM})", f"🏛️ Civic (${COST_CIVIC})"],
-                        index=0
-                    )
-                with c_lang:
-                    options = ["English", "Japanese", "Chinese", "Korean"]
-                    idx = options.index(st.session_state.selected_language) if st.session_state.selected_language in options else 0
-                    language = st.selectbox("Language", options, index=idx)
-        
-        with col2:
+                st.subheader("Options")
+                tier = st.radio("Tier", ["⚡ Standard ($2.99)", "🏺 Heirloom ($5.99)", "🏛️ Civic ($6.99)"])
+                lang = st.selectbox("Language", ["English", "Spanish", "French"])
+        with c2:
             with st.container(border=True):
-                st.subheader("2. Checkout")
-                if "Standard" in service_tier: price = COST_STANDARD; tier_name = "Standard"
-                elif "Heirloom" in service_tier: price = COST_HEIRLOOM; tier_name = "Heirloom"
-                elif "Civic" in service_tier: price = COST_CIVIC; tier_name = "Civic"
+                st.subheader("Checkout")
+                price = 2.99
+                if "Heirloom" in tier: price = 5.99
+                if "Civic" in tier: price = 6.99
+                st.metric("Total", f"${price}")
                 
-                promo_code = st.text_input("Promo Code (Optional)")
-                valid_promo = False
-                
-                if promo_code:
-                    if promo_engine.validate_code(promo_code):
-                        valid_promo = True; price = 0.00
-                        st.success("✅ Code Applied!")
-                    else: st.error("Invalid Code")
+                st.info("⚠️ **Note:** Payment opens in a new tab.")
+                if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
+                    user = st.session_state.get("user_email", "guest")
+                    database.save_draft(user, "", tier, price)
+                    safe_tier = tier.split()[1]
+                    link = f"{YOUR_APP_URL}?tier={safe_tier}&lang={lang}"
+                    url, sess_id = payment_engine.create_checkout_session(tier, int(price*100), link, YOUR_APP_URL)
+                    if url: st.link_button("Click here to Pay", url, type="primary", use_container_width=True)
+                    else: st.error("Payment System Offline")
 
-                st.markdown(f"### Total: **${price}**")
-                
-                if valid_promo:
-                    if st.button("Start (Free)", type="primary"):
-                        if promo_engine.redeem_code(promo_code):
-                            st.session_state.payment_complete = True
-                            st.session_state.app_mode = "workspace"
-                            st.session_state.locked_tier = tier_name
-                            st.session_state.selected_language = language
-                            st.rerun()
-                else:
-                    current_config = f"{service_tier}_{price}_{language}"
-                    if "stripe_url" not in st.session_state or st.session_state.get("last_config") != current_config:
-                         success_link = f"{YOUR_APP_URL}?tier={tier_name}&lang={language}"
-                         user_email = st.session_state.get("user_email", "guest@verbapost.com")
-                         draft_id = database.save_draft(user_email, "", "", "", "", "")
-                         if draft_id:
-                             success_link += f"&letter_id={draft_id}"
-                             url, session_id = payment_engine.create_checkout_session(
-                                f"VerbaPost {service_tier}", int(price * 100), success_link, YOUR_APP_URL
-                            )
-                             st.session_state.stripe_url = url
-                             st.session_state.stripe_session_id = session_id
-                             st.session_state.last_config = current_config
-                    
-                    if st.session_state.stripe_url:
-                        st.link_button(f"Pay ${price} & Begin", st.session_state.stripe_url, type="primary")
-
-    # ==================================================
-    #  PHASE 2: THE WORKSPACE
-    # ==================================================
+    # --- WORKSPACE ---
     elif st.session_state.app_mode == "workspace":
-        tier = st.session_state.get("locked_tier")
-        render_hero("Compose Letter", f"{tier} Edition")
+        tier = st.session_state.get("locked_tier", "Standard")
+        render_hero("Compose", f"{tier} Edition")
+        
+        u_email = st.session_state.get("user_email")
+        saved = database.get_user_profile(u_email) if u_email else None
+        
+        def_name = saved.full_name if saved else ""
+        def_street = saved.address_line1 if saved else ""
+        def_city = saved.address_city if saved else ""
+        def_state = saved.address_state if saved else ""
+        def_zip = saved.address_zip if saved else ""
 
         with st.container(border=True):
-            st.subheader("1. Addressing")
-            with st.form("address_form"):
-                col_to, col_from = st.tabs(["👉 Recipient", "👈 Sender"])
-                
-                with col_to:
-                    if "Civic" in tier:
-                        st.info("🏛️ Representatives will be auto-detected from your address.")
-                    else:
-                        st.text_input("Full Name", key="to_name")
-                        st.text_input("Street Address", key="to_street")
-                        c1, c2, c3 = st.columns([2, 1, 1])
-                        c1.text_input("City", key="to_city")
-                        c2.text_input("State", key="to_state")
-                        c3.text_input("Zip", key="to_zip")
+            st.subheader("Addressing")
+            if "Civic" in tier:
+                st.info("🏛️ **Civic Mode:** We auto-detect reps based on your address.")
+                with st.expander("📍 Your Return Address", expanded=True):
+                    # FIX: Unique keys for Civic Mode inputs
+                    from_name = st.text_input("Your Name", value=def_name, key="civic_fname")
+                    from_street = st.text_input("Street", value=def_street, key="civic_fstreet")
+                    c1, c2, c3 = st.columns(3)
+                    from_city = c1.text_input("City", value=def_city, key="civic_fcity")
+                    from_state = c2.text_input("State", value=def_state, key="civic_fstate")
+                    from_zip = c3.text_input("Zip", value=def_zip, key="civic_fzip")
+                    to_name, to_street, to_city, to_state, to_zip = "Civic", "Civic", "Civic", "TN", "00000"
+            else:
+                t1, t2 = st.tabs(["👉 Recipient", "👈 Sender"])
+                with t1:
+                    # FIX: Unique keys for Standard Recipient
+                    to_name = st.text_input("Recipient Name", key="std_toname")
+                    to_street = st.text_input("Street Address", key="std_tostreet")
+                    c1, c2, c3 = st.columns(3)
+                    to_city = c1.text_input("City", key="std_tocity")
+                    to_state = c2.text_input("State", key="std_tostate")
+                    to_zip = c3.text_input("Zip", key="std_tozip")
+                with t2:
+                    # FIX: Unique keys for Standard Sender
+                    from_name = st.text_input("Your Name", value=def_name, key="std_fname")
+                    from_street = st.text_input("Street", value=def_street, key="std_fstreet")
+                    c1, c2, c3 = st.columns(3)
+                    from_city = c1.text_input("City", value=def_city, key="std_fcity")
+                    from_state = c2.text_input("State", value=def_state, key="std_fstate")
+                    from_zip = c3.text_input("Zip", value=def_zip, key="std_fzip")
 
-                with col_from:
-                    st.text_input("Your Name", key="from_name")
-                    st.text_input("Your Street", key="from_street")
-                    st.text_input("Your City", key="from_city")
-                    c1, c2, c3 = st.columns([2, 1, 1])
-                    c1.text_input("Your State", key="from_state")
-                    c2.text_input("Your Zip", key="from_zip")
-
-                if st.form_submit_button("Save Addresses"):
-                    st.toast("Addresses Saved!")
+            if st.button("Save Addresses"):
+                if u_email: database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
+                st.session_state.to_addr = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
+                st.session_state.from_addr = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                st.toast("Addresses Saved!")
 
         st.markdown("<br>", unsafe_allow_html=True)
+        c_sig, c_mic = st.columns(2)
+        with c_sig:
+            st.write("Signature")
+            canvas = st_canvas(fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=300, key="sig")
+            if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
+        with c_mic:
+            st.write("Dictate Body")
+            st.info("👆 **Click microphone to start. Click red square to stop.**")
+            audio = st.audio_input("Record")
+            if audio:
+                with st.status("Transcribing..."):
+                    path = "temp.wav"
+                    with open(path, "wb") as f: f.write(audio.getvalue())
+                    text = ai_engine.transcribe_audio(path)
+                    st.session_state.transcribed_text = text
+                    st.session_state.app_mode = "review"
+                    st.rerun()
 
-        c_sign, c_rec = st.columns(2)
-        with c_sign:
-            with st.container(border=True):
-                st.subheader("2. Signature")
-                canvas_result = st_canvas(
-                    fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, stroke_color="#000",
-                    background_color="#fff", height=150, width=300, drawing_mode="freedraw", key="sig"
-                )
-                if canvas_result.image_data is not None: st.session_state.sig_data = canvas_result.image_data
-
-        with c_rec:
-            with st.container(border=True):
-                st.subheader("3. Dictate")
-                st.write("Tap the mic to start.")
-                audio_val = st.audio_input("Record Letter")
-                
-                if audio_val:
-                    with st.status("Transcribing...", expanded=True):
-                        path = "temp.wav"
-                        with open(path, "wb") as f: f.write(audio_val.getvalue())
-                        st.session_state.audio_path = path
-                        try:
-                            text = ai_engine.transcribe_audio(path)
-                            st.session_state.transcribed_text = text
-                            st.session_state.app_mode = "review"
-                            st.rerun()
-                        except Exception as e: st.error(f"Error: {e}")
-
-    # ==================================================
-    #  PHASE 3: REVIEW (Partial for brevity, rest is same)
-    # ==================================================
+    # --- REVIEW ---
     elif st.session_state.app_mode == "review":
-        render_hero("Review", "Polish your letter before sending.")
-        with st.container(border=True):
-            if not st.session_state.get("transcribed_text"): st.session_state.transcribed_text = ""
-            edited = st.text_area("Edit Content:", value=st.session_state.transcribed_text, height=400)
+        render_hero("Review", "Finalize Letter")
+        txt = st.text_area("Body", st.session_state.transcribed_text, height=300)
+        if st.button("🚀 Send Letter", type="primary"):
+            to_a = st.session_state.get("to_addr", {})
+            from_a = st.session_state.get("from_addr", {})
             
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("← Discard & Re-record", type="secondary"):
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
-            with col2:
-                if st.button("Finalize & Send 🚀", type="primary"):
-                    st.session_state.transcribed_text = edited
-                    st.session_state.app_mode = "finalizing"
-                    st.rerun()
+            to_str = f"{to_a.get('name')}\n{to_a.get('street')}\n{to_a.get('city')}, {to_a.get('state')} {to_a.get('zip')}"
+            from_str = f"{from_a.get('name')}\n{from_a.get('street')}\n{from_a.get('city')}, {from_a.get('state')} {from_a.get('zip')}"
+            
+            # Get args
+            tier = st.session_state.get("locked_tier", "Standard")
+            is_heirloom = "Heirloom" in tier
+            lang = st.session_state.get("selected_language", "English")
 
-    # ==================================================
-    #  PHASE 4: FINALIZE
-    # ==================================================
-    elif st.session_state.app_mode == "finalizing":
-        render_hero("Sending...", "We are processing your letter.")
-        with st.container(border=True):
-            # ... (Rest of finalize logic is standard, keeping simple for this paste) ...
-            st.success("Logic would run here (condensed for this fix).")
-            if st.button("Start New Letter"): reset_app()
+            pdf = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang) 
+            
+            if "Civic" in tier:
+                st.info("Civic Mode: Sending to reps...")
+            else:
+                mailer.send_letter(pdf, to_a, from_a)
+                st.success("Letter Sent!")
+                
+            if st.button("Finish"): reset_app()
