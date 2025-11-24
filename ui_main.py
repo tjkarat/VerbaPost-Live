@@ -40,6 +40,27 @@ def reset_app():
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="hero-banner"><div class="hero-title">{title}</div><div class="hero-subtitle">{subtitle}</div></div>""", unsafe_allow_html=True)
 
+# --- AUTH CALLBACKS (Embed in ui_main.py) ---
+
+def login_callback(email, password):
+    sb = get_supabase()
+    if not sb: st.error("❌ Connection Failed. Check Secrets."); return
+    try:
+        res = sb.auth.sign_in_with_password({"email": email, "password": password})
+        st.session_state.user = res
+        st.session_state.user_email = email 
+        reset_app()
+        st.session_state.app_mode = "store" 
+    except Exception as e: st.error(f"Login failed: {e}")
+
+def signup_callback(email, password):
+    sb = get_supabase()
+    if not sb: st.error("❌ Connection Failed. Check Secrets."); return
+    try:
+        sb.auth.sign_up({"email": email, "password": password})
+        st.success("Check email for confirmation.")
+    except Exception as e: st.error(f"Signup failed: {e}")
+
 # --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
@@ -48,9 +69,6 @@ def render_legal_page():
         with st.container(border=True):
             st.subheader("1. Service Usage")
             st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
-            st.subheader("2. Refunds")
-            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
-
     with tab_privacy:
         with st.container(border=True):
             st.subheader("Data Handling")
@@ -93,7 +111,6 @@ def show_main_app():
     # --- ROUTING ---
     if st.session_state.app_mode == "legal": render_legal_page(); return
 
-    # --- AUTH FLOWS (Omitted for brevity in this final printout) ---
     if st.session_state.app_mode == "forgot_password":
         render_hero("Recovery", "Reset Password")
         # ... logic ...
@@ -104,59 +121,77 @@ def show_main_app():
         # ... logic ...
         return
 
+    # --- LOGIN PAGE (Stabilized Structure) ---
     if st.session_state.app_mode == "login":
-        st.markdown("<h1 style='text-align: center;'>Welcome</h1>", unsafe_allow_html=True)
-        # ... login form logic ...
+        st.markdown("<h1 style='text-align: center;'>Welcome Back</h1>", unsafe_allow_html=True)
+        
+        # Use single column for maximum stability
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            with st.container(border=True):
+                email = st.text_input("Email Address", key="login_email")
+                password = st.text_input("Password", type="password", key="login_password")
+                
+                st.button("Log In", type="primary", use_container_width=True, 
+                          on_click=login_callback, args=(st.session_state.login_email, st.session_state.login_password))
+                st.button("Sign Up", use_container_width=True, 
+                          on_click=signup_callback, args=(st.session_state.login_email, st.session_state.login_password))
+                
+                if st.button("Forgot Password?", type="secondary", use_container_width=True):
+                    st.session_state.app_mode = "forgot_password"
+                    st.rerun()
+        
+        if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
         return
 
-    # --- 4. SIDEBAR & ADMIN (Logic moved to main flow for stability) ---
-    
-    # Prepare email variables for comparison
-    u_email = st.session_state.get("user_email", "")
-    if not u_email and st.session_state.get("user") and hasattr(st.session_state.user, 'user'):
-        u_email = st.session_state.user.user.email
-    
-    admin_target = st.secrets.get("admin", {}).get("email", "MISSING").strip().lower()
-    user_clean = u_email.strip().lower() if u_email else ""
+    # --- SIDEBAR & ADMIN ---
+    with st.sidebar:
+        if st.button("Reset App"): reset_app(); st.rerun()
+        if st.session_state.get("user"):
+            st.divider()
+            u_email = st.session_state.get("user_email", "")
+            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
+            st.caption(f"Logged in: {u_email}")
+            
+            # --- ADMIN DEBUGGER (Still present for testing) ---
+            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            user_clean = u_email.strip().lower() if u_email else ""
+            
+            if user_clean != admin_target:
+                st.warning("⚠️ Admin Mismatch Debug:")
+                st.code(f"You:   '{user_clean}'")
+                st.code(f"Admin: '{admin_target}'")
+            
+            if user_clean and admin_target and user_clean == admin_target:
+                st.divider()
+                st.success("Admin Access Granted")
+                with st.expander("🔐 Console", expanded=True):
+                    if st.button("Generate Code"):
+                        code = promo_engine.generate_code()
+                        st.info(f"Code: `{code}`")
+                    if get_supabase(): st.write("DB: Online 🟢")
+                    else: st.error("DB: Offline 🔴")
+            
+            if st.button("Legal / Terms"): st.session_state.app_mode = "legal"; st.rerun()
+            if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.session_state.app_mode = "splash"; st.rerun()
 
     # --- 5. THE STORE ---
     if st.session_state.app_mode == "store":
         render_hero("Select Service", "Choose your letter type.")
-        
-        # --- TEMP DEBUGGER: Admin Status (Displayed in the main card) ---
-        if user_clean and user_clean != admin_target:
-            st.error("❌ Admin Check Failed.")
-            st.code(f"You:   '{user_clean}'\nAdmin: '{admin_target}'")
-        elif user_clean and user_clean == admin_target:
-             st.success("✅ Admin Access Granted!")
-             
         c1, c2 = st.columns([2, 1])
         with c1:
             with st.container(border=True):
-                st.subheader("1. Customize")
+                st.subheader("Options")
                 tier = st.radio("Tier", ["⚡ Standard ($2.99)", "🏺 Heirloom ($5.99)", "🏛️ Civic ($6.99)"])
                 lang = st.selectbox("Language", ["English", "Spanish", "French"])
         with c2:
             with st.container(border=True):
-                st.subheader("2. Checkout")
+                st.subheader("Checkout")
                 price = 2.99
                 if "Heirloom" in tier: price = 5.99
                 if "Civic" in tier: price = 6.99
                 st.metric("Total", f"${price}")
-                
-                promo_code = st.text_input("Promo Code (Optional)")
-                valid_promo = False
-                
-                if promo_code:
-                    if promo_engine.validate_code(promo_code):
-                        valid_promo = True
-                        price = 0.00
-                        st.success("✅ Code Applied! Total: $0.00")
-                    else:
-                        st.error("❌ Invalid or Expired Code")
-                
                 st.info("⚠️ **Note:** Payment opens in a new tab.")
-                
                 if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
                     user = st.session_state.get("user_email", "guest")
                     database.save_draft(user, "", tier, price)
@@ -166,6 +201,7 @@ def show_main_app():
                     if url: st.link_button("Click here to Pay", url, type="primary", use_container_width=True)
                     else: st.error("Payment System Offline")
 
-    # --- 6. THE WORKSPACE / REVIEW / ETC. ---
-    elif st.session_state.app_mode in ["workspace", "review", "finalizing"]:
-        st.write("Final logic flow here...")
+    # --- 6. THE WORKSPACE ---
+    elif st.session_state.app_mode == "workspace":
+        render_hero("Compose", f"{tier} Edition")
+        # ... (rest of logic here) ...
