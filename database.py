@@ -2,21 +2,22 @@ import streamlit as st
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
+from typing import Type, Any, Tuple, Dict
 import uuid
-from typing import Type
 
 # Global placeholder variables
 Engine = None
 SessionLocal = None
 Base = None
+Models: Dict[str, Any] = {} # Global registry for model classes
 
 # --- 1. INITIALIZE DATABASE SETUP (Lazy Loading) ---
-@st.cache_resource
-def initialize_database():
-    global Engine, SessionLocal, Base
+@st.cache_resource(ttl=3600) # Cache for 1 hour
+def initialize_database() -> Tuple[Any, Any, Any, Dict[str, Any]]:
+    global Engine, SessionLocal, Base, Models
     
-    if Engine is not None:
-        return Engine, SessionLocal, Base
+    if Engine is not None and Models:
+        return Engine, SessionLocal, Base, Models
 
     if "DATABASE_URL" in st.secrets:
         db_url = st.secrets["DATABASE_URL"].replace("postgres://", "postgresql://")
@@ -31,14 +32,13 @@ def initialize_database():
         
     except Exception as e:
         print(f"❌ Database Engine Error: {e}")
-        st.error("System Error: Could not connect to Database.")
         Engine = create_engine("sqlite:///") 
         SessionLocal = sessionmaker(bind=Engine)
         Base = declarative_base()
-        return Engine, SessionLocal, Base
+        st.error("System Error: Could not connect to Database.")
+        return Engine, SessionLocal, Base, {}
 
     # --- 2. DEFINE TABLES (Models) ---
-    # These definitions MUST remain nested inside this function
     
     class UserProfile(Base):
         __tablename__ = "user_profiles"
@@ -56,10 +56,13 @@ def initialize_database():
         id = Column(Integer, primary_key=True, index=True)
         user_email = Column(String, index=True)
         transcription = Column(Text)
-        status = Column(String, default="Draft")
+        status = Column(String, default="Draft") 
         tier = Column(String)
         price = Column(String)
         created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Store models in a dictionary for easy, stable access
+    Models = {'user_profiles': UserProfile, 'letter_drafts': LetterDraft}
         
     # --- 3. AUTO-CREATE TABLES ---
     try:
@@ -68,9 +71,9 @@ def initialize_database():
     except Exception as e:
         print(f"❌ Error Creating Tables: {e}")
         
-    return Engine, SessionLocal, Base
+    return Engine, SessionLocal, Base, Models
 
-# Call the initialization function to set up global variables
+# Call the initialization function to set up global variables on import
 initialize_database()
 
 # --- 4. HELPER FUNCTIONS ---
@@ -79,14 +82,16 @@ def get_session():
     """Returns a new session instance."""
     return SessionLocal()
 
-def get_model(name: str) -> Type[Base]:
-    """Retrieves model class from the registry by name."""
-    initialize_database()
-    return Base.registry.class_by_table_name[name]
+def get_model(name: str) -> Type[Any]:
+    """Retrieves model class from the custom global registry."""
+    if not Models:
+        initialize_database()
+    return Models.get(name)
 
 def get_user_profile(email):
     """Fetches user details to pre-fill forms."""
     UserProfile = get_model('user_profiles')
+    if not UserProfile: return None
     db = get_session()
     try:
         return db.query(UserProfile).filter(UserProfile.email == email).first()
@@ -98,13 +103,14 @@ def get_user_profile(email):
 def save_draft(email, text, tier, price, status="Draft", address_data=None):
     """Saves or updates a draft letter."""
     LetterDraft = get_model('letter_drafts')
+    if not LetterDraft: return None
+    
     db = get_session()
     try:
         draft = LetterDraft(user_email=email, transcription=text, tier=tier, price=str(price), status=status)
         db.add(draft); db.commit(); db.refresh(draft)
         return draft.id
     except Exception as e:
-        print(f"Error saving draft: {e}")
         db.rollback(); return None
     finally:
         db.close()
@@ -112,6 +118,8 @@ def save_draft(email, text, tier, price, status="Draft", address_data=None):
 def update_user_profile(email, name, street, city, state, zip_code, lang="English"):
     """Updates user address profile"""
     UserProfile = get_model('user_profiles')
+    if not UserProfile: return None
+    
     db = get_session()
     try:
         user = db.query(UserProfile).filter(UserProfile.email == email).first()
