@@ -47,11 +47,15 @@ def render_legal_page():
     with tab_tos:
         with st.container(border=True):
             st.subheader("1. Service Usage")
-            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content.")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+            st.subheader("2. Refunds")
+            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
+
     with tab_privacy:
         with st.container(border=True):
             st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription.")
+            st.write("We process your voice data solely for transcription. We do not sell your personal information.")
+
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("← Return to Home", type="primary", use_container_width=True):
         st.session_state.app_mode = "splash"
@@ -60,10 +64,12 @@ def render_legal_page():
 # --- MAIN LOGIC ---
 def show_main_app():
     if 'analytics' in globals(): analytics.inject_ga()
+
+    # Defaults
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
 
-    # --- 1. STRIPE HANDLER ---
+    # --- 1. STRIPE RETURN HANDLER ---
     qp = st.query_params
     if "session_id" in qp:
         session_id = qp["session_id"]
@@ -72,15 +78,18 @@ def show_main_app():
                 st.session_state.payment_complete = True
                 st.session_state.processed_ids.append(session_id)
                 st.toast("✅ Payment Confirmed!")
+                
                 if "tier" in qp: st.session_state.locked_tier = qp["tier"]
                 if "lang" in qp: st.session_state.selected_language = qp["lang"]
+                
                 st.session_state.app_mode = "workspace"
                 st.query_params.clear()
                 st.rerun()
             else:
                 st.error("Payment verification failed.")
         else:
-            if st.session_state.payment_complete: st.session_state.app_mode = "workspace"
+            if st.session_state.payment_complete:
+                st.session_state.app_mode = "workspace"
 
     # --- 2. ROUTING ---
     if st.session_state.app_mode == "legal": render_legal_page(); return
@@ -156,16 +165,16 @@ def show_main_app():
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
             
-            # --- SUPER DEBUGGER (Shows exactly why admin fails) ---
+            # --- ADMIN DEBUGGER ---
             admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
+            # VISUAL PROOF (Checks for hidden spaces/case errors)
             if user_clean != admin_target:
                 st.warning("⚠️ Admin Mismatch Debug:")
                 st.code(f"You:   '{user_clean}'")
                 st.code(f"Admin: '{admin_target}'")
-                st.caption("Check spelling/spaces in secrets.toml")
-
+            
             if user_clean and admin_target and user_clean == admin_target:
                 st.divider()
                 st.success("Admin Access Granted")
@@ -247,13 +256,19 @@ def show_main_app():
                     from_state = c2.text_input("State", value=def_state, key="std_fstate")
                     from_zip = c3.text_input("Zip", value=def_zip, key="std_fzip")
 
-            # FIX: REMOVED CRASHING CODE
-            # We no longer manually assign session_state keys here.
-            # The widgets above automatically update the state.
             if st.button("Save Addresses"):
+                # --- FIX: Removed crashing assignment and rely on widget keys ---
                 if u_email: 
-                    database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
-                st.toast("Addresses Saved!")
+                    # Use the widget values which are already in session state
+                    database.update_user_profile(
+                        u_email, 
+                        st.session_state.get("std_fname", st.session_state.get("civic_fname")),
+                        st.session_state.get("std_fstreet", st.session_state.get("civic_fstreet")),
+                        st.session_state.get("std_fcity", st.session_state.get("civic_fcity")),
+                        st.session_state.get("std_fstate", st.session_state.get("civic_fstate")),
+                        st.session_state.get("std_fzip", st.session_state.get("civic_fzip"))
+                    )
+                st.toast("Addresses Saved to Database!")
 
         st.markdown("<br>", unsafe_allow_html=True)
         c_sig, c_mic = st.columns(2)
@@ -279,11 +294,11 @@ def show_main_app():
         render_hero("Review", "Finalize Letter")
         txt = st.text_area("Body", st.session_state.transcribed_text, height=300)
         
-        # Recover logic
+        # RECOVERY OF VALUES (Pulls directly from the final state of the text inputs)
         tier = st.session_state.get("locked_tier", "Standard")
         
-        # RECOVERY OF VALUES (Safe Method)
         if "Civic" in tier:
+            # CIVIC MODE DATA RECOVERY
             f_name = st.session_state.get("civic_fname", "")
             f_street = st.session_state.get("civic_fstreet", "")
             f_city = st.session_state.get("civic_fcity", "")
@@ -291,11 +306,9 @@ def show_main_app():
             f_zip = st.session_state.get("civic_fzip", "")
             
             t_name = "Civic Representative"
-            t_street = "Capitol Hill"
-            t_city = "Nashville"
-            t_state = "TN"
-            t_zip = "00000"
+            t_street, t_city, t_state, t_zip = "", "", "", ""
         else:
+            # STANDARD MODE DATA RECOVERY
             f_name = st.session_state.get("std_fname", "")
             f_street = st.session_state.get("std_fstreet", "")
             f_city = st.session_state.get("std_fcity", "")
@@ -308,19 +321,39 @@ def show_main_app():
             t_state = st.session_state.get("std_tostate", "")
             t_zip = st.session_state.get("std_tozip", "")
 
+        # --- VIEW: ADDRESS VERIFICATION ---
+        with st.expander("2. Verify Addresses (Click to Edit)", expanded=True):
+            if "Civic" not in tier:
+                st.markdown("**Recipient**")
+                fin_toname = st.text_input("Name", value=t_name, key="rev_toname")
+                fin_tostreet = st.text_input("Street", value=t_street, key="rev_tostreet")
+                fin_tocity = st.text_input("City", value=t_city, key="rev_tocity")
+                fin_tostate = st.text_input("State", value=t_state, key="rev_tostate")
+                fin_tozip = st.text_input("Zip", value=t_zip, key="rev_tozip")
+            else:
+                 st.caption("Recipient: Your Representatives (Auto-Detected)")
+
+            st.markdown("**Sender**")
+            fin_fname = st.text_input("Your Name", value=f_name, key="rev_fname")
+            fin_fstreet = st.text_input("Your Street", value=f_street, key="rev_fstreet")
+            fin_fcity = st.text_input("City", value=f_city, key="rev_fcity")
+            fin_fstate = st.text_input("State", value=f_state, key="rev_fstate")
+            fin_fzip = st.text_input("Zip", value=f_zip, key="rev_fzip")
+        
+        # --- SEND BUTTON LOGIC ---
         if st.button("🚀 Send Letter", type="primary"):
             # Validation
-            if not t_name and "Civic" not in tier:
-                st.error("❌ Recipient Name is missing.")
+            if not fin_toname and "Civic" not in tier:
+                st.error("❌ Error: Recipient Name is missing.")
                 return
 
-            # Construct Objects
-            to_a = {'name': t_name, 'address_line1': t_street, 'address_city': t_city, 'address_state': t_state, 'address_zip': t_zip}
-            from_a = {'name': f_name, 'address_line1': f_street, 'address_city': f_city, 'address_state': f_state, 'address_zip': f_zip}
+            # Construct Final Payload
+            to_a = {'name': fin_toname, 'address_line1': fin_tostreet, 'address_city': fin_tocity, 'address_state': fin_tostate, 'address_zip': fin_tozip}
+            from_a = {'name': fin_fname, 'address_line1': fin_fstreet, 'address_city': fin_fcity, 'address_state': fin_fstate, 'address_zip': fin_fzip}
             
             # Generate PDF Strings
-            to_str = f"{to_a['name']}\n{to_a['address_line1']}\n{to_a['address_city']}, {to_a['address_state']} {to_a['address_zip']}"
-            from_str = f"{from_a['name']}\n{from_a['address_line1']}\n{from_a['address_city']}, {from_a['address_state']} {from_a['address_zip']}"
+            to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}\n{to_a.get('address_city')}, {to_a.get('address_state')} {to_a.get('address_zip')}"
+            from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}\n{from_a.get('address_city')}, {from_a.get('address_state')} {from_a.get('address_zip')}"
             
             is_heirloom = "Heirloom" in tier
             lang = st.session_state.get("selected_language", "English")
