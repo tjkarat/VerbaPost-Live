@@ -1,31 +1,58 @@
-def check_is_admin():
-    """Checks for admin privileges using FLAT secrets"""
-    if not st.session_state.get("user"):
-        return False
-        
-    try:
-        # 1. Get Admin Email (Try Flat first, then Nested)
-        admin_email = ""
-        if "ADMIN_EMAIL" in st.secrets:
-            admin_email = st.secrets["ADMIN_EMAIL"]
-        elif "admin" in st.secrets and "email" in st.secrets["admin"]:
-            admin_email = st.secrets["admin"]["email"]
-            
-        if not admin_email: return False
+import streamlit as st
+import sys
 
-        # 2. Compare with Current User
-        user_obj = st.session_state.user
-        current_email = ""
-        
-        if hasattr(user_obj, "email") and user_obj.email: 
-            current_email = user_obj.email
-        elif hasattr(user_obj, "user") and hasattr(user_obj.user, "email"): 
-            current_email = user_obj.user.email
-        elif isinstance(user_obj, dict) and "email" in user_obj: 
-            current_email = user_obj["email"]
-            
-        return current_email.strip().lower() == admin_email.strip().lower()
-        
-    except Exception as e:
-        print(f"Admin Check Error: {e}")
-        return False
+# 1. Setup Page
+print("--- STARTING APP ---")
+st.set_page_config(page_title="VerbaPost", layout="wide")
+print("Step 1: Config set")
+
+# 2. Inject Styles
+st.markdown("""
+    <style>
+    .block-container {padding-top: 2rem;}
+    </style>
+    """, unsafe_allow_html=True)
+
+# 3. Load Modules (With explicit debugging)
+try:
+    print("Step 2: Importing modules...")
+    import ui_splash
+    print(" - ui_splash loaded")
+    import ui_login
+    print(" - ui_login loaded")
+    import auth_engine
+    print(" - auth_engine loaded")
+    import ui_main
+    print(" - ui_main loaded")
+    import ui_admin
+    print(" - ui_admin loaded")
+    import ui_legal
+    print(" - ui_legal loaded")
+except Exception as e:
+    print(f"CRITICAL IMPORT ERROR: {e}")
+    st.error(f"🔥 Critical Error: {e}")
+    st.stop()
+
+# 4. Session State
+if "current_view" not in st.session_state:
+    st.session_state.current_view = "splash"
+
+# 5. Router
+view = st.session_state.current_view
+print(f"Step 3: Rendering view '{view}'")
+
+if view == "splash":
+    ui_splash.show_splash()
+elif view == "login":
+    # Pass the functions directly from auth_engine
+    ui_login.show_login(auth_engine.sign_in, auth_engine.sign_up)
+elif view == "main_app":
+    ui_main.show_main_app()
+elif view == "admin":
+    ui_admin.show_admin()
+elif view == "legal":
+    ui_legal.show_legal()
+else:
+    st.write("Unknown view")
+
+print("--- RENDER COMPLETE ---")
