@@ -34,7 +34,6 @@ def initialize_database():
     except Exception as e:
         print(f"❌ Database Engine Error: {e}")
         st.error("System Error: Could not connect to Database.")
-        # Setup dummy engine to prevent app crash
         Engine = create_engine("sqlite:///") 
         SessionLocal = sessionmaker(bind=Engine)
         Base = declarative_base()
@@ -44,21 +43,27 @@ def initialize_database():
 
     class UserProfile(Base):
         __tablename__ = "user_profiles"
+        
         id = Column(Integer, primary_key=True, index=True)
         email = Column(String, unique=True, index=True)
         full_name = Column(String)
+        
         address_line1 = Column(String)
         address_city = Column(String)
         address_state = Column(String)
         address_zip = Column(String)
+        
         created_at = Column(DateTime, default=datetime.utcnow)
 
     class LetterDraft(Base):
         __tablename__ = "letter_drafts"
+
         id = Column(Integer, primary_key=True, index=True)
         user_email = Column(String, index=True)
+        
         transcription = Column(Text)
-        status = Column(String, default="Draft") 
+        status = Column(String, default="Draft") # Draft, Paid, Sent
+        
         tier = Column(String)
         price = Column(String)
         created_at = Column(DateTime, default=datetime.utcnow)
@@ -79,15 +84,18 @@ initialize_database()
 
 def get_session():
     """Returns a new session instance."""
+    # Ensure initialization runs if not already
+    if not Engine:
+        initialize_database()
+        
     return SessionLocal()
-
-# Placeholder class definitions (needed for helper function typing)
-class UserProfile(Base): pass 
-class LetterDraft(Base): pass
 
 
 def get_user_profile(email):
     """Fetches user details to pre-fill forms."""
+    # We must use the classes defined inside initialize_database()
+    UserProfile = initialize_database()[2].metadata.tables['user_profiles'].class_
+    
     db = get_session()
     try:
         return db.query(UserProfile).filter(UserProfile.email == email).first()
@@ -98,6 +106,8 @@ def get_user_profile(email):
 
 def save_draft(email, text, tier, price, status="Draft", address_data=None):
     """Saves or updates a draft letter."""
+    LetterDraft = initialize_database()[2].metadata.tables['letter_drafts'].class_
+    
     db = get_session()
     try:
         draft = LetterDraft(user_email=email, transcription=text, tier=tier, price=str(price), status=status)
@@ -110,6 +120,8 @@ def save_draft(email, text, tier, price, status="Draft", address_data=None):
 
 def update_user_profile(email, name, street, city, state, zip_code, lang="English"):
     """Updates user address profile"""
+    UserProfile = initialize_database()[2].metadata.tables['user_profiles'].class_
+    
     db = get_session()
     try:
         user = db.query(UserProfile).filter(UserProfile.email == email).first()
