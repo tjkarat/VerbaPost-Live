@@ -1,103 +1,105 @@
 import streamlit as st
+import streamlit.components.v1 as components
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(page_title="VerbaPost", layout="wide")
 
-# --- 2. STYLE ---
-st.markdown("""
+# --- 2. GLOBAL STYLES ---
+GA_ID = "G-D3P178CESF"
+st.markdown(f"""
+    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){{dataLayer.push(arguments);}}
+        gtag('js', new Date());
+        gtag('config', '{GA_ID}');
+    </script>
     <style>
-    .block-container {padding-top: 2rem !important;}
-    section[data-testid="stSidebar"] {background-color: #f0f2f6;}
-    div.stButton > button {border-radius: 8px; width: 100%;}
+    .block-container {{padding-top: 2rem !important;}}
+    /* Hide the 'manage app' button for users */
+    #MainMenu {{visibility: hidden;}}
+    footer {{visibility: hidden;}}
+    header {{visibility: hidden;}}
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. IMPORTS (Safe Mode) ---
+# --- 3. IMPORTS ---
 try:
     import ui_splash, ui_login, ui_admin, ui_main, auth_engine
 except ImportError as e:
-    st.error(f"CRITICAL IMPORT ERROR: {e}")
+    st.error(f"System Error: {e}")
     st.stop()
 
 # --- 4. SESSION STATE ---
 if "current_view" not in st.session_state: st.session_state.current_view = "splash"
 if "user" not in st.session_state: st.session_state.user = None
 
-# --- 5. ADMIN CHECK (WITH ON-SCREEN DEBUGGING) ---
+# --- 5. ADMIN CHECK (STRICT) ---
 def check_is_admin():
-    # 1. Get Configured Admin Email
-    admin_email = ""
+    # 1. Get Target Email from Secrets
     try:
-        if "ADMIN_EMAIL" in st.secrets: admin_email = st.secrets["ADMIN_EMAIL"]
-        elif "admin" in st.secrets: admin_email = st.secrets["admin"]["email"]
-    except: pass # Secrets missing
+        if "ADMIN_EMAIL" in st.secrets: target = st.secrets["ADMIN_EMAIL"]
+        elif "admin" in st.secrets: target = st.secrets["admin"]["email"]
+        else: return False
+    except: return False
     
     # 2. Get Current User Email
-    user_obj = st.session_state.user
-    current_email = "Not Logged In"
-    if user_obj:
-        if hasattr(user_obj, "email"): current_email = user_obj.email
-        elif hasattr(user_obj, "user"): current_email = user_obj.user.email
-        elif isinstance(user_obj, dict): current_email = user_obj.get("email", "")
+    if not st.session_state.user: return False
     
-    # 3. RETURN BOTH FOR DEBUGGING
-    return admin_email.strip().lower(), current_email.strip().lower()
+    u = st.session_state.user
+    curr = ""
+    if hasattr(u, "email"): curr = u.email
+    elif hasattr(u, "user"): curr = u.user.email
+    elif isinstance(u, dict): curr = u.get("email", "")
+    
+    # 3. Strict Comparison
+    return curr.strip().lower() == target.strip().lower()
 
-# --- 6. SIDEBAR (The Control Center) ---
+# --- 6. SIDEBAR ---
 with st.sidebar:
-    st.header("VerbaPost")
-    
-    if st.button("🏠 Home"):
+    if st.button("🏠 Home", use_container_width=True):
         st.session_state.current_view = "splash"
         st.rerun()
 
-    # --- DEBUG SECTION (TEMPORARY) ---
     st.divider()
-    st.markdown("### 🛠️ Debug Info")
-    
-    target_admin, my_email = check_is_admin()
-    is_match = (target_admin == my_email) and (target_admin != "")
-    
-    st.caption(f"Target: `{target_admin}`")
-    st.caption(f"You: `{my_email}`")
-    
-    if is_match:
-        st.success("✅ MATCH! Admin Unlocked")
-        if st.button("🔐 Open Admin Console", type="primary"):
-            st.session_state.current_view = "admin"
-            st.rerun()
-    else:
-        if st.session_state.user:
-            st.error("❌ EMAILS DO NOT MATCH")
-            st.info("Check your secrets.toml file.")
-        else:
-            st.warning("Waiting for login...")
 
-    st.divider()
-    
-    # Logout
+    # User Menu
     if st.session_state.user:
-        if st.button("Sign Out"):
+        # ONLY SHOW ADMIN BUTTON IF CHECK PASSES
+        if check_is_admin():
+            if st.button("🔐 Admin Console", type="primary", use_container_width=True):
+                st.session_state.current_view = "admin"
+                st.rerun()
+        
+        if st.button("Sign Out", use_container_width=True):
             st.session_state.clear()
             st.rerun()
-    elif st.session_state.current_view != "login":
-        if st.button("Log In"):
-            st.session_state.current_view = "login"
-            st.rerun()
+    else:
+        if st.session_state.current_view != "login":
+            if st.button("Log In", use_container_width=True):
+                st.session_state.current_view = "login"
+                st.rerun()
+                
+    st.divider()
+    if st.button("⚖️ Legal", type="secondary", use_container_width=True):
+        st.session_state.current_view = "legal"
+        st.rerun()
 
 # --- 7. ROUTING ---
+if "session_id" in st.query_params: st.session_state.current_view = "main_app"
+
 view = st.session_state.current_view
 
 if view == "splash": ui_splash.show_splash()
 elif view == "login": 
-    # Simple wrapper to handle login state updates
-    def on_login(email, pw):
-        u, e = auth_engine.sign_in(email, pw)
+    # Login wrappers
+    def on_login(e, p):
+        u, err = auth_engine.sign_in(e, p)
         if u: 
             st.session_state.user = u
             st.session_state.current_view = "main_app"
             st.rerun()
-        else: st.error(e)
+        else: st.error(err)
     def on_signup(e, p, n, s, c, stt, z, l):
         u, err = auth_engine.sign_up(e, p, n, s, c, stt, z, l)
         if u: 
@@ -108,5 +110,9 @@ elif view == "login":
     ui_login.show_login(on_login, on_signup)
     
 elif view == "main_app": ui_main.show_main_app()
-elif view == "admin": ui_admin.show_admin()
-elif view == "legal": import ui_legal; ui_legal.show_legal()
+elif view == "admin": 
+    if check_is_admin(): ui_admin.show_admin()
+    else: st.session_state.current_view = "splash"; st.rerun()
+elif view == "legal": 
+    import ui_legal
+    ui_legal.show_legal()
