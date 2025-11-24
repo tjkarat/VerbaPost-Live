@@ -3,13 +3,15 @@ import stripe
 
 def create_checkout_session(product_name, amount_cents, success_url, cancel_url):
     """
-    Creates a Stripe Checkout Session and returns the URL.
+    Creates a Stripe Checkout Session.
     """
     try:
-        # 1. Get Secret Key
+        # 1. Get Secret Key (Updated to match your TOML format)
         if "stripe" in st.secrets:
-            stripe.api_key = st.secrets["stripe"]["sk_test_key"] # Ensure this matches your secrets.toml
+            # You have: secret_key = "sk_test_xxx"
+            stripe.api_key = st.secrets["stripe"]["secret_key"]
         else:
+            print("Stripe secrets missing")
             return None
 
         # 2. Create Session
