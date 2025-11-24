@@ -74,6 +74,9 @@ def render_legal_page():
 
 # --- MAIN LOGIC ---
 def show_main_app():
+    # Force sidebar to be visible
+    st.set_page_config(page_title="VerbaPost", initial_sidebar_state="expanded")
+    
     if 'analytics' in globals(): analytics.inject_ga()
 
     # Defaults
