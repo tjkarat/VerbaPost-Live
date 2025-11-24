@@ -5,9 +5,11 @@ import tempfile
 
 @st.cache_resource
 def load_model():
+    """Loads the lightweight AI model."""
     import whisper 
-    print("⬇️ Loading Whisper Model...")
-    return whisper.load_model("base")
+    print("⬇️ Loading Whisper Model (Tiny)...")
+    # CHANGED: 'base' -> 'tiny' (Prevents crashing on free cloud servers)
+    return whisper.load_model("tiny")
 
 def polish_text(text):
     fillers = ["um", "uh", "ah", "like, you know", "you know"]
@@ -27,7 +29,9 @@ def transcribe_audio(uploaded_file):
             tmp_file.write(uploaded_file.getvalue())
             tmp_path = tmp_file.name
         
-        # CRITICAL FIX: fp16=False prevents the CPU crash/warning
+        print(f"🎧 Transcribing {tmp_path}...")
+        
+        # fp16=False is CRITICAL for CPU servers
         result = model.transcribe(tmp_path, fp16=False)
         
         os.remove(tmp_path)
@@ -38,4 +42,5 @@ def transcribe_audio(uploaded_file):
     except ImportError:
         return "Error: Libraries missing."
     except Exception as e:
+        print(f"Error: {e}")
         return f"Error: {e}"
