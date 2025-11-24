@@ -15,12 +15,12 @@ if "session_id" in qp:
     if "current_view" not in st.session_state:
         st.session_state.current_view = "main_app"
 
-# 3. CONFIG (Removed collapsed state)
+# 3. CONFIG 
 st.set_page_config(
     page_title="VerbaPost | Send Mail to Inmates, Congress & Homeowners", 
     page_icon="📮", 
-    layout="centered"
-    # initial_sidebar_state="collapsed" <-- REMOVED THIS LINE
+    layout="wide", # <-- Use wide layout for better sidebar visibility
+    initial_sidebar_state="expanded" # <-- Force sidebar to be open
 )
 
 def inject_custom_css():
@@ -75,17 +75,16 @@ if "current_view" not in st.session_state: st.session_state.current_view = "spla
 if "user" not in st.session_state: st.session_state.user = None
 
 
-# --- 6. SIDEBAR AND ADMIN CONTROLLER (RENDERED UNCONDITIONALLY) ---
+# --- 6. SIDEBAR CONTROLLER (RENDERED DIRECTLY) ---
 
-def render_admin_and_logout_sidebar():
-    """Renders the persistent sidebar content, including the Admin button."""
+with st.sidebar:
     
-    # Navigation Buttons
+    # 6.1 Navigation Buttons
     if st.button("🏠 Home", use_container_width=True):
         st.session_state.current_view = "splash"
         st.rerun()
     
-    # Only render user-specific elements if a user is logged in
+    # 6.2 User/Admin Logic (Only renders if a user object exists)
     if st.session_state.get("user"):
         st.caption(f"User: {st.session_state.user_email}")
         
@@ -93,13 +92,17 @@ def render_admin_and_logout_sidebar():
         is_admin = False
         try:
             admin_email = st.secrets["admin"]["email"].strip().lower()
-            # Must safely access the email property of the user object
+            # Access user email via the complex path (Supabase object)
             user_email = st.session_state.user.user.email.strip().lower()
             if user_email == admin_email: 
                 is_admin = True
-        except: pass
+        except: 
+            # If there's an error accessing st.secrets or st.session_state.user.user.email
+            st.warning("Admin check failed. Check st.secrets or user object path.")
+            pass
 
         if is_admin: 
+            # ADMIN PANEL BUTTON: Only visible if is_admin is True
             if st.button("🔐 Admin Panel", type="primary", use_container_width=True):
                 st.session_state.current_view = "admin"
                 st.rerun()
@@ -109,36 +112,31 @@ def render_admin_and_logout_sidebar():
             for key in list(st.session_state.keys()): del st.session_state[key]
             st.rerun()
     else:
-        # If not logged in, show a way to login/signup if on the main page
+        # 6.3 Login/Signup Button for Guest Users
         if st.session_state.current_view != "login" and st.session_state.current_view != "splash":
             if st.button("Log In / Sign Up", use_container_width=True):
                 st.session_state.current_view = "login"
                 st.rerun()
 
-
-# --- 7. ROUTER ---
-
-# Force the sidebar to render always
-with st.sidebar:
-    render_admin_and_logout_sidebar()
-    
-    # Footer links, rendered at the bottom of the sidebar
+    # 6.4 Footer Links (Always visible at the bottom of the sidebar)
     st.divider()
     st.markdown("📧 **Help:** support@verbapost.com")
     if st.button("⚖️ Terms & Privacy", type="secondary", use_container_width=True):
         st.session_state.current_view = "legal"
         st.rerun()
         
-# The main content router
+# --- 7. ROUTER ---
+        
+# The main content router (executes outside of the sidebar context)
 if st.session_state.current_view == "splash":
     ui_splash.show_splash()
 elif st.session_state.current_view == "login":
     ui_login.show_login(handle_login, handle_signup)
 elif st.session_state.current_view == "admin":
-    # This is where ui_admin.show_admin() displays the console
+    # Renders the content of ui_admin.py
     ui_admin.show_admin()
 elif st.session_state.current_view == "legal": 
     ui_legal.show_legal()
 elif st.session_state.current_view == "main_app":
-    # This calls ui_main.show_main_app(), which contains the store and workspace
+    # Renders the main store/workspace content
     ui_main.show_main_app()
