@@ -8,13 +8,22 @@ import ui_main
 import ui_login
 import ui_admin
 import ui_legal 
-import streamlit.components.v1 as components # <-- ADDED FOR GA INJECTION
+import streamlit.components.v1 as components 
+
+
+# --- CONFIG (Must run early) ---
+st.set_page_config(
+    page_title="VerbaPost | Send Mail to Inmates, Congress & Homeowners", 
+    page_icon="📮", 
+    layout="wide", # Use wide layout for better sidebar visibility
+    initial_sidebar_state="expanded" # Force sidebar to be open
+)
 
 # --- GOOGLE ANALYTICS INJECTION ---
 GA_MEASUREMENT_ID = "G-D3P178CESF"
 
 def inject_google_analytics():
-    """Injects the Google Analytics tracking script into the page header."""
+    """Injects the Google Analytics tracking script into the page using st.markdown."""
     if GA_MEASUREMENT_ID and GA_MEASUREMENT_ID.startswith("G-"):
         tracking_script = f"""
             <script async src="https://www.googletagmanager.com/gtag/js?id={GA_MEASUREMENT_ID}"></script>
@@ -25,27 +34,10 @@ def inject_google_analytics():
               gtag('config', '{GA_MEASUREMENT_ID}');
             </script>
             """
-        # components.html is often more reliable than st.markdown for scripts
-        components.html(tracking_script, height=0, width=0)
+        # Using st.markdown with unsafe_allow_html=True to push the script high in the DOM
+        st.markdown(tracking_script, unsafe_allow_html=True)
     else:
-        # Debugging note: if the app is locally hosted, GA won't track anyway.
         pass
-# --- END GA INJECTION ---
-
-
-# 1. INTERCEPT STRIPE RETURN
-qp = st.query_params
-if "session_id" in qp:
-    if "current_view" not in st.session_state:
-        st.session_state.current_view = "main_app"
-
-# 3. CONFIG 
-st.set_page_config(
-    page_title="VerbaPost | Send Mail to Inmates, Congress & Homeowners", 
-    page_icon="📮", 
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
 
 def inject_custom_css():
     st.markdown("""
@@ -58,9 +50,14 @@ def inject_custom_css():
         input {border-radius: 5px !important;}
         </style>
         """, unsafe_allow_html=True)
-inject_custom_css()
 
-# 4. HANDLERS (No change)
+# 1. INTERCEPT STRIPE RETURN
+qp = st.query_params
+if "session_id" in qp:
+    if "current_view" not in st.session_state:
+        st.session_state.current_view = "main_app"
+
+# 4. HANDLERS
 def handle_login(email, password):
     user, error = auth_engine.sign_in(email, password)
     if error:
@@ -94,14 +91,15 @@ def handle_signup(email, password, name, street, city, state, zip_code, language
         st.session_state.current_view = "main_app"
         st.rerun()
 
-# 5. STATE (No change)
+# 5. STATE
 if "current_view" not in st.session_state: st.session_state.current_view = "splash" 
 if "user" not in st.session_state: st.session_state.user = None
 
 
 # --- 6. SIDEBAR CONTROLLER (RENDERED DIRECTLY) ---
 
-# Inject GA before the sidebar to ensure it loads early
+# Inject CSS and GA immediately after config/imports
+inject_custom_css()
 inject_google_analytics()
 
 
@@ -125,8 +123,8 @@ with st.sidebar:
             if user_email == admin_email: 
                 is_admin = True
         except: 
-            # Debugging hint: this will only show if the sidebar is visible
-            st.warning("Admin check failed. Check st.secrets or user object path.")
+            # This debug warning helps diagnose the failure
+            st.warning("Admin check logic failed. Check st.secrets or user object path.")
             pass
 
         if is_admin: 
