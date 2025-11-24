@@ -6,14 +6,13 @@ from datetime import datetime
 import re
 import io
 
-# --- TOP LEVEL IMPORTS (Fixes KeyError) ---
+# --- TOP LEVEL IMPORTS ---
 try:
     import ai_engine 
     import database
     import letter_format
     import mailer
     import payment_engine
-    # Optional modules (we will create stubs for these next)
     import zipcodes
     import civic_engine
     import promo_engine
@@ -22,6 +21,7 @@ except ImportError as e:
     print(f"⚠️ Warning: Missing module {e}")
 
 # --- CONFIG ---
+# Ensure this matches your browser URL exactly (No trailing slash needed here, we handle it below)
 YOUR_APP_URL = "https://verbapost.streamlit.app" 
 COST_STANDARD = 2.99
 COST_HEIRLOOM = 5.99
@@ -50,12 +50,29 @@ def render_hero(title, subtitle):
 
 # --- MAIN APP ---
 def show_main_app():
-    # Inject Analytics if module exists
     if 'analytics' in globals(): analytics.inject_ga()
 
-    # Defaults
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
+
+    # --- CHECK FOR PAYMENT RETURN ---
+    qp = st.query_params
+    if "session_id" in qp:
+        session_id = qp["session_id"]
+        if session_id not in st.session_state.processed_ids:
+            if payment_engine.check_payment_status(session_id):
+                st.session_state.payment_complete = True
+                st.session_state.processed_ids.append(session_id)
+                st.toast("✅ Payment Confirmed!")
+                
+                # Restore Tier/Lang from URL if present
+                if "tier" in qp: st.session_state.locked_tier = qp["tier"]
+                if "lang" in qp: st.session_state.selected_language = qp["lang"]
+                
+                st.session_state.app_mode = "workspace"
+            else:
+                st.error("Payment verification failed.")
+        st.query_params.clear()
 
     # --- ROUTING: Legal ---
     if st.session_state.app_mode == "legal":
@@ -110,18 +127,27 @@ def show_main_app():
             
             st.metric("Total", f"${price}")
             
-            # Generate Link Logic
+            # --- FIX: Construct proper Success URL ---
             if st.button("Pay & Start", type="primary", use_container_width=True):
-                # Create Draft & Link
                 user = st.session_state.get("user_email", "guest")
                 draft_id = database.save_draft(user, "", tier, price)
-                url, sess_id = payment_engine.create_checkout_session(tier, int(price*100), YOUR_APP_URL, YOUR_APP_URL)
+                
+                # Create a Success Link that includes the '?' so appending '&session_id' works
+                safe_tier = tier.split()[1] # Extract "Standard" from "⚡ Standard..."
+                success_link = f"{YOUR_APP_URL}?tier={safe_tier}&lang={lang}"
+                
+                url, sess_id = payment_engine.create_checkout_session(
+                    tier, 
+                    int(price*100), 
+                    success_link, # <-- Pass the fixed link here
+                    YOUR_APP_URL
+                )
                 
                 if url:
                     st.session_state.stripe_url = url
-                    st.link_button("Click to Pay", url)
+                    st.link_button("Click to Pay", url, type="primary")
                 else:
-                    # FREE PASS for debugging if stripe fails
+                    # Fallback for testing
                     st.warning("Payment Offline (Dev Mode). Proceeding...")
                     st.session_state.payment_complete = True
                     st.session_state.app_mode = "workspace"
