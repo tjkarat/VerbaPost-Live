@@ -166,13 +166,16 @@ def show_main_app():
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"User: {u_email}")
             
-            # Admin Debug
-            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            # --- ADMIN DEBUGGER (FORCED ON) ---
+            # This helps us see exactly what is failing
+            admin_target = st.secrets.get("admin", {}).get("email", "MISSING").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
-            # Visual Debugger (Delete this block after confirming it works)
+            # If it doesn't match, show WHY
             if user_clean != admin_target:
-                st.warning(f"Debug:\nYou: {user_clean}\nAdmin: {admin_target}")
+                st.caption("--- Debug ---")
+                st.caption(f"You: '{user_clean}'")
+                st.caption(f"Adm: '{admin_target}'")
 
             if user_clean and admin_target and user_clean == admin_target:
                 st.divider()
@@ -256,13 +259,21 @@ def show_main_app():
                     from_zip = c3.text_input("Zip", value=def_zip, key="std_fzip")
 
             if st.button("Save Addresses"):
-                # Logic is handled in Review step, but we toast for feedback
+                # We save to session state explicitly here to help persistence
+                if "Civic" in tier:
+                    st.session_state.from_addr = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                    st.session_state.to_addr = {'name': 'Civic', 'street': 'Civic'}
+                else:
+                    st.session_state.to_addr = {'name': to_name, 'street': to_street, 'city': to_city, 'state': to_state, 'zip': to_zip}
+                    st.session_state.from_addr = {'name': from_name, 'street': from_street, 'city': from_city, 'state': from_state, 'zip': from_zip}
+                
+                if u_email: database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
                 st.toast("Addresses Saved!")
 
         st.markdown("<br>", unsafe_allow_html=True)
         c_sig, c_mic = st.columns(2)
         with c_sig:
-            st.write("Signature") # <--- THIS WAS THE SYNTAX ERROR LINE (FIXED)
+            st.write("Signature")
             canvas = st_canvas(fill_color="rgba(255, 165, 0, 0.3)", stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=300, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
         with c_mic:
@@ -278,64 +289,47 @@ def show_main_app():
                     st.session_state.app_mode = "review"
                     st.rerun()
 
-    # --- 7. REVIEW ---
+    # --- 7. REVIEW & FIX (Add Edit Logic Here) ---
     elif st.session_state.app_mode == "review":
         render_hero("Review", "Finalize Letter")
-        txt = st.text_area("Body", st.session_state.transcribed_text, height=300)
         
-        if st.button("🚀 Send Letter", type="primary"):
-            # --- AUTO-READ DATA (Fixes the "Empty Address" Lob Error) ---
-            tier = st.session_state.get("locked_tier", "Standard")
+        # Recover Data from Session State (if saved) OR previous inputs keys
+        tier = st.session_state.get("locked_tier", "Standard")
+        
+        # Default values from potentially unsaved inputs
+        if "Civic" in tier:
+            def_toname = "Civic Representative"
+            def_fname = st.session_state.get("civic_fname", "")
+            def_fstreet = st.session_state.get("civic_fstreet", "")
+            def_fcity = st.session_state.get("civic_fcity", "")
+            def_fstate = st.session_state.get("civic_fstate", "")
+            def_fzip = st.session_state.get("civic_fzip", "")
+        else:
+            def_toname = st.session_state.get("std_toname", "")
+            def_tostreet = st.session_state.get("std_tostreet", "")
+            def_tocity = st.session_state.get("std_tocity", "")
+            def_tostate = st.session_state.get("std_tostate", "")
+            def_tozip = st.session_state.get("std_tozip", "")
             
-            if "Civic" in tier:
-                from_a = {
-                    'name': st.session_state.get("civic_fname"),
-                    'street': st.session_state.get("civic_fstreet"),
-                    'city': st.session_state.get("civic_fcity"),
-                    'state': st.session_state.get("civic_fstate"),
-                    'zip': st.session_state.get("civic_fzip")
-                }
-                # Dummy recipient for Civic (ignored by Civic Engine, but needed for PDF func)
-                to_a = {'name': 'Civic Representative', 'street': 'Capitol Hill'}
+            def_fname = st.session_state.get("std_fname", "")
+            def_fstreet = st.session_state.get("std_fstreet", "")
+            def_fcity = st.session_state.get("std_fcity", "")
+            def_fstate = st.session_state.get("std_fstate", "")
+            def_fzip = st.session_state.get("std_fzip", "")
+
+        # --- EDITABLE FIELDS (Fixes Autocomplete Issues) ---
+        with st.expander("📝 Verify Addresses (Edit if needed)", expanded=True):
+            if "Civic" not in tier:
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.markdown("**Recipient**")
+                    fin_toname = st.text_input("Name", value=def_toname, key="rev_toname")
+                    fin_tostreet = st.text_input("Street", value=def_tostreet, key="rev_tostreet")
+                    fin_tocity = st.text_input("City", value=def_tocity, key="rev_tocity")
+                    fin_tostate = st.text_input("State", value=def_tostate, key="rev_tostate")
+                    fin_tozip = st.text_input("Zip", value=def_tozip, key="rev_tozip")
             else:
-                # Standard Mode
-                to_a = {
-                    'name': st.session_state.get("std_toname"),
-                    'address_line1': st.session_state.get("std_tostreet"),
-                    'address_city': st.session_state.get("std_tocity"),
-                    'address_state': st.session_state.get("std_tostate"),
-                    'address_zip': st.session_state.get("std_tozip")
-                }
-                from_a = {
-                    'name': st.session_state.get("std_fname"),
-                    'address_line1': st.session_state.get("std_fstreet"),
-                    'address_city': st.session_state.get("std_fcity"),
-                    'address_state': st.session_state.get("std_fstate"),
-                    'address_zip': st.session_state.get("std_fzip")
-                }
-
-            # Validation check
-            if not to_a.get('name') and "Civic" not in tier:
-                st.error("❌ Error: Recipient Name is missing. Please go back and fill it in.")
-                return
-
-            # Create PDF Strings
-            to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}"
-            from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}"
-            
-            # Args
-            is_heirloom = "Heirloom" in tier
-            lang = st.session_state.get("selected_language", "English")
-
-            # Generate
-            pdf = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang) 
-            
-            if "Civic" in tier:
-                st.info("Civic Mode: Sending to representatives...")
-                # Call civic engine here if restored
-                st.success("Civic Letters Sent!")
-            else:
-                res = mailer.send_letter(pdf, to_a, from_a)
-                if res: st.success("Letter Mailed via USPS!")
-                
-            if st.button("Finish"): reset_app()
+                fin_toname = "Civic"
+                fin_tostreet = "Civic"
+                fin_tocity = "Civic"
+                fin_tostate = "TN"
