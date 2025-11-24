@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-# --- 1. PAGE CONFIG ---
+# --- 1. PAGE CONFIG (Must be first) ---
 st.set_page_config(
     page_title="VerbaPost", 
     page_icon="📮", 
@@ -9,7 +9,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. GLOBAL STYLES & ANALYTICS ---
+# --- 2. ANALYTICS (Injected into Head) ---
+# We use a specific ID to ensure this script runs in the main window
 GA_ID = "G-D3P178CESF"
 st.markdown(f"""
     <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
@@ -19,23 +20,48 @@ st.markdown(f"""
         gtag('js', new Date());
         gtag('config', '{GA_ID}');
     </script>
+""", unsafe_allow_html=True)
+
+# --- 3. GLOBAL BLUE THEME ---
+st.markdown("""
     <style>
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    header {{visibility: hidden;}}
-    .block-container {{padding-top: 2rem !important; padding-bottom: 3rem !important;}}
-    div.stButton > button {{
-        border-radius: 12px; font-weight: 600; 
-        border: 1px solid #e0e0e0; padding: 0.5rem 1rem;
-        transition: all 0.3s ease;
-    }}
-    div.stButton > button:hover {{
-        border-color: #667eea; color: #667eea;
-    }}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
+    /* Professional Blue Styling */
+    .stApp {
+        background-color: #ffffff;
+    }
+    
+    /* Button Styling - Trustworthy Blue */
+    div.stButton > button {
+        background-color: white;
+        border: 1px solid #2980b9;
+        color: #2980b9;
+        border-radius: 8px;
+        transition: all 0.3s;
+    }
+    div.stButton > button:hover {
+        background-color: #2980b9;
+        color: white;
+        border-color: #2980b9;
+    }
+    
+    /* Primary Buttons (Solid Blue) */
+    button[kind="primary"] {
+        background-color: #2980b9 !important;
+        color: white !important;
+        border: none !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #3498db !important;
+        box-shadow: 0 4px 10px rgba(41, 128, 185, 0.3);
+    }
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. IMPORTS ---
+# --- 4. IMPORTS ---
 try:
     import ui_splash
     import ui_login
@@ -47,77 +73,55 @@ except ImportError as e:
     st.error(f"System Error: {e}")
     st.stop()
 
-# --- 4. SESSION STATE ---
+# --- 5. SESSION STATE ---
 if "current_view" not in st.session_state: st.session_state.current_view = "splash"
 if "user" not in st.session_state: st.session_state.user = None
-if "user_email" not in st.session_state: st.session_state.user_email = None
 
-# --- 5. AUTH HANDLERS (The "Brain" needed for Login) ---
+# --- 6. AUTH HANDLERS ---
 def handle_login_wrapper(email, password):
-    """
-    Connects ui_login to auth_engine.
-    If successful, updates session state to show the Main App.
-    """
-    if not auth_engine:
-        st.error("Auth Engine missing")
-        return
-
-    # Call the engine
     user, error = auth_engine.sign_in(email, password)
-    
     if error:
         st.error(f"Login Failed: {error}")
     else:
-        # SUCCESS! Update State
         st.session_state.user = user
         st.session_state.user_email = email
+        # FORCE VIEW CHANGE
         st.session_state.current_view = "main_app"
-        st.toast("✅ Welcome back!")
         st.rerun()
 
 def handle_signup_wrapper(email, password, name, street, city, state, zip_code, language):
-    """
-    Connects ui_login signup to auth_engine.
-    """
-    if not auth_engine:
-        st.error("Auth Engine missing")
-        return
-
     user, error = auth_engine.sign_up(email, password, name, street, city, state, zip_code, language)
-    
     if error:
         st.error(f"Signup Failed: {error}")
     else:
-        # SUCCESS!
         st.session_state.user = user
         st.session_state.user_email = email
         st.session_state.selected_language = language
         st.session_state.current_view = "main_app"
-        st.success("Account Created!")
         st.rerun()
 
-# --- 6. ADMIN CHECK ---
+# --- 7. ADMIN CHECK (DEBUG MODE) ---
 def check_is_admin():
     if not st.session_state.get("user"): return False
-    try:
-        # Check for Admin Email in Secrets (supports Flat or Nested)
-        admin_email = ""
-        if "ADMIN_EMAIL" in st.secrets: admin_email = st.secrets["ADMIN_EMAIL"]
-        elif "admin" in st.secrets and "email" in st.secrets["admin"]: admin_email = st.secrets["admin"]["email"]
-        
-        if not admin_email: return False
-        
-        # Check current user email
-        u = st.session_state.user
-        curr = ""
-        if hasattr(u, "email") and u.email: curr = u.email
-        elif hasattr(u, "user") and hasattr(u.user, "email"): curr = u.user.email
-        elif isinstance(u, dict) and "email" in u: curr = u["email"]
-        
-        return curr.strip().lower() == admin_email.strip().lower()
-    except: return False
+    
+    # 1. Get Configured Admin Email
+    admin_email = ""
+    if "ADMIN_EMAIL" in st.secrets: admin_email = st.secrets["ADMIN_EMAIL"]
+    elif "admin" in st.secrets and "email" in st.secrets["admin"]: admin_email = st.secrets["admin"]["email"]
+    
+    # 2. Get Current User Email
+    u = st.session_state.user
+    curr = ""
+    if hasattr(u, "email") and u.email: curr = u.email
+    elif hasattr(u, "user") and hasattr(u.user, "email"): curr = u.user.email
+    elif isinstance(u, dict) and "email" in u: curr = u["email"]
+    
+    # 3. PRINT DEBUG INFO TO TERMINAL (Look at your logs!)
+    print(f"DEBUG: Checking Admin. Configured: '{admin_email}' | Current: '{curr}'")
+    
+    return curr.strip().lower() == admin_email.strip().lower()
 
-# --- 7. SIDEBAR ---
+# --- 8. SIDEBAR ---
 with st.sidebar:
     if st.button("🏠 Home", use_container_width=True):
         st.session_state.current_view = "splash"
@@ -126,10 +130,12 @@ with st.sidebar:
     
     if st.session_state.user:
         st.caption(f"👤 {st.session_state.user_email}")
+        
         if check_is_admin():
             if st.button("🔐 Admin Console", type="primary", use_container_width=True):
                 st.session_state.current_view = "admin"
                 st.rerun()
+                
         if st.button("🚪 Sign Out", use_container_width=True):
             st.session_state.clear()
             st.rerun()
@@ -144,15 +150,15 @@ with st.sidebar:
         st.session_state.current_view = "legal"
         st.rerun()
 
-# --- 8. ROUTER ---
-if "session_id" in st.query_params: st.session_state.current_view = "main_app"
+# --- 9. ROUTING ---
+if "session_id" in st.query_params: 
+    st.session_state.current_view = "main_app"
 
 view = st.session_state.current_view
 
 if view == "splash": 
     ui_splash.show_splash()
 elif view == "login": 
-    # PASS THE WRAPPERS, NOT THE RAW FUNCTIONS
     ui_login.show_login(handle_login_wrapper, handle_signup_wrapper)
 elif view == "main_app": 
     ui_main.show_main_app()
