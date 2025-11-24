@@ -24,11 +24,16 @@ SUPPORT_EMAIL = "support@verbapost.com"
 @st.cache_resource
 def get_supabase():
     try:
+        # Debug check (prints to Manage App -> Logs, not screen)
+        if "SUPABASE_URL" not in st.secrets:
+            print("❌ MISSING SECRET: SUPABASE_URL")
+            return None
+            
         url = st.secrets["SUPABASE_URL"]
         key = st.secrets["SUPABASE_KEY"]
         return create_client(url, key)
     except Exception as e:
-        print(f"Supabase Error: {e}") # Print to logs
+        print(f"Supabase Connection Error: {e}")
         return None
 
 def reset_app():
@@ -67,7 +72,7 @@ def render_forgot_password_page():
             if email:
                 supabase = get_supabase()
                 if not supabase:
-                    st.error("System Error: Database connection failed.")
+                    st.error("System Error: Database connection failed. Check Secrets.")
                     return
                 try:
                     supabase.auth.reset_password_email(email)
@@ -147,11 +152,25 @@ def show_main_app():
         render_verify_reset_code()
         return
 
+    # --- NEW: LEGAL PAGE (Fixes the White Screen) ---
+    if st.session_state.app_mode == "legal":
+        render_hero("Legal", "Terms & Privacy")
+        with st.container(border=True):
+            st.markdown("### Privacy Policy")
+            st.write("We value your privacy. Your letters are processed securely and deleted from local cache after sending.")
+            st.markdown("### Terms of Service")
+            st.write("By using VerbaPost, you agree not to send threatening or illegal content via US Mail.")
+            
+            st.write("")
+            if st.button("← Back to Home", type="primary"):
+                st.session_state.app_mode = "splash"
+                st.rerun()
+        return 
+
     # ==================================================
     #  PHASE 0: LOGIN / SIGNUP SCREEN
     # ==================================================
     if st.session_state.app_mode == "login":
-        # Using a spacer to push content down slightly
         st.write("")
         st.markdown("<h1 style='text-align: center; margin-bottom: 20px;'>Welcome Back</h1>", unsafe_allow_html=True)
         
@@ -163,7 +182,6 @@ def show_main_app():
                 
                 st.write("") # Spacer
                 
-                # --- FIXED BUTTON LAYOUT ---
                 b1, b2 = st.columns(2)
                 with b1:
                     if st.button("Log In", type="primary", use_container_width=True):
@@ -179,7 +197,6 @@ def show_main_app():
                             except Exception as e:
                                 st.error(f"Error: {e}")
                 with b2:
-                    # Changed text to "Sign Up" to fix sizing
                     if st.button("Sign Up", use_container_width=True):
                         supabase = get_supabase()
                         if not supabase:
@@ -233,7 +250,6 @@ def show_main_app():
         if st.session_state.get("user"):
             st.divider()
             try:
-                # Handle both object structures depending on login method
                 u_email = st.session_state.user.user.email 
             except:
                 u_email = st.session_state.user.email
