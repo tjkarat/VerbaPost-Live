@@ -12,13 +12,12 @@ if "session_id" in qp:
         st.session_state.current_view = "main_app"
 
 # 2. IMPORTS
-from ui_splash import show_splash
-from ui_main import show_main_app
-from ui_login import show_login
-from ui_admin import show_admin
-from ui_legal import show_legal # <--- NEW IMPORT
+import ui_main
+import ui_login
+import ui_admin
+import ui_legal 
 
-# 3. CONFIG
+# 3. CONFIG (No change)
 st.set_page_config(
     page_title="VerbaPost | Send Mail to Inmates, Congress & Homeowners", 
     page_icon="📮", 
@@ -39,7 +38,7 @@ def inject_custom_css():
         """, unsafe_allow_html=True)
 inject_custom_css()
 
-# 4. HANDLERS
+# 4. HANDLERS (No change)
 def handle_login(email, password):
     user, error = auth_engine.sign_in(email, password)
     if error:
@@ -73,47 +72,62 @@ def handle_signup(email, password, name, street, city, state, zip_code, language
         st.session_state.current_view = "main_app"
         st.rerun()
 
-# 5. STATE
+# 5. STATE (No change)
 if "current_view" not in st.session_state: st.session_state.current_view = "splash" 
 if "user" not in st.session_state: st.session_state.user = None
 
-# 6. ROUTER
-if st.session_state.current_view == "splash":
-    show_splash()
-elif st.session_state.current_view == "login":
-    show_login(handle_login, handle_signup)
-elif st.session_state.current_view == "admin":
-    show_admin()
-elif st.session_state.current_view == "legal": # <--- NEW ROUTE
-    show_legal()
-elif st.session_state.current_view == "main_app":
-    with st.sidebar:
+# --- 6. ADMIN & SIDEBAR CONTROLLER (NEW BLOCK) ---
+
+# This function is executed regardless of the current_view to handle login/admin status
+def render_admin_and_logout_sidebar():
+    if st.session_state.current_view == "main_app":
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.current_view = "splash"
             st.rerun()
+    
+    if st.session_state.get("user"):
+        st.caption(f"User: {st.session_state.user_email}")
         
-        if st.session_state.get("user"):
-            st.caption(f"User: {st.session_state.user_email}")
-            
-            # ADMIN CHECK
-            try:
-                admin_email = st.secrets["admin"]["email"]
-                if st.session_state.user.user.email == admin_email: 
-                    if st.button("🔐 Admin Panel", type="primary"):
-                        st.session_state.current_view = "admin"
-                        st.rerun()
-            except: pass
+        # ADMIN CHECK LOGIC (Consolidated and simplified)
+        is_admin = False
+        try:
+            admin_email = st.secrets["admin"]["email"].strip().lower()
+            user_email = st.session_state.user.user.email.strip().lower()
+            if user_email == admin_email: 
+                is_admin = True
+        except: pass
 
-            if st.button("Log Out"):
-                for key in list(st.session_state.keys()): del st.session_state[key]
+        if is_admin: 
+            if st.button("🔐 Admin Panel", type="primary", use_container_width=True):
+                st.session_state.current_view = "admin"
                 st.rerun()
-                
-    show_main_app()
 
-# 7. FOOTER WITH LEGAL LINKS
+        if st.button("Log Out", use_container_width=True):
+            # Clear all session state keys
+            for key in list(st.session_state.keys()): del st.session_state[key]
+            st.rerun()
+            
+# --- 7. ROUTER (Updated) ---
+
 with st.sidebar:
+    # Always render the admin/logout buttons first
+    render_admin_and_logout_sidebar()
+    # Separator for the footer links
     st.divider()
     st.markdown("📧 **Help:** support@verbapost.com")
-    if st.button("⚖️ Terms & Privacy", type="secondary"):
+    if st.button("⚖️ Terms & Privacy", type="secondary", use_container_width=True):
         st.session_state.current_view = "legal"
         st.rerun()
+        
+# The main content router (No sidebar rendering here)
+if st.session_state.current_view == "splash":
+    ui_splash.show_splash()
+elif st.session_state.current_view == "login":
+    ui_login.show_login(handle_login, handle_signup)
+elif st.session_state.current_view == "admin":
+    ui_admin.show_admin()
+elif st.session_state.current_view == "legal": 
+    ui_legal.show_legal()
+elif st.session_state.current_view == "main_app":
+    # Only render the main app UI here
+    ui_main.show_main_app()
