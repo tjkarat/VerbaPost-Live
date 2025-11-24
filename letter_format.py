@@ -31,11 +31,10 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language, file
     # 1. Ensure fonts exist locally
     ensure_fonts()
     
-    # FIXED: Force 'Letter' size (8.5x11) for Lob compatibility
+    # Force 'Letter' size (8.5x11) for Lob compatibility
     pdf = FPDF(format='Letter')
     
-    # 2. REGISTER FONTS (MUST BE BEFORE ADD_PAGE)
-    # We use try/except blocks to prevent crashing if a font is corrupt
+    # 2. REGISTER FONTS
     font_map = {}
     
     # English Handwriting
@@ -101,13 +100,16 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language, file
     # 5. Sig
     if signature_path and os.path.exists(signature_path):
         pdf.ln(10)
-        pdf.image(signature_path, w=40)
+        try:
+            pdf.image(signature_path, w=40)
+        except: pass # Ignore if sig image is corrupt
     
     # 6. Footer
     pdf.set_y(-20)
     pdf.set_font(addr_font, '', 8)
     pdf.cell(0, 10, 'Dictated via VerbaPost.com', 0, 0, 'C')
 
+    # Save to temp path for Streamlit
     save_path = f"/tmp/{filename}"
     pdf.output(save_path)
     return save_path
