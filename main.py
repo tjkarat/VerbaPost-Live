@@ -6,7 +6,8 @@ st.set_page_config(
     page_title="VerbaPost", 
     page_icon="📮", 
     layout="wide",
-    initial_sidebar_state="expanded" # This forces the sidebar open
+    # CHANGED: Collapsed by default for better mobile view
+    initial_sidebar_state="collapsed" 
 )
 
 # --- 2. GLOBAL STYLES & ANALYTICS ---
@@ -28,7 +29,7 @@ st.markdown(f"""
     /* --- 2. TEXT COLORS --- */
     h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
     
-    /* --- 3. BUTTONS (STANDARD) --- */
+    /* --- 3. BUTTONS --- */
     div.stButton > button {{
         background-color: #ffffff; 
         color: #31333F;
@@ -38,8 +39,7 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* --- 4. PRIMARY BUTTONS (Blue Background, White Text) --- */
-    /* This targets standard buttons (Login, Send) */
+    /* PRIMARY BUTTONS */
     div.stButton > button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
@@ -48,14 +48,12 @@ st.markdown(f"""
         color: #FFFFFF !important;
     }}
     
-    /* --- 5. LINK BUTTONS (THE PAY BUTTON FIX) --- */
-    /* This targets st.link_button used for Stripe */
+    /* LINK BUTTONS (Stripe) */
     a[data-testid="stLinkButton"][kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
-        color: #FFFFFF !important; /* Force text white */
+        color: #FFFFFF !important;
     }}
-    /* Force internal text of link button to be white */
     a[data-testid="stLinkButton"][kind="primary"] * {{
         color: #FFFFFF !important;
     }}
@@ -67,17 +65,17 @@ st.markdown(f"""
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
 
-    /* --- 6. INPUTS --- */
+    /* --- 4. INPUTS --- */
     input, textarea, select {{
         color: #31333F !important;
         background-color: #ffffff !important;
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 7. SIDEBAR VISIBILITY --- */
-    /* We removed the code that hides the main menu so sidebar is accessible */
+    /* --- 5. HIDE DEFAULTS --- */
+    #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
-    header {{visibility: visible;}} /* Ensure header is visible for sidebar toggle */
+    header {{visibility: visible;}} /* Visible so you can open the sidebar manually */
     </style>
 """, unsafe_allow_html=True)
 
@@ -114,19 +112,16 @@ def check_is_admin():
 
 # --- 6. SIDEBAR ---
 with st.sidebar:
-    # We keep the "Home" button here to ensure the Sidebar is never empty
     if st.button("🏠 Home", use_container_width=True):
         st.session_state.current_view = "splash"
         st.rerun()
 
     st.divider()
 
-    # User Menu
     if st.session_state.user:
         my_email = get_current_user_email()
         st.caption(f"👤 {my_email}")
         
-        # This is where the Admin Console appears if you are logged in correctly
         if check_is_admin():
             if st.button("🔐 Admin Console", type="primary", use_container_width=True):
                 st.session_state.current_view = "admin"
@@ -136,7 +131,6 @@ with st.sidebar:
             st.session_state.clear()
             st.rerun()
     else:
-        # We allow logging in from the sidebar too, just in case
         if st.session_state.current_view != "login":
             if st.button("Log In", use_container_width=True):
                 st.session_state.current_view = "login"

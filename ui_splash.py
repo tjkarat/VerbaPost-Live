@@ -10,27 +10,27 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- HERO SECTION ---
+    # --- HERO SECTION (SMALLER VERSION) ---
     st.markdown("""
     <div id="splash-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
-                padding: 60px; border-radius: 15px; text-align: center; 
-                margin-bottom: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
-        <div style="font-size: 4rem; margin-bottom: 10px;">📮</div>
-        <h1 style="font-size: 3.5rem; font-weight: 700; margin: 0; letter-spacing: -1px;">VerbaPost</h1>
-        <p style="font-size: 1.5rem; font-weight: 400; opacity: 0.95; margin-top: 10px;">
+                padding: 30px; border-radius: 12px; text-align: center; 
+                margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+        <div style="font-size: 2.5rem; margin-bottom: 5px;">📮</div>
+        <h1 style="font-size: 2.5rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">VerbaPost</h1>
+        <p style="font-size: 1.1rem; font-weight: 400; opacity: 0.95; margin-top: 5px;">
             Turn your voice into a real, physical letter.
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- CALL TO ACTION (Now Blue!) ---
+    # --- CALL TO ACTION ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("🚀 Log In / Create Account", type="primary", use_container_width=True):
             st.session_state.current_view = "login"
             st.rerun()
             
-    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # --- FEATURES ---
     c1, c2, c3 = st.columns(3)
@@ -51,7 +51,6 @@ def show_splash():
     uc1, uc2, uc3 = st.columns(3)
     
     with uc1:
-        # TEXT UPDATED HERE
         st.info("**🏘️ Realtors & Sales**\n\nHandwritten Envelopes with stamps get opened.")
     with uc2:
         st.info("**🏛️ Civic Activists**\n\nPhysical petitions on desks get noticed. Emails get deleted.")
