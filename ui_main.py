@@ -10,6 +10,8 @@ try: import payment_engine
 except: payment_engine = None
 try: import promo_engine
 except: promo_engine = None
+try: import civic_engine # <--- Uses your existing file
+except: civic_engine = None
 
 # --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
@@ -59,8 +61,6 @@ def render_store_page():
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
-            
-            # Promo Logic
             promo_code = st.text_input("Promo Code (Optional)")
             is_free = False
             if promo_code and promo_engine:
@@ -87,19 +87,16 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
-                # Paid Path
                 if payment_engine:
                     if st.button("Proceed to Payment", type="primary", use_container_width=True):
                         with st.spinner("Connecting to Stripe..."):
-                            checkout_url = payment_engine.create_checkout_session(
+                            url = payment_engine.create_checkout_session(
                                 f"VerbaPost {tier_code}", int(price * 100),
                                 f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}",
                                 YOUR_APP_URL
                             )
-                            st.session_state.stripe_url = checkout_url
+                            st.session_state.stripe_url = url
                             st.rerun()
-                    
-                    # Show the link button if generated
                     if st.session_state.get("stripe_url"):
                         st.info("⚠️ **Note:** Payment opens in a new tab. After paying, return here to continue.")
                         st.link_button("👉 Pay Now (Secure)", st.session_state.stripe_url, type="primary", use_container_width=True)
@@ -112,8 +109,10 @@ def render_store_page():
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
+    is_civic = "Civic" in tier
     render_hero("Compose Letter", f"{tier} Edition")
     
+    # --- 1. Get User Data for Auto-Populate ---
     user_email = ""
     if st.session_state.get("user"):
         u = st.session_state.user
@@ -132,27 +131,71 @@ def render_workspace_page():
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
-        c_to, c_from = st.columns(2)
-        with c_to:
-            st.markdown("#### 👉 To (Recipient)")
-            st.text_input("Full Name", key="to_name")
-            st.text_input("Street Address", key="to_street")
-            r1, r2, r3 = st.columns([2, 1, 1])
-            r1.text_input("City", key="to_city")
-            r2.text_input("State", key="to_state")
-            r3.text_input("Zip", key="to_zip")
-        with c_from:
-            st.markdown("#### 👈 From (You)")
-            name = st.text_input("Your Name", value=def_name, key="from_name")
-            street = st.text_input("Street Address", value=def_street, key="from_street")
-            s1, s2, s3 = st.columns([2, 1, 1])
-            city = s1.text_input("City", value=def_city, key="from_city")
-            state = s2.text_input("State", value=def_state, key="from_state")
-            zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
-            if st.button("💾 Save My Address"):
-                if database and user_email:
-                    database.update_user_profile(user_email, name, street, city, state, zip_code)
-                    st.toast("✅ Saved!")
+        
+        if is_civic:
+            # --- CIVIC MODE LAYOUT ---
+            c1, c2 = st.columns([1, 1])
+            
+            with c1:
+                st.markdown("#### 👈 Your Address (Required)")
+                # We use the defaults from DB
+                name = st.text_input("Your Name", value=def_name, key="from_name")
+                street = st.text_input("Street Address", value=def_street, key="from_street")
+                s1, s2, s3 = st.columns([2, 1, 1])
+                city = s1.text_input("City", value=def_city, key="from_city")
+                state = s2.text_input("State", value=def_state, key="from_state")
+                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
+                
+                if st.button("💾 Save & Find Reps"):
+                    if database and user_email:
+                        database.update_user_profile(user_email, name, street, city, state, zip_code)
+                        
+                    if civic_engine and street and zip_code:
+                        full_addr = f"{street}, {city}, {state} {zip_code}"
+                        with st.spinner("Locating Federal Representatives..."):
+                            targets = civic_engine.get_reps(full_addr)
+                            st.session_state.civic_targets = targets
+                            if not targets:
+                                st.error("Could not find representatives. Check address.")
+                    else:
+                        st.error("Civic Engine missing or Address incomplete.")
+            
+            with c2:
+                st.markdown("#### 🏛️ Your Representatives")
+                targets = st.session_state.get("civic_targets", [])
+                if targets:
+                    st.success(f"Found {len(targets)} Federal Officials:")
+                    for t in targets:
+                        with st.container(border=True):
+                            st.markdown(f"**{t['name']}**")
+                            st.caption(t['title'])
+                            st.caption(t['address_obj']['street'])
+                else:
+                    st.info("Enter your address on the left and click 'Save & Find Reps'.")
+
+        else:
+            # --- STANDARD MODE LAYOUT ---
+            c_to, c_from = st.columns(2)
+            with c_to:
+                st.markdown("#### 👉 To (Recipient)")
+                st.text_input("Full Name", key="to_name")
+                st.text_input("Street Address", key="to_street")
+                r1, r2, r3 = st.columns([2, 1, 1])
+                r1.text_input("City", key="to_city")
+                r2.text_input("State", key="to_state")
+                r3.text_input("Zip", key="to_zip")
+            with c_from:
+                st.markdown("#### 👈 From (You)")
+                name = st.text_input("Your Name", value=def_name, key="from_name")
+                street = st.text_input("Street Address", value=def_street, key="from_street")
+                s1, s2, s3 = st.columns([2, 1, 1])
+                city = s1.text_input("City", value=def_city, key="from_city")
+                state = s2.text_input("State", value=def_state, key="from_state")
+                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
+                if st.button("💾 Save My Address"):
+                    if database and user_email:
+                        database.update_user_profile(user_email, name, street, city, state, zip_code)
+                        st.toast("✅ Saved!")
 
     st.write("---")
     
@@ -182,6 +225,14 @@ def render_workspace_page():
 
 def render_review_page():
     render_hero("Review Letter", "Finalize and send")
+    
+    # Check for Civic Targets
+    civic_targets = st.session_state.get("civic_targets", [])
+    is_civic = len(civic_targets) > 0
+    
+    if is_civic:
+        st.info(f"🏛️ **Civic Blast:** This letter will be sent to {len(civic_targets)} representatives.")
+    
     is_sent = st.session_state.get("letter_sent", False)
     st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300, disabled=is_sent)
     
@@ -197,15 +248,28 @@ def render_review_page():
                 tier = st.session_state.get("locked_tier", "Standard")
                 text = st.session_state.get("transcribed_text", "")
                 price = st.session_state.get("temp_price", 2.99)
+                
+                # If Civic, append target info to the letter body so Admin knows
+                if is_civic:
+                    target_summary = "\n".join([f"TARGET: {t['name']} ({t['title']}) @ {t['address_obj']['street']}" for t in civic_targets])
+                    text = f"--- CIVIC BLAST TARGETS ---\n{target_summary}\n---------------------------\n\n{text}"
+                
                 database.save_draft(email, text, tier, price)
             
             st.session_state.letter_sent = True
             st.rerun()
     else:
         st.success("✅ Letter Sent to Mailroom successfully!")
+        
+        # THE CONFIRMATION BOX YOU REQUESTED
+        if is_civic:
+            st.markdown("### 📨 Mailed to:")
+            for t in civic_targets:
+                st.success(f"**{t['name']}** - {t['title']}")
+                
         st.balloons()
         if st.button("🏁 Finish & Return Home", type="primary", use_container_width=True):
-            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url"]:
+            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url", "civic_targets"]:
                 if k in st.session_state: del st.session_state[k]
             st.session_state.current_view = "splash"
             st.rerun()
