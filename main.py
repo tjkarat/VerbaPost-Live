@@ -3,23 +3,25 @@ import streamlit.components.v1 as components
 
 st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="wide", initial_sidebar_state="expanded")
 
+# --- ANALYTICS (COMPONENTS METHOD) ---
 GA_ID = "G-D3P178CESF"
+components.html(f"""
+<script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){{dataLayer.push(arguments);}}
+  gtag('js', new Date());
+  gtag('config', '{GA_ID}');
+</script>
+""", height=0, width=0)
+
+# --- GLOBAL STYLES ---
 st.markdown(f"""
-    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
-    <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){{dataLayer.push(arguments);}}
-        gtag('js', new Date());
-        gtag('config', '{GA_ID}');
-    </script>
     <style>
     [data-testid="stAppViewContainer"] {{ background-color: #ffffff; }}
     [data-testid="stSidebar"] {{ background-color: #f8f9fa; }}
-    
-    /* GLOBAL TEXT (LOWER PRIORITY) */
     h1, h2, h3, h4, p, li, label {{ color: #31333F !important; }}
     
-    /* BUTTONS */
     div.stButton > button {{
         background-color: #ffffff; color: #31333F; border: 1px solid #e0e0e0;
     }}
@@ -28,18 +30,6 @@ st.markdown(f"""
     }}
     div.stButton > button[kind="primary"] p {{ color: #FFFFFF !important; }}
     
-    /* LINK BUTTONS (HIGHER PRIORITY) */
-    a[data-testid="stLinkButton"], 
-    a[data-testid="stLinkButton"] * {{
-        background-color: #2a5298 !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        text-decoration: none !important;
-    }}
-    a[data-testid="stLinkButton"]:hover {{
-        background-color: #1e3c72 !important;
-    }}
-
     input, textarea, select {{
         color: #31333F !important;
         background-color: #ffffff !important;

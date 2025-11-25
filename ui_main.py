@@ -20,6 +20,7 @@ except: letter_format = None
 try: import mailer
 except: mailer = None
 
+# --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 
 def render_hero(title, subtitle):
@@ -91,23 +92,23 @@ def render_store_page():
                             st.session_state.stripe_url = url
                             st.rerun()
                     
-                    # --- FIXED: HTML BUTTON (Guaranteed White Text) ---
+                    # --- RAW HTML BUTTON (GUARANTEED WHITE TEXT) ---
                     if st.session_state.get("stripe_url"):
-                        link = st.session_state.stripe_url
+                        url = st.session_state.stripe_url
                         st.markdown(f"""
-                            <a href="{link}" target="_blank" style="
-                                display: inline-block;
-                                width: 100%;
-                                text-align: center;
-                                background-color: #2a5298;
-                                color: white !important;
-                                padding: 10px 20px;
-                                border-radius: 8px;
-                                text-decoration: none;
-                                font-weight: bold;
-                                margin-top: 10px;
-                                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-                            ">👉 Pay Now (Secure)</a>
+                        <a href="{url}" target="_self" style="
+                            display: block;
+                            width: 100%;
+                            padding: 12px;
+                            background-color: #2a5298;
+                            color: white !important;
+                            text-align: center;
+                            border-radius: 8px;
+                            text-decoration: none;
+                            font-weight: bold;
+                            margin-top: 10px;
+                            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                        ">👉 Pay Now (Secure)</a>
                         """, unsafe_allow_html=True)
                 else:
                     st.warning("No Payment Engine")
@@ -189,7 +190,6 @@ def render_workspace_page():
         st.info("1. Click Mic 🎙️ 2. Speak 3. Stop")
         audio = st.audio_input("Record")
         if audio:
-            # Force Save
             if is_civic:
                 st.session_state.draft.update({"from_name": st.session_state.w_from_name, "from_street": st.session_state.w_from_street, "from_city": st.session_state.w_from_city, "from_state": st.session_state.w_from_state, "from_zip": st.session_state.w_from_zip})
             else:
@@ -261,9 +261,7 @@ def render_review_page():
         text = st.session_state.get("transcribed_text", "")
         
         if mailer and letter_format:
-            # Add signature_path to create_pdf call
             pdf_bytes = letter_format.create_pdf(text, f"{to_name}\n{to_street}\n{to_city}, {to_state}", f"{from_name}\n{from_street}\n{from_city}, {from_state}", is_heirloom, sig_path)
-            
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(pdf_bytes)
                 pdf_path = tmp.name
