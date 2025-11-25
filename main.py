@@ -6,8 +6,7 @@ st.set_page_config(
     page_title="VerbaPost", 
     page_icon="📮", 
     layout="wide",
-    # CHANGED: Collapsed by default for better mobile view
-    initial_sidebar_state="collapsed" 
+    initial_sidebar_state="expanded"
 )
 
 # --- 2. GLOBAL STYLES & ANALYTICS ---
@@ -29,7 +28,7 @@ st.markdown(f"""
     /* --- 2. TEXT COLORS --- */
     h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
     
-    /* --- 3. BUTTONS --- */
+    /* --- 3. BUTTONS (STANDARD) --- */
     div.stButton > button {{
         background-color: #ffffff; 
         color: #31333F;
@@ -39,7 +38,7 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* PRIMARY BUTTONS */
+    /* --- 4. PRIMARY BUTTONS (Normal) --- */
     div.stButton > button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
@@ -48,13 +47,14 @@ st.markdown(f"""
         color: #FFFFFF !important;
     }}
     
-    /* LINK BUTTONS (Stripe) */
+    /* --- 5. LINK BUTTONS (PAY BUTTON FIX) --- */
+    /* This targets the specific "Pay Now" link button structure */
     a[data-testid="stLinkButton"][kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
-        color: #FFFFFF !important;
     }}
-    a[data-testid="stLinkButton"][kind="primary"] * {{
+    /* CRITICAL FIX: Force the text inside the link to be white */
+    a[data-testid="stLinkButton"][kind="primary"] p {{
         color: #FFFFFF !important;
     }}
     
@@ -65,17 +65,17 @@ st.markdown(f"""
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
 
-    /* --- 4. INPUTS --- */
+    /* --- 6. INPUTS --- */
     input, textarea, select {{
         color: #31333F !important;
         background-color: #ffffff !important;
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 5. HIDE DEFAULTS --- */
+    /* --- 7. SIDEBAR VISIBILITY --- */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
-    header {{visibility: visible;}} /* Visible so you can open the sidebar manually */
+    header {{visibility: visible;}}
     </style>
 """, unsafe_allow_html=True)
 
@@ -105,7 +105,6 @@ def check_is_admin():
         elif "admin" in st.secrets: target = st.secrets["admin"]["email"]
         else: return False
     except: return False
-    
     curr = get_current_user_email()
     if not curr: return False
     return curr.strip().lower() == target.strip().lower()
