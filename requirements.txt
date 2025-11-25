@@ -12,3 +12,4 @@ zipcodes
 requests
 python-dotenv
 openai-whisper
+resend

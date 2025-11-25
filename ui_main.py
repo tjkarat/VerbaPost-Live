@@ -12,6 +12,8 @@ try: import promo_engine
 except: promo_engine = None
 try: import civic_engine
 except: civic_engine = None
+try: import mailer  # <--- NEW IMPORT
+except: mailer = None
 
 # --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
@@ -52,6 +54,7 @@ def render_store_page():
             tier_options = {"⚡ Standard": 2.99, "🏺 Heirloom": 5.99, "🏛️ Civic": 6.99}
             selected_tier_name = st.radio("Select Tier", list(tier_options.keys()))
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
+            
             price = tier_options[selected_tier_name]
             tier_code = selected_tier_name.split(" ")[1] 
             st.session_state.temp_tier = tier_code
@@ -74,6 +77,13 @@ def render_store_page():
             
             if is_free:
                 if st.button("🚀 Start (Promo Applied)", type="primary", use_container_width=True):
+                    u_email = "guest"
+                    if st.session_state.get("user"):
+                        u = st.session_state.user
+                        if isinstance(u, dict): u_email = u.get("email")
+                        elif hasattr(u, "email"): u_email = u.email
+                        elif hasattr(u, "user"): u_email = u.user.email
+                    promo_engine.log_usage(promo_code, u_email)
                     st.session_state.payment_complete = True
                     st.session_state.locked_tier = tier_code
                     st.session_state.app_mode = "workspace"
@@ -104,41 +114,28 @@ def render_workspace_page():
     is_civic = "Civic" in tier
     render_hero("Compose Letter", f"{tier} Edition")
     
-    # --- 1. ROBUST EMAIL EXTRACTION ---
     user_email = ""
-    user_obj = st.session_state.get("user")
-    if user_obj:
-        # Try dictionary access
-        if isinstance(user_obj, dict):
-            user_email = user_obj.get("email", "")
-        # Try object attribute (Standard Auth)
-        elif hasattr(user_obj, "email"):
-            user_email = user_obj.email
-        # Try nested Supabase User object
-        elif hasattr(user_obj, "user") and hasattr(user_obj.user, "email"):
-            user_email = user_obj.user.email
+    if st.session_state.get("user"):
+        u = st.session_state.user
+        if isinstance(u, dict): user_email = u.get("email", "")
+        elif hasattr(u, "email"): user_email = u.email
+        elif hasattr(u, "user"): user_email = u.user.email
 
-    # --- 2. FETCH PROFILE ---
     profile = {}
-    if database and user_email: 
-        profile = database.get_user_profile(user_email)
-    
+    if database and user_email: profile = database.get_user_profile(user_email)
     if not profile: profile = {}
     
-    # --- 3. SET DEFAULTS (Handle None values safely) ---
-    def_name = profile.get("full_name") or ""
-    def_street = profile.get("address_line1") or ""
-    def_city = profile.get("address_city") or ""
-    def_state = profile.get("address_state") or ""
-    def_zip = profile.get("address_zip") or ""
+    def_name = profile.get("full_name", "")
+    def_street = profile.get("address_line1", "")
+    def_city = profile.get("address_city", "")
+    def_state = profile.get("address_state", "")
+    def_zip = profile.get("address_zip", "")
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
         if is_civic:
-            # --- CIVIC MODE ---
             c1, c2 = st.columns([1, 1])
-            
             with c1:
                 st.markdown("#### 👈 Your Address (Required)")
                 name = st.text_input("Your Name", value=def_name, key="from_name")
@@ -157,10 +154,9 @@ def render_workspace_page():
                         with st.spinner("Locating Representatives..."):
                             targets = civic_engine.get_reps(full_addr)
                             st.session_state.civic_targets = targets
-                            if not targets:
-                                st.error("Could not find representatives. Using default list.")
+                            if not targets: st.error("Could not find representatives.")
                     else:
-                        st.error("Civic Engine missing or address incomplete.")
+                        st.error("Civic Engine missing.")
             
             with c2:
                 st.markdown("#### 🏛️ Your Representatives")
@@ -176,7 +172,6 @@ def render_workspace_page():
                     st.info("Click 'Save & Find Reps' to load your officials.")
 
         else:
-            # --- STANDARD MODE ---
             c_to, c_from = st.columns(2)
             with c_to:
                 st.markdown("#### 👉 To (Recipient)")
@@ -255,11 +250,18 @@ def render_review_page():
                     text = f"[CIVIC BLAST TARGETS: {names}]\n\n{text}"
                 
                 database.save_draft(email, text, tier, price)
+                
+                # --- NOTIFICATION TRIGGER ---
+                if "Heirloom" in tier and mailer:
+                    mailer.send_heirloom_notification(email, text)
             
             st.session_state.letter_sent = True
             st.rerun()
     else:
         st.success("✅ Letter Sent to Mailroom successfully!")
+        if is_civic:
+            st.markdown("### 📨 Mailed to:")
+            for t in civic_targets: st.success(f"**{t['name']}** - {t['title']}")
         st.balloons()
         if st.button("🏁 Finish & Return Home", type="primary", use_container_width=True):
             for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url", "civic_targets"]:
