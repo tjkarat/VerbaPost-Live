@@ -1,10 +1,10 @@
 import streamlit as st
 
-# --- MAIN LOGIN SCREEN ---
 def show_login(login_func, signup_func):
     c1, c2, c3 = st.columns([1, 1.5, 1])
     
     with c2:
+        # BRANDING HEADER (Brand Blue Color)
         st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
             <h1 style="color: #2a5298 !important; margin-bottom: 0;">VerbaPost 📮</h1>
@@ -19,6 +19,7 @@ def show_login(login_func, signup_func):
             
             tab_login, tab_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
             
+            # --- LOGIN TAB ---
             with tab_login:
                 email = st.text_input("Email Address", key="login_email")
                 password = st.text_input("Password", type="password", key="login_pass")
@@ -31,15 +32,19 @@ def show_login(login_func, signup_func):
                     else:
                         st.warning("Enter email & password")
                 
-                # --- NEW: FORGOT PASSWORD BUTTON ---
+                # Forgot Password Link
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
                     st.session_state.current_view = "forgot_password"
                     st.rerun()
-
+            
+            # --- SIGNUP TAB (UPDATED) ---
             with tab_signup:
                 new_email = st.text_input("Email", key="new_email")
                 new_pass = st.text_input("Password", type="password", key="new_pass")
+                # NEW: Confirm Password Field
+                confirm_pass = st.text_input("Confirm Password", type="password", key="confirm_pass")
+                
                 st.markdown("---")
                 name = st.text_input("Full Name")
                 lang = st.selectbox("Language", ["English", "Spanish", "French"])
@@ -54,11 +59,15 @@ def show_login(login_func, signup_func):
                 st.markdown("<br>", unsafe_allow_html=True)
                 
                 if st.button("Create Account", type="primary", use_container_width=True):
-                    if new_email and new_pass:
+                    # 1. Check Passwords Match
+                    if new_pass != confirm_pass:
+                        st.error("❌ Passwords do not match")
+                    # 2. Check Required Fields
+                    elif new_email and new_pass and name:
                         with st.spinner("Creating account..."):
                             signup_func(new_email, new_pass, name, addr, city, state, zip_code, lang)
                     else:
-                        st.warning("Missing fields")
+                        st.warning("Please fill in Email, Password, and Name")
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     f1, f2, f3 = st.columns([1, 2, 1])
@@ -67,7 +76,7 @@ def show_login(login_func, signup_func):
             st.session_state.current_view = "splash"
             st.rerun()
 
-# --- NEW: STEP 1 - ASK FOR EMAIL ---
+# --- FORGOT PASSWORD SCREENS ---
 def show_forgot_password(send_code_func):
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
@@ -92,7 +101,6 @@ def show_forgot_password(send_code_func):
                 st.session_state.current_view = "login"
                 st.rerun()
 
-# --- NEW: STEP 2 - VERIFY TOKEN ---
 def show_reset_verify(verify_func):
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
