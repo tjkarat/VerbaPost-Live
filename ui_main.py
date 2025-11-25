@@ -180,7 +180,7 @@ def render_workspace_page():
                     st.info("Click 'Save & Find Reps' to load.")
 
         else:
-            # --- STANDARD MODE (FIXED) ---
+            # --- STANDARD MODE ---
             c_to, c_from = st.columns(2)
             
             # RECIPIENT
@@ -199,7 +199,7 @@ def render_workspace_page():
                 name = st.text_input("Your Name", value=def_name, key="from_name")
                 street = st.text_input("Street Address", value=def_street, key="from_street")
                 
-                # ADDED: Explicit City/State/Zip row for Sender
+                # Explicit City/State/Zip row for Sender
                 s1, s2, s3 = st.columns([2, 1, 1])
                 city = s1.text_input("City", value=def_city, key="from_city")
                 state = s2.text_input("State", value=def_state, key="from_state")
@@ -220,7 +220,7 @@ def render_workspace_page():
     with c_mic:
         st.write("🎤 **Dictation**")
         
-        # ADDED: Clear Instructions Box
+        # Instructions
         st.info("1. Click Mic 🎙️\n2. Speak your letter\n3. Click Red Square ⏹️ to Stop")
         
         audio = st.audio_input("Record Message")
@@ -266,28 +266,27 @@ def render_review_page():
             text = st.session_state.get("transcribed_text", "")
             price = st.session_state.get("temp_price", 2.99)
             
-            # 2. CONSTRUCT ADDRESS OBJECTS
+            # 2. CONSTRUCT ADDRESS OBJECTS (FIXED: USE .GET(KEY, "") TO PREVENT NONE)
             to_addr = {
-                "name": st.session_state.get("to_name"),
-                "address_line1": st.session_state.get("to_street"),
-                "address_city": st.session_state.get("to_city"),
-                "address_state": st.session_state.get("to_state"),
-                "address_zip": st.session_state.get("to_zip")
+                "name": st.session_state.get("to_name", ""),
+                "address_line1": st.session_state.get("to_street", ""),
+                "address_city": st.session_state.get("to_city", ""),
+                "address_state": st.session_state.get("to_state", ""),
+                "address_zip": st.session_state.get("to_zip", "")
             }
             
             from_addr = {
-                "name": st.session_state.get("from_name"),
-                "address_line1": st.session_state.get("from_street"),
-                "address_city": st.session_state.get("from_city"),
-                "address_state": st.session_state.get("from_state"),
-                "address_zip": st.session_state.get("from_zip")
+                "name": st.session_state.get("from_name", ""),
+                "address_line1": st.session_state.get("from_street", ""),
+                "address_city": st.session_state.get("from_city", ""),
+                "address_state": st.session_state.get("from_state", ""),
+                "address_zip": st.session_state.get("from_zip", "")
             }
 
             # 3. LOGIC SPLIT: HEIRLOOM vs POSTGRID
             if is_heirloom:
                 # --- HEIRLOOM (Manual) ---
                 if database:
-                    # Flatten recipient for DB
                     recip_data = {
                         "name": to_addr["name"], "street": to_addr["address_line1"],
                         "city": to_addr["address_city"], "state": to_addr["address_state"],
