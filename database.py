@@ -44,19 +44,19 @@ def mark_as_sent(letter_id):
     sb = get_client()
     if sb: sb.table("letters").update({"status": "sent"}).eq("id", letter_id).execute()
 
-# --- UPDATED SAVE FUNCTION (FIXES TYPE ERROR) ---
 def save_draft(user_email, text, tier, price, recipient_data=None, status="pending"):
     """
-    Saves letter. Accepts custom status (e.g., 'sent_api').
+    Saves letter. Maps text to 'content' column.
     """
     sb = get_client()
     if sb:
         data = {
             "user_email": user_email,
-            "body_text": text,
+            "content": text,  # <--- FIXED: Mapped to 'content' column
+            "body_text": text, # Saving to both just in case
             "tier": tier,
             "price": price,
-            "status": status,  # Now uses the passed status
+            "status": status,
             "created_at": datetime.now().isoformat()
         }
         

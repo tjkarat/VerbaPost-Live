@@ -9,7 +9,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. ANALYTICS (Injecting at Top Level) ---
+# --- 2. ANALYTICS (INJECTED FIRST) ---
 GA_ID = "G-D3P178CESF"
 st.markdown(f"""
     <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
@@ -23,11 +23,15 @@ st.markdown(f"""
     /* --- FORCE LIGHT MODE --- */
     [data-testid="stAppViewContainer"] {{ background-color: #ffffff; }}
     [data-testid="stSidebar"] {{ background-color: #f8f9fa; }}
+    [data-testid="stHeader"] {{ background-color: rgba(0,0,0,0); }}
     
-    /* --- TEXT COLORS --- */
-    h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
+    /* --- GLOBAL TEXT COLOR --- */
+    /* We exclude specific interactive elements to avoid overrides */
+    h1, h2, h3, h4, h5, h6, p, li, label, span {{ 
+        color: #31333F !important; 
+    }}
     
-    /* --- BUTTONS (STANDARD) --- */
+    /* --- BUTTONS --- */
     div.stButton > button {{
         background-color: #ffffff; 
         color: #31333F;
@@ -47,23 +51,27 @@ st.markdown(f"""
     }}
     
     /* --- LINK BUTTONS (PAY BUTTON FIX) --- */
+    /* Target the anchor tag directly */
     a[data-testid="stLinkButton"] {{
         background-color: #2a5298 !important;
         border: none !important;
     }}
-    /* FORCE TEXT WHITE ON ALL STATES */
-    a[data-testid="stLinkButton"] *,
-    a[data-testid="stLinkButton"]:link *,
-    a[data-testid="stLinkButton"]:visited *,
-    a[data-testid="stLinkButton"]:hover *,
-    a[data-testid="stLinkButton"]:active * {{
+    
+    /* TARGET EVERY TEXT NODE INSIDE THE LINK BUTTON */
+    a[data-testid="stLinkButton"] p,
+    a[data-testid="stLinkButton"] span,
+    a[data-testid="stLinkButton"] div {{
         color: #FFFFFF !important;
-        fill: #FFFFFF !important;
-        text-decoration: none !important;
     }}
     
+    /* Remove text decoration (underline) */
+    a[data-testid="stLinkButton"] {{
+        text-decoration: none !important;
+    }}
+
     a[data-testid="stLinkButton"]:hover {{
         background-color: #1e3c72 !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
 
     /* --- INPUTS --- */
