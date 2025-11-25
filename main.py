@@ -6,7 +6,7 @@ st.set_page_config(
     page_title="VerbaPost", 
     page_icon="📮", 
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded" # This forces the sidebar open
 )
 
 # --- 2. GLOBAL STYLES & ANALYTICS ---
@@ -28,48 +28,56 @@ st.markdown(f"""
     /* --- 2. TEXT COLORS --- */
     h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
     
-    /* --- 3. BUTTONS (THE FIX) --- */
-    
-    /* RULE A: All Buttons Default to White (Secondary) */
+    /* --- 3. BUTTONS (STANDARD) --- */
     div.stButton > button {{
-        background-color: #ffffff !important;
-        color: #31333F !important;
+        background-color: #ffffff; 
+        color: #31333F;
         border: 1px solid #e0e0e0;
         border-radius: 12px;
         padding: 0.5rem 1rem;
         font-weight: 600;
-        transition: all 0.2s ease;
     }}
     
-    /* RULE B: Primary Buttons Force Blue (Overrides Rule A) */
-    /* We include 'div.stButton' to match specificity */
+    /* --- 4. PRIMARY BUTTONS (Blue Background, White Text) --- */
+    /* This targets standard buttons (Login, Send) */
     div.stButton > button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
     }}
-    
-    /* RULE C: Primary Button Text Forces White */
     div.stButton > button[kind="primary"] p {{
         color: #FFFFFF !important;
     }}
     
-    /* Hover State for Primary */
-    div.stButton > button[kind="primary"]:hover {{
+    /* --- 5. LINK BUTTONS (THE PAY BUTTON FIX) --- */
+    /* This targets st.link_button used for Stripe */
+    a[data-testid="stLinkButton"][kind="primary"] {{
+        background-color: #2a5298 !important;
+        border: none !important;
+        color: #FFFFFF !important; /* Force text white */
+    }}
+    /* Force internal text of link button to be white */
+    a[data-testid="stLinkButton"][kind="primary"] * {{
+        color: #FFFFFF !important;
+    }}
+    
+    /* Hover Effects */
+    div.stButton > button[kind="primary"]:hover,
+    a[data-testid="stLinkButton"][kind="primary"]:hover {{
         background-color: #1e3c72 !important;
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
 
-    /* --- 4. INPUTS --- */
+    /* --- 6. INPUTS --- */
     input, textarea, select {{
         color: #31333F !important;
         background-color: #ffffff !important;
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 5. HIDE DEFAULTS --- */
-    #MainMenu {{visibility: hidden;}}
+    /* --- 7. SIDEBAR VISIBILITY --- */
+    /* We removed the code that hides the main menu so sidebar is accessible */
     footer {{visibility: hidden;}}
-    header {{visibility: hidden;}}
+    header {{visibility: visible;}} /* Ensure header is visible for sidebar toggle */
     </style>
 """, unsafe_allow_html=True)
 
@@ -106,6 +114,7 @@ def check_is_admin():
 
 # --- 6. SIDEBAR ---
 with st.sidebar:
+    # We keep the "Home" button here to ensure the Sidebar is never empty
     if st.button("🏠 Home", use_container_width=True):
         st.session_state.current_view = "splash"
         st.rerun()
@@ -117,6 +126,7 @@ with st.sidebar:
         my_email = get_current_user_email()
         st.caption(f"👤 {my_email}")
         
+        # This is where the Admin Console appears if you are logged in correctly
         if check_is_admin():
             if st.button("🔐 Admin Console", type="primary", use_container_width=True):
                 st.session_state.current_view = "admin"
@@ -126,7 +136,7 @@ with st.sidebar:
             st.session_state.clear()
             st.rerun()
     else:
-        # Guest Menu - Login button in sidebar helps navigation but is optional
+        # We allow logging in from the sidebar too, just in case
         if st.session_state.current_view != "login":
             if st.button("Log In", use_container_width=True):
                 st.session_state.current_view = "login"
