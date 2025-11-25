@@ -126,33 +126,29 @@ def render_workspace_page():
         elif hasattr(u, "email"): user_email = u.email
         elif hasattr(u, "user"): user_email = u.user.email
 
+    # Get Profile Defaults
     profile = {}
     if database and user_email: 
         profile = database.get_user_profile(user_email)
-    
     if not profile: profile = {}
     
-    # Safe defaults
-    def_name = profile.get("full_name") or ""
-    def_street = profile.get("address_line1") or ""
-    def_city = profile.get("address_city") or ""
-    def_state = profile.get("address_state") or ""
-    def_zip = profile.get("address_zip") or ""
+    # Helper to get value from session state OR profile (Sticky State)
+    def get_val(key, db_key):
+        return st.session_state.get(key, profile.get(db_key, ""))
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
         if is_civic:
-            # --- CIVIC MODE ---
             c1, c2 = st.columns([1, 1])
             with c1:
                 st.markdown("#### 👈 Your Address (Required)")
-                name = st.text_input("Your Name", value=def_name, key="from_name")
-                street = st.text_input("Street Address", value=def_street, key="from_street")
+                name = st.text_input("Your Name", value=get_val("from_name", "full_name"), key="from_name")
+                street = st.text_input("Street Address", value=get_val("from_street", "address_line1"), key="from_street")
                 s1, s2, s3 = st.columns([2, 1, 1])
-                city = s1.text_input("City", value=def_city, key="from_city")
-                state = s2.text_input("State", value=def_state, key="from_state")
-                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
+                city = s1.text_input("City", value=get_val("from_city", "address_city"), key="from_city")
+                state = s2.text_input("State", value=get_val("from_state", "address_state"), key="from_state")
+                zip_code = s3.text_input("Zip", value=get_val("from_zip", "address_zip"), key="from_zip")
                 
                 if st.button("💾 Save & Find Reps"):
                     if database and user_email:
@@ -165,7 +161,7 @@ def render_workspace_page():
                             st.session_state.civic_targets = targets
                             if not targets: st.error("Could not find representatives.")
                     else:
-                        st.error("Civic Engine missing.")
+                        st.error("Civic Engine missing or address incomplete.")
             
             with c2:
                 st.markdown("#### 🏛️ Your Representatives")
@@ -182,6 +178,7 @@ def render_workspace_page():
         else:
             # --- STANDARD MODE ---
             c_to, c_from = st.columns(2)
+            
             with c_to:
                 st.markdown("#### 👉 To (Recipient)")
                 st.text_input("Full Name", key="to_name")
@@ -193,16 +190,25 @@ def render_workspace_page():
             
             with c_from:
                 st.markdown("#### 👈 From (You)")
-                name = st.text_input("Your Name", value=def_name, key="from_name")
-                street = st.text_input("Street Address", value=def_street, key="from_street")
+                # Using helper to ensure DB defaults load if session is empty
+                st.text_input("Your Name", value=get_val("from_name", "full_name"), key="from_name")
+                st.text_input("Street Address", value=get_val("from_street", "address_line1"), key="from_street")
                 s1, s2, s3 = st.columns([2, 1, 1])
-                city = s1.text_input("City", value=def_city, key="from_city")
-                state = s2.text_input("State", value=def_state, key="from_state")
-                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
+                s1.text_input("City", value=get_val("from_city", "address_city"), key="from_city")
+                s2.text_input("State", value=get_val("from_state", "address_state"), key="from_state")
+                s3.text_input("Zip", value=get_val("from_zip", "address_zip"), key="from_zip")
                 
                 if st.button("💾 Save My Address"):
+                    # Manually reading session state because button press doesn't pass args
                     if database and user_email:
-                        database.update_user_profile(user_email, name, street, city, state, zip_code)
+                        database.update_user_profile(
+                            user_email, 
+                            st.session_state.from_name, 
+                            st.session_state.from_street, 
+                            st.session_state.from_city, 
+                            st.session_state.from_state, 
+                            st.session_state.from_zip
+                        )
                         st.toast("✅ Saved!")
 
     st.write("---")
@@ -233,6 +239,13 @@ def render_workspace_page():
 def render_review_page():
     render_hero("Review Letter", "Finalize and send")
     
+    # --- NAVIGATION HEADER ---
+    if st.button("⬅️ Go Back to Edit", use_container_width=True):
+        st.session_state.app_mode = "workspace"
+        st.rerun()
+        
+    st.write("") # Spacer
+
     civic_targets = st.session_state.get("civic_targets", [])
     tier = st.session_state.get("locked_tier", "Standard")
     is_civic = len(civic_targets) > 0
@@ -248,8 +261,7 @@ def render_review_page():
         # --- VALIDATION & SEND ---
         if st.button("🚀 Send Letter", type="primary", use_container_width=True):
             
-            # 1. Retrieve Input Data
-            # We use .get() to avoid NoneType errors
+            # 1. Retrieve Input Data (Safe .get)
             to_name = st.session_state.get("to_name", "")
             to_street = st.session_state.get("to_street", "")
             to_city = st.session_state.get("to_city", "")
@@ -262,13 +274,24 @@ def render_review_page():
             from_state = st.session_state.get("from_state", "")
             from_zip = st.session_state.get("from_zip", "")
 
-            # 2. VALIDATION: Check if addresses are empty (Prevents PostGrid Error)
-            if not is_civic and (not to_street or not from_street):
-                st.error("⚠️ Missing Address Info! Please ensure both 'To' and 'From' streets are filled.")
-                if st.button("⬅️ Go Back to Edit"):
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
-                st.stop() # Stop execution so we don't hit the API
+            # 2. VALIDATION: Specific Error Messages
+            missing = []
+            if not is_civic:
+                if not to_name: missing.append("Recipient Name")
+                if not to_street: missing.append("Recipient Street")
+                if not to_city: missing.append("Recipient City")
+                if not to_state: missing.append("Recipient State")
+                if not to_zip: missing.append("Recipient Zip")
+            
+            if not from_name: missing.append("Your Name")
+            if not from_street: missing.append("Your Street")
+            if not from_city: missing.append("Your City")
+            if not from_state: missing.append("Your State")
+            if not from_zip: missing.append("Your Zip")
+            
+            if missing:
+                st.error(f"⚠️ Missing Information: {', '.join(missing)}")
+                st.stop()
 
             # 3. Prepare Data Objects
             to_addr = {
@@ -295,22 +318,18 @@ def render_review_page():
             # 4. SEND LOGIC
             if is_heirloom:
                 if database:
-                    # For Heirloom, we just save the request
                     database.save_draft(u_email, text, tier, price, to_addr, status="pending")
                 if mailer:
                     mailer.send_heirloom_notification(u_email, text)
             
             else:
-                # Standard/Civic -> PostGrid
                 if mailer and letter_format:
-                    # Create PDF
                     pdf_bytes = letter_format.create_pdf(
                         body_text=text,
                         recipient_info=f"{to_name}\n{to_street}",
                         sender_info=from_name,
                         is_heirloom=False
                     )
-                    
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(pdf_bytes)
                         tmp_path = tmp.name
