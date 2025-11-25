@@ -8,18 +8,16 @@ try: import ai_engine
 except: ai_engine = None
 try: import payment_engine
 except: payment_engine = None
+try: import promo_engine # <--- NEW IMPORT
+except: promo_engine = None
 
 # --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 
 def render_hero(title, subtitle):
-    # CSS HACK: We use 'id="hero-text"' to force these specific elements to be white
-    # despite the global configuration setting all text to black.
     st.markdown(f"""
     <style>
-    #hero-container h1, #hero-container div {{
-        color: #FFFFFF !important;
-    }}
+    #hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}
     </style>
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
@@ -30,26 +28,19 @@ def render_hero(title, subtitle):
     """, unsafe_allow_html=True)
 
 def show_main_app():
-    # 1. Check for Stripe Return
+    # 1. Stripe Return
     if "session_id" in st.query_params:
         st.session_state.payment_complete = True
-        # Lock in the tier from the URL if possible, or default
-        if "tier" in st.query_params:
-            st.session_state.locked_tier = st.query_params["tier"]
+        if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
         st.session_state.app_mode = "workspace"
-        st.query_params.clear() # Clean URL
+        st.query_params.clear() 
         st.rerun()
 
-    # 2. Routing Logic
-    # If they haven't paid, they are FORCED to the Store.
-    if not st.session_state.get("payment_complete"):
-        render_store_page()
+    # 2. Routing
+    if not st.session_state.get("payment_complete"): render_store_page()
     else:
-        # If paid, they go to workspace
-        if st.session_state.get("app_mode") == "review":
-            render_review_page()
-        else:
-            render_workspace_page()
+        if st.session_state.get("app_mode") == "review": render_review_page()
+        else: render_workspace_page()
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
@@ -58,55 +49,75 @@ def render_store_page():
     with c1:
         with st.container(border=True):
             st.subheader("Letter Options")
-            # We map the names to prices for logic
-            tier_options = {
-                "⚡ Standard": 2.99,
-                "🏺 Heirloom": 5.99,
-                "🏛️ Civic": 6.99
-            }
+            tier_options = {"⚡ Standard": 2.99, "🏺 Heirloom": 5.99, "🏛️ Civic": 6.99}
             selected_tier_name = st.radio("Select Tier", list(tier_options.keys()))
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
-            # Save choice to session
             price = tier_options[selected_tier_name]
-            tier_code = selected_tier_name.split(" ")[1] # e.g. "Standard"
+            tier_code = selected_tier_name.split(" ")[1] 
             st.session_state.temp_tier = tier_code
             st.session_state.temp_price = price
 
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
-            st.metric("Total", f"${price:.2f}")
             
-            # --- PAYMENT LOGIC ---
-            if payment_engine:
-                # 1. Generate Link
-                if st.button("Proceed to Payment", type="primary", use_container_width=True):
-                    with st.spinner("Connecting to Stripe..."):
-                        # We pass the App URL as the success_url so they come back here
-                        checkout_url = payment_engine.create_checkout_session(
-                            product_name=f"VerbaPost {tier_code}",
-                            amount_cents=int(price * 100),
-                            success_url=f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}",
-                            cancel_url=YOUR_APP_URL
-                        )
-                        
-                        if checkout_url:
-                            st.link_button("👉 Pay Now (Secure)", checkout_url, type="primary", use_container_width=True)
-                        else:
-                            st.error("Could not connect to payment processor.")
-            else:
-                st.warning("Payment engine missing. (Dev Mode: Click to bypass)")
-                if st.button("Bypass Payment (Dev Only)"):
+            # --- PROMO CODE LOGIC START ---
+            promo_code = st.text_input("Promo Code (Optional)")
+            is_free = False
+            
+            if promo_code and promo_engine:
+                if promo_engine.validate_code(promo_code):
+                    is_free = True
+                    st.success("✅ Code Applied! Total: $0.00")
+                    price = 0.00
+                else:
+                    st.error("Invalid Code")
+            
+            st.metric("Total", f"${price:.2f}")
+            st.divider()
+            
+            if is_free:
+                # FREE PATH (Bypass Stripe)
+                if st.button("🚀 Start (Promo Applied)", type="primary", use_container_width=True):
+                    # Log usage
+                    u_email = "guest"
+                    if st.session_state.get("user"):
+                        u = st.session_state.user
+                        if isinstance(u, dict): u_email = u.get("email")
+                        elif hasattr(u, "email"): u_email = u.email
+                        elif hasattr(u, "user"): u_email = u.user.email
+                    
+                    promo_engine.log_usage(promo_code, u_email)
+                    
+                    # Grant Access
                     st.session_state.payment_complete = True
                     st.session_state.locked_tier = tier_code
+                    st.session_state.app_mode = "workspace"
                     st.rerun()
+            else:
+                # PAID PATH (Stripe)
+                if payment_engine:
+                    if st.button("Proceed to Payment", type="primary", use_container_width=True):
+                        with st.spinner("Connecting to Stripe..."):
+                            url = payment_engine.create_checkout_session(
+                                f"VerbaPost {tier_code}", int(price * 100),
+                                f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}",
+                                YOUR_APP_URL
+                            )
+                            if url: st.link_button("👉 Pay Now", url, type="primary", use_container_width=True)
+                else:
+                    st.warning("Payment engine missing.")
+                    if st.button("Bypass (Dev)"):
+                        st.session_state.payment_complete = True
+                        st.session_state.locked_tier = tier_code
+                        st.rerun()
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     render_hero("Compose Letter", f"{tier} Edition")
     
-    # --- AUTO-POPULATE ---
+    # Auto-populate setup
     user_email = ""
     if st.session_state.get("user"):
         u = st.session_state.user
@@ -158,9 +169,7 @@ def render_workspace_page():
         st.write("🎤 **Dictation**")
         with st.expander("How to Record", expanded=True):
             st.write("1. Click Mic. 2. Speak. 3. Click Red Square.")
-            
         audio = st.audio_input("Record Message")
-        
         if audio:
             with st.status("🤖 Processing...", expanded=True) as status:
                 st.write("Transcribing audio...")
@@ -177,9 +186,30 @@ def render_workspace_page():
 
 def render_review_page():
     render_hero("Review Letter", "Finalize and send")
-    st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
-    if st.button("🚀 Send Letter", type="primary", use_container_width=True):
-        st.success("Letter Sent to Mailroom!")
-        if st.button("Finish"):
-            st.session_state.payment_complete = False # Reset for next letter
+    is_sent = st.session_state.get("letter_sent", False)
+    st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300, disabled=is_sent)
+    
+    if not is_sent:
+        if st.button("🚀 Send Letter", type="primary", use_container_width=True):
+            if database and st.session_state.get("user"):
+                u = st.session_state.user
+                email = ""
+                if isinstance(u, dict): email = u.get("email")
+                elif hasattr(u, "email"): email = u.email
+                elif hasattr(u, "user"): email = u.user.email
+                
+                tier = st.session_state.get("locked_tier", "Standard")
+                text = st.session_state.get("transcribed_text", "")
+                price = st.session_state.get("temp_price", 2.99)
+                database.save_draft(email, text, tier, price)
+            
+            st.session_state.letter_sent = True
+            st.rerun()
+    else:
+        st.success("✅ Letter Sent to Mailroom successfully!")
+        st.balloons()
+        if st.button("🏁 Finish & Return Home", type="primary", use_container_width=True):
+            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode"]:
+                if k in st.session_state: del st.session_state[k]
+            st.session_state.current_view = "splash"
             st.rerun()
