@@ -1,11 +1,10 @@
 import streamlit as st
 
 def show_login(login_func, signup_func):
-    # --- CENTER THE LOGIN FORM ---
     c1, c2, c3 = st.columns([1, 1.5, 1])
     
     with c2:
-        # Header with specific Brand Blue color
+        # BRANDING HEADER (Brand Blue Color)
         st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
             <h1 style="color: #2a5298 !important; margin-bottom: 0;">VerbaPost 📮</h1>

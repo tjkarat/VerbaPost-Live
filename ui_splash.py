@@ -1,17 +1,16 @@
 import streamlit as st
 
 def show_splash():
-    # --- CSS FORCE WHITE TEXT ---
+    # --- CSS FORCE WHITE TEXT FOR HERO ---
     st.markdown("""
     <style>
-    /* This specific ID forces the splash banner text to be white */
     #splash-hero h1, #splash-hero div, #splash-hero p {
         color: #FFFFFF !important;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- BLUE HERO SECTION ---
+    # --- HERO SECTION ---
     st.markdown("""
     <div id="splash-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 60px; border-radius: 15px; text-align: center; 
@@ -44,3 +43,26 @@ def show_splash():
     with c3:
         st.markdown("### 📮 **3. We Mail**")
         st.write("We print, fold, stamp, and mail it within 24 hours.")
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # --- USE CASES (Was Missing) ---
+    st.subheader("Who is this for?")
+    uc1, uc2, uc3 = st.columns(3)
+    
+    with uc1:
+        st.info("**🏘️ Realtors & Sales**\n\nHandwritten direct mail gets 99% open rates. Instant follow-up.")
+    with uc2:
+        st.info("**🏛️ Civic Activists**\n\nPhysical petitions on desks get noticed. Emails get deleted.")
+    with uc3:
+        st.info("**🧡 Families & Inmates**\n\nDirect prison delivery. Facility compliant. No stamps needed.")
+
+    st.markdown("<br><hr>", unsafe_allow_html=True)
+
+    # --- FOOTER / TERMS OF SERVICE ---
+    fc1, fc2, fc3 = st.columns([1, 2, 1])
+    with fc2:
+        if st.button("📜 Read Terms of Service & Privacy Policy", type="secondary", use_container_width=True):
+            st.session_state.current_view = "legal"
+            st.rerun()
+        st.markdown("<div style='text-align: center; color: #888;'>© 2024 VerbaPost</div>", unsafe_allow_html=True)
