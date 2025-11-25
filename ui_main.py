@@ -93,19 +93,28 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
+                # --- CLEANER PAYMENT FLOW ---
                 if payment_engine:
-                    st.info("⚠️ **Note:** Payment opens in a new tab. Return here after.")
-                    if st.button("Proceed to Payment", type="primary", use_container_width=True):
-                        with st.spinner("Connecting to Stripe..."):
-                            url = payment_engine.create_checkout_session(
-                                f"VerbaPost {tier_code}", int(price * 100),
-                                f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}",
-                                YOUR_APP_URL
-                            )
-                            st.session_state.stripe_url = url
+                    # Only show "Generate Link" if we don't have one yet
+                    if not st.session_state.get("stripe_url"):
+                        st.info("⚠️ Payment opens in a new secure tab.")
+                        if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
+                            with st.spinner("Connecting to Stripe..."):
+                                url = payment_engine.create_checkout_session(
+                                    f"VerbaPost {tier_code}", int(price * 100),
+                                    f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}",
+                                    YOUR_APP_URL
+                                )
+                                st.session_state.stripe_url = url
+                                st.rerun()
+                    
+                    # If we HAVE a link, hide the previous button and show the Link Button
+                    else:
+                        st.success("Link Generated!")
+                        st.link_button("👉 Click Here to Pay Now", st.session_state.stripe_url, type="primary", use_container_width=True)
+                        if st.button("Cancel / Reset"):
+                            del st.session_state.stripe_url
                             st.rerun()
-                    if st.session_state.get("stripe_url"):
-                        st.link_button("👉 Pay Now (Secure)", st.session_state.stripe_url, type="primary", use_container_width=True)
                 else:
                     st.warning("Payment engine missing.")
                     if st.button("Bypass (Dev)"):
@@ -118,7 +127,6 @@ def render_workspace_page():
     is_civic = "Civic" in tier
     render_hero("Compose Letter", f"{tier} Edition")
     
-    # --- AUTO-POPULATE LOGIC ---
     user_email = ""
     if st.session_state.get("user"):
         u = st.session_state.user
@@ -127,89 +135,77 @@ def render_workspace_page():
         elif hasattr(u, "user"): user_email = u.user.email
 
     profile = {}
-    if database and user_email: 
-        profile = database.get_user_profile(user_email)
+    if database and user_email: profile = database.get_user_profile(user_email) or {}
     
-    if not profile: profile = {}
-    
-    # Safe defaults
-    def_name = profile.get("full_name") or ""
-    def_street = profile.get("address_line1") or ""
-    def_city = profile.get("address_city") or ""
-    def_state = profile.get("address_state") or ""
-    def_zip = profile.get("address_zip") or ""
+    def get_val(key, db_key):
+        return st.session_state.get(key, profile.get(db_key, ""))
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
-        # --- INSTRUCTION NOTICE (NEW) ---
-        st.warning("⚠️ **Important:** If using browser autofill, you MUST press **Enter** on each field and click **Save My Address** to ensure it registers.")
-
         if is_civic:
-            # --- CIVIC MODE ---
             c1, c2 = st.columns([1, 1])
             with c1:
                 st.markdown("#### 👈 Your Address (Required)")
-                name = st.text_input("Your Name", value=def_name, key="from_name")
-                street = st.text_input("Street Address", value=def_street, key="from_street")
+                st.text_input("Your Name", value=get_val("from_name", "full_name"), key="from_name")
+                st.text_input("Street Address", value=get_val("from_street", "address_line1"), key="from_street")
                 s1, s2, s3 = st.columns([2, 1, 1])
-                city = s1.text_input("City", value=def_city, key="from_city")
-                state = s2.text_input("State", value=def_state, key="from_state")
-                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
+                st.text_input("City", value=get_val("from_city", "address_city"), key="from_city")
+                st.text_input("State", value=get_val("from_state", "address_state"), key="from_state")
+                st.text_input("Zip", value=get_val("from_zip", "address_zip"), key="from_zip")
                 
                 if st.button("💾 Save & Find Reps"):
                     if database and user_email:
-                        database.update_user_profile(user_email, name, street, city, state, zip_code)
+                        database.update_user_profile(user_email, st.session_state.from_name, 
+                                                     st.session_state.from_street, st.session_state.from_city, 
+                                                     st.session_state.from_state, st.session_state.from_zip)
                         
-                    if civic_engine and street and zip_code:
-                        full_addr = f"{street}, {city}, {state} {zip_code}"
-                        with st.spinner("Locating Representatives..."):
+                    if civic_engine and st.session_state.from_street and st.session_state.from_zip:
+                        full_addr = f"{st.session_state.from_street}, {st.session_state.from_city}, {st.session_state.from_state} {st.session_state.from_zip}"
+                        with st.spinner("Locating..."):
                             targets = civic_engine.get_reps(full_addr)
                             st.session_state.civic_targets = targets
                             if not targets: st.error("Could not find representatives.")
-                    else:
-                        st.error("Civic Engine missing.")
             
             with c2:
                 st.markdown("#### 🏛️ Your Representatives")
                 targets = st.session_state.get("civic_targets", [])
                 if targets:
-                    st.success(f"Found {len(targets)} Officials:")
                     for t in targets:
-                        with st.container(border=True):
-                            st.markdown(f"**{t['name']}**")
-                            st.caption(f"{t['title']}")
+                        st.info(f"**{t['name']}**\n{t['title']}")
                 else:
                     st.info("Click 'Save & Find Reps' to load.")
 
         else:
-            # --- STANDARD MODE ---
             c_to, c_from = st.columns(2)
-            
-            # RECIPIENT
             with c_to:
                 st.markdown("#### 👉 To (Recipient)")
                 st.text_input("Full Name", key="to_name")
                 st.text_input("Street Address", key="to_street")
                 r1, r2, r3 = st.columns([2, 1, 1])
-                r1.text_input("City", key="to_city")
-                r2.text_input("State", key="to_state")
-                r3.text_input("Zip", key="to_zip")
+                st.text_input("City", key="to_city")
+                st.text_input("State", key="to_state")
+                st.text_input("Zip", key="to_zip")
             
-            # SENDER
             with c_from:
                 st.markdown("#### 👈 From (You)")
-                name = st.text_input("Your Name", value=def_name, key="from_name")
-                street = st.text_input("Street Address", value=def_street, key="from_street")
-                
+                st.text_input("Your Name", value=get_val("from_name", "full_name"), key="from_name")
+                st.text_input("Street Address", value=get_val("from_street", "address_line1"), key="from_street")
                 s1, s2, s3 = st.columns([2, 1, 1])
-                city = s1.text_input("City", value=def_city, key="from_city")
-                state = s2.text_input("State", value=def_state, key="from_state")
-                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
+                st.text_input("City", value=get_val("from_city", "address_city"), key="from_city")
+                st.text_input("State", value=get_val("from_state", "address_state"), key="from_state")
+                st.text_input("Zip", value=get_val("from_zip", "address_zip"), key="from_zip")
                 
                 if st.button("💾 Save My Address"):
                     if database and user_email:
-                        database.update_user_profile(user_email, name, street, city, state, zip_code)
+                        database.update_user_profile(
+                            user_email, 
+                            st.session_state.from_name, 
+                            st.session_state.from_street, 
+                            st.session_state.from_city, 
+                            st.session_state.from_state, 
+                            st.session_state.from_zip
+                        )
                         st.toast("✅ Saved!")
 
     st.write("---")
@@ -240,63 +236,46 @@ def render_workspace_page():
 def render_review_page():
     render_hero("Review Letter", "Finalize and send")
     
-    civic_targets = st.session_state.get("civic_targets", [])
+    if st.button("⬅️ Go Back to Edit"):
+        st.session_state.app_mode = "workspace"
+        st.rerun()
+
+    d = st.session_state
     tier = st.session_state.get("locked_tier", "Standard")
+    civic_targets = st.session_state.get("civic_targets", [])
     is_civic = len(civic_targets) > 0
     is_heirloom = "Heirloom" in tier
     
-    if is_civic:
-        st.info(f"🏛️ **Civic Blast:** Letter will be sent to {len(civic_targets)} reps.")
+    if is_civic: st.info(f"🏛️ **Civic Blast:** Mailing {len(civic_targets)} reps.")
     
     is_sent = st.session_state.get("letter_sent", False)
     st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300, disabled=is_sent)
     
     if not is_sent:
-        # --- VALIDATION & SEND ---
         if st.button("🚀 Send Letter", type="primary", use_container_width=True):
             
-            # 1. Retrieve Input Data (Safe .get)
-            to_name = st.session_state.get("to_name", "")
-            to_street = st.session_state.get("to_street", "")
-            to_city = st.session_state.get("to_city", "")
-            to_state = st.session_state.get("to_state", "")
-            to_zip = st.session_state.get("to_zip", "")
-            
-            from_name = st.session_state.get("from_name", "")
-            from_street = st.session_state.get("from_street", "")
-            from_city = st.session_state.get("from_city", "")
-            from_state = st.session_state.get("from_state", "")
-            from_zip = st.session_state.get("from_zip", "")
-
-            # 2. VALIDATION
+            # VALIDATION
             missing = []
             if not is_civic:
-                if not to_name: missing.append("Recipient Name")
-                if not to_street: missing.append("Recipient Street")
-                if not to_city: missing.append("Recipient City")
-                if not to_state: missing.append("Recipient State")
-                if not to_zip: missing.append("Recipient Zip")
-            
-            if not from_name: missing.append("Your Name")
-            if not from_street: missing.append("Your Street")
-            if not from_city: missing.append("Your City")
-            if not from_state: missing.append("Your State")
-            if not from_zip: missing.append("Your Zip")
+                if not d.get("to_name"): missing.append("Recipient Name")
+                if not d.get("to_street"): missing.append("Recipient Street")
+            if not d.get("from_name"): missing.append("Your Name")
+            if not d.get("from_street"): missing.append("Your Street")
             
             if missing:
-                st.error(f"⚠️ Missing Information: {', '.join(missing)}")
+                st.error(f"⚠️ Missing: {', '.join(missing)}")
                 st.stop()
 
-            # 3. Prepare Data Objects
+            # PREPARE DATA
             to_addr = {
-                "name": to_name, "address_line1": to_street,
-                "address_city": to_city, "address_state": to_state,
-                "address_zip": to_zip
+                "name": d.get("to_name", ""), "address_line1": d.get("to_street", ""),
+                "address_city": d.get("to_city", ""), "address_state": d.get("to_state", ""),
+                "address_zip": d.get("to_zip", "")
             }
             from_addr = {
-                "name": from_name, "address_line1": from_street,
-                "address_city": from_city, "address_state": from_state,
-                "address_zip": from_zip
+                "name": d.get("from_name", ""), "address_line1": d.get("from_street", ""),
+                "address_city": d.get("from_city", ""), "address_state": d.get("from_state", ""),
+                "address_zip": d.get("from_zip", "")
             }
 
             u_email = "guest"
@@ -309,22 +288,13 @@ def render_review_page():
             text = st.session_state.get("transcribed_text", "")
             price = st.session_state.get("temp_price", 2.99)
 
-            # 4. SEND LOGIC
+            # SENDING
             if is_heirloom:
-                if database:
-                    database.save_draft(u_email, text, tier, price, to_addr, status="pending")
-                if mailer:
-                    mailer.send_heirloom_notification(u_email, text)
-            
+                if database: database.save_draft(u_email, text, tier, price, to_addr, status="pending")
+                if mailer: mailer.send_heirloom_notification(u_email, text)
             else:
-                # Standard/Civic -> PostGrid
                 if mailer and letter_format:
-                    pdf_bytes = letter_format.create_pdf(
-                        body_text=text,
-                        recipient_info=f"{to_name}\n{to_street}",
-                        sender_info=from_name,
-                        is_heirloom=False
-                    )
+                    pdf_bytes = letter_format.create_pdf(text, f"{to_addr['name']}\n{to_addr['address_line1']}", from_addr['name'], False)
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(pdf_bytes)
                         tmp_path = tmp.name
@@ -333,15 +303,11 @@ def render_review_page():
                         result = mailer.send_letter(tmp_path, to_addr, from_addr)
                         
                     os.remove(tmp_path)
-                    
                     status = "sent_api" if result else "failed"
-                    if database:
-                        database.save_draft(u_email, text, tier, price, to_addr, status=status)
+                    if database: database.save_draft(u_email, text, tier, price, to_addr, status=status)
                     
-                    if result:
-                        st.success("✅ Successfully transmitted to PostGrid!")
-                    else:
-                        st.error("❌ Automated sending failed. Admin notified.")
+                    if result: st.success("✅ Successfully transmitted to PostGrid!")
+                    else: st.error("❌ Automated sending failed.")
 
             st.session_state.letter_sent = True
             st.rerun()
