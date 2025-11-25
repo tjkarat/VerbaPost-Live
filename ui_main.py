@@ -182,8 +182,6 @@ def render_workspace_page():
         else:
             # --- STANDARD MODE ---
             c_to, c_from = st.columns(2)
-            
-            # RECIPIENT
             with c_to:
                 st.markdown("#### 👉 To (Recipient)")
                 st.text_input("Full Name", key="to_name")
@@ -193,13 +191,10 @@ def render_workspace_page():
                 r2.text_input("State", key="to_state")
                 r3.text_input("Zip", key="to_zip")
             
-            # SENDER (AUTO-POPULATED WITH FULL ADDRESS NOW)
             with c_from:
                 st.markdown("#### 👈 From (You)")
                 name = st.text_input("Your Name", value=def_name, key="from_name")
                 street = st.text_input("Street Address", value=def_street, key="from_street")
-                
-                # Explicit City/State/Zip row for Sender
                 s1, s2, s3 = st.columns([2, 1, 1])
                 city = s1.text_input("City", value=def_city, key="from_city")
                 state = s2.text_input("State", value=def_state, key="from_state")
@@ -219,10 +214,7 @@ def render_workspace_page():
     
     with c_mic:
         st.write("🎤 **Dictation**")
-        
-        # Instructions
         st.info("1. Click Mic 🎙️\n2. Speak your letter\n3. Click Red Square ⏹️ to Stop")
-        
         audio = st.audio_input("Record Message")
         if audio:
             with st.status("🤖 Processing...", expanded=True) as status:
@@ -253,9 +245,43 @@ def render_review_page():
     st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300, disabled=is_sent)
     
     if not is_sent:
+        # --- VALIDATION & SEND ---
         if st.button("🚀 Send Letter", type="primary", use_container_width=True):
             
-            # 1. GATHER USER INFO
+            # 1. Retrieve Input Data
+            # We use .get() to avoid NoneType errors
+            to_name = st.session_state.get("to_name", "")
+            to_street = st.session_state.get("to_street", "")
+            to_city = st.session_state.get("to_city", "")
+            to_state = st.session_state.get("to_state", "")
+            to_zip = st.session_state.get("to_zip", "")
+            
+            from_name = st.session_state.get("from_name", "")
+            from_street = st.session_state.get("from_street", "")
+            from_city = st.session_state.get("from_city", "")
+            from_state = st.session_state.get("from_state", "")
+            from_zip = st.session_state.get("from_zip", "")
+
+            # 2. VALIDATION: Check if addresses are empty (Prevents PostGrid Error)
+            if not is_civic and (not to_street or not from_street):
+                st.error("⚠️ Missing Address Info! Please ensure both 'To' and 'From' streets are filled.")
+                if st.button("⬅️ Go Back to Edit"):
+                    st.session_state.app_mode = "workspace"
+                    st.rerun()
+                st.stop() # Stop execution so we don't hit the API
+
+            # 3. Prepare Data Objects
+            to_addr = {
+                "name": to_name, "address_line1": to_street,
+                "address_city": to_city, "address_state": to_state,
+                "address_zip": to_zip
+            }
+            from_addr = {
+                "name": from_name, "address_line1": from_street,
+                "address_city": from_city, "address_state": from_state,
+                "address_zip": from_zip
+            }
+
             u_email = "guest"
             if st.session_state.get("user"):
                 u = st.session_state.user
@@ -265,65 +291,38 @@ def render_review_page():
             
             text = st.session_state.get("transcribed_text", "")
             price = st.session_state.get("temp_price", 2.99)
-            
-            # 2. CONSTRUCT ADDRESS OBJECTS (FIXED: USE .GET(KEY, "") TO PREVENT NONE)
-            to_addr = {
-                "name": st.session_state.get("to_name", ""),
-                "address_line1": st.session_state.get("to_street", ""),
-                "address_city": st.session_state.get("to_city", ""),
-                "address_state": st.session_state.get("to_state", ""),
-                "address_zip": st.session_state.get("to_zip", "")
-            }
-            
-            from_addr = {
-                "name": st.session_state.get("from_name", ""),
-                "address_line1": st.session_state.get("from_street", ""),
-                "address_city": st.session_state.get("from_city", ""),
-                "address_state": st.session_state.get("from_state", ""),
-                "address_zip": st.session_state.get("from_zip", "")
-            }
 
-            # 3. LOGIC SPLIT: HEIRLOOM vs POSTGRID
+            # 4. SEND LOGIC
             if is_heirloom:
-                # --- HEIRLOOM (Manual) ---
                 if database:
-                    recip_data = {
-                        "name": to_addr["name"], "street": to_addr["address_line1"],
-                        "city": to_addr["address_city"], "state": to_addr["address_state"],
-                        "zip": to_addr["address_zip"]
-                    }
-                    database.save_draft(u_email, text, tier, price, recip_data)
-                
+                    # For Heirloom, we just save the request
+                    database.save_draft(u_email, text, tier, price, to_addr, status="pending")
                 if mailer:
                     mailer.send_heirloom_notification(u_email, text)
             
             else:
-                # --- POSTGRID (Automatic) ---
+                # Standard/Civic -> PostGrid
                 if mailer and letter_format:
-                    # A. Create PDF
+                    # Create PDF
                     pdf_bytes = letter_format.create_pdf(
                         body_text=text,
-                        recipient_info=f"{to_addr['name']}\n{to_addr['address_line1']}",
-                        sender_info=from_addr['name'],
+                        recipient_info=f"{to_name}\n{to_street}",
+                        sender_info=from_name,
                         is_heirloom=False
                     )
                     
-                    # B. Save to Temp File
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                         tmp.write(pdf_bytes)
                         tmp_path = tmp.name
                     
-                    # C. Send to PostGrid
                     with st.spinner("Transmitting to PostGrid..."):
                         result = mailer.send_letter(tmp_path, to_addr, from_addr)
                         
-                    # D. Cleanup
                     os.remove(tmp_path)
                     
-                    # E. Save Record
                     status = "sent_api" if result else "failed"
                     if database:
-                        database.save_draft(u_email, text, tier, price, status=status)
+                        database.save_draft(u_email, text, tier, price, to_addr, status=status)
                     
                     if result:
                         st.success("✅ Successfully transmitted to PostGrid!")
@@ -334,7 +333,6 @@ def render_review_page():
             st.rerun()
     else:
         st.success("✅ Letter Processed Successfully!")
-        # NO BALLOONS
         if st.button("🏁 Finish & Return Home", type="primary", use_container_width=True):
             for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url", "civic_targets"]:
                 if k in st.session_state: del st.session_state[k]
