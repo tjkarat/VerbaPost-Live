@@ -10,14 +10,14 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- HERO SECTION (SMALLER VERSION) ---
+    # --- HERO SECTION (COMPACT VERSION) ---
     st.markdown("""
     <div id="splash-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
-                padding: 30px; border-radius: 12px; text-align: center; 
-                margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
-        <div style="font-size: 2.5rem; margin-bottom: 5px;">📮</div>
-        <h1 style="font-size: 2.5rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">VerbaPost</h1>
-        <p style="font-size: 1.1rem; font-weight: 400; opacity: 0.95; margin-top: 5px;">
+                padding: 25px; border-radius: 12px; text-align: center; 
+                margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
+        <div style="font-size: 2rem; margin-bottom: 5px;">📮</div>
+        <h1 style="font-size: 2rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">VerbaPost</h1>
+        <p style="font-size: 1rem; font-weight: 400; opacity: 0.95; margin-top: 5px;">
             Turn your voice into a real, physical letter.
         </p>
     </div>
@@ -65,4 +65,5 @@ def show_splash():
         if st.button("📜 Read Terms of Service & Privacy Policy", type="secondary", use_container_width=True):
             st.session_state.current_view = "legal"
             st.rerun()
-        st.markdown("<div style='text-align: center; color: #888;'>© 2024 VerbaPost</div>", unsafe_allow_html=True)
+        # UPDATED DATE HERE
+        st.markdown("<div style='text-align: center; color: #888;'>© 2025 VerbaPost</div>", unsafe_allow_html=True)
