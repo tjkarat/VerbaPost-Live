@@ -3,7 +3,6 @@ from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
 from PIL import Image
-import numpy as np
 
 # --- IMPORTS ---
 try: import database
@@ -21,7 +20,6 @@ except: letter_format = None
 try: import mailer
 except: mailer = None
 
-# --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 
 def render_hero(title, subtitle):
@@ -65,16 +63,16 @@ def render_store_page():
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
-            promo_code = st.text_input("Promo Code")
+            promo_code = st.text_input("Promo Code (Optional)")
             is_free = False
             if promo_code and promo_engine:
                 if promo_engine.validate_code(promo_code):
-                    is_free = True; st.success("Code Applied!"); price = 0.00
-                else: st.error("Invalid")
+                    is_free = True; st.success("✅ Code Applied!"); price = 0.00
+                else: st.error("Invalid Code")
             st.metric("Total", f"${price:.2f}")
             st.divider()
             if is_free:
-                if st.button("🚀 Start", type="primary", use_container_width=True):
+                if st.button("🚀 Start (Promo Applied)", type="primary", use_container_width=True):
                     u_email = "guest"
                     if st.session_state.get("user"):
                         u = st.session_state.user
@@ -89,15 +87,28 @@ def render_store_page():
                     st.info("⚠️ **Note:** Payment opens in a new tab. Return here after.")
                     if st.button("Proceed to Payment", type="primary", use_container_width=True):
                         with st.spinner("Connecting to Stripe..."):
-                            url = payment_engine.create_checkout_session(
-                                f"VerbaPost {tier_code}", int(price * 100),
-                                f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}",
-                                YOUR_APP_URL
-                            )
+                            url = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price * 100), f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}", YOUR_APP_URL)
                             st.session_state.stripe_url = url
                             st.rerun()
+                    
+                    # --- FIXED: HTML BUTTON (Guaranteed White Text) ---
                     if st.session_state.get("stripe_url"):
-                        st.link_button("👉 Pay Now (Secure)", st.session_state.stripe_url, type="primary", use_container_width=True)
+                        link = st.session_state.stripe_url
+                        st.markdown(f"""
+                            <a href="{link}" target="_blank" style="
+                                display: inline-block;
+                                width: 100%;
+                                text-align: center;
+                                background-color: #2a5298;
+                                color: white !important;
+                                padding: 10px 20px;
+                                border-radius: 8px;
+                                text-decoration: none;
+                                font-weight: bold;
+                                margin-top: 10px;
+                                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                            ">👉 Pay Now (Secure)</a>
+                        """, unsafe_allow_html=True)
                 else:
                     st.warning("No Payment Engine")
                     if st.button("Bypass"): st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code; st.rerun()
@@ -127,7 +138,7 @@ def render_workspace_page():
         st.subheader("📍 Addressing")
         st.warning("⚠️ **Important:** Press **Enter** after typing in each field.")
         if is_civic:
-            c1, c2 = st.columns(2)
+            c1, c2 = st.columns([1, 1])
             with c1:
                 st.text_input("Name", value=d.get("from_name",""), key="w_from_name")
                 st.text_input("Street", value=d.get("from_street",""), key="w_from_street")
@@ -170,19 +181,15 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        # Capture canvas data
-        canvas_result = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
-        
-        # Store the image data in session state for the next step
-        if canvas_result.image_data is not None:
-            st.session_state.sig_data = canvas_result.image_data
+        canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
+        if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
 
     with c_mic:
         st.write("🎤 **Dictation**")
-        st.info("1. Click Mic. 2. Speak. 3. Stop.")
+        st.info("1. Click Mic 🎙️ 2. Speak 3. Stop")
         audio = st.audio_input("Record")
         if audio:
-            # CAPTURE FIELDS BEFORE MOVING
+            # Force Save
             if is_civic:
                 st.session_state.draft.update({"from_name": st.session_state.w_from_name, "from_street": st.session_state.w_from_street, "from_city": st.session_state.w_from_city, "from_state": st.session_state.w_from_state, "from_zip": st.session_state.w_from_zip})
             else:
@@ -205,58 +212,78 @@ def render_review_page():
     civic_targets = st.session_state.get("civic_targets", [])
     is_civic = len(civic_targets) > 0
     
+    is_sent = st.session_state.get("letter_sent", False)
+    
+    if is_sent:
+        st.success("✅ Letter Processed Successfully!")
+        st.info("Your letter has been queued.")
+        if st.button("🏁 Finish & Return Home", type="primary", use_container_width=True):
+            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url", "civic_targets", "draft", "sig_data"]:
+                if k in st.session_state: del st.session_state[k]
+            st.session_state.current_view = "splash"
+            st.rerun()
+        return
+
     st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
     
     if st.button("🚀 Send Letter", type="primary", use_container_width=True):
-        to_addr = {"name": d.get("to_name"), "address_line1": d.get("to_street"), "address_city": d.get("to_city"), "address_state": d.get("to_state"), "address_zip": d.get("to_zip")}
-        from_addr = {"name": d.get("from_name"), "address_line1": d.get("from_street"), "address_city": d.get("from_city"), "address_state": d.get("from_state"), "address_zip": d.get("from_zip")}
-        text = st.session_state.get("transcribed_text", "")
+        to_name = d.get("to_name","").strip()
+        to_street = d.get("to_street","").strip()
+        to_city = d.get("to_city","").strip()
+        to_state = d.get("to_state","").strip()
+        to_zip = d.get("to_zip","").strip()
+        from_name = d.get("from_name","").strip()
+        from_street = d.get("from_street","").strip()
+        from_city = d.get("from_city","").strip()
+        from_state = d.get("from_state","").strip()
+        from_zip = d.get("from_zip","").strip()
+
+        missing = []
+        if not is_civic:
+            if not to_street: missing.append("Recipient Street")
+        if not from_street: missing.append("Your Street")
+        if missing: st.error(f"Missing: {', '.join(missing)}"); st.stop()
+
+        to_addr = {"name": to_name, "address_line1": to_street, "address_city": to_city, "address_state": to_state, "address_zip": to_zip}
+        from_addr = {"name": from_name, "address_line1": from_street, "address_city": from_city, "address_state": from_state, "address_zip": from_zip}
         
-        # --- PROCESS SIGNATURE ---
         sig_path = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
-            # Convert numpy array to Image and save temp
             try:
-                img_data = st.session_state.sig_data
-                # Convert RGBA to RGB (white background)
-                img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
-                
-                # Create white background image
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[3]) # 3 is the alpha channel
-                
-                # Save to temp
+                img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
+                bg = Image.new("RGB", img.size, (255,255,255))
+                bg.paste(img, mask=img.split()[3])
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
-                    background.save(tmp_sig, format="PNG")
+                    bg.save(tmp_sig, format="PNG")
                     sig_path = tmp_sig.name
-            except Exception as e:
-                print(f"Signature Error: {e}")
+            except: pass
 
-        # --- GENERATE PDF ---
+        text = st.session_state.get("transcribed_text", "")
+        
         if mailer and letter_format:
-            pdf_bytes = letter_format.create_pdf(
-                body_text=text,
-                recipient_info=f"{to_addr['name']}\n{to_addr['address_line1']}\n{to_addr['address_city']}, {to_addr['address_state']} {to_addr['address_zip']}",
-                sender_info=f"{from_addr['name']}\n{from_addr['address_line1']}\n{from_addr['address_city']}, {from_addr['address_state']} {from_addr['address_zip']}",
-                is_heirloom=is_heirloom,
-                signature_path=sig_path # PASS SIGNATURE HERE
-            )
+            # Add signature_path to create_pdf call
+            pdf_bytes = letter_format.create_pdf(text, f"{to_name}\n{to_street}\n{to_city}, {to_state}", f"{from_name}\n{from_street}\n{from_city}, {from_state}", is_heirloom, sig_path)
             
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(pdf_bytes)
                 pdf_path = tmp.name
             
-            if is_heirloom:
-                # Just Notify
-                mailer.send_heirloom_notification("User", text) # Simplified for brevity
-                st.success("Sent to Mailroom!")
-            else:
-                # Send to PostGrid
-                res = mailer.send_letter(pdf_path, to_addr, from_addr)
-                if res: st.success("Sent to PostGrid!")
-                else: st.error("PostGrid Failed")
+            res = None
+            if not is_heirloom:
+                with st.spinner("Sending to PostGrid..."):
+                    res = mailer.send_letter(pdf_path, to_addr, from_addr)
             
-            # Cleanup
+            u_email = "guest"
+            if st.session_state.get("user"):
+                u = st.session_state.user
+                if isinstance(u, dict): u_email = u.get("email")
+                elif hasattr(u, "email"): u_email = u.email
+                elif hasattr(u, "user"): u_email = u.user.email
+            
+            status = "sent_api" if res else "pending"
+            if database: database.save_draft(u_email, text, tier, 2.99, to_addr, status)
+            if is_heirloom and mailer: mailer.send_heirloom_notification(u_email, text)
+            
             os.remove(pdf_path)
             if sig_path: os.remove(sig_path)
             
