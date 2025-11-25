@@ -9,7 +9,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- 2. GLOBAL STYLES & ANALYTICS ---
+# --- 2. ANALYTICS (Injecting at Top Level) ---
 GA_ID = "G-D3P178CESF"
 st.markdown(f"""
     <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
@@ -20,25 +20,21 @@ st.markdown(f"""
         gtag('config', '{GA_ID}');
     </script>
     <style>
-    /* --- 1. FORCE LIGHT MODE --- */
+    /* --- FORCE LIGHT MODE --- */
     [data-testid="stAppViewContainer"] {{ background-color: #ffffff; }}
     [data-testid="stSidebar"] {{ background-color: #f8f9fa; }}
-    [data-testid="stHeader"] {{ background-color: rgba(0,0,0,0); }}
     
-    /* --- 2. TEXT COLORS --- */
+    /* --- TEXT COLORS --- */
     h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
     
-    /* --- 3. BUTTONS --- */
+    /* --- BUTTONS (STANDARD) --- */
     div.stButton > button {{
         background-color: #ffffff; 
         color: #31333F;
         border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 0.5rem 1rem;
-        font-weight: 600;
     }}
     
-    /* --- 4. PRIMARY BUTTONS --- */
+    /* --- PRIMARY BUTTONS (Blue) --- */
     div.stButton > button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
@@ -46,39 +42,37 @@ st.markdown(f"""
     div.stButton > button[kind="primary"] p {{
         color: #FFFFFF !important;
     }}
-    
-    /* --- 5. LINK BUTTONS (PAY BUTTON FIX) --- */
-    /* We explicitly target the visited, link, active states */
-    a[data-testid="stLinkButton"],
-    a[data-testid="stLinkButton"]:link,
-    a[data-testid="stLinkButton"]:visited,
-    a[data-testid="stLinkButton"]:hover,
-    a[data-testid="stLinkButton"]:active {{
-        background-color: #2a5298 !important;
-        border: none !important;
-        color: #FFFFFF !important;
-        text-decoration: none !important;
+    div.stButton > button[kind="primary"]:hover {{
+        background-color: #1e3c72 !important;
     }}
     
-    /* Force ALL children text to be white */
-    a[data-testid="stLinkButton"] * {{
+    /* --- LINK BUTTONS (PAY BUTTON FIX) --- */
+    a[data-testid="stLinkButton"] {{
+        background-color: #2a5298 !important;
+        border: none !important;
+    }}
+    /* FORCE TEXT WHITE ON ALL STATES */
+    a[data-testid="stLinkButton"] *,
+    a[data-testid="stLinkButton"]:link *,
+    a[data-testid="stLinkButton"]:visited *,
+    a[data-testid="stLinkButton"]:hover *,
+    a[data-testid="stLinkButton"]:active * {{
         color: #FFFFFF !important;
         fill: #FFFFFF !important;
+        text-decoration: none !important;
     }}
     
     a[data-testid="stLinkButton"]:hover {{
         background-color: #1e3c72 !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
 
-    /* --- 6. INPUTS --- */
+    /* --- INPUTS --- */
     input, textarea, select {{
         color: #31333F !important;
         background-color: #ffffff !important;
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 7. VISIBILITY --- */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header {{visibility: visible;}}
