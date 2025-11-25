@@ -28,7 +28,7 @@ def show_admin():
     # --- TABS ---
     tab_mail, tab_users, tab_config = st.tabs(["🖨️ Mailroom", "👥 Users", "⚙️ Config"])
     
-    # --- TAB 1: MAILROOM (THE CORE FEATURE) ---
+    # --- TAB 1: MAILROOM ---
     with tab_mail:
         st.subheader("Pending Letters")
         
@@ -57,8 +57,12 @@ def show_admin():
                 # 2. Print Control Panel
                 st.subheader("🖨️ Print Manager")
                 
-                # Select a letter to print
-                letter_options = {row['id']: f"{row['created_at']} - {row['user_email']} ({row['tier']})" for row in letters}
+                # ERROR FIX: We use .get() to safely handle missing emails or tiers
+                letter_options = {
+                    row['id']: f"{row.get('created_at', 'Date?')} - {row.get('user_email', 'Unknown User')} ({row.get('tier', 'Standard')})" 
+                    for row in letters
+                }
+                
                 selected_id = st.selectbox("Select Letter to Print", options=list(letter_options.keys()), format_func=lambda x: letter_options[x])
                 
                 if selected_id:
@@ -67,12 +71,11 @@ def show_admin():
                     
                     if letter_data and letter_format:
                         # Generate the PDF
-                        # Note: In a real app, you'd pull the addresses from the DB columns. 
-                        # For now, we use placeholders if columns are missing.
+                        # We use .get() here too to be safe
                         pdf_bytes = letter_format.create_pdf(
                             body_text=letter_data.get("body_text", ""),
-                            recipient_info="Recipient Address Here", # Update database to store this
-                            sender_info="Sender Address Here",       # Update database to store this
+                            recipient_info=f"{letter_data.get('recipient_name', '')}\n{letter_data.get('recipient_street', '')}", 
+                            sender_info="VerbaPost Sender",      
                             is_heirloom=("Heirloom" in letter_data.get("tier", ""))
                         )
                         
@@ -90,15 +93,12 @@ def show_admin():
                             st.success("Status Updated!")
                             st.rerun()
             else:
-                st.info("📭 No pending letters found in database.")
-                st.caption("Tip: Go to the app and create a letter to see it appear here.")
+                st.info("📭 No pending letters found.")
         else:
             st.error("Database connection missing.")
 
-    # --- TAB 2: USERS ---
     with tab_users:
         st.info("User metrics coming soon.")
 
-    # --- TAB 3: CONFIG ---
     with tab_config:
         if analytics: analytics.show_analytics()
