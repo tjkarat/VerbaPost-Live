@@ -28,7 +28,7 @@ st.markdown(f"""
     /* --- 2. TEXT COLORS --- */
     h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
     
-    /* --- 3. BUTTONS --- */
+    /* --- 3. BUTTONS (STANDARD) --- */
     div.stButton > button {{
         background-color: #ffffff; 
         color: #31333F;
@@ -38,7 +38,7 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* --- 4. PRIMARY BUTTONS --- */
+    /* --- 4. PRIMARY BUTTONS (Normal) --- */
     div.stButton > button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
@@ -48,27 +48,31 @@ st.markdown(f"""
     }}
     div.stButton > button[kind="primary"]:hover {{
         background-color: #1e3c72 !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
     
-    /* --- 5. LINK BUTTONS (PAY BUTTON FIXED) --- */
+    /* --- 5. LINK BUTTONS (PAY BUTTON NUCLEAR FIX) --- */
+    /* Target the link button itself */
     a[data-testid="stLinkButton"] {{
         background-color: #2a5298 !important;
         border: none !important;
     }}
     
-    /* FORCE WHITE TEXT ON ALL STATES (Including Visited) */
-    a[data-testid="stLinkButton"], 
-    a[data-testid="stLinkButton"]:visited, 
-    a[data-testid="stLinkButton"]:hover, 
-    a[data-testid="stLinkButton"]:active {{
-        color: #FFFFFF !important;
-    }}
-    
-    /* Force internal children to be white */
+    /* TARGET EVERYTHING INSIDE THE LINK BUTTON */
+    /* This forces p, div, span, and raw text to be white */
     a[data-testid="stLinkButton"] * {{
         color: #FFFFFF !important;
         fill: #FFFFFF !important;
+    }}
+    
+    /* Hover State */
+    a[data-testid="stLinkButton"]:hover {{
+        background-color: #1e3c72 !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }}
+    
+    /* Keep text white on hover */
+    a[data-testid="stLinkButton"]:hover * {{
+        color: #FFFFFF !important;
     }}
 
     /* --- 6. INPUTS --- */
@@ -78,7 +82,7 @@ st.markdown(f"""
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 7. VISIBILITY --- */
+    /* --- 7. SIDEBAR VISIBILITY --- */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header {{visibility: visible;}}
