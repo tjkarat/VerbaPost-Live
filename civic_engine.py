@@ -3,85 +3,75 @@ import streamlit as st
 
 def get_reps(address):
     """
-    DEBUG MODE: Queries Geocodio and prints raw diagnostics to the screen.
+    Fixed Version: Uses correct 'cd' field parameter.
     """
     st.divider()
-    st.markdown("### 🛠️ Civic Engine Debugger")
+    st.markdown("### 🛠️ Civic Engine Status")
 
-    # 1. CHECK API KEY
+    # 1. Load Key
     try:
         api_key = st.secrets["geocodio"]["api_key"]
-        # Show last 4 chars to verify it's reading the right key
-        st.success(f"✅ API Key Loaded (Ends in: ...{api_key[-4:]})")
     except:
-        st.error("❌ CRITICAL: 'geocodio' section or 'api_key' missing from secrets.toml")
+        st.error("❌ Missing API Key in secrets.")
         return []
 
-    # 2. CONSTRUCT REQUEST
-    # We use 'congressional_districts' which contains federal legislator data
+    # 2. Request (THE FIX IS HERE: 'fields': 'cd')
     url = "https://api.geocod.io/v1.7/geocode"
     params = {
         'q': address,
-        'fields': 'congressional_districts', 
+        'fields': 'cd',  # Changed from 'congressional_districts' to 'cd'
         'api_key': api_key
     }
 
-    st.info(f"📡 Sending Request for: **{address}**")
-
     try:
-        # 3. EXECUTE REQUEST
         r = requests.get(url, params=params)
-        
-        # 4. CHECK HTTP STATUS
-        if r.status_code != 200:
-            st.error(f"❌ API Request Failed. Status Code: {r.status_code}")
-            st.json(r.json()) # Print the error message from Geocodio
-            return []
-        
         data = r.json()
-        
-        # 5. INSPECT RAW DATA (The most important part)
-        with st.expander("🔍 Click to view Raw JSON Response", expanded=True):
-            st.json(data)
 
-        # 6. ATTEMPT PARSING (Step-by-Step with Logs)
+        # 3. Check for API Errors
+        if r.status_code != 200:
+            st.error(f"❌ API Error: {data.get('error')}")
+            return []
+
+        # 4. Parse Results
         if not data.get('results'):
-            st.warning("⚠️ API returned 200 OK, but 'results' list is empty.")
+            st.warning("⚠️ Address not found.")
             return []
 
         result = data['results'][0]
+        
+        # Debug: Show what we got back
+        # with st.expander("View Raw JSON Data"):
+        #     st.json(result)
+
+        # Check for Field Data
         fields = result.get('fields', {})
-        
-        # Check for the district field
         districts = fields.get('congressional_districts', [])
-        if not districts:
-            st.error("❌ 'congressional_districts' field is missing in response.")
-            return []
         
-        # Check for legislators
-        current_legislators = districts[0].get('current_legislators', [])
-        if not current_legislators:
-            st.error("❌ 'current_legislators' list is empty for this district.")
+        if not districts:
+            st.error("❌ No district data found for this address.")
             return []
 
-        st.success(f"✅ Parsing {len(current_legislators)} raw legislators...")
-
+        # Get Legislators
+        current_legislators = districts[0].get('current_legislators', [])
+        
         targets = []
         
         for leg in current_legislators:
             role = leg.get('type')
             
-            # Only keep Federal
-            if role in ['senator', 'representative']:
+            # Geocodio returns 'Senator' and 'Representative' (Capitalized)
+            if role in ['Senator', 'Representative']:
                 bio = leg.get('bio', {})
                 contact = leg.get('contact', {})
                 
                 full_name = f"{bio.get('first_name')} {bio.get('last_name')}"
-                title = "U.S. Senator" if role == 'senator' else "U.S. Representative"
+                title = "U.S. Senator" if role == 'Senator' else "U.S. Representative"
                 
-                # Address Parsing
+                # Address Cleaning
+                # Geocodio usually provides the Washington DC address in 'contact'
                 addr_raw = contact.get('address') or "United States Capitol, Washington DC"
                 
+                # Create simplified object
                 targets.append({
                     'name': full_name,
                     'title': title,
@@ -94,8 +84,13 @@ def get_reps(address):
                     }
                 })
 
-        return targets
+        if targets:
+            st.success(f"✅ Successfully found {len(targets)} legislators!")
+            return targets
+        else:
+            st.warning("Found district, but no legislators listed.")
+            return []
 
     except Exception as e:
-        st.error(f"🔥 Python Exception during processing: {e}")
+        st.error(f"🔥 Error: {e}")
         return []
