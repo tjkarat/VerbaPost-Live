@@ -23,7 +23,7 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- CALL TO ACTION ---
+    # --- CALL TO ACTION (Now Blue!) ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("🚀 Log In / Create Account", type="primary", use_container_width=True):
@@ -46,12 +46,13 @@ def show_splash():
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # --- USE CASES (Was Missing) ---
+    # --- USE CASES ---
     st.subheader("Who is this for?")
     uc1, uc2, uc3 = st.columns(3)
     
     with uc1:
-        st.info("**🏘️ Realtors & Sales**\n\nHandwritten direct mail gets 99% open rates. Instant follow-up.")
+        # TEXT UPDATED HERE
+        st.info("**🏘️ Realtors & Sales**\n\nHandwritten Envelopes with stamps get opened.")
     with uc2:
         st.info("**🏛️ Civic Activists**\n\nPhysical petitions on desks get noticed. Emails get deleted.")
     with uc3:
@@ -59,7 +60,7 @@ def show_splash():
 
     st.markdown("<br><hr>", unsafe_allow_html=True)
 
-    # --- FOOTER / TERMS OF SERVICE ---
+    # --- FOOTER ---
     fc1, fc2, fc3 = st.columns([1, 2, 1])
     with fc2:
         if st.button("📜 Read Terms of Service & Privacy Policy", type="secondary", use_container_width=True):
