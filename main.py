@@ -25,16 +25,10 @@ st.markdown(f"""
     [data-testid="stSidebar"] {{ background-color: #f8f9fa; }}
     [data-testid="stHeader"] {{ background-color: rgba(0,0,0,0); }}
     
-    /* --- 2. TEXT COLORS (GLOBAL) --- */
-    /* We removed 'p' from this list to stop it from overwriting buttons */
-    h1, h2, h3, h4, h5, h6, li, div, label, span {{ color: #31333F !important; }}
+    /* --- 2. TEXT COLORS --- */
+    h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
     
-    /* Re-apply dark text to standard paragraphs, BUT exclude buttons */
-    p {{
-        color: #31333F;
-    }}
-    
-    /* --- 3. BUTTONS (STANDARD) --- */
+    /* --- 3. BUTTONS --- */
     div.stButton > button {{
         background-color: #ffffff; 
         color: #31333F;
@@ -44,7 +38,7 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* --- 4. PRIMARY BUTTONS (Blue) --- */
+    /* --- 4. PRIMARY BUTTONS --- */
     div.stButton > button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
@@ -52,31 +46,29 @@ st.markdown(f"""
     div.stButton > button[kind="primary"] p {{
         color: #FFFFFF !important;
     }}
+    div.stButton > button[kind="primary"]:hover {{
+        background-color: #1e3c72 !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }}
     
-    /* --- 5. LINK BUTTONS (PAY BUTTON FIX) --- */
-    /* Target the link button container */
+    /* --- 5. LINK BUTTONS (PAY BUTTON FIXED) --- */
     a[data-testid="stLinkButton"] {{
         background-color: #2a5298 !important;
         border: none !important;
     }}
     
-    /* CRITICAL FIX: Target the text inside the link button with high specificity */
-    a[data-testid="stLinkButton"] p,
-    a[data-testid="stLinkButton"] span,
-    a[data-testid="stLinkButton"] div {{
+    /* FORCE WHITE TEXT ON ALL STATES (Including Visited) */
+    a[data-testid="stLinkButton"], 
+    a[data-testid="stLinkButton"]:visited, 
+    a[data-testid="stLinkButton"]:hover, 
+    a[data-testid="stLinkButton"]:active {{
         color: #FFFFFF !important;
     }}
     
-    /* Hover Effects */
-    div.stButton > button[kind="primary"]:hover,
-    a[data-testid="stLinkButton"]:hover {{
-        background-color: #1e3c72 !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }}
-    
-    /* Keep text white on hover */
-    a[data-testid="stLinkButton"]:hover p {{
+    /* Force internal children to be white */
+    a[data-testid="stLinkButton"] * {{
         color: #FFFFFF !important;
+        fill: #FFFFFF !important;
     }}
 
     /* --- 6. INPUTS --- */
@@ -86,7 +78,7 @@ st.markdown(f"""
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 7. HIDE DEFAULTS --- */
+    /* --- 7. VISIBILITY --- */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header {{visibility: visible;}}
