@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import resend
 
 # --- SAFETY IMPORTS ---
 try: import database
@@ -12,114 +13,117 @@ try: import analytics
 except ImportError: analytics = None
 try: import promo_engine
 except ImportError: promo_engine = None
+try: import mailer
+except ImportError: mailer = None
 
 def show_admin():
     st.title("🔐 Admin Console")
     
     # --- DIAGNOSTICS ROW ---
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("Database", "✅ Connected" if database else "❌ Missing")
-    c2.metric("Promos", "✅ Active" if promo_engine else "❌ Missing")
-    c3.metric("GA4", "✅ Active" if analytics else "❌ Missing")
+    c2.metric("Mailer", "✅ Active" if mailer else "❌ Missing")
+    c3.metric("Promos", "✅ Active" if promo_engine else "❌ Missing")
+    c4.metric("GA4", "✅ Active" if analytics else "❌ Missing")
     
     st.divider()
 
     # --- TABS ---
-    tab_mail, tab_promos, tab_users = st.tabs(["🖨️ Mailroom", "🎟️ Promos", "👥 Users"])
+    tab_mail, tab_debug_mail, tab_promos = st.tabs(["🖨️ Mailroom", "📧 Mail Debugger", "🎟️ Promos"])
     
     # --- TAB 1: MAILROOM ---
     with tab_mail:
         st.subheader("Pending Letters")
-        
         if database:
             letters = database.fetch_pending_letters()
-            
             if letters:
-                # 1. Convert to DataFrame
                 df = pd.DataFrame(letters)
-                
-                # 2. CRITICAL FIX: Ensure columns exist before selecting them
-                # This prevents the "KeyError" crash if DB has old/bad data
-                expected_cols = ["created_at", "user_email", "tier", "status", "price"]
-                for col in expected_cols:
-                    if col not in df.columns:
-                        df[col] = "Unknown" # Fill missing data with a placeholder
-                
-                # 3. Display Safe DataFrame
-                st.dataframe(
-                    df[["created_at", "user_email", "tier", "status", "price"]], 
-                    use_container_width=True
-                )
+                # Safe Column Selection
+                cols = ["created_at", "user_email", "tier", "status", "price"]
+                valid_cols = [c for c in cols if c in df.columns]
+                st.dataframe(df[valid_cols], use_container_width=True)
                 
                 st.write("---")
-                
-                # 4. Print Manager
                 st.subheader("🖨️ Print Manager")
                 
-                # Use .get() for safe dictionary access
                 letter_options = {
                     row['id']: f"{row.get('created_at', '?')} - {row.get('user_email', 'Unknown')} ({row.get('tier', '?')})" 
                     for row in letters
                 }
+                selected_id = st.selectbox("Select Letter", list(letter_options.keys()), format_func=lambda x: letter_options[x])
                 
-                selected_id = st.selectbox("Select Letter to Print", options=list(letter_options.keys()), format_func=lambda x: letter_options[x])
-                
-                if selected_id:
+                if selected_id and letter_format:
                     letter_data = next((item for item in letters if item["id"] == selected_id), None)
-                    
-                    if letter_data and letter_format:
+                    if letter_data:
                         pdf_bytes = letter_format.create_pdf(
                             body_text=letter_data.get("body_text", ""),
-                            recipient_info=f"{letter_data.get('recipient_name', '')}\n{letter_data.get('recipient_street', '')}", 
-                            sender_info="VerbaPost Sender",      
+                            recipient_info="Recipient Info",
+                            sender_info="Sender Info",
                             is_heirloom=("Heirloom" in letter_data.get("tier", ""))
                         )
-                        
-                        st.download_button(
-                            label="📄 Download PDF",
-                            data=pdf_bytes,
-                            file_name=f"letter_{selected_id}.pdf",
-                            mime="application/pdf",
-                            type="primary"
-                        )
-                        
+                        st.download_button("📄 Download PDF", pdf_bytes, f"letter_{selected_id}.pdf", "application/pdf", type="primary")
                         if st.button("Mark as Sent"):
                             database.mark_as_sent(selected_id)
-                            st.success("Status Updated!")
+                            st.success("Updated!")
                             st.rerun()
             else:
-                st.info("📭 No pending letters found.")
-        else:
-            st.error("Database connection missing.")
+                st.info("📭 No pending letters.")
 
-    # --- TAB 2: PROMO CODES ---
+    # --- TAB 2: MAIL DEBUGGER (THE FIX) ---
+    with tab_debug_mail:
+        st.subheader("📧 Email System Diagnostic")
+        
+        # 1. Check Secrets
+        try:
+            key = st.secrets["resend"]["api_key"]
+            st.success(f"✅ API Key Detected: `...{key[-4:]}`")
+        except:
+            st.error("❌ Resend API Key missing from secrets.toml")
+            st.stop()
+
+        # 2. Test Form
+        st.write("Use this to send a real test email and see the server response.")
+        
+        c1, c2 = st.columns(2)
+        from_email = c1.text_input("From Address", value="onboarding@resend.dev")
+        to_email = c2.text_input("To Address", value="tjkarat@gmail.com")
+        
+        st.info("📝 **Note:** Unless you have verified 'verbapost.com' in the Resend Dashboard, you MUST use `onboarding@resend.dev` as the From Address.")
+        
+        if st.button("🚀 Send Test Email", type="primary"):
+            try:
+                resend.api_key = st.secrets["resend"]["api_key"]
+                
+                r = resend.Emails.send({
+                    "from": from_email,
+                    "to": to_email,
+                    "subject": "🔔 VerbaPost Debug Test",
+                    "html": "<h1>It Works!</h1><p>This is a test from the Admin Console.</p>"
+                })
+                
+                st.success("✅ Email Sent Successfully!")
+                with st.expander("View Server Response", expanded=True):
+                    st.json(r)
+                    
+            except Exception as e:
+                st.error("❌ Sending Failed")
+                st.error(f"Error Details: {e}")
+                st.caption("Tip: If error is '403 Forbidden', check if your domain is verified.")
+
+    # --- TAB 3: PROMOS ---
     with tab_promos:
         c1, c2 = st.columns([1, 2])
-        
         with c1:
             st.subheader("Create Code")
-            new_code = st.text_input("New Code (e.g. VIP100)")
-            if st.button("Create Code", type="primary"):
+            new_code = st.text_input("New Code")
+            if st.button("Create"):
                 if promo_engine:
-                    success, msg = promo_engine.create_code(new_code)
-                    if success: st.success(f"Created {new_code}!")
-                    else: st.error(msg)
-                    st.rerun()
-                else:
-                    st.error("Promo Engine missing")
-        
+                    s, m = promo_engine.create_code(new_code)
+                    if s: st.success("Created!")
+                    else: st.error(m)
         with c2:
-            st.subheader("Active Codes & Usage")
             if promo_engine:
                 try:
                     data = promo_engine.get_all_codes_with_usage()
-                    if data:
-                        st.dataframe(pd.DataFrame(data), use_container_width=True)
-                    else:
-                        st.info("No codes found.")
-                except Exception as e:
-                    st.warning(f"Could not load logs. Did you run the SQL? Error: {e}")
-
-    # --- TAB 3: USERS ---
-    with tab_users:
-        st.info("User metrics coming soon.")
+                    if data: st.dataframe(pd.DataFrame(data), use_container_width=True)
+                except: st.warning("No data or DB error")
