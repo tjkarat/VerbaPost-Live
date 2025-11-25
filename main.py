@@ -28,7 +28,7 @@ st.markdown(f"""
     /* --- 2. TEXT COLORS --- */
     h1, h2, h3, h4, h5, h6, p, li, div, label, span {{ color: #31333F !important; }}
     
-    /* --- 3. BUTTONS (STANDARD) --- */
+    /* --- 3. BUTTONS --- */
     div.stButton > button {{
         background-color: #ffffff; 
         color: #31333F;
@@ -38,7 +38,7 @@ st.markdown(f"""
         font-weight: 600;
     }}
     
-    /* --- 4. PRIMARY BUTTONS (Normal) --- */
+    /* --- 4. PRIMARY BUTTONS --- */
     div.stButton > button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
@@ -46,33 +46,29 @@ st.markdown(f"""
     div.stButton > button[kind="primary"] p {{
         color: #FFFFFF !important;
     }}
-    div.stButton > button[kind="primary"]:hover {{
-        background-color: #1e3c72 !important;
-    }}
     
-    /* --- 5. LINK BUTTONS (PAY BUTTON NUCLEAR FIX) --- */
-    /* Target the link button itself */
-    a[data-testid="stLinkButton"] {{
+    /* --- 5. LINK BUTTONS (PAY BUTTON FIX) --- */
+    /* We explicitly target the visited, link, active states */
+    a[data-testid="stLinkButton"],
+    a[data-testid="stLinkButton"]:link,
+    a[data-testid="stLinkButton"]:visited,
+    a[data-testid="stLinkButton"]:hover,
+    a[data-testid="stLinkButton"]:active {{
         background-color: #2a5298 !important;
         border: none !important;
+        color: #FFFFFF !important;
+        text-decoration: none !important;
     }}
     
-    /* TARGET EVERYTHING INSIDE THE LINK BUTTON */
-    /* This forces p, div, span, and raw text to be white */
+    /* Force ALL children text to be white */
     a[data-testid="stLinkButton"] * {{
         color: #FFFFFF !important;
         fill: #FFFFFF !important;
     }}
     
-    /* Hover State */
     a[data-testid="stLinkButton"]:hover {{
         background-color: #1e3c72 !important;
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }}
-    
-    /* Keep text white on hover */
-    a[data-testid="stLinkButton"]:hover * {{
-        color: #FFFFFF !important;
     }}
 
     /* --- 6. INPUTS --- */
@@ -82,7 +78,7 @@ st.markdown(f"""
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 7. SIDEBAR VISIBILITY --- */
+    /* --- 7. VISIBILITY --- */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header {{visibility: visible;}}

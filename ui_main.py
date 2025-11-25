@@ -22,65 +22,11 @@ except: mailer = None
 # --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 
-# --- CSS STYLING (The Fix for Black Text) ---
-def inject_css():
-    st.markdown("""
-    <style>
-    /* 1. Force Light Mode Backgrounds */
-    [data-testid="stAppViewContainer"] { background-color: #ffffff; }
-    [data-testid="stSidebar"] { background-color: #f8f9fa; }
-    [data-testid="stHeader"] { background-color: rgba(0,0,0,0); }
-    
-    /* 2. Global Text Color */
-    h1, h2, h3, h4, h5, h6, p, li, div, label, span { color: #31333F !important; }
-    
-    /* 3. Standard Buttons (White) */
-    div.stButton > button {
-        background-color: #ffffff !important;
-        color: #31333F !important;
-        border: 1px solid #e0e0e0;
-    }
-    
-    /* 4. Primary Buttons (Blue) */
-    div.stButton > button[kind="primary"] {
-        background-color: #2a5298 !important;
-        border: none !important;
-    }
-    div.stButton > button[kind="primary"] p {
-        color: #FFFFFF !important;
-    }
-    
-    /* 5. LINK BUTTONS (Pay Now) - The Specific Fix */
-    /* We target the anchor tag AND all its children explicitly */
-    a[data-testid="stLinkButton"] {
-        background-color: #2a5298 !important;
-        border: none !important;
-    }
-    a[data-testid="stLinkButton"] * {
-        color: #FFFFFF !important; /* Forces text inside to be white */
-        text-decoration: none !important;
-    }
-    a[data-testid="stLinkButton"]:hover {
-        background-color: #1e3c72 !important;
-    }
-    
-    /* 6. Inputs */
-    input, textarea, select {
-        color: #31333F !important;
-        background-color: #ffffff !important;
-        border: 1px solid #e0e0e0 !important;
-    }
-    
-    /* 7. Hide Defaults */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: visible;}
-    </style>
-    """, unsafe_allow_html=True)
-
 def render_hero(title, subtitle):
     st.markdown(f"""
-    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
+    <style>
+    #hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}
+    </style>
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
@@ -90,15 +36,6 @@ def render_hero(title, subtitle):
     """, unsafe_allow_html=True)
 
 def show_main_app():
-    inject_css() # Apply styles
-    
-    # Initialize Draft Data if missing (Crucial for Data Persistence)
-    if "draft" not in st.session_state:
-        st.session_state.draft = {
-            "to_name": "", "to_street": "", "to_city": "", "to_state": "", "to_zip": "",
-            "from_name": "", "from_street": "", "from_city": "", "from_state": "", "from_zip": ""
-        }
-
     if "session_id" in st.query_params:
         st.session_state.payment_complete = True
         if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
@@ -113,6 +50,7 @@ def show_main_app():
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
+    
     c1, c2 = st.columns([2, 1])
     with c1:
         with st.container(border=True):
@@ -120,6 +58,7 @@ def render_store_page():
             tier_options = {"⚡ Standard": 2.99, "🏺 Heirloom": 5.99, "🏛️ Civic": 6.99}
             selected_tier_name = st.radio("Select Tier", list(tier_options.keys()))
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
+            
             price = tier_options[selected_tier_name]
             tier_code = selected_tier_name.split(" ")[1] 
             st.session_state.temp_tier = tier_code
@@ -179,7 +118,7 @@ def render_workspace_page():
     is_civic = "Civic" in tier
     render_hero("Compose Letter", f"{tier} Edition")
     
-    # --- 1. DATA LOAD ---
+    # --- AUTO-POPULATE LOGIC ---
     user_email = ""
     if st.session_state.get("user"):
         u = st.session_state.user
@@ -188,97 +127,89 @@ def render_workspace_page():
         elif hasattr(u, "user"): user_email = u.user.email
 
     profile = {}
-    if database and user_email: profile = database.get_user_profile(user_email) or {}
+    if database and user_email: 
+        profile = database.get_user_profile(user_email)
     
-    # Helper to update the persistent 'draft' state immediately when typing
-    def update_draft():
-        st.session_state.draft = {
-            "to_name": st.session_state.w_to_name,
-            "to_street": st.session_state.w_to_street,
-            "to_city": st.session_state.w_to_city,
-            "to_state": st.session_state.w_to_state,
-            "to_zip": st.session_state.w_to_zip,
-            "from_name": st.session_state.w_from_name,
-            "from_street": st.session_state.w_from_street,
-            "from_city": st.session_state.w_from_city,
-            "from_state": st.session_state.w_from_state,
-            "from_zip": st.session_state.w_from_zip
-        }
-
-    # Pre-fill logic: Use existing draft if avail, else profile, else empty
-    d = st.session_state.draft
+    if not profile: profile = {}
     
-    # Defaults from Profile if draft is empty
-    def_fname = d["from_name"] if d["from_name"] else profile.get("full_name", "")
-    def_fstreet = d["from_street"] if d["from_street"] else profile.get("address_line1", "")
-    def_fcity = d["from_city"] if d["from_city"] else profile.get("address_city", "")
-    def_fstate = d["from_state"] if d["from_state"] else profile.get("address_state", "")
-    def_fzip = d["from_zip"] if d["from_zip"] else profile.get("address_zip", "")
+    # Safe defaults
+    def_name = profile.get("full_name") or ""
+    def_street = profile.get("address_line1") or ""
+    def_city = profile.get("address_city") or ""
+    def_state = profile.get("address_state") or ""
+    def_zip = profile.get("address_zip") or ""
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
+        # --- INSTRUCTION NOTICE (NEW) ---
+        st.warning("⚠️ **Important:** If using browser autofill, you MUST press **Enter** on each field and click **Save My Address** to ensure it registers.")
+
         if is_civic:
+            # --- CIVIC MODE ---
             c1, c2 = st.columns([1, 1])
             with c1:
-                st.markdown("#### 👈 Your Address")
-                st.text_input("Your Name", value=def_fname, key="w_from_name", on_change=update_draft)
-                st.text_input("Street Address", value=def_fstreet, key="w_from_street", on_change=update_draft)
+                st.markdown("#### 👈 Your Address (Required)")
+                name = st.text_input("Your Name", value=def_name, key="from_name")
+                street = st.text_input("Street Address", value=def_street, key="from_street")
                 s1, s2, s3 = st.columns([2, 1, 1])
-                s1.text_input("City", value=def_fcity, key="w_from_city", on_change=update_draft)
-                s2.text_input("State", value=def_fstate, key="w_from_state", on_change=update_draft)
-                s3.text_input("Zip", value=def_fzip, key="w_from_zip", on_change=update_draft)
+                city = s1.text_input("City", value=def_city, key="from_city")
+                state = s2.text_input("State", value=def_state, key="from_state")
+                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
                 
                 if st.button("💾 Save & Find Reps"):
-                    update_draft() # Ensure saving latest
                     if database and user_email:
-                        database.update_user_profile(user_email, st.session_state.w_from_name, 
-                                                     st.session_state.w_from_street, st.session_state.w_from_city, 
-                                                     st.session_state.w_from_state, st.session_state.w_from_zip)
+                        database.update_user_profile(user_email, name, street, city, state, zip_code)
                         
-                    if civic_engine:
-                        full_addr = f"{st.session_state.w_from_street}, {st.session_state.w_from_city}, {st.session_state.w_from_state} {st.session_state.w_from_zip}"
-                        with st.spinner("Locating..."):
+                    if civic_engine and street and zip_code:
+                        full_addr = f"{street}, {city}, {state} {zip_code}"
+                        with st.spinner("Locating Representatives..."):
                             targets = civic_engine.get_reps(full_addr)
                             st.session_state.civic_targets = targets
                             if not targets: st.error("Could not find representatives.")
+                    else:
+                        st.error("Civic Engine missing.")
             
             with c2:
                 st.markdown("#### 🏛️ Your Representatives")
                 targets = st.session_state.get("civic_targets", [])
                 if targets:
+                    st.success(f"Found {len(targets)} Officials:")
                     for t in targets:
-                        st.info(f"**{t['name']}**\n{t['title']}")
+                        with st.container(border=True):
+                            st.markdown(f"**{t['name']}**")
+                            st.caption(f"{t['title']}")
                 else:
                     st.info("Click 'Save & Find Reps' to load.")
 
         else:
-            # STANDARD MODE
+            # --- STANDARD MODE ---
             c_to, c_from = st.columns(2)
+            
+            # RECIPIENT
             with c_to:
                 st.markdown("#### 👉 To (Recipient)")
-                st.text_input("Full Name", value=d["to_name"], key="w_to_name", on_change=update_draft)
-                st.text_input("Street Address", value=d["to_street"], key="w_to_street", on_change=update_draft)
+                st.text_input("Full Name", key="to_name")
+                st.text_input("Street Address", key="to_street")
                 r1, r2, r3 = st.columns([2, 1, 1])
-                r1.text_input("City", value=d["to_city"], key="w_to_city", on_change=update_draft)
-                r2.text_input("State", value=d["to_state"], key="w_to_state", on_change=update_draft)
-                r3.text_input("Zip", value=d["to_zip"], key="w_to_zip", on_change=update_draft)
+                r1.text_input("City", key="to_city")
+                r2.text_input("State", key="to_state")
+                r3.text_input("Zip", key="to_zip")
             
+            # SENDER
             with c_from:
                 st.markdown("#### 👈 From (You)")
-                st.text_input("Your Name", value=def_fname, key="w_from_name", on_change=update_draft)
-                st.text_input("Street Address", value=def_fstreet, key="w_from_street", on_change=update_draft)
+                name = st.text_input("Your Name", value=def_name, key="from_name")
+                street = st.text_input("Street Address", value=def_street, key="from_street")
+                
                 s1, s2, s3 = st.columns([2, 1, 1])
-                s1.text_input("City", value=def_fcity, key="w_from_city", on_change=update_draft)
-                s2.text_input("State", value=def_fstate, key="w_from_state", on_change=update_draft)
-                s3.text_input("Zip", value=def_fzip, key="w_from_zip", on_change=update_draft)
+                city = s1.text_input("City", value=def_city, key="from_city")
+                state = s2.text_input("State", value=def_state, key="from_state")
+                zip_code = s3.text_input("Zip", value=def_zip, key="from_zip")
                 
                 if st.button("💾 Save My Address"):
-                    update_draft()
                     if database and user_email:
-                        database.update_user_profile(user_email, st.session_state.w_from_name, 
-                                                     st.session_state.w_from_street, st.session_state.w_from_city, 
-                                                     st.session_state.w_from_state, st.session_state.w_from_zip)
+                        database.update_user_profile(user_email, name, street, city, state, zip_code)
                         st.toast("✅ Saved!")
 
     st.write("---")
@@ -293,8 +224,6 @@ def render_workspace_page():
         st.info("1. Click Mic 🎙️\n2. Speak your letter\n3. Click Red Square ⏹️ to Stop")
         audio = st.audio_input("Record Message")
         if audio:
-            # FORCE SAVE DRAFT BEFORE TRANSITION
-            update_draft() 
             with st.status("🤖 Processing...", expanded=True) as status:
                 st.write("Transcribing audio...")
                 if ai_engine:
@@ -311,46 +240,63 @@ def render_workspace_page():
 def render_review_page():
     render_hero("Review Letter", "Finalize and send")
     
-    if st.button("⬅️ Go Back to Edit"):
-        st.session_state.app_mode = "workspace"
-        st.rerun()
-
-    # Pull from Saved Draft
-    d = st.session_state.get("draft", {})
-    tier = st.session_state.get("locked_tier", "Standard")
     civic_targets = st.session_state.get("civic_targets", [])
+    tier = st.session_state.get("locked_tier", "Standard")
     is_civic = len(civic_targets) > 0
     is_heirloom = "Heirloom" in tier
     
-    if is_civic: st.info(f"🏛️ **Civic Blast:** Mailing {len(civic_targets)} reps.")
+    if is_civic:
+        st.info(f"🏛️ **Civic Blast:** Letter will be sent to {len(civic_targets)} reps.")
     
     is_sent = st.session_state.get("letter_sent", False)
     st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300, disabled=is_sent)
     
     if not is_sent:
+        # --- VALIDATION & SEND ---
         if st.button("🚀 Send Letter", type="primary", use_container_width=True):
             
-            # VALIDATION USING DRAFT DATA
+            # 1. Retrieve Input Data (Safe .get)
+            to_name = st.session_state.get("to_name", "")
+            to_street = st.session_state.get("to_street", "")
+            to_city = st.session_state.get("to_city", "")
+            to_state = st.session_state.get("to_state", "")
+            to_zip = st.session_state.get("to_zip", "")
+            
+            from_name = st.session_state.get("from_name", "")
+            from_street = st.session_state.get("from_street", "")
+            from_city = st.session_state.get("from_city", "")
+            from_state = st.session_state.get("from_state", "")
+            from_zip = st.session_state.get("from_zip", "")
+
+            # 2. VALIDATION
             missing = []
             if not is_civic:
-                if not d.get("to_street"): missing.append("Recipient Street")
-                if not d.get("to_city"): missing.append("Recipient City")
-            if not d.get("from_street"): missing.append("Sender Street")
+                if not to_name: missing.append("Recipient Name")
+                if not to_street: missing.append("Recipient Street")
+                if not to_city: missing.append("Recipient City")
+                if not to_state: missing.append("Recipient State")
+                if not to_zip: missing.append("Recipient Zip")
+            
+            if not from_name: missing.append("Your Name")
+            if not from_street: missing.append("Your Street")
+            if not from_city: missing.append("Your City")
+            if not from_state: missing.append("Your State")
+            if not from_zip: missing.append("Your Zip")
             
             if missing:
                 st.error(f"⚠️ Missing Information: {', '.join(missing)}")
                 st.stop()
 
-            # PREPARE DATA
+            # 3. Prepare Data Objects
             to_addr = {
-                "name": d.get("to_name"), "address_line1": d.get("to_street"),
-                "address_city": d.get("to_city"), "address_state": d.get("to_state"),
-                "address_zip": d.get("to_zip")
+                "name": to_name, "address_line1": to_street,
+                "address_city": to_city, "address_state": to_state,
+                "address_zip": to_zip
             }
             from_addr = {
-                "name": d.get("from_name"), "address_line1": d.get("from_street"),
-                "address_city": d.get("from_city"), "address_state": d.get("from_state"),
-                "address_zip": d.get("from_zip")
+                "name": from_name, "address_line1": from_street,
+                "address_city": from_city, "address_state": from_state,
+                "address_zip": from_zip
             }
 
             u_email = "guest"
@@ -363,16 +309,20 @@ def render_review_page():
             text = st.session_state.get("transcribed_text", "")
             price = st.session_state.get("temp_price", 2.99)
 
-            # SENDING LOGIC
+            # 4. SEND LOGIC
             if is_heirloom:
-                if database: database.save_draft(u_email, text, tier, price, to_addr, status="pending")
-                if mailer: mailer.send_heirloom_notification(u_email, text)
+                if database:
+                    database.save_draft(u_email, text, tier, price, to_addr, status="pending")
+                if mailer:
+                    mailer.send_heirloom_notification(u_email, text)
+            
             else:
+                # Standard/Civic -> PostGrid
                 if mailer and letter_format:
                     pdf_bytes = letter_format.create_pdf(
                         body_text=text,
-                        recipient_info=f"{to_addr['name']}\n{to_addr['address_line1']}",
-                        sender_info=from_addr['name'],
+                        recipient_info=f"{to_name}\n{to_street}",
+                        sender_info=from_name,
                         is_heirloom=False
                     )
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -382,25 +332,23 @@ def render_review_page():
                     with st.spinner("Transmitting to PostGrid..."):
                         result = mailer.send_letter(tmp_path, to_addr, from_addr)
                         
-                        if result:
-                            st.success("✅ Successfully transmitted to PostGrid!")
-                            # Debug: Show PostGrid ID
-                            with st.expander("Debug Info"):
-                                st.json(result)
-                        else:
-                            st.error("❌ Automated sending failed. Admin notified.")
-                            
                     os.remove(tmp_path)
                     
                     status = "sent_api" if result else "failed"
-                    if database: database.save_draft(u_email, text, tier, price, to_addr, status=status)
+                    if database:
+                        database.save_draft(u_email, text, tier, price, to_addr, status=status)
+                    
+                    if result:
+                        st.success("✅ Successfully transmitted to PostGrid!")
+                    else:
+                        st.error("❌ Automated sending failed. Admin notified.")
 
             st.session_state.letter_sent = True
             st.rerun()
     else:
         st.success("✅ Letter Processed Successfully!")
         if st.button("🏁 Finish & Return Home", type="primary", use_container_width=True):
-            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url", "civic_targets", "draft"]:
+            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url", "civic_targets"]:
                 if k in st.session_state: del st.session_state[k]
             st.session_state.current_view = "splash"
             st.rerun()
