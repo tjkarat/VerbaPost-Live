@@ -16,6 +16,19 @@ except ImportError: promo_engine = None
 try: import mailer
 except ImportError: mailer = None
 
+def get_resend_key():
+    """Helper to find the key wherever it might be hiding"""
+    try:
+        # Option 1: The standard Resend section
+        if "resend" in st.secrets:
+            return st.secrets["resend"]["api_key"]
+        # Option 2: Your specific Email section (where password = api_key)
+        elif "email" in st.secrets:
+            return st.secrets["email"]["password"]
+    except:
+        return None
+    return None
+
 def show_admin():
     st.title("🔐 Admin Console")
     
@@ -69,46 +82,44 @@ def show_admin():
             else:
                 st.info("📭 No pending letters.")
 
-    # --- TAB 2: MAIL DEBUGGER (THE FIX) ---
+    # --- TAB 2: MAIL DEBUGGER (FIXED) ---
     with tab_debug_mail:
         st.subheader("📧 Email System Diagnostic")
         
-        # 1. Check Secrets
-        try:
-            key = st.secrets["resend"]["api_key"]
-            st.success(f"✅ API Key Detected: `...{key[-4:]}`")
-        except:
-            st.error("❌ Resend API Key missing from secrets.toml")
-            st.stop()
-
-        # 2. Test Form
-        st.write("Use this to send a real test email and see the server response.")
+        # 1. Find Key
+        api_key = get_resend_key()
         
-        c1, c2 = st.columns(2)
-        from_email = c1.text_input("From Address", value="onboarding@resend.dev")
-        to_email = c2.text_input("To Address", value="tjkarat@gmail.com")
-        
-        st.info("📝 **Note:** Unless you have verified 'verbapost.com' in the Resend Dashboard, you MUST use `onboarding@resend.dev` as the From Address.")
-        
-        if st.button("🚀 Send Test Email", type="primary"):
-            try:
-                resend.api_key = st.secrets["resend"]["api_key"]
+        if api_key:
+            st.success(f"✅ API Key Found! (Ends in `...{api_key[-4:]}`)")
+            
+            # 2. Test Form
+            c1, c2 = st.columns(2)
+            # Try to get sender from secrets, or fallback
+            default_sender = "onboarding@resend.dev"
+            if "email" in st.secrets and "sender_email" in st.secrets["email"]:
+                default_sender = st.secrets["email"]["sender_email"]
                 
-                r = resend.Emails.send({
-                    "from": from_email,
-                    "to": to_email,
-                    "subject": "🔔 VerbaPost Debug Test",
-                    "html": "<h1>It Works!</h1><p>This is a test from the Admin Console.</p>"
-                })
-                
-                st.success("✅ Email Sent Successfully!")
-                with st.expander("View Server Response", expanded=True):
-                    st.json(r)
+            from_email = c1.text_input("From Address", value=default_sender)
+            to_email = c2.text_input("To Address", value="tjkarat@gmail.com")
+            
+            if st.button("🚀 Send Test Email", type="primary"):
+                try:
+                    resend.api_key = api_key
                     
-            except Exception as e:
-                st.error("❌ Sending Failed")
-                st.error(f"Error Details: {e}")
-                st.caption("Tip: If error is '403 Forbidden', check if your domain is verified.")
+                    r = resend.Emails.send({
+                        "from": from_email,
+                        "to": to_email,
+                        "subject": "🔔 VerbaPost Connection Test",
+                        "html": "<h1>Connection Successful!</h1><p>Your API Key is working correctly.</p>"
+                    })
+                    st.success("✅ Email Sent!")
+                    st.json(r)
+                except Exception as e:
+                    st.error("❌ Sending Failed")
+                    st.error(f"Error Details: {e}")
+        else:
+            st.error("❌ API Key Missing. Checked [resend] and [email] sections.")
+            st.info("Please ensure your secrets.toml has [email] password defined.")
 
     # --- TAB 3: PROMOS ---
     with tab_promos:
