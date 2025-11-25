@@ -6,9 +6,11 @@ try: import database
 except ImportError: database = None
 try: import letter_format
 except ImportError: letter_format = None
+try: import ai_engine
+except ImportError: ai_engine = None
 try: import analytics
 except ImportError: analytics = None
-try: import promo_engine  # <--- NEW IMPORT
+try: import promo_engine
 except ImportError: promo_engine = None
 
 def show_admin():
@@ -28,37 +30,69 @@ def show_admin():
     # --- TAB 1: MAILROOM ---
     with tab_mail:
         st.subheader("Pending Letters")
+        
         if database:
             letters = database.fetch_pending_letters()
+            
             if letters:
-                st.dataframe(pd.DataFrame(letters)[["created_at", "user_email", "tier", "status"]], use_container_width=True)
+                # 1. Convert to DataFrame
+                df = pd.DataFrame(letters)
                 
-                # Print Manager
+                # 2. CRITICAL FIX: Ensure columns exist before selecting them
+                # This prevents the "KeyError" crash if DB has old/bad data
+                expected_cols = ["created_at", "user_email", "tier", "status", "price"]
+                for col in expected_cols:
+                    if col not in df.columns:
+                        df[col] = "Unknown" # Fill missing data with a placeholder
+                
+                # 3. Display Safe DataFrame
+                st.dataframe(
+                    df[["created_at", "user_email", "tier", "status", "price"]], 
+                    use_container_width=True
+                )
+                
                 st.write("---")
-                st.subheader("Print Manager")
+                
+                # 4. Print Manager
+                st.subheader("🖨️ Print Manager")
+                
+                # Use .get() for safe dictionary access
                 letter_options = {
-                    row['id']: f"{row.get('created_at', '?')} - {row.get('user_email', '?')} ({row.get('tier', '?')})" 
+                    row['id']: f"{row.get('created_at', '?')} - {row.get('user_email', 'Unknown')} ({row.get('tier', '?')})" 
                     for row in letters
                 }
-                selected_id = st.selectbox("Select Letter", list(letter_options.keys()), format_func=lambda x: letter_options[x])
                 
-                if selected_id and letter_format:
-                    letter_data = next((i for i in letters if i["id"] == selected_id), None)
-                    if letter_data:
+                selected_id = st.selectbox("Select Letter to Print", options=list(letter_options.keys()), format_func=lambda x: letter_options[x])
+                
+                if selected_id:
+                    letter_data = next((item for item in letters if item["id"] == selected_id), None)
+                    
+                    if letter_data and letter_format:
                         pdf_bytes = letter_format.create_pdf(
                             body_text=letter_data.get("body_text", ""),
-                            recipient_info="Recipient Info",
-                            sender_info="VerbaPost",
+                            recipient_info=f"{letter_data.get('recipient_name', '')}\n{letter_data.get('recipient_street', '')}", 
+                            sender_info="VerbaPost Sender",      
                             is_heirloom=("Heirloom" in letter_data.get("tier", ""))
                         )
-                        st.download_button("Download PDF", pdf_bytes, f"letter_{selected_id}.pdf", "application/pdf")
-                        if st.button("Mark Sent"):
+                        
+                        st.download_button(
+                            label="📄 Download PDF",
+                            data=pdf_bytes,
+                            file_name=f"letter_{selected_id}.pdf",
+                            mime="application/pdf",
+                            type="primary"
+                        )
+                        
+                        if st.button("Mark as Sent"):
                             database.mark_as_sent(selected_id)
+                            st.success("Status Updated!")
                             st.rerun()
             else:
-                st.info("No letters pending.")
+                st.info("📭 No pending letters found.")
+        else:
+            st.error("Database connection missing.")
 
-    # --- TAB 2: PROMOS (NEW) ---
+    # --- TAB 2: PROMO CODES ---
     with tab_promos:
         c1, c2 = st.columns([1, 2])
         
@@ -71,15 +105,21 @@ def show_admin():
                     if success: st.success(f"Created {new_code}!")
                     else: st.error(msg)
                     st.rerun()
+                else:
+                    st.error("Promo Engine missing")
         
         with c2:
             st.subheader("Active Codes & Usage")
             if promo_engine:
-                data = promo_engine.get_all_codes_with_usage()
-                if data:
-                    st.dataframe(pd.DataFrame(data), use_container_width=True)
-                else:
-                    st.info("No codes found.")
+                try:
+                    data = promo_engine.get_all_codes_with_usage()
+                    if data:
+                        st.dataframe(pd.DataFrame(data), use_container_width=True)
+                    else:
+                        st.info("No codes found.")
+                except Exception as e:
+                    st.warning(f"Could not load logs. Did you run the SQL? Error: {e}")
 
+    # --- TAB 3: USERS ---
     with tab_users:
-        st.info("User List Coming Soon")
+        st.info("User metrics coming soon.")
