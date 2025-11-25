@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-# --- 1. PAGE CONFIG (MUST BE FIRST) ---
+# --- 1. PAGE CONFIG (MUST BE THE VERY FIRST ST COMMAND) ---
 st.set_page_config(
     page_title="VerbaPost", 
     page_icon="📮", 
@@ -20,7 +20,7 @@ st.markdown(f"""
         gtag('config', '{GA_ID}');
     </script>
     <style>
-    /* --- 1. FORCE LIGHT MODE --- */
+    /* --- FORCE LIGHT MODE BACKGROUNDS --- */
     [data-testid="stAppViewContainer"] {{
         background-color: #ffffff;
     }}
@@ -31,13 +31,13 @@ st.markdown(f"""
         background-color: rgba(0,0,0,0);
     }}
     
-    /* --- 2. FORCE TEXT COLORS --- */
+    /* --- FORCE TEXT COLORS TO DARK GREY --- */
     h1, h2, h3, h4, h5, h6, p, li, div, label, span {{
         color: #31333F !important;
     }}
     
-    /* --- 3. BUTTON STYLING (CRITICAL FIX) --- */
-    /* Secondary Buttons (White background, Dark text) */
+    /* --- BUTTON STYLING --- */
+    /* Secondary Buttons (White background) */
     div.stButton > button {{
         background-color: #ffffff !important;
         color: #31333F !important;
@@ -53,11 +53,11 @@ st.markdown(f"""
     }}
 
     /* Primary Buttons (Blue background, WHITE text) */
-    /* We target the paragraph <p> inside the button to force white text */
     button[kind="primary"] {{
         background-color: #2a5298 !important;
         border: none !important;
     }}
+    /* Force text inside primary button to be white */
     button[kind="primary"] p {{
         color: #FFFFFF !important;
     }}
@@ -66,14 +66,14 @@ st.markdown(f"""
         box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }}
 
-    /* --- 4. INPUT FIELDS --- */
+    /* --- INPUT FIELDS --- */
     input, textarea, select {{
         color: #31333F !important;
         background-color: #ffffff !important;
         border: 1px solid #e0e0e0 !important;
     }}
     
-    /* --- 5. HIDE DEFAULTS --- */
+    /* --- HIDE DEFAULT STREAMLIT ELEMENTS --- */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
     header {{visibility: hidden;}}
@@ -88,10 +88,11 @@ try:
     import ui_main
     import auth_engine
 except ImportError as e:
+    # This captures the error if a file is missing
     st.error(f"System Error: {e}")
     st.stop()
 
-# --- 4. SESSION STATE ---
+# --- 4. SESSION STATE SETUP ---
 if "current_view" not in st.session_state: st.session_state.current_view = "splash"
 if "user" not in st.session_state: st.session_state.user = None
 
@@ -116,7 +117,7 @@ def check_is_admin():
     # 3. Strict Comparison
     return curr.strip().lower() == target.strip().lower()
 
-# --- 6. SIDEBAR ---
+# --- 6. SIDEBAR NAVIGATION ---
 with st.sidebar:
     if st.button("🏠 Home", use_container_width=True):
         st.session_state.current_view = "splash"
