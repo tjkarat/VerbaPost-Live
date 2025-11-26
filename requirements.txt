@@ -7,7 +7,6 @@ Pillow
 openai-whisper
 sqlalchemy
 psycopg2-binary
-fpdf
 zipcodes
 requests
 openai-whisper
@@ -15,7 +14,6 @@ resend
 reportlab
 python-dotenv
 google-auth
-google-auth-ouahtlib
 streamlit
 openai
 pandas
@@ -23,9 +21,9 @@ stripe
 supabase
 python-dotenv
 google-auth
-google-auth-oauthlib
 google-auth-httplib2
 google-api-python-client
 reportlab
 fpdf2
 streamlit-lottie
+google-auth-oauthlib
