@@ -13,14 +13,3 @@ enableXsrfProtection = false
 
 [browser]
 gatherUsageStats = false
-
-[client]
-showErrorDetails = false
-toolbarMode = "viewer"
-
-[layout]
-wideMode = false
-
-[global]
-# CRITICAL FIX: Force the sidebar to be visible
-showSidebarNavigation = true
