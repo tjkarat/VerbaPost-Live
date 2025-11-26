@@ -55,7 +55,7 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGE: LEGAL ---
+# --- PAGE: LEGAL (Restored) ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
@@ -63,10 +63,13 @@ def render_legal_page():
         with st.container(border=True):
             st.subheader("1. Service Usage")
             st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+            st.subheader("2. Refunds")
+            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
+
     with tab_privacy:
         with st.container(border=True):
             st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription.")
+            st.write("We process your voice data solely for transcription. We do not sell your personal information.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("← Return to Home", type="primary", use_container_width=True):
@@ -113,6 +116,7 @@ def render_splash_page():
         st.session_state.app_mode = "legal"
         st.rerun()
 
+# --- PAGE: LOGIN ---
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -191,22 +195,14 @@ def render_store_page():
                     u_email = st.session_state.get("user_email", "guest")
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                    
                     if url: 
-                        # FINAL CSS FIX: White text on button
+                        # CSS Fix: White text on button
                         st.markdown(f"""
-                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
-                            <div style="
-                                display: block; width: 100%; padding: 12px; 
-                                background-color:#2a5298; text-align: center; 
-                                border-radius: 8px; font-weight: bold; margin-top: 10px; 
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                            ">
-                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: white !important;">
-                                    👉 Pay Now (Secure)
-                                </span>
+                        <a href="{url}" target="_self" style="text-decoration: none !important;">
+                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="color:white !important;">👉 Pay Now (Secure)</span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
