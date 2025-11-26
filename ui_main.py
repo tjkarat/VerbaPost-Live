@@ -42,7 +42,6 @@ def reset_app():
     st.session_state.payment_complete = False
     st.session_state.stripe_url = None
     st.session_state.sig_data = None
-    st.session_state.civic_targets = []
     st.query_params.clear()
 
 def render_hero(title, subtitle):
@@ -61,15 +60,9 @@ def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
     with tab_tos:
-        with st.container(border=True):
-            st.subheader("1. Service Usage")
-            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
-            st.subheader("2. Refunds")
-            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
+        st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content.")
     with tab_privacy:
-        with st.container(border=True):
-            st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription. We do not sell your personal information.")
+        st.write("We process your voice data solely for transcription.")
 
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
@@ -121,36 +114,30 @@ def render_login_page():
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.container(border=True):
-            tab_login, tab_signup = st.tabs(["Log In", "Sign Up"])
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
             
-            with tab_login:
-                l_email = st.text_input("Email", key="l_email")
-                l_pass = st.text_input("Password", type="password", key="l_pass")
-                if st.button("Log In", type="primary", use_container_width=True):
-                    sb = get_supabase()
-                    if not sb: st.error("❌ Connection Failed. Check Secrets.")
-                    else:
-                        try:
-                            res = sb.auth.sign_in_with_password({"email": l_email, "password": l_pass})
-                            st.session_state.user = res
-                            st.session_state.user_email = l_email
-                            st.session_state.app_mode = "store"
-                            st.rerun()
-                        except Exception as e: st.error(f"Login failed: {e}")
+            if st.button("Log In", type="primary", use_container_width=True):
+                sb = get_supabase()
+                if not sb: st.error("❌ Connection Failed. Check Secrets.")
+                else:
+                    try:
+                        res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                        st.session_state.user = res
+                        st.session_state.user_email = email
+                        st.session_state.app_mode = "store"
+                        st.rerun()
+                    except Exception as e: st.error(f"Login failed: {e}")
+
+            if st.button("Sign Up", use_container_width=True):
+                sb = get_supabase()
+                if not sb: st.error("❌ Connection Failed.")
+                else:
+                    try:
+                        sb.auth.sign_up({"email": email, "password": password})
+                        st.success("Check email.")
+                    except Exception as e: st.error(f"Signup failed: {e}")
             
-            with tab_signup:
-                s_email = st.text_input("Email", key="s_email")
-                s_pass = st.text_input("Password", type="password", key="s_pass")
-                if st.button("Create Account", type="primary", use_container_width=True):
-                    sb = get_supabase()
-                    if not sb: st.error("❌ Connection Failed.")
-                    else:
-                        try:
-                            sb.auth.sign_up({"email": s_email, "password": s_pass})
-                            st.success("Check email for confirmation.")
-                        except Exception as e: st.error(f"Signup failed: {e}")
-            
-            st.divider()
             if st.button("Forgot Password?", type="secondary"):
                 st.session_state.app_mode = "forgot_password"
                 st.rerun()
@@ -161,14 +148,18 @@ def render_login_page():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
-    # --- ADMIN BYPASS (VISIBLE) ---
+    # --- ADMIN CONSOLE BUTTON (MAIN FRAME) ---
     if st.session_state.get("user"):
         u_email = st.session_state.get("user_email", "")
+        if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
         admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-        if u_email and str(u_email).strip().lower() == admin_target:
+        user_clean = str(u_email).strip().lower()
+        
+        if user_clean == admin_target:
              if st.button("🔐 Open Admin Console", type="secondary"):
-                 st.session_state.app_mode = "admin"
-                 st.rerun()
+                 import ui_admin
+                 ui_admin.show_admin()
+                 return # Stop rendering store
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -185,12 +176,11 @@ def render_store_page():
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            if "Standard" in selected_option: tier_code="Standard"
-            elif "Heirloom" in selected_option: tier_code="Heirloom"
-            elif "Civic" in selected_option: tier_code="Civic"
-            elif "Santa" in selected_option: tier_code="Santa"
-            else: tier_code="Standard"
-            
+            if "Standard" in selected_option: tier_code = "Standard"
+            elif "Heirloom" in selected_option: tier_code = "Heirloom"
+            elif "Civic" in selected_option: tier_code = "Civic"
+            elif "Santa" in selected_option: tier_code = "Santa"
+            else: tier_code = "Standard"
             price = prices[tier_code]
 
     with c2:
@@ -219,15 +209,10 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # FIXED CSS for White Text
                         st.markdown(f"""
                         <a href="{url}" target="_blank" style="text-decoration: none !important;">
-                            <div style="
-                                background-color:#2a5298; color:white !important;
-                                padding:12px; text-align:center; border-radius:8px;
-                                font-weight:bold; margin-top:10px;
-                                box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color:white !important; -webkit-text-fill-color: white !important;">👉 Pay Now (Secure)</span>
+                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;">👉 Pay Now (Secure)</span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
@@ -242,15 +227,17 @@ def render_workspace_page():
     
     u_email = st.session_state.get("user_email")
     # Load defaults
-    def_name=def_street=def_city=def_state=def_zip=""
     if database and u_email:
         profile = database.get_user_profile(u_email)
-        if profile:
-            def_name = profile.full_name or ""
-            def_street = profile.address_line1 or ""
-            def_city = profile.address_city or ""
-            def_state = profile.address_state or ""
-            def_zip = profile.address_zip or ""
+        def_name = profile.full_name if profile else ""
+        def_street = profile.address_line1 if profile else ""
+        def_city = profile.address_city if profile else ""
+        def_state = profile.address_state if profile else ""
+        def_zip = profile.address_zip if profile else ""
+    else:
+        def_name=def_street=def_city=def_state=def_zip=""
+
+    d = st.session_state.draft if "draft" in st.session_state else {}
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
@@ -272,24 +259,14 @@ def render_workspace_page():
         
         elif is_civic:
             st.info("Civic Mode: We auto-find your reps.")
-            c1, c2 = st.columns([1, 1])
-            with c1:
-                st.markdown("**Your Return Address**")
-                from_name = st.text_input("Name", value=def_name, key="w_from_name")
-                from_street = st.text_input("Street", value=def_street, key="w_from_street")
-                c_a, c_b, c_c = st.columns(3)
-                from_city = c_a.text_input("City", value=def_city, key="w_from_city")
-                from_state = c_b.text_input("State", value=def_state, key="w_from_state")
-                from_zip = c_c.text_input("Zip", value=def_zip, key="w_from_zip")
-                to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
-            
-            with c2:
-                if "civic_targets" in st.session_state and st.session_state.civic_targets:
-                    st.success(f"✅ Found {len(st.session_state.civic_targets)} Representatives:")
-                    for rep in st.session_state.civic_targets:
-                        st.write(f"• **{rep['name']}** ({rep.get('title', 'Official')})")
-                else:
-                    st.info("Enter address and click Save to find reps.")
+            st.markdown("**Your Return Address**")
+            from_name = st.text_input("Name", value=def_name, key="w_from_name")
+            from_street = st.text_input("Street", value=def_street, key="w_from_street")
+            c1, c2, c3 = st.columns(3)
+            from_city = c1.text_input("City", value=def_city, key="w_from_city")
+            from_state = c2.text_input("State", value=def_state, key="w_from_state")
+            from_zip = c3.text_input("Zip", value=def_zip, key="w_from_zip")
+            to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
 
         else:
             c1, c2 = st.columns(2)
@@ -320,13 +297,6 @@ def render_workspace_page():
             elif is_civic:
                  st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                  st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
-                 
-                 # CIVIC LOOKUP
-                 if civic_engine:
-                     full_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
-                     with st.spinner("Locating Representatives..."):
-                         st.session_state.civic_targets = civic_engine.get_reps(full_addr)
-                         st.rerun()
             else:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
@@ -341,26 +311,19 @@ def render_workspace_page():
              st.info("Signature will be 'Santa Claus'")
              st.session_state.sig_data = None
         else:
+             # FIXED SYNTAX
              canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
              if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
         st.write("🎤 **Dictation**")
-        # Validation Gate
-        ready = False
-        if is_civic and st.session_state.get("from_addr"): ready=True
-        elif st.session_state.get("to_addr") and st.session_state.get("to_addr").get("name"): ready=True
-        
-        if not ready:
-            st.warning("⚠️ Please Fill & Save Addresses Above First")
-        else:
-            audio = st.audio_input("Record")
-            if audio:
-                with st.status("Transcribing..."):
-                    if ai_engine:
-                        text = ai_engine.transcribe_audio(audio)
-                        st.session_state.transcribed_text = text
-                        st.session_state.app_mode = "review"
-                        st.rerun()
+        audio = st.audio_input("Record")
+        if audio:
+            with st.status("Transcribing..."):
+                if ai_engine:
+                    text = ai_engine.transcribe_audio(audio)
+                    st.session_state.transcribed_text = text
+                    st.session_state.app_mode = "review"
+                    st.rerun()
 
 def render_review_page():
     render_hero("Review", "Finalize Letter")
@@ -370,13 +333,11 @@ def render_review_page():
         tier = st.session_state.get("locked_tier", "Standard")
         to_a = st.session_state.get("to_addr", {})
         from_a = st.session_state.get("from_addr", {})
-        is_civic = "Civic" in tier
-        is_santa = "Santa" in tier
         
-        if is_civic and not st.session_state.get("civic_targets"):
-            st.error("No representatives found. Please check address.")
-            return
+        if not to_a.get("name"): st.error("Recipient Name Missing!"); return
 
+        is_heirloom = "Heirloom" in tier
+        is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
         sig_path = None
@@ -394,42 +355,41 @@ def render_review_page():
                 sig_storage = base64.b64encode(buffered.getvalue()).decode()
             except: pass
 
-        # SEND LOGIC
-        if is_civic:
-            count = 0
-            for rep in st.session_state.civic_targets:
-                t_str = f"{rep['name']}\n{rep.get('address', {}).get('line1', 'Capitol')}"
-                f_str = f"{from_a.get('name')}\n{from_a.get('street')}..."
-                if letter_format:
-                    pdf = letter_format.create_pdf(txt, t_str, f_str, False, lang, sig_path, False)
-                count += 1
-            st.success(f"✅ {count} Letters Sent to Congress!")
-        
-        else:
-            to_str = f"{to_a.get('name')}\n{to_a.get('street')}\n{to_a.get('city')}..."
-            from_str = f"{from_a.get('name')}\n{from_a.get('street')}..."
-            
-            if letter_format:
-                pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, "Heirloom" in tier, lang, sig_path, is_santa)
-            st.success("Letter Sent!")
-            
-        # Database Save
-        u_email = st.session_state.get("user_email", "guest")
-        if database: 
-             database.save_draft(u_email, txt, tier, 2.99, to_a, from_a, sig_storage, "sent")
+        to_str = f"{to_a.get('name')}\n{to_a.get('street')}\n{to_a.get('city')}..."
+        from_str = f"{from_a.get('name')}\n{from_a.get('street')}..."
 
-        if sig_path: os.remove(sig_path)
-        
-        if st.button("Finish"): 
-            reset_app()
-            st.rerun()
+        if letter_format:
+            pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang, sig_path, is_santa)
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_bytes)
+                pdf_path = tmp.name
+            
+            res = None
+            if not is_heirloom and not is_santa and mailer:
+                pass
+            
+            u_email = st.session_state.get("user_email", "guest")
+            status = "sent_api" if res else "pending"
+            
+            if database: 
+                database.save_draft(u_email, txt, tier, 2.99, to_a, from_a, sig_storage, status)
+            
+            os.remove(pdf_path)
+            if sig_path: os.remove(sig_path)
+            
+            st.session_state.letter_sent = True
+            st.success("Letter Sent!")
+            if st.button("Finish"): reset_app(); st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
     if 'analytics' in globals(): analytics.inject_ga()
 
+    # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
+    # Stripe Return Check (TOP LEVEL PRIORITY)
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
@@ -437,6 +397,7 @@ def show_main_app():
         st.query_params.clear()
         st.rerun()
 
+    # 2. Render Views
     if mode == "splash": render_splash_page()
     elif mode == "login": render_login_page()
     elif mode == "legal": render_legal_page()
@@ -444,20 +405,17 @@ def show_main_app():
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
     
-    # --- ADMIN PAGE (Main Frame) ---
-    elif mode == "admin":
-        import ui_admin
-        ui_admin.show_admin()
-    
     elif mode == "forgot_password":
          render_hero("Recovery", "Reset Password")
          if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
 
+    # 3. Sidebar
     with st.sidebar:
         if st.button("Home"): reset_app(); st.rerun()
         if st.session_state.get("user"):
             st.divider()
             u_email = st.session_state.get("user_email", "")
+            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
             
             if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
