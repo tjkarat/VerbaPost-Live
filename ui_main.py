@@ -50,21 +50,54 @@ def render_hero(title, subtitle):
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGE: LEGAL ---
+# --- PAGE: LEGAL (RESTORED CONTENT) ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
-    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
-    with tab_tos:
-        st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
-    with tab_privacy:
-        st.write("We process your voice data solely for transcription.")
     
-    if st.button("← Return to Home", type="primary"):
+    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    
+    with tab_tos:
+        with st.container(border=True):
+            st.subheader("1. Acceptance of Terms")
+            st.write("By accessing and using VerbaPost, you accept and agree to be bound by the terms and provision of this agreement.")
+            
+            st.subheader("2. Service Usage")
+            st.write("VerbaPost provides a service to convert dictated or typed content into physical mail. You agree NOT to use this service to send:")
+            st.markdown("""
+            * Threatening, abusive, or harassing content.
+            * Illegal substances or material soliciting illegal acts.
+            * Fraudulent or deceptive mail (mail fraud).
+            """)
+            
+            st.subheader("3. Payments & Refunds")
+            st.write("Payments are processed securely via Stripe. Once a letter has been handed off to our printing partners or the USPS, it cannot be cancelled or refunded.")
+            
+            st.subheader("4. Limitation of Liability")
+            st.write("VerbaPost is not liable for delays, loss, or damage caused by the United States Postal Service (USPS) or incorrect addresses provided by the user.")
+
+    with tab_privacy:
+        with st.container(border=True):
+            st.subheader("1. Data Collection")
+            st.write("We collect only the information necessary to process your letter:")
+            st.markdown("""
+            * **Voice Data:** Transcribed via AI and stored only until the letter is generated.
+            * **Addresses:** Stored securely to facilitate mailing.
+            * **Payment:** Processed via Stripe; we do not store your full credit card number.
+            """)
+            
+            st.subheader("2. Data Usage")
+            st.write("Your data is used strictly for the generation and mailing of your physical document. We do **not** sell your data to third parties.")
+            
+            st.subheader("3. Security")
+            st.write("We use industry-standard encryption (SSL) for data transmission. Our database is secured via Supabase with Row Level Security (RLS).")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("← Return to Home", type="primary", use_container_width=True):
         st.session_state.app_mode = "splash"
         st.rerun()
 
@@ -152,18 +185,23 @@ def render_store_page():
         with st.container(border=True):
             st.subheader("Options")
             tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
-            reverse_map = {v: k for k, v in tier_display.items()}
-            selected = st.radio("Select Tier", list(tier_display.values()), format_func=lambda x: tier_display[x])
-            tier_code = reverse_map[selected]
+            selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            if tier_code == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
-            elif tier_code == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
-            elif tier_code == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
-            elif tier_code == "Santa": st.success("Festive background, North Pole return address.")
+            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope, First Class Mail.")
+            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, physical stamp, premium feel.")
+            elif "Civic" in selected_option: st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            elif "Santa" in selected_option: st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
+            # Correctly map selection back to simple key
+            if "Standard" in selected_option: tier_code="Standard"
+            elif "Heirloom" in selected_option: tier_code="Heirloom"
+            elif "Civic" in selected_option: tier_code="Civic"
+            elif "Santa" in selected_option: tier_code="Santa"
+            else: tier_code="Standard"
+            
             price = prices[tier_code]
 
     with c2:
@@ -189,12 +227,11 @@ def render_store_page():
                     u_email = st.session_state.get("user_email", "guest")
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    link = f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}&lang={lang}"
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                    
                     if url: 
                         st.markdown(f"""
-                        <a href="{url}" target="_self" style="text-decoration: none !important;">
+                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
                                 <span style="color:white !important; -webkit-text-fill-color: white !important;">👉 Pay Now (Secure)</span>
                             </div>
@@ -220,6 +257,8 @@ def render_workspace_page():
     else:
         def_name=def_street=def_city=def_state=def_zip=""
 
+    d = st.session_state.draft if "draft" in st.session_state else {}
+
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
@@ -237,6 +276,7 @@ def render_workspace_page():
                 st.markdown("**From**")
                 st.info("🎅 North Pole (Locked)")
                 from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
+        
         elif is_civic:
             st.info("Civic Mode: We auto-find your reps.")
             st.markdown("**Your Return Address**")
@@ -247,6 +287,7 @@ def render_workspace_page():
             from_state = c2.text_input("State", value=def_state, key="w_from_state")
             from_zip = c3.text_input("Zip", value=def_zip, key="w_from_zip")
             to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
+
         else:
             c1, c2 = st.columns(2)
             with c1:
@@ -270,10 +311,10 @@ def render_workspace_page():
             if database and u_email and "Santa" not in tier and "Civic" not in tier: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
             
-            if is_santa:
+            if "Santa" in tier:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
-            elif is_civic:
+            elif "Civic" in tier:
                  st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                  st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
             else:
@@ -286,7 +327,7 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        # FIXED SYNTAX ERROR HERE (underscore not hyphen)
+        # FIX: Corrected Syntax Error (underscore)
         canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
         if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
@@ -361,18 +402,15 @@ def render_review_page():
 def show_main_app():
     if 'analytics' in globals(): analytics.inject_ga()
 
-    # 1. Stripe Check (Top Priority)
+    # 1. Handle Routing
+    mode = st.session_state.get("app_mode", "splash")
+
+    # Stripe Return Check (TOP LEVEL PRIORITY)
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
-        # Recover tier/lang if passed
-        if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
-        if "lang" in st.query_params: st.session_state.selected_language = st.query_params["lang"]
-        
         st.query_params.clear()
         st.rerun()
-
-    mode = st.session_state.get("app_mode", "splash")
 
     # 2. Render Views
     if mode == "splash": render_splash_page()
