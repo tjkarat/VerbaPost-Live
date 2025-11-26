@@ -30,7 +30,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="Engl
     # 2. Init PDF
     pdf = FPDF(format='Letter')
     
-    # 3. Register Fonts (Robustly)
+    # 3. Register Fonts
     font_map = {}
     
     # Handwriting
@@ -97,5 +97,6 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="Engl
     pdf.set_font(addr_font, '', 8)
     pdf.cell(0, 10, 'Dictated via VerbaPost.com', 0, 0, 'C')
 
-    # --- FIX: Use .encode('latin-1') for clean binary string ---
-    return pdf.output(dest="S").encode('latin-1')
+    # --- FIX: Return Raw Bytes Directly ---
+    # fpdf2 returns a bytearray here, so we just pass it through.
+    return pdf.output(dest="S")
