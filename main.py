@@ -1,8 +1,7 @@
 import streamlit as st
 import ui_main
-import sys
 
-# --- 1. CONFIG (Minimal Config) ---
+# --- 1. CONFIG ---
 st.set_page_config(
     page_title="VerbaPost",
     page_icon="📮",
@@ -10,14 +9,44 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 2. GLOBAL STYLES & CONTROLLER ---
+# --- 2. CSS ---
+def inject_global_css():
+    st.markdown("""
+    <style>
+        /* Core Theme */
+        .stApp { background-color: #f8f9fc; color: #2d3748; font-family: 'Helvetica Neue', sans-serif; }
+        header, .stDeployButton, footer { visibility: hidden; }
+        
+        /* Fix Input Visibility (Force White BG) */
+        .stTextInput input, .stSelectbox div, div[data-baseweb="select"] > div {
+            background-color: white !important; color: #2d3748 !important; border: 1px solid #e2e8f0 !important;
+        }
+        
+        /* Sidebar */
+        [data-testid="stSidebar"] { background-color: white !important; border-right: 1px solid #e2e8f0; }
+        
+        /* Buttons */
+        div.stButton > button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white !important; border: none; border-radius: 25px; padding: 0.5rem 1.5rem;
+        }
+        div.stButton > button[kind="secondary"] {
+            background: white; color: #555 !important; border: 1px solid #ddd;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- 3. RUN APP ---
 if __name__ == "__main__":
-    # Hand off control immediately to ui_main (which handles CSS and routing)
+    inject_global_css()
+    
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "splash"
+    
     try:
         ui_main.show_main_app()
     except Exception as e:
-        # Emergency print for debugging
-        st.error(f"FATAL APP CRASH: {type(e).__name__} - Please check ui_main.py for syntax errors.")
-        if st.button("Reset Session"):
+        st.error(f"⚠️ Application Error: {e}")
+        if st.button("Hard Reset"):
             st.session_state.clear()
             st.rerun()
