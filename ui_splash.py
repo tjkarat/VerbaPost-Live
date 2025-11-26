@@ -5,15 +5,15 @@ def set_mode(mode):
     st.session_state.app_mode = mode
 
 def show_splash():
-    # --- 1. LOGO ---
-    # Check if logo exists and center it
+    # --- 1. LOGO (Made Smaller) ---
+    # Check if logo exists and center it using narrower middle column
     if os.path.exists("logo.png"):
-        c1, c2, c3 = st.columns([1, 2, 1])
+        # Changed from [1, 2, 1] to [3, 2, 3] to constrain width
+        c1, c2, c3 = st.columns([3, 2, 3]) 
         with c2:
             st.image("logo.png", use_container_width=True)
     
     # --- 2. CENTERED TAGLINES ---
-    # Removed "VerbaPost" text, updated copy, and centered everything
     st.markdown("""
     <div style="text-align: center; margin-bottom: 30px;">
         <h3 style="font-weight: 600; margin-top: 0; color: #2d3748;">Turn your voice into a real letter.</h3>
