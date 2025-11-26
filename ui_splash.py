@@ -5,28 +5,26 @@ def set_mode(mode):
     st.session_state.app_mode = mode
 
 def show_splash():
-    # --- 1. LOGO HANDLING ---
-    # If you upload a file named 'logo.png', it will appear here.
-    c_logo = st.container()
+    # --- 1. LOGO ---
+    # Check if logo exists and center it
     if os.path.exists("logo.png"):
-        with c_logo:
-            c1, c2, c3 = st.columns([1, 1, 1])
-            with c2:
-                st.image("logo.png", use_container_width=True)
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            st.image("logo.png", use_container_width=True)
     
-    # --- 2. HERO BANNER ---
-    # This acts as the text logo if no image is found
+    # --- 2. CENTERED TAGLINES ---
+    # Removed "VerbaPost" text, updated copy, and centered everything
     st.markdown("""
-    <div class="hero-banner">
-        <div class="hero-title">VerbaPost 📮</div>
-        <div class="hero-subtitle">Turn your voice into a real letter.</div>
-        <p style="margin-top: 20px; font-size: 1.1rem; opacity: 0.9;">
-            Texts are trivial. Emails are ignored. <b>Real letters get read.</b>
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h3 style="font-weight: 600; margin-top: 0; color: #2d3748;">Turn your voice into a real letter.</h3>
+        <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
+            Texts are trivial. Emails are ignored.<br>
+            <b style="color: #2d3748;">REAL LETTERS GET OPENED AND READ.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
     
-    # --- 3. MAIN CTA ---
+    # --- 3. CTA ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("🔐 Log In / Sign Up to Start", type="primary", use_container_width=True):
@@ -43,7 +41,7 @@ def show_splash():
 
     st.divider()
     
-    # --- 5. USE CASES (Including Santa) ---
+    # --- 5. USE CASES ---
     st.subheader("Why VerbaPost?")
     u1, u2, u3 = st.columns(3)
     
