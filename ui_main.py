@@ -45,13 +45,16 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
+    # CSS FIX: Aggressive Header Color Override
     st.markdown(f"""
-    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
+    <style>
+        #hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}
+    </style>
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -82,7 +85,7 @@ def render_splash_page():
     <div style="text-align: center; margin-bottom: 30px;">
         <h3 style="color: #2d3748; font-weight: 600;">Turn your voice into a real letter.</h3>
         <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
-            Texts are trivial. Emails are ignored.<br><b style="color: #2a5298;">REAL LETTERS GET OPENED.</b>
+            Texts are trivial. Emails are ignored.<br><b style="color: #2d3748;">REAL LETTERS GET OPENED.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -112,7 +115,6 @@ def render_splash_page():
         st.session_state.app_mode = "legal"
         st.rerun()
 
-# --- PAGE: LOGIN ---
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -191,19 +193,12 @@ def render_store_page():
                     u_email = st.session_state.get("user_email", "guest")
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    # --- CRITICAL FIX: Correctly formatted Success URL ---
-                    link = f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}&lang={lang}"
-                    
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # FINAL CSS FIX FOR BLACK TEXT
+                        # FINAL CSS Fix: White Text via Inline Styles on SPAN
                         st.markdown(f"""
-                        <style>
-                            /* Aggressively target the link text node */
-                            a.pay-btn-link * {{ color: #FFFFFF !important; }}
-                            a.pay-btn-link:visited * {{ color: #FFFFFF !important; }}
-                        </style>
-                        <a href="{url}" target="_blank" class="pay-btn-link">
+                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
                                 <span style="color:white !important;">👉 Pay Now (Secure)</span>
                             </div>
