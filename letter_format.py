@@ -97,7 +97,5 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="Engl
     pdf.set_font(addr_font, '', 8)
     pdf.cell(0, 10, 'Dictated via VerbaPost.com', 0, 0, 'C')
 
-    # --- FIX: Return Raw Bytes (bytearray) ---
-    # Do not use .encode('latin-1') here because output(dest='S') 
-    # in newer fpdf2 returns a bytearray, which is already what we want.
-    return pdf.output(dest="S")
+    # --- FIX: Use .encode('latin-1') for clean binary string ---
+    return pdf.output(dest="S").encode('latin-1')

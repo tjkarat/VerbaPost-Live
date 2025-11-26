@@ -105,9 +105,6 @@ def render_store_page():
                         url = st.session_state.stripe_url
                         
                         # --- CSS BOMB TO FIX BLACK TEXT ---
-                        # 1. Target links containing 'stripe.com'
-                        # 2. Target :visited state specifically
-                        # 3. Use !important on color and text-fill-color
                         st.markdown(f"""
                         <style>
                             a[href*="checkout.stripe.com"] {{
@@ -295,7 +292,9 @@ def render_review_page():
         
         if mailer and letter_format:
             pdf_bytes = letter_format.create_pdf(text, f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}", is_heirloom, sig_path)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            
+            # --- FIX: Write as binary ("wb") ---
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", mode="wb") as tmp:
                 tmp.write(pdf_bytes)
                 pdf_path = tmp.name
             
