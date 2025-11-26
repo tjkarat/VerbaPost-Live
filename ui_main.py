@@ -94,10 +94,29 @@ def render_store_page():
                     
                     if st.session_state.get("stripe_url"):
                         url = st.session_state.stripe_url
+                        # FIX: Forced White Text using !important on :visited and span
                         st.markdown(f"""
-                        <a href="{url}" target="_self" style="text-decoration: none;">
-                            <div style="display: block; width: 100%; padding: 12px; background-color: #2a5298; color: white !important; text-align: center; border-radius: 8px; font-weight: bold; margin-top: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                                👉 Pay Now (Secure)
+                        <style>
+                            a.pay-btn-link, a.pay-btn-link:visited, a.pay-btn-link:hover, a.pay-btn-link:active {{
+                                text-decoration: none !important;
+                                color: #FFFFFF !important;
+                            }}
+                        </style>
+                        <a href="{url}" target="_blank" class="pay-btn-link">
+                            <div style="
+                                display: block;
+                                width: 100%;
+                                padding: 12px;
+                                background-color: #2a5298;
+                                text-align: center;
+                                border-radius: 8px;
+                                margin-top: 10px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                                cursor: pointer;
+                            ">
+                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 16px;">
+                                    👉 Pay Now (Secure)
+                                </span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
@@ -105,7 +124,6 @@ def render_store_page():
                     st.warning("No Payment Engine")
                     if st.button("Bypass"): st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code; st.rerun()
 
-# --- FULL WORKSPACE LOGIC RESTORED ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_civic = "Civic" in tier
@@ -118,7 +136,6 @@ def render_workspace_page():
         elif hasattr(u, "email"): user_email = u.email
         elif hasattr(u, "user"): user_email = u.user.email
 
-    # Auto-load profile data if empty
     if not st.session_state.draft.get("from_name") and database and user_email:
         profile = database.get_user_profile(user_email) or {}
         st.session_state.draft.update({
@@ -183,7 +200,6 @@ def render_workspace_page():
         st.info("1. Click Mic 🎙️ 2. Speak 3. Stop")
         audio = st.audio_input("Record")
         if audio:
-            # Capture input state before leaving page
             if is_civic:
                 st.session_state.draft.update({"from_name": st.session_state.w_from_name, "from_street": st.session_state.w_from_street, "from_city": st.session_state.w_from_city, "from_state": st.session_state.w_from_state, "from_zip": st.session_state.w_from_zip})
             else:
