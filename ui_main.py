@@ -45,25 +45,8 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    # INJECT CSS HERE TO ENSURE IT LOADS
-    st.markdown("""
-    <style>
-        /* Force White Text in Hero */
-        #hero-container h1, #hero-container div { color: #FFFFFF !important; }
-        
-        /* FIX: Secondary Buttons (Legal/Terms) - Force Dark Text */
-        div.stButton > button[kind="secondary"] {
-            background-color: white !important;
-            color: #333333 !important;
-            border: 1px solid #cccccc !important;
-        }
-        div.stButton > button[kind="secondary"] p {
-            color: #333333 !important;
-        }
-        
-        /* Sidebar Force Visible */
-        [data-testid="stSidebar"] { display: block !important; }
-    </style>
+    st.markdown(f"""
+    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
@@ -75,16 +58,45 @@ def render_hero(title, subtitle):
 # --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
+    
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    
     with tab_tos:
         with st.container(border=True):
-            st.subheader("1. Service Usage")
-            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+            st.subheader("1. Acceptance of Terms")
+            st.write("By accessing and using VerbaPost, you accept and agree to be bound by the terms and provision of this agreement.")
+            
+            st.subheader("2. Service Usage")
+            st.write("VerbaPost provides a service to convert dictated or typed content into physical mail. You agree NOT to use this service to send:")
+            st.markdown("""
+            * Threatening, abusive, or harassing content.
+            * Illegal substances or material soliciting illegal acts.
+            * Fraudulent or deceptive mail (mail fraud).
+            """)
+            
+            st.subheader("3. Payments & Refunds")
+            st.write("Payments are processed securely via Stripe. Once a letter has been handed off to our printing partners or the USPS, it cannot be cancelled or refunded.")
+            
+            st.subheader("4. Limitation of Liability")
+            st.write("VerbaPost is not liable for delays, loss, or damage caused by the United States Postal Service (USPS) or incorrect addresses provided by the user.")
+
     with tab_privacy:
         with st.container(border=True):
-            st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription.")
+            st.subheader("1. Data Collection")
+            st.write("We collect only the information necessary to process your letter:")
+            st.markdown("""
+            * **Voice Data:** Transcribed via AI and stored only until the letter is generated.
+            * **Addresses:** Stored securely to facilitate mailing.
+            * **Payment:** Processed via Stripe; we do not store your full credit card number.
+            """)
+            
+            st.subheader("2. Data Usage")
+            st.write("Your data is used strictly for the generation and mailing of your physical document. We do **not** sell your data to third parties.")
+            
+            st.subheader("3. Security")
+            st.write("We use industry-standard encryption (SSL) for data transmission. Our database is secured via Supabase with Row Level Security (RLS).")
 
+    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
         st.rerun()
@@ -92,8 +104,12 @@ def render_legal_page():
 # --- PAGE: SPLASH ---
 def render_splash_page():
     if os.path.exists("logo.png"):
-        c1, c2, c3 = st.columns([3, 2, 3]) 
-        with c2: st.image("logo.png", use_container_width=True)
+        # Increased logo size and added vertical spacing for better blending
+        c1, c2, c3 = st.columns([1, 4, 1]) 
+        with c2:
+            st.markdown('<div style="margin-top: 2rem; margin-bottom: 2rem;">', unsafe_allow_html=True)
+            st.image("logo.png", use_container_width=True)
+            st.markdown('</div>', unsafe_allow_html=True)
     
     st.markdown("""
     <div style="text-align: center; margin-bottom: 30px;">
@@ -158,26 +174,16 @@ def render_login_page():
                         sb.auth.sign_up({"email": email, "password": password})
                         st.success("Check email.")
                     except Exception as e: st.error(f"Signup failed: {e}")
+            
+            if st.button("Forgot Password?", type="secondary"):
+                st.session_state.app_mode = "forgot_password"
+                st.rerun()
 
     if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
 
 # --- PAGE: STORE ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
-    
-    # --- ADMIN BUTTON (Main Page Fallback) ---
-    if st.session_state.get("user"):
-        u_email = st.session_state.get("user_email", "")
-        if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
-        admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-        user_clean = str(u_email).strip().lower()
-        
-        if user_clean == admin_target:
-             if st.button("🔐 Open Admin Console", type="secondary"):
-                 import ui_admin
-                 ui_admin.show_admin()
-                 return # Stop rendering store if admin clicked
-    
     c1, c2 = st.columns([2, 1])
     with c1:
         with st.container(border=True):
@@ -193,7 +199,7 @@ def render_store_page():
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            # Map back to key
+            
             if "Standard" in selected_option: tier_code = "Standard"
             elif "Heirloom" in selected_option: tier_code = "Heirloom"
             elif "Civic" in selected_option: tier_code = "Civic"
@@ -228,21 +234,21 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # FIX: CSS Bomb for White Text (Using text-fill-color)
+                        # FIX: Replaced div with a styled anchor tag to force white color on visited links
                         st.markdown(f"""
-                        <a href="{url}" target="_self" style="text-decoration: none !important;">
-                            <div style="
-                                background-color:#2a5298; color:#FFFFFF !important;
-                                padding:12px; text-align:center; border-radius:8px;
-                                font-weight:bold; margin-top:10px;
-                                box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="
-                                    color: #FFFFFF !important; 
-                                    -webkit-text-fill-color: #FFFFFF !important;
-                                    text-decoration: none !important;">
-                                    👉 Pay Now (Secure)
-                                </span>
-                            </div>
+                        <a href="{url}" target="_blank" style="
+                            display: inline-block;
+                            width: 100%;
+                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                            color: #FFFFFF !important;
+                            padding: 12px;
+                            text-align: center;
+                            border-radius: 25px;
+                            font-weight: 600;
+                            margin-top: 10px;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                            text-decoration: none !important;">
+                            👉 Pay Now (Secure)
                         </a>
                         """, unsafe_allow_html=True)
                     else: st.error("Payment System Offline")
@@ -266,6 +272,11 @@ def render_workspace_page():
             def_city = profile.address_city or ""
             def_state = profile.address_state or ""
             def_zip = profile.address_zip or ""
+            # DEBUG: Toast to confirm address found
+            st.toast("Found saved address!", icon="✅")
+        else:
+            # DEBUG: Toast if no address found
+            st.toast("No saved address found.", icon="ℹ️")
     
     with st.container(border=True):
         st.subheader("📍 Addressing")
@@ -308,7 +319,6 @@ def render_workspace_page():
                 to_zip = c_z.text_input("Zip", key="w_to_zip")
             with c2:
                 st.markdown("**From**")
-                # Use variables populated from DB
                 from_name = st.text_input("Name", value=def_name, key="w_from_name")
                 from_street = st.text_input("Street", value=def_street, key="w_from_street")
                 c_a, c_b, c_c = st.columns(3)
@@ -317,7 +327,6 @@ def render_workspace_page():
                 from_zip = c_c.text_input("Zip", value=def_zip, key="w_from_zip")
 
         if st.button("Save Addresses"):
-            # Update DB with new values for future
             if database and u_email and not is_santa and not is_civic: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
             
@@ -365,7 +374,6 @@ def render_review_page():
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
-        # Signature logic...
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -434,7 +442,7 @@ def show_main_app():
          render_hero("Recovery", "Reset Password")
          if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
 
-    # 3. Sidebar (Backup)
+    # 3. Sidebar
     with st.sidebar:
         if st.button("Home"): reset_app(); st.rerun()
         if st.session_state.get("user"):
@@ -442,4 +450,13 @@ def show_main_app():
             u_email = st.session_state.get("user_email", "")
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
+            
+            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            user_clean = str(u_email).strip().lower()
+            
+            if user_clean == admin_target:
+                st.success("Admin Access")
+                import ui_admin
+                if st.button("Open Console"): ui_admin.show_admin()
+            
             if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
