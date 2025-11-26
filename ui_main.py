@@ -8,6 +8,7 @@ import base64
 from io import BytesIO
 
 # --- IMPORTS ---
+# We use try/except to prevent the app from crashing if a helper file is missing
 try: import database
 except: database = None
 try: import ai_engine
@@ -55,8 +56,7 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGES ---
-
+# --- PAGE: SPLASH ---
 def render_splash_page():
     # 1. LOGO
     if os.path.exists("logo.png"):
@@ -81,12 +81,34 @@ def render_splash_page():
             st.rerun()
 
     st.divider()
+    
+    # 4. FEATURES
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
     with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on your screen.")
     with c3: st.markdown("### 📮 3. We Mail"); st.caption("Printed, stamped, & sent.")
 
     st.divider()
+
+    # 5. USE CASES
+    st.subheader("Why VerbaPost?")
+    u1, u2, u3 = st.columns(3)
+    with u1:
+        with st.container(border=True):
+            st.write("🎅 **Holiday & Family**")
+            st.caption("Letters from Santa or personal notes to grandparents.")
+    with u2:
+        with st.container(border=True):
+            st.write("🗳️ **Civic Activists**")
+            st.caption("Write to Congress. Physical mail gets noticed by reps.")
+    with u3:
+        with st.container(border=True):
+            st.write("🏡 **Professionals**")
+            st.caption("Realtors & Sales. High open rates for follow-ups.")
+
+    st.divider()
+
+    # 6. PRICING
     st.subheader("Pricing")
     p1, p2, p3, p4 = st.columns(4)
     with p1: st.container(border=True).metric("⚡ Standard", "$2.99", "Machine Postage")
@@ -95,10 +117,13 @@ def render_splash_page():
     with p4: st.container(border=True).metric("🎅 Santa", "$9.99", "North Pole")
 
     st.markdown("---")
-    if st.button("Legal / Terms", type="secondary"):
-        st.session_state.app_mode = "legal"
-        st.rerun()
+    f1, f2 = st.columns([4, 1])
+    with f2:
+        if st.button("Legal / Terms", type="secondary"):
+            st.session_state.app_mode = "legal"
+            st.rerun()
 
+# --- PAGE: LOGIN ---
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -109,7 +134,8 @@ def render_login_page():
             
             if st.button("Log In", type="primary", use_container_width=True):
                 sb = get_supabase()
-                if not sb: st.error("❌ Connection Failed. Check Secrets.")
+                if not sb:
+                    st.error("❌ Connection Failed. Check Secrets.")
                 else:
                     try:
                         res = sb.auth.sign_in_with_password({"email": email, "password": password})
@@ -134,6 +160,7 @@ def render_login_page():
 
     if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
 
+# --- PAGE: STORE ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     c1, c2 = st.columns([2, 1])
@@ -146,7 +173,9 @@ def render_store_page():
                 "Civic": "🏛️ Civic ($6.99)", 
                 "Santa": "🎅 Santa ($9.99)"
             }
+            # Helper map
             reverse_map = {v: k for k, v in tier_display.items()}
+            
             selected = st.radio("Select Tier", list(tier_display.values()), format_func=lambda x: tier_display[x])
             tier_code = reverse_map[selected]
             
@@ -183,27 +212,33 @@ def render_store_page():
                     u_email = st.session_state.get("user_email", "guest")
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    # --- CRITICAL FIX: Add session_id template to URL ---
-                    # We use double curly braces {{...}} to escape them in an f-string
-                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
-                    
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                    
                     if url: 
+                        # CSS Fix: White text on button
                         st.markdown(f"""
-                        <a href="{url}" target="_self" style="text-decoration: none !important;">
+                        <style>
+                            a.pay-btn-link, a.pay-btn-link:visited, a.pay-btn-link:hover, a.pay-btn-link:active {{
+                                text-decoration: none !important; color: #FFFFFF !important;
+                            }}
+                        </style>
+                        <a href="{url}" target="_blank" class="pay-btn-link">
                             <div style="
-                                display: block; width: 100%; padding: 12px; 
-                                background-color: #2a5298; color: white !important; 
-                                text-align: center; border-radius: 8px; 
-                                font-weight: bold; margin-top: 10px; 
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color: white !important;">👉 Pay Now (Secure)</span>
+                                display: block; width: 100%; padding: 14px;
+                                background-color: #2a5298; text-align: center;
+                                border-radius: 8px; margin-top: 10px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+                                transition: transform 0.1s;
+                            ">
+                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 18px; -webkit-text-fill-color: white !important;">
+                                    👉 Pay Now (Secure)
+                                </span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
                     else: st.error("Payment System Offline")
 
+# --- PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_civic = "Civic" in tier
@@ -211,6 +246,7 @@ def render_workspace_page():
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
+    # Load defaults
     if database and u_email:
         profile = database.get_user_profile(u_email)
         def_name = profile.full_name if profile else ""
@@ -253,6 +289,7 @@ def render_workspace_page():
             to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
 
         else:
+            # Standard / Heirloom
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To**")
@@ -274,11 +311,12 @@ def render_workspace_page():
         if st.button("Save Addresses"):
             if database and u_email and "Santa" not in tier and "Civic" not in tier: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
+            
             # Save to session
-            if "Santa" in tier:
+            if is_santa:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
-            elif "Civic" in tier:
+            elif is_civic:
                  st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                  st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
             else:
@@ -304,6 +342,7 @@ def render_workspace_page():
                     st.session_state.app_mode = "review"
                     st.rerun()
 
+# --- PAGE: REVIEW ---
 def render_review_page():
     render_hero("Review", "Finalize Letter")
     txt = st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
@@ -319,6 +358,7 @@ def render_review_page():
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
+        # Signature
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -346,7 +386,7 @@ def render_review_page():
             
             res = None
             if not is_heirloom and not is_santa and mailer:
-                # Mailer Logic
+                # Mailer Logic (if active)
                 pass
             
             u_email = st.session_state.get("user_email", "guest")
@@ -361,6 +401,16 @@ def render_review_page():
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
             if st.button("Finish"): reset_app(); st.rerun()
+
+# --- PAGE: LEGAL ---
+def render_legal_page():
+    render_hero("Legal", "Terms & Privacy")
+    with st.container(border=True):
+         st.subheader("Terms of Service")
+         st.write("Do not use this service for illegal activities.")
+         st.subheader("Privacy Policy")
+         st.write("We protect your data.")
+    if st.button("Back"): st.session_state.app_mode = "splash"; st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -387,7 +437,7 @@ def show_main_app():
     elif mode == "forgot_password":
          render_hero("Recovery", "Reset Password")
          if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
-    
+
     # 3. Sidebar
     with st.sidebar:
         if st.button("Home"): reset_app(); st.rerun()
