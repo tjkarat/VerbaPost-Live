@@ -45,8 +45,28 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    st.markdown(f"""
-    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
+    # INJECT GLOBAL CSS HERE
+    st.markdown("""
+    <style>
+        /* Force Dark Text Globally (Fixes invisible text) */
+        .stApp, p, h1, h2, h3, h4, h5, h6, div, span, label, li {
+            color: #2d3748 !important;
+        }
+        
+        /* Exception: White Text for Hero Banner */
+        #hero-container h1, #hero-container div { 
+            color: #FFFFFF !important; 
+        }
+        
+        /* Exception: White Text for Pay Button */
+        .pay-btn span { 
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important; 
+        }
+
+        /* Force Sidebar Visible */
+        [data-testid="stSidebar"] { display: block !important; }
+    </style>
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
@@ -121,16 +141,14 @@ def render_splash_page():
         st.session_state.app_mode = "legal"
         st.rerun()
 
-# --- PAGE: LOGIN (TABBED INTERFACE) ---
+# --- PAGE: LOGIN ---
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.container(border=True):
-            # TABS: Fixes the "missing email" confusion
             tab_login, tab_signup = st.tabs(["Log In", "Sign Up"])
             
-            # --- TAB 1: LOG IN ---
             with tab_login:
                 st.subheader("Access Account")
                 l_email = st.text_input("Email", key="l_email")
@@ -148,7 +166,6 @@ def render_login_page():
                             st.rerun()
                         except Exception as e: st.error(f"Login failed: {e}")
             
-            # --- TAB 2: SIGN UP ---
             with tab_signup:
                 st.subheader("Create New Account")
                 s_email = st.text_input("Email", key="s_email")
@@ -174,7 +191,6 @@ def render_login_page():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
-    # --- ADMIN BUTTON ---
     if st.session_state.get("user"):
         u_email = st.session_state.get("user_email", "")
         if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
@@ -236,13 +252,12 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # FIX: CSS Bomb using <p> tag which is more robust than span
                         st.markdown(f"""
-                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
+                        <a href="{url}" target="_blank" style="text-decoration: none !important;" class="pay-btn">
                             <div style="background-color:#2a5298; padding:12px; text-align:center; border-radius:8px; margin-top:10px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <p style="color: #FFFFFF !important; margin: 0; font-weight: bold; font-size: 18px;">
+                                <span style="font-weight: bold; font-size: 18px;">
                                     👉 Pay Now (Secure)
-                                </p>
+                                </span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
@@ -256,7 +271,6 @@ def render_workspace_page():
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
-    # Load defaults
     if database and u_email:
         profile = database.get_user_profile(u_email)
         def_name = profile.full_name if profile else ""
@@ -318,13 +332,13 @@ def render_workspace_page():
                 from_zip = c_c.text_input("Zip", value=def_zip, key="w_from_zip")
 
         if st.button("Save Addresses"):
-            if database and u_email and "Santa" not in tier and "Civic" not in tier: 
+            if database and u_email and not is_santa and not is_civic: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
             
-            if "Santa" in tier:
+            if is_santa:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
-            elif "Civic" in tier:
+            elif is_civic:
                  st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                  st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
             else:
@@ -337,14 +351,15 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        # Santa Logic: No Canvas
+        # SANTA AUTO-SIGN LOGIC
         if is_santa:
-            st.info("Signature will be 'Santa Claus' (Auto-generated)")
-            st.session_state.sig_data = None
+             st.info("Signature will be 'Santa Claus' (Auto-generated)")
+             st.session_state.sig_data = None
         else:
-            canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
-            if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
-
+             # FIXED SYNTAX (underscore)
+             canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
+             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
+             
     with c_mic:
         st.write("🎤 **Dictation**")
         audio = st.audio_input("Record")
@@ -373,7 +388,8 @@ def render_review_page():
         
         sig_path = None
         sig_storage = None
-        if "sig_data" in st.session_state and st.session_state.sig_data is not None and not is_santa:
+        # Skip signature logic for Santa
+        if not is_santa and "sig_data" in st.session_state and st.session_state.sig_data is not None:
             try:
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
                 bg = Image.new("RGB", img.size, (255,255,255))
@@ -383,4 +399,81 @@ def render_review_page():
                     sig_path = tmp.name
                 buffered = BytesIO()
                 bg.save(buffered, format="PNG")
-                sig
+                sig_storage = base64.b64encode(buffered.getvalue()).decode()
+            except: pass
+
+        to_str = f"{to_a.get('name')}\n{to_a.get('street')}\n{to_a.get('city')}..."
+        from_str = f"{from_a.get('name')}\n{from_a.get('street')}..."
+
+        if letter_format:
+            pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang, sig_path, is_santa)
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_bytes)
+                pdf_path = tmp.name
+            
+            res = None
+            if not is_heirloom and not is_santa and mailer:
+                pass
+            
+            u_email = st.session_state.get("user_email", "guest")
+            status = "sent_api" if res else "pending"
+            
+            if database: 
+                database.save_draft(u_email, txt, tier, 2.99, to_a, from_a, sig_storage, status)
+            
+            os.remove(pdf_path)
+            if sig_path: os.remove(sig_path)
+            
+            st.session_state.letter_sent = True
+            st.success("Letter Sent!")
+            
+            # FIXED FINISH BUTTON REDIRECT
+            if st.button("Finish"): 
+                reset_app()
+                st.rerun()
+
+# --- MAIN CONTROLLER ---
+def show_main_app():
+    if 'analytics' in globals(): analytics.inject_ga()
+
+    # 1. Handle Routing
+    mode = st.session_state.get("app_mode", "splash")
+
+    # Stripe Return Check (TOP LEVEL PRIORITY)
+    if "session_id" in st.query_params:
+        st.session_state.app_mode = "workspace"
+        st.session_state.payment_complete = True
+        st.query_params.clear()
+        st.rerun()
+
+    # 2. Render Views
+    if mode == "splash": render_splash_page()
+    elif mode == "login": render_login_page()
+    elif mode == "legal": render_legal_page()
+    elif mode == "store": render_store_page()
+    elif mode == "workspace": render_workspace_page()
+    elif mode == "review": render_review_page()
+    
+    elif mode == "forgot_password":
+         render_hero("Recovery", "Reset Password")
+         if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
+
+    # 3. Sidebar
+    with st.sidebar:
+        if st.button("Home"): reset_app(); st.rerun()
+        if st.session_state.get("user"):
+            st.divider()
+            u_email = st.session_state.get("user_email", "")
+            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
+            st.caption(f"Logged in: {u_email}")
+            
+            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            user_clean = str(u_email).strip().lower()
+            
+            if user_clean == admin_target:
+                st.success("Admin Access")
+                import ui_admin
+                if st.button("Open Console"): ui_admin.show_admin()
+            
+            if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
