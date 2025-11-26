@@ -8,7 +8,6 @@ import base64
 from io import BytesIO
 
 # --- IMPORTS ---
-# We use try/except to prevent the app from crashing if a helper file is missing
 try: import database
 except: database = None
 try: import ai_engine
@@ -55,6 +54,27 @@ def render_hero(title, subtitle):
         <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
+
+# --- PAGE: LEGAL (Added Back) ---
+def render_legal_page():
+    render_hero("Legal Center", "Transparency & Trust")
+    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    with tab_tos:
+        with st.container(border=True):
+            st.subheader("1. Service Usage")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+            st.subheader("2. Refunds")
+            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
+
+    with tab_privacy:
+        with st.container(border=True):
+            st.subheader("Data Handling")
+            st.write("We process your voice data solely for transcription. We do not sell your personal information.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("← Return to Home", type="primary", use_container_width=True):
+        st.session_state.app_mode = "splash"
+        st.rerun()
 
 # --- PAGE: SPLASH ---
 def render_splash_page():
@@ -342,7 +362,6 @@ def render_workspace_page():
                     st.session_state.app_mode = "review"
                     st.rerun()
 
-# --- PAGE: REVIEW ---
 def render_review_page():
     render_hero("Review", "Finalize Letter")
     txt = st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
@@ -386,7 +405,7 @@ def render_review_page():
             
             res = None
             if not is_heirloom and not is_santa and mailer:
-                # Mailer Logic (if active)
+                # Mailer Logic
                 pass
             
             u_email = st.session_state.get("user_email", "guest")
@@ -401,16 +420,6 @@ def render_review_page():
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
             if st.button("Finish"): reset_app(); st.rerun()
-
-# --- PAGE: LEGAL ---
-def render_legal_page():
-    render_hero("Legal", "Terms & Privacy")
-    with st.container(border=True):
-         st.subheader("Terms of Service")
-         st.write("Do not use this service for illegal activities.")
-         st.subheader("Privacy Policy")
-         st.write("We protect your data.")
-    if st.button("Back"): st.session_state.app_mode = "splash"; st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
