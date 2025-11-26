@@ -61,32 +61,34 @@ def show_admin():
                     
                     with c_action:
                         st.markdown("**Generate PDF**")
-                        # Admin override for address (since historical drafts didn't save recipient)
                         recip_addr = st.text_area("Recipient Address (Override)", "Recipient Name\n123 Street\nCity, State Zip")
                         
                         if st.button("Generate & Download PDF"):
                             if letter_format:
-                                # Generate PDF
-                                pdf_bytes = letter_format.create_pdf(
-                                    letter["Content"], 
-                                    recip_addr, 
-                                    f"From: {letter['Email']}", # Fallback sender
-                                    is_heirloom="Heirloom" in letter["Tier"],
-                                    lang="English"
-                                )
-                                
-                                # Create temp file for download
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                                    tmp.write(pdf_bytes)
-                                    tmp_path = tmp.name
-                                    
-                                with open(tmp_path, "rb") as f:
-                                    st.download_button(
-                                        label="⬇️ Download PDF",
-                                        data=f,
-                                        file_name=f"Order_{letter['ID']}.pdf",
-                                        mime="application/pdf"
+                                try:
+                                    # FIX: Changed 'lang' to 'language' to match letter_format.py
+                                    pdf_bytes = letter_format.create_pdf(
+                                        letter["Content"], 
+                                        recip_addr, 
+                                        f"From: {letter['Email']}", 
+                                        is_heirloom=("Heirloom" in letter["Tier"]),
+                                        language="English" 
                                     )
+                                    
+                                    # Create temp file for download
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                        tmp.write(pdf_bytes)
+                                        tmp_path = tmp.name
+                                        
+                                    with open(tmp_path, "rb") as f:
+                                        st.download_button(
+                                            label="⬇️ Download PDF",
+                                            data=f,
+                                            file_name=f"Order_{letter['ID']}.pdf",
+                                            mime="application/pdf"
+                                        )
+                                except Exception as e:
+                                    st.error(f"PDF Generation Error: {e}")
                             else:
                                 st.error("Letter Format module missing.")
                 else:
