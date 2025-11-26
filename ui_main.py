@@ -58,7 +58,6 @@ def render_hero(title, subtitle):
 # --- PAGES ---
 
 def render_splash_page():
-    # 1. LOGO
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([3, 2, 3]) 
         with c2: st.image("logo.png", use_container_width=True)
@@ -93,11 +92,9 @@ def render_splash_page():
     with p4: st.container(border=True).metric("🎅 Santa", "$9.99", "North Pole")
 
     st.markdown("---")
-    f1, f2 = st.columns([4, 1])
-    with f2:
-        if st.button("Legal / Terms", type="secondary"):
-            st.session_state.app_mode = "legal"
-            st.rerun()
+    if st.button("Legal / Terms", type="secondary"):
+        st.session_state.app_mode = "legal"
+        st.rerun()
 
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
@@ -123,7 +120,9 @@ def render_login_page():
                 sb = get_supabase()
                 if not sb: st.error("❌ Connection Failed.")
                 else:
-                    try: sb.auth.sign_up({"email": email, "password": password}); st.success("Check email.")
+                    try:
+                        sb.auth.sign_up({"email": email, "password": password})
+                        st.success("Check email.")
                     except Exception as e: st.error(f"Signup failed: {e}")
             
             if st.button("Forgot Password?", type="secondary"):
@@ -138,13 +137,24 @@ def render_store_page():
     with c1:
         with st.container(border=True):
             st.subheader("Options")
-            tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
-            selected = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
-            tier_code = "Santa" if "Santa" in tier_display[selected] else selected
+            tier_display = {
+                "Standard": "⚡ Standard ($2.99)", 
+                "Heirloom": "🏺 Heirloom ($5.99)",
+                "Civic": "🏛️ Civic ($6.99)", 
+                "Santa": "🎅 Santa ($9.99)"
+            }
+            selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
+            
+            if selected_option == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
+            elif selected_option == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
+            elif selected_option == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            elif selected_option == "Santa": st.success("Festive background, North Pole return address.")
+
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            price = prices.get(selected, 2.99)
+            price = prices[selected_option]
+            tier_code = selected_option 
 
     with c2:
         with st.container(border=True):
@@ -171,31 +181,16 @@ def render_store_page():
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                    
-                    if url:
-                        # FIX: Updated CSS Bomb with !important on all states
+                    if url: 
+                        # CSS Fix: White text on button
                         st.markdown(f"""
-                        <style>
-                            a.pay-btn-link, a.pay-btn-link:visited, a.pay-btn-link:hover, a.pay-btn-link:active {{
-                                text-decoration: none !important; color: #FFFFFF !important;
-                            }}
-                        </style>
-                        <a href="{url}" target="_blank" class="pay-btn-link">
-                            <div style="
-                                display: block; width: 100%; padding: 14px;
-                                background-color: #2a5298; text-align: center;
-                                border-radius: 8px; margin-top: 10px;
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
-                                transition: transform 0.1s;
-                            ">
-                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 18px;">
-                                    👉 Pay Now (Secure)
-                                </span>
+                        <a href="{url}" target="_self" style="text-decoration: none !important;">
+                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="color:white !important;">👉 Pay Now (Secure)</span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
-                    else:
-                        st.error("Payment System Offline")
+                    else: st.error("Payment System Offline")
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
@@ -216,6 +211,7 @@ def render_workspace_page():
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
+        
         if "Santa" in tier:
             c1, c2 = st.columns(2)
             with c1:
@@ -230,7 +226,20 @@ def render_workspace_page():
                 st.markdown("**From**")
                 st.info("🎅 North Pole (Locked)")
                 from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
+        
+        elif "Civic" in tier:
+            st.info("Civic Mode: We auto-find your reps.")
+            st.markdown("**Your Return Address**")
+            from_name = st.text_input("Name", value=def_name, key="w_from_name")
+            from_street = st.text_input("Street", value=def_street, key="w_from_street")
+            c1, c2, c3 = st.columns(3)
+            from_city = c1.text_input("City", value=def_city, key="w_from_city")
+            from_state = c2.text_input("State", value=def_state, key="w_from_state")
+            from_zip = c3.text_input("Zip", value=def_zip, key="w_from_zip")
+            to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
+
         else:
+            # Standard / Heirloom
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To**")
@@ -259,6 +268,7 @@ def render_workspace_page():
             else:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
+                
             st.toast("Addresses Saved!")
 
     st.write("---")
@@ -343,7 +353,7 @@ def show_main_app():
     # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
-    # Stripe Return Check
+    # FIX: Stripe Return Check at the VERY TOP to intercept Splash
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
