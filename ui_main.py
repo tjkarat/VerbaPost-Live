@@ -59,6 +59,7 @@ def render_store_page():
         with st.container(border=True):
             st.subheader("Letter Options")
             
+            # --- ADDED SANTA HERE ---
             tier_display = {
                 "Standard": "⚡ Standard ($2.99) - Machine postage.",
                 "Heirloom": "🏺 Heirloom ($5.99) - Handwritten & Stamp.",
@@ -79,7 +80,7 @@ def render_store_page():
             elif selected_option == "Civic":
                 st.info("**Civic:** Auto-sends to your 2 Senators and 1 Rep.")
             elif selected_option == "Santa":
-                st.success("**Santa Special:** Festive background, North Pole return address, mailed to your child (or adult!).")
+                st.success("**Santa Special:** Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
@@ -174,8 +175,25 @@ def render_workspace_page():
         st.warning("⚠️ **Important:** Press **Enter** after typing in each field.")
         
         if is_civic:
-            # ... (Civic Logic Omitted for brevity - same as before) ...
-            st.info("Civic Mode Active")
+            # ... (Civic Logic - Same as before) ...
+             c1, c2 = st.columns([1, 1])
+             with c1:
+                st.text_input("Name", value=d.get("from_name",""), key="w_from_name")
+                st.text_input("Street", value=d.get("from_street",""), key="w_from_street")
+                c_a, c_b, c_c = st.columns(3)
+                c_a.text_input("City", value=d.get("from_city",""), key="w_from_city")
+                c_b.text_input("State", value=d.get("from_state",""), key="w_from_state")
+                c_c.text_input("Zip", value=d.get("from_zip",""), key="w_from_zip")
+                if st.button("💾 Save & Find Reps"):
+                    st.session_state.draft.update({"from_name": st.session_state.w_from_name, "from_street": st.session_state.w_from_street, "from_city": st.session_state.w_from_city, "from_state": st.session_state.w_from_state, "from_zip": st.session_state.w_from_zip})
+                    if database and user_email: database.update_user_profile(user_email, st.session_state.w_from_name, st.session_state.w_from_street, st.session_state.w_from_city, st.session_state.w_from_state, st.session_state.w_from_zip)
+                    if civic_engine:
+                        full = f"{st.session_state.w_from_street}, {st.session_state.w_from_city}, {st.session_state.w_from_state} {st.session_state.w_from_zip}"
+                        with st.spinner("Locating..."):
+                            st.session_state.civic_targets = civic_engine.get_reps(full)
+             with c2:
+                st.write("Representatives:")
+                for t in st.session_state.get("civic_targets", []): st.info(f"**{t['name']}**\n{t['title']}")
         
         # --- SANTA LOGIC (New) ---
         elif is_santa:
@@ -214,7 +232,7 @@ def render_workspace_page():
                     st.toast("Saved!")
 
         else:
-            # Standard Logic (Same as before)
+            # Standard Logic
             c1, c2 = st.columns(2)
             with c1:
                 st.text_input("To Name", value=d.get("to_name",""), key="w_to_name")
@@ -247,9 +265,14 @@ def render_workspace_page():
         st.info("1. Click Mic 🎙️ 2. Speak 3. Stop")
         audio = st.audio_input("Record")
         if audio:
-            # Auto-save state
-            if not is_civic and not is_santa:
-                 st.session_state.draft.update({"to_name": st.session_state.w_to_name, "to_street": st.session_state.w_to_street, "to_city": st.session_state.w_to_city, "to_state": st.session_state.w_to_state, "to_zip": st.session_state.w_to_zip, "from_name": st.session_state.w_from_name, "from_street": st.session_state.w_from_street, "from_city": st.session_state.w_from_city, "from_state": st.session_state.w_from_state, "from_zip": st.session_state.w_from_zip})
+            # Auto-save before leaving page
+            if is_santa:
+                st.session_state.draft.update({"from_name": "Santa Claus", "from_street": "123 Elf Road", "from_city": "North Pole", "from_state": "NP", "from_zip": "88888"})
+                st.session_state.draft.update({"to_name": st.session_state.w_to_name, "to_street": st.session_state.w_to_street, "to_city": st.session_state.w_to_city, "to_state": st.session_state.w_to_state, "to_zip": st.session_state.w_to_zip})
+            elif is_civic:
+                st.session_state.draft.update({"from_name": st.session_state.w_from_name, "from_street": st.session_state.w_from_street, "from_city": st.session_state.w_from_city, "from_state": st.session_state.w_from_state, "from_zip": st.session_state.w_from_zip})
+            else:
+                st.session_state.draft.update({"to_name": st.session_state.w_to_name, "to_street": st.session_state.w_to_street, "to_city": st.session_state.w_to_city, "to_state": st.session_state.w_to_state, "to_zip": st.session_state.w_to_zip, "from_name": st.session_state.w_from_name, "from_street": st.session_state.w_from_street, "from_city": st.session_state.w_from_city, "from_state": st.session_state.w_from_state, "from_zip": st.session_state.w_from_zip})
             
             with st.status("Processing...") as status:
                 if ai_engine:
@@ -273,4 +296,94 @@ def render_review_page():
         st.success("✅ Letter Processed Successfully!")
         st.info("Your letter has been queued.")
         if st.button("🏁 Finish & Return Home", type="primary", use_container_width=True):
-            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url
+            for k in ["payment_complete", "locked_tier", "transcribed_text", "letter_sent", "app_mode", "stripe_url", "civic_targets", "draft", "sig_data"]:
+                if k in st.session_state: del st.session_state[k]
+            st.session_state.current_view = "splash"
+            st.rerun()
+        return
+
+    txt = st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
+    
+    if st.button("🚀 Send Letter", type="primary", use_container_width=True):
+        to_name = d.get("to_name","").strip()
+        to_street = d.get("to_street","").strip()
+        to_city = d.get("to_city","").strip()
+        to_state = d.get("to_state","").strip()
+        to_zip = d.get("to_zip","").strip()
+        
+        # Handle Santa Sender Logic
+        if is_santa:
+            from_name = "Santa Claus"
+            from_street = "123 Elf Road"
+            from_city = "North Pole"
+            from_state = "NP"
+            from_zip = "88888"
+        else:
+            from_name = d.get("from_name","").strip()
+            from_street = d.get("from_street","").strip()
+            from_city = d.get("from_city","").strip()
+            from_state = d.get("from_state","").strip()
+            from_zip = d.get("from_zip","").strip()
+
+        # Validation
+        if not to_street: st.error("Recipient Address Missing!"); st.stop()
+
+        to_addr = {"name": to_name, "address_line1": to_street, "address_city": to_city, "address_state": to_state, "address_zip": to_zip}
+        from_addr = {"name": from_name, "address_line1": from_street, "address_city": from_city, "address_state": from_state, "address_zip": from_zip}
+        
+        sig_path = None
+        sig_storage = None
+        if "sig_data" in st.session_state and st.session_state.sig_data is not None:
+            try:
+                img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
+                bg = Image.new("RGB", img.size, (255,255,255))
+                bg.paste(img, mask=img.split()[3])
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
+                    bg.save(tmp_sig, format="PNG")
+                    sig_path = tmp_sig.name
+                buffered = BytesIO()
+                bg.save(buffered, format="PNG")
+                sig_storage = base64.b64encode(buffered.getvalue()).decode()
+            except: pass
+
+        lang = st.session_state.get("temp_lang", "English")
+        
+        if mailer and letter_format:
+            # --- PASS IS_SANTA ---
+            pdf_bytes = letter_format.create_pdf(
+                txt, 
+                f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}", 
+                is_heirloom, 
+                lang, 
+                sig_path,
+                is_santa=is_santa
+            )
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_bytes)
+                pdf_path = tmp.name
+            
+            res = None
+            if not is_heirloom and not is_santa:
+                with st.spinner("Sending to PostGrid..."):
+                    res = mailer.send_letter(pdf_path, to_addr, from_addr)
+            
+            u_email = "guest"
+            if st.session_state.get("user"):
+                u = st.session_state.user
+                if isinstance(u, dict): u_email = u.get("email")
+                elif hasattr(u, "email"): u_email = u.email
+                elif hasattr(u, "user"): u_email = u.user.email
+            
+            status = "sent_api" if res else "pending"
+            if database: 
+                database.save_draft(u_email, txt, tier, 2.99, to_addr, from_addr, sig_storage, status)
+            
+            if is_heirloom and mailer: mailer.send_heirloom_notification(u_email, txt)
+            
+            os.remove(pdf_path)
+            if sig_path: os.remove(sig_path)
+            
+            st.session_state.letter_sent = True
+            st.rerun()

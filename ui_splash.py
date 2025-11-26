@@ -1,69 +1,85 @@
 import streamlit as st
 
-def show_splash():
-    # --- CSS FORCE WHITE TEXT FOR HERO ---
-    st.markdown("""
-    <style>
-    #splash-hero h1, #splash-hero div, #splash-hero p {
-        color: #FFFFFF !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+def set_mode(mode):
+    st.session_state.app_mode = mode
 
-    # --- HERO SECTION (COMPACT VERSION) ---
+def show_splash():
+    # --- HERO ---
     st.markdown("""
-    <div id="splash-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
-                padding: 25px; border-radius: 12px; text-align: center; 
-                margin-bottom: 20px; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
-        <div style="font-size: 2rem; margin-bottom: 5px;">📮</div>
-        <h1 style="font-size: 2rem; font-weight: 700; margin: 0; letter-spacing: -0.5px;">VerbaPost</h1>
-        <p style="font-size: 1rem; font-weight: 400; opacity: 0.95; margin-top: 5px;">
-            Turn your voice into a real, physical letter.
+    <div class="hero-banner">
+        <div class="hero-title">VerbaPost 📮</div>
+        <div class="hero-subtitle">Turn your voice into a real letter.</div>
+        <p style="margin-top: 20px; font-size: 1.1rem; opacity: 0.9;">
+            Texts are trivial. Emails are ignored. <b>Real letters get read.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
-
-    # --- CALL TO ACTION ---
+    
+    # --- CTA ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("🚀 Log In / Create Account", type="primary", use_container_width=True):
-            st.session_state.current_view = "login"
+        if st.button("🔐 Log In / Sign Up to Start", type="primary", use_container_width=True):
+            set_mode("login")
             st.rerun()
-            
-    st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- FEATURES ---
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown("### 🎙️ **1. Dictate**")
-        st.write("You speak. AI types. We capture your tone perfectly.")
-    with c2:
-        st.markdown("### ✍️ **2. Sign**")
-        st.write("Sign directly on your screen. Your real signature.")
-    with c3:
-        st.markdown("### 📮 **3. We Mail**")
-        st.write("We print, fold, stamp, and mail it within 24 hours.")
-
-    st.markdown("<br><br>", unsafe_allow_html=True)
-
-    # --- USE CASES ---
-    st.subheader("Who is this for?")
-    uc1, uc2, uc3 = st.columns(3)
+    st.divider()
     
-    with uc1:
-        st.info("**🏘️ Realtors & Sales**\n\nHandwritten envelopes with stamps get opened.")
-    with uc2:
-        st.info("**🏛️ Civic Activists**\n\nPhysical petitions on desks get noticed. Emails get deleted.")
-    with uc3:
-        st.info("**🧡 Families of Inmates**\n\nDirect prison delivery. Facility compliant. No stamps needed.")
+    # --- HOW IT WORKS ---
+    c1, c2, c3 = st.columns(3)
+    with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
+    with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on your screen.")
+    with c3: st.markdown("### 📮 3. We Mail"); st.caption("Printed, stamped, & sent.")
 
-    st.markdown("<br><hr>", unsafe_allow_html=True)
+    st.divider()
+    
+    # --- USE CASES (UPDATED WITH SANTA) ---
+    st.subheader("Why VerbaPost?")
+    u1, u2, u3 = st.columns(3)
+    
+    with u1:
+        with st.container(border=True):
+            st.write("**🎅 Letter from Santa**")
+            st.caption("Surprise a child with a letter mailed directly from the North Pole!")
 
-    # --- FOOTER ---
-    fc1, fc2, fc3 = st.columns([1, 2, 1])
-    with fc2:
-        if st.button("📜 Read Terms of Service & Privacy Policy", type="secondary", use_container_width=True):
-            st.session_state.current_view = "legal"
+    with u2:
+        with st.container(border=True):
+            st.write("**🗳️ Civic Activists**")
+            st.caption("Write to Congress. Physical petitions get noticed.")
+
+    with u3:
+        with st.container(border=True):
+            st.write("**🏡 Realtors & Sales**")
+            st.caption("Handwritten direct mail. High open rates. Instant follow-up.")
+
+    st.divider()
+
+    # --- PRICING (UPDATED) ---
+    st.subheader("Pricing")
+    p1, p2, p3, p4 = st.columns(4)
+
+    with p1:
+        with st.container(border=True):
+            st.metric(label="⚡ Standard", value="$2.99")
+            st.caption("Machine Postage")
+
+    with p2:
+        with st.container(border=True):
+            st.metric(label="🏺 Heirloom", value="$5.99")
+            st.caption("Real Stamp")
+
+    with p3:
+        with st.container(border=True):
+            st.metric(label="🏛️ Civic", value="$6.99")
+            st.caption("3 Letters to Congress")
+
+    with p4:
+        with st.container(border=True):
+            st.metric(label="🎅 Santa", value="$9.99")
+            st.caption("North Pole Address")
+
+    st.markdown("---")
+    f1, f2 = st.columns([4, 1])
+    with f2:
+        if st.button("Legal / Terms", type="secondary"):
+            set_mode("legal")
             st.rerun()
-        # UPDATED DATE HERE
-        st.markdown("<div style='text-align: center; color: #888;'>© 2025 VerbaPost</div>", unsafe_allow_html=True)
