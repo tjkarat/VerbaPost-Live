@@ -112,48 +112,39 @@ def render_splash_page():
         st.session_state.app_mode = "legal"
         st.rerun()
 
-# --- PAGE: LOGIN (USING ST.FORM) ---
+# --- PAGE: LOGIN ---
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.container(border=True):
-            # USING FORM FOR STABILITY
-            with st.form("auth_form"):
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                
-                # Check for action
-                col_login, col_create = st.columns(2)
-                
-                login_submit = col_login.form_submit_button("Log In", type="primary", use_container_width=True)
-                signup_submit = col_create.form_submit_button("Sign Up", use_container_width=True)
+            email = st.text_input("Email")
+            password = st.text_input("Password", type="password")
+            
+            if st.button("Log In", type="primary", use_container_width=True):
+                sb = get_supabase()
+                if not sb: st.error("❌ Connection Failed. Check Secrets.")
+                else:
+                    try:
+                        res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                        st.session_state.user = res
+                        st.session_state.user_email = email
+                        st.session_state.app_mode = "store"
+                        st.rerun()
+                    except Exception as e: st.error(f"Login failed: {e}")
 
-                if login_submit:
-                    sb = get_supabase()
-                    if not sb: st.error("❌ Connection Failed. Check Secrets.")
-                    else:
-                        try:
-                            res = sb.auth.sign_in_with_password({"email": email, "password": password})
-                            st.session_state.user = res
-                            st.session_state.user_email = email
-                            st.session_state.app_mode = "store"
-                            st.rerun()
-                        except Exception as e: st.error(f"Login failed: {e}")
-                
-                if signup_submit:
-                    sb = get_supabase()
-                    if not sb: st.error("❌ Connection Failed.")
-                    else:
-                        try:
-                            sb.auth.sign_up({"email": email, "password": password})
-                            st.success("Check email.")
-                        except Exception as e: st.error(f"Signup failed: {e}")
-                        
-                st.write("")
-                if st.button("Forgot Password?", type="secondary"):
-                    st.session_state.app_mode = "forgot_password"
-                    st.rerun()
+            if st.button("Sign Up", use_container_width=True):
+                sb = get_supabase()
+                if not sb: st.error("❌ Connection Failed.")
+                else:
+                    try:
+                        sb.auth.sign_up({"email": email, "password": password})
+                        st.success("Check email.")
+                    except Exception as e: st.error(f"Signup failed: {e}")
+            
+            if st.button("Forgot Password?", type="secondary"):
+                st.session_state.app_mode = "forgot_password"
+                st.rerun()
 
     if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
 
@@ -200,11 +191,12 @@ def render_store_page():
                     u_email = st.session_state.get("user_email", "guest")
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
+                        # FINAL CSS FIX: White text on button
                         st.markdown(f"""
-                        <a href="{url}" target="_self" style="text-decoration: none !important;">
+                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
                                 <span style="color:white !important;">👉 Pay Now (Secure)</span>
                             </div>
