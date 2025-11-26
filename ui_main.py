@@ -55,8 +55,7 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGES ---
-
+# --- PAGE: SPLASH ---
 def render_splash_page():
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([3, 2, 3]) 
@@ -96,6 +95,7 @@ def render_splash_page():
         st.session_state.app_mode = "legal"
         st.rerun()
 
+# --- PAGE: LOGIN ---
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -131,6 +131,7 @@ def render_login_page():
 
     if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
 
+# --- PAGE: STORE ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     c1, c2 = st.columns([2, 1])
@@ -140,16 +141,22 @@ def render_store_page():
             tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
             selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            if selected_option == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
-            elif selected_option == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
-            elif selected_option == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
-            elif selected_option == "Santa": st.success("Festive background, North Pole return address.")
+            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope, First Class Mail.")
+            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, physical stamp, premium feel.")
+            elif "Civic" in selected_option: st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            elif "Santa" in selected_option: st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            price = prices[selected_option]
-            tier_code = selected_option 
+            
+            if "Standard" in selected_option: tier_code = "Standard"
+            elif "Heirloom" in selected_option: tier_code = "Heirloom"
+            elif "Civic" in selected_option: tier_code = "Civic"
+            elif "Santa" in selected_option: tier_code = "Santa"
+            else: tier_code = "Standard"
+            
+            price = prices[tier_code]
 
     with c2:
         with st.container(border=True):
@@ -177,16 +184,16 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # --- FIXED: Inline Style on SPAN to force white text ---
                         st.markdown(f"""
                         <a href="{url}" target="_blank" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;">👉 Pay Now (Secure)</span>
+                                <span style="color:white !important; -webkit-text-fill-color: white !important;">👉 Pay Now (Secure)</span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
                     else: st.error("Payment System Offline")
 
+# --- PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_civic = "Civic" in tier
@@ -220,9 +227,15 @@ def render_workspace_page():
                 to_state = c_y.text_input("State", key="w_to_state")
                 to_zip = c_z.text_input("Zip", key="w_to_zip")
             with c2:
-                st.markdown("**From**")
-                st.info("🎅 North Pole (Locked)")
-                from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
+                st.markdown("**From (Locked)**")
+                st.info("🎅 North Pole Official")
+                # Hardcoded Santa Display (Disabled)
+                st.text_input("Sender", value="SANTA CLAUS", disabled=True)
+                st.text_input("Street", value="123 ELF ROAD", disabled=True)
+                st.text_input("Location", value="NORTH POLE, 88888", disabled=True)
+                
+                # Set variables for logic
+                from_name="SANTA CLAUS"; from_street="123 ELF ROAD"; from_city="NORTH POLE"; from_state="NP"; from_zip="88888"
         
         elif is_civic:
             st.info("Civic Mode: We auto-find your reps.")
@@ -258,10 +271,10 @@ def render_workspace_page():
             if database and u_email and "Santa" not in tier and "Civic" not in tier: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
             
-            if "Santa" in tier:
+            if is_santa:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
-                st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
-            elif "Civic" in tier:
+                st.session_state.from_addr = {"name": "SANTA CLAUS", "street": "123 ELF ROAD", "city": "NORTH POLE", "state": "NP", "zip": "88888"}
+            elif is_civic:
                  st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                  st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
             else:
@@ -274,7 +287,6 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        # FIX: Ensure correct syntax for st_canvas
         canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
         if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
@@ -343,7 +355,21 @@ def render_review_page():
             
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
-            if st.button("Finish"): reset_app(); st.rerun()
+            
+            # --- FIXED FINISH REDIRECT ---
+            if st.button("Finish"): 
+                reset_app()
+                st.rerun()
+
+# --- PAGE: LEGAL ---
+def render_legal_page():
+    render_hero("Legal", "Terms & Privacy")
+    with st.container(border=True):
+         st.subheader("Terms of Service")
+         st.write("Do not use this service for illegal activities.")
+         st.subheader("Privacy Policy")
+         st.write("We protect your data.")
+    if st.button("Back"): st.session_state.app_mode = "splash"; st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -354,7 +380,6 @@ def show_main_app():
 
     # Stripe Return Check (TOP LEVEL PRIORITY)
     if "session_id" in st.query_params:
-        # Force state update immediately
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
         st.query_params.clear()
