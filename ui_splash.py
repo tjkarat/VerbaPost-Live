@@ -1,10 +1,21 @@
 import streamlit as st
+import os
 
 def set_mode(mode):
     st.session_state.app_mode = mode
 
 def show_splash():
-    # --- HERO ---
+    # --- 1. LOGO HANDLING ---
+    # If you upload a file named 'logo.png', it will appear here.
+    c_logo = st.container()
+    if os.path.exists("logo.png"):
+        with c_logo:
+            c1, c2, c3 = st.columns([1, 1, 1])
+            with c2:
+                st.image("logo.png", use_container_width=True)
+    
+    # --- 2. HERO BANNER ---
+    # This acts as the text logo if no image is found
     st.markdown("""
     <div class="hero-banner">
         <div class="hero-title">VerbaPost 📮</div>
@@ -15,7 +26,7 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
     
-    # --- CTA ---
+    # --- 3. MAIN CTA ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("🔐 Log In / Sign Up to Start", type="primary", use_container_width=True):
@@ -24,7 +35,7 @@ def show_splash():
 
     st.divider()
     
-    # --- HOW IT WORKS ---
+    # --- 4. FEATURES ---
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
     with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on your screen.")
@@ -32,7 +43,7 @@ def show_splash():
 
     st.divider()
     
-    # --- USE CASES (UPDATED WITH SANTA) ---
+    # --- 5. USE CASES (Including Santa) ---
     st.subheader("Why VerbaPost?")
     u1, u2, u3 = st.columns(3)
     
@@ -53,7 +64,7 @@ def show_splash():
 
     st.divider()
 
-    # --- PRICING (UPDATED) ---
+    # --- 6. PRICING ---
     st.subheader("Pricing")
     p1, p2, p3, p4 = st.columns(4)
 
@@ -78,6 +89,8 @@ def show_splash():
             st.caption("North Pole Address")
 
     st.markdown("---")
+    
+    # --- 7. FOOTER ---
     f1, f2 = st.columns([4, 1])
     with f2:
         if st.button("Legal / Terms", type="secondary"):
