@@ -3,6 +3,7 @@ from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
 from PIL import Image
+import json
 import base64
 from io import BytesIO
 
@@ -53,17 +54,43 @@ def show_main_app():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     c1, c2 = st.columns([2, 1])
+    
     with c1:
         with st.container(border=True):
             st.subheader("Letter Options")
-            tier_options = {"⚡ Standard": 2.99, "🏺 Heirloom": 5.99, "🏛️ Civic": 6.99}
-            selected_tier_name = st.radio("Select Tier", list(tier_options.keys()))
+            
+            # UPDATED: Descriptive Radio Buttons
+            tier_display = {
+                "Standard": "⚡ Standard ($2.99) - Machine postage, window envelope.",
+                "Heirloom": "🏺 Heirloom ($5.99) - Handwritten envelope, real stamp.",
+                "Civic": "🏛️ Civic ($6.99) - 3 Letters to your Senators & Representative."
+            }
+            
+            selected_option = st.radio(
+                "Select Tier", 
+                options=list(tier_display.keys()),
+                format_func=lambda x: tier_display[x]
+            )
+            
+            # Extra details box
+            if selected_option == "Standard":
+                st.info("**Standard:** Fast processing. Printed on premium paper, folded into a #10 window envelope, sent via First Class Mail.")
+            elif selected_option == "Heirloom":
+                st.info("**Heirloom:** The personal touch. We hand-address the envelope and apply a physical Forever Stamp. Ideal for personal notes.")
+            elif selected_option == "Civic":
+                st.info("**Civic Blast:** We auto-detect your 2 Senators and 1 House Rep based on your address. Includes 3 separate letters sent via Standard mail.")
+
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
-            price = tier_options[selected_tier_name]
-            tier_code = selected_tier_name.split(" ")[1] 
+            
+            # Set internal values based on selection
+            prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99}
+            price = prices[selected_option]
+            tier_code = selected_tier_name = selected_option # Keep compatibility with old var names
+            
             st.session_state.temp_tier = tier_code
             st.session_state.temp_price = price
             st.session_state.temp_lang = lang
+
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
@@ -77,6 +104,13 @@ def render_store_page():
             st.divider()
             if is_free:
                 if st.button("🚀 Start (Promo Applied)", type="primary", use_container_width=True):
+                    u_email = "guest"
+                    if st.session_state.get("user"):
+                        u = st.session_state.user
+                        if isinstance(u, dict): u_email = u.get("email")
+                        elif hasattr(u, "email"): u_email = u.email
+                        elif hasattr(u, "user"): u_email = u.user.email
+                    promo_engine.log_usage(promo_code, u_email)
                     st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code
                     st.session_state.app_mode = "workspace"; st.rerun()
             else:
@@ -112,7 +146,7 @@ def render_store_page():
                                 box-shadow: 0 4px 6px rgba(0,0,0,0.15);
                                 transition: transform 0.1s;
                             ">
-                                <span style="font-weight: bold; font-size: 18px;">
+                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 16px;">
                                     👉 Pay Now (Secure)
                                 </span>
                             </div>
@@ -256,25 +290,22 @@ def render_review_page():
         from_addr = {"name": from_name, "address_line1": from_street, "address_city": from_city, "address_state": from_state, "address_zip": from_zip}
         
         sig_path = None
-        sig_storage = None # For DB
+        sig_storage = None
 
-        # --- FIX: Convert Signature to Base64 for DB ---
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
             try:
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
                 bg = Image.new("RGB", img.size, (255,255,255))
                 bg.paste(img, mask=img.split()[3])
                 
-                # Save to temp file for Mailer (Immediate)
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
                     bg.save(tmp_sig, format="PNG")
                     sig_path = tmp_sig.name
-                
-                # Save to Base64 for Database (Long term)
+                    
+                # Also save for DB
                 buffered = BytesIO()
                 bg.save(buffered, format="PNG")
                 sig_storage = base64.b64encode(buffered.getvalue()).decode()
-                
             except: pass
 
         lang = st.session_state.get("temp_lang", "English")
@@ -307,7 +338,7 @@ def render_review_page():
             
             status = "sent_api" if res else "pending"
             
-            # --- SAVE TO DB WITH SIGNATURE ---
+            # Save to DB (including signature)
             if database: 
                 database.save_draft(u_email, txt, tier, 2.99, to_addr, from_addr, sig_storage, status)
             
