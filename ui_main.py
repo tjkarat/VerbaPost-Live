@@ -26,7 +26,7 @@ except: mailer = None
 # --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app/" 
 
-# --- HELPERS ---
+# --- HELPER: SUPABASE ---
 @st.cache_resource
 def get_supabase():
     from supabase import create_client
@@ -46,15 +46,37 @@ def reset_app():
 
 def render_hero(title, subtitle):
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
+    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
+    <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- SPLASH PAGE (Full Content Restored) ---
+# --- PAGE: LEGAL ---
+def render_legal_page():
+    render_hero("Legal Center", "Transparency & Trust")
+    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    with tab_tos:
+        with st.container(border=True):
+            st.subheader("1. Service Usage")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+            st.subheader("2. Refunds")
+            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
+
+    with tab_privacy:
+        with st.container(border=True):
+            st.subheader("Data Handling")
+            st.write("We process your voice data solely for transcription. We do not sell your personal information.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("← Return to Home", type="primary", use_container_width=True):
+        st.session_state.app_mode = "splash"
+        st.rerun()
+
+# --- SPLASH PAGE ---
 def render_splash_page():
     # 1. LOGO
     if os.path.exists("logo.png"):
@@ -89,7 +111,7 @@ def render_splash_page():
 
     st.divider()
 
-    # 5. USE CASES (WHO IS THIS FOR?)
+    # 5. USE CASES
     st.subheader("Who is VerbaPost for?")
     u1, u2, u3 = st.columns(3)
     with u1:
@@ -107,7 +129,7 @@ def render_splash_page():
 
     st.divider()
 
-    # 6. PRICING (DESCRIPTION BOXES)
+    # 6. PRICING
     st.subheader("Pricing")
     p1, p2, p3, p4 = st.columns(4)
     with p1: st.container(border=True).metric("⚡ Standard", "$2.99", "Machine Postage")
@@ -116,94 +138,46 @@ def render_splash_page():
     with p4: st.container(border=True).metric("🎅 Santa", "$9.99", "North Pole Address")
 
     st.markdown("---")
-    if st.button("Legal / Terms", type="secondary"):
-        st.session_state.app_mode = "legal"
-        st.rerun()
+    f1, f2 = st.columns([4, 1])
+    with f2:
+        if st.button("Legal / Terms", type="secondary"):
+            st.session_state.app_mode = "legal"
+            st.rerun()
 
-# --- MAIN ROUTER ---
-def show_main_app():
-    mode = st.session_state.get("app_mode", "splash")
-    
-    if mode == "splash": render_splash_page()
-    
-    elif mode == "legal":
-        render_hero("Legal", "Terms & Privacy")
-        st.write("Terms: Don't mail illegal items. Privacy: We protect your data.")
-        if st.button("Back"): st.session_state.app_mode = "splash"; st.rerun()
-
-    elif mode == "login":
-        st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
-        c1, c2, c3 = st.columns([1, 2, 1])
-        with c2:
-            with st.form("login_form"):
-                email = st.text_input("Email")
-                password = st.text_input("Password", type="password")
-                if st.form_submit_button("Log In", type="primary", use_container_width=True):
-                    sb = get_supabase()
-                    if sb:
-                        try:
-                            res = sb.auth.sign_in_with_password({"email": email, "password": password})
-                            st.session_state.user = res
-                            st.session_state.user_email = email
-                            st.session_state.app_mode = "store" # SUCCESS -> STORE
-                            st.rerun()
-                        except Exception as e: st.error(f"Login failed: {e}")
-            
-            if st.button("Sign Up Instead"):
-                sb = get_supabase()
-                if sb:
-                    try: sb.auth.sign_up({"email": email, "password": password}); st.success("Check email.")
-                    except Exception as e: st.error(f"Error: {e}")
-        
-        if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
-
-    elif mode == "store": render_store_page()
-    elif mode == "workspace": render_workspace_page()
-    elif mode == "review": render_review_page()
-
-    # Sidebar Logic
-    with st.sidebar:
-        if st.button("Home"): reset_app(); st.rerun()
-        if st.session_state.get("user"):
-            st.divider()
-            u_email = st.session_state.get("user_email", "User")
-            st.caption(f"Logged in: {u_email}")
-            
-            # Admin Check
-            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-            user_clean = str(u_email).strip().lower()
-            
-            if user_clean == admin_target:
-                st.success("Admin Access")
-                import ui_admin
-                if st.button("Open Console"): ui_admin.show_admin()
-            
-            if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
-
-# --- APP LOGIC FUNCTIONS (Restored from ui_main_full.py) ---
-
+# --- STORE PAGE ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     c1, c2 = st.columns([2, 1])
     with c1:
         with st.container(border=True):
             st.subheader("Letter Options")
-            tier_options = {"⚡ Standard": 2.99, "🏺 Heirloom": 5.99, "🏛️ Civic": 6.99, "🎅 Santa": 9.99}
-            selected_tier_name = st.radio("Select Tier", list(tier_options.keys()))
+            tier_display = {
+                "Standard": "⚡ Standard ($2.99)", 
+                "Heirloom": "🏺 Heirloom ($5.99)",
+                "Civic": "🏛️ Civic ($6.99)", 
+                "Santa": "🎅 Santa ($9.99)"
+            }
+            selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
+            
+            if selected_option == "Standard":
+                st.info("**Standard:** Premium paper, window envelope, First Class Mail.")
+            elif selected_option == "Heirloom":
+                st.info("**Heirloom:** Hand-addressed envelope with a physical stamp.")
+            elif selected_option == "Civic":
+                st.info("**Civic:** Auto-sends to your 2 Senators and 1 Rep.")
+            elif selected_option == "Santa":
+                st.success("**Santa Special:** Festive background, North Pole return address.")
+
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
-            price = tier_options[selected_tier_name]
-            # Extract clean code (e.g. "Standard" from "⚡ Standard")
-            if "Standard" in selected_tier_name: tier_code = "Standard"
-            elif "Heirloom" in selected_tier_name: tier_code = "Heirloom"
-            elif "Civic" in selected_tier_name: tier_code = "Civic"
-            elif "Santa" in selected_tier_name: tier_code = "Santa"
-            else: tier_code = "Standard"
+            prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
+            price = prices[selected_option]
+            tier_code = selected_option 
 
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
-            st.metric("Total", f"${price}")
+            st.metric("Total", f"${price:.2f}")
             
             promo = st.text_input("Promo Code (Optional)")
             is_free = False
@@ -218,7 +192,7 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
-                st.info("⚠️ Payment opens in new tab.")
+                st.info("⚠️ **Note:** Payment opens in a new tab.")
                 if st.button(f"Pay ${price} & Start", type="primary"):
                     u_email = st.session_state.get("user_email", "guest")
                     if database: database.save_draft(u_email, "", tier_code, price)
@@ -226,32 +200,53 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        st.link_button("👉 Click to Pay", url, type="primary")
+                        # Force white text on link
+                        st.markdown(f"""
+                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
+                            <div style="display: block; width: 100%; padding: 12px; background-color: #2a5298; color: white !important; text-align: center; border-radius: 8px; font-weight: bold; margin-top: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                                👉 Pay Now (Secure)
+                            </div>
+                        </a>
+                        """, unsafe_allow_html=True)
                     else: st.error("Payment System Offline")
 
+# --- WORKSPACE PAGE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
+    is_civic = "Civic" in tier
+    is_santa = "Santa" in tier
+    
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
-    # Defaults
-    def_name = def_street = def_city = def_state = def_zip = ""
     if database and u_email:
         profile = database.get_user_profile(u_email)
-        if profile:
-             def_name = profile.full_name or ""
-             def_street = profile.address_line1 or ""
-             def_city = profile.address_city or ""
-             def_state = profile.address_state or ""
-             def_zip = profile.address_zip or ""
+        def_name = profile.full_name if profile else ""
+        def_street = profile.address_line1 if profile else ""
+        def_city = profile.address_city if profile else ""
+        def_state = profile.address_state if profile else ""
+        def_zip = profile.address_zip if profile else ""
+    else:
+        def_name=def_street=def_city=def_state=def_zip=""
 
     d = st.session_state.draft if "draft" in st.session_state else {}
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
+        st.warning("⚠️ **Important:** Press **Enter** after typing in each field.")
         
-        # Santa Logic
-        if tier == "Santa":
+        if is_civic:
+            st.info("Civic Mode: We auto-find your reps.")
+            st.markdown("**Your Return Address**")
+            from_name = st.text_input("Name", value=def_name, key="w_from_name")
+            from_street = st.text_input("Street", value=def_street, key="w_from_street")
+            c1, c2, c3 = st.columns(3)
+            from_city = c1.text_input("City", value=def_city, key="w_from_city")
+            from_state = c2.text_input("State", value=def_state, key="w_from_state")
+            from_zip = c3.text_input("Zip", value=def_zip, key="w_from_zip")
+            to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
+        
+        elif is_santa:
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To (Child)**")
@@ -266,8 +261,8 @@ def render_workspace_page():
                 st.info("🎅 North Pole (Locked)")
                 from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
         
-        # Standard Logic
         else:
+            # Standard / Heirloom
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To**")
@@ -312,21 +307,20 @@ def render_workspace_page():
                     st.rerun()
 
 def render_review_page():
-    render_hero("Review", "Finalize Letter")
+    render_hero("Review Letter", "Finalize and send")
+    
     txt = st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
     
     if st.button("🚀 Send Letter", type="primary"):
         to_a = st.session_state.get("to_addr", {})
         from_a = st.session_state.get("from_addr", {})
         
-        # Validation
-        if not to_a.get("name"): st.error("Recipient Name Missing!"); return
-
         tier = st.session_state.get("locked_tier", "Standard")
         is_heirloom = "Heirloom" in tier
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
+        # Handle Signature
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -354,8 +348,8 @@ def render_review_page():
             
             res = None
             if not is_heirloom and not is_santa and mailer:
-                # Mailer Logic
-                pass # (Simplified for stability check)
+                # Mailer Logic would go here
+                pass
             
             u_email = st.session_state.get("user_email", "guest")
             status = "sent_api" if res else "pending"
@@ -369,3 +363,91 @@ def render_review_page():
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
             if st.button("Finish"): reset_app(); st.rerun()
+
+# --- MAIN CONTROLLER ---
+def show_main_app():
+    if 'analytics' in globals(): analytics.inject_ga()
+
+    # Defaults
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
+    if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
+
+    # --- 1. STRIPE RETURN HANDLER ---
+    qp = st.query_params
+    if "session_id" in qp:
+        session_id = qp["session_id"]
+        if session_id not in st.session_state.processed_ids:
+            if payment_engine.check_payment_status(session_id):
+                st.session_state.payment_complete = True
+                st.session_state.processed_ids.append(session_id)
+                st.toast("✅ Payment Confirmed!")
+                if "tier" in qp: st.session_state.locked_tier = qp["tier"]
+                if "lang" in qp: st.session_state.selected_language = qp["lang"]
+                st.session_state.app_mode = "workspace"
+                st.query_params.clear()
+                st.rerun()
+            else:
+                st.error("Payment verification failed.")
+        else:
+            if st.session_state.get("payment_complete"): st.session_state.app_mode = "workspace"
+
+    # --- 2. ROUTING ---
+    mode = st.session_state.get("app_mode", "splash")
+    
+    if mode == "splash": render_splash_page()
+    
+    elif mode == "legal": render_legal_page()
+    
+    elif mode == "login":
+        st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([1, 2, 1])
+        with c2:
+            with st.form("login_form"):
+                email = st.text_input("Email")
+                password = st.text_input("Password", type="password")
+                if st.form_submit_button("Log In", type="primary", use_container_width=True):
+                    sb = get_supabase()
+                    if sb:
+                        try:
+                            res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                            st.session_state.user = res
+                            st.session_state.user_email = email
+                            st.session_state.app_mode = "store"
+                            st.rerun()
+                        except Exception as e: st.error(f"Login failed: {e}")
+            
+            if st.button("Sign Up Instead"):
+                sb = get_supabase()
+                if sb:
+                    try: sb.auth.sign_up({"email": email, "password": password}); st.success("Check email.")
+                    except Exception as e: st.error(f"Error: {e}")
+        
+        if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
+
+    elif mode == "store": render_store_page()
+    elif mode == "workspace": render_workspace_page()
+    elif mode == "review": render_review_page()
+
+    # --- 4. SIDEBAR & ADMIN (Fixed Logic) ---
+    with st.sidebar:
+        if st.button("Home"): reset_app(); st.rerun()
+        if st.session_state.get("user"):
+            st.divider()
+            u_email = st.session_state.get("user_email", "")
+            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
+            st.caption(f"Logged in: {u_email}")
+            
+            # Admin Check
+            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            user_clean = str(u_email).strip().lower()
+            
+            # Debug Box (Remove later if needed)
+            if user_clean != admin_target:
+                st.caption(f"Admin Debug:\nYou: '{user_clean}'\nTarget: '{admin_target}'")
+
+            if user_clean == admin_target:
+                st.success("Admin Access")
+                import ui_admin
+                if st.button("Open Console"): ui_admin.show_admin()
+            
+            if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
