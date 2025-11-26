@@ -60,20 +60,16 @@ def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
     with tab_tos:
-        with st.container(border=True):
-            st.subheader("1. Service Usage")
-            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+        st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
     with tab_privacy:
-        with st.container(border=True):
-            st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription.")
+        st.write("We process your voice data solely for transcription.")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("← Return to Home", type="primary", use_container_width=True):
+    if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
         st.rerun()
 
-# --- SPLASH PAGE ---
+# --- PAGE: SPLASH ---
 def render_splash_page():
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([3, 2, 3]) 
@@ -83,7 +79,7 @@ def render_splash_page():
     <div style="text-align: center; margin-bottom: 30px;">
         <h3 style="color: #2d3748; font-weight: 600;">Turn your voice into a real letter.</h3>
         <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
-            Texts are trivial. Emails are ignored.<br><b style="color: #2d3748;">REAL LETTERS GET OPENED.</b>
+            Texts are trivial. Emails are ignored.<br><b style="color: #2a5298;">REAL LETTERS GET OPENED.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -149,16 +145,23 @@ def render_login_page():
 
     if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
 
-# --- PAGE: STORE ---
+# --- PAGE: STORE (Full Definition) ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     c1, c2 = st.columns([2, 1])
     with c1:
         with st.container(border=True):
             st.subheader("Options")
-            tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
+            tier_display = {
+                "Standard": "⚡ Standard ($2.99)", 
+                "Heirloom": "🏺 Heirloom ($5.99)",
+                "Civic": "🏛️ Civic ($6.99)", 
+                "Santa": "🎅 Santa ($9.99)"
+            }
+            # Map display name back to key
             reverse_map = {v: k for k, v in tier_display.items()}
-            selected = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
+            
+            selected = st.radio("Select Tier", list(tier_display.values()), format_func=lambda x: tier_display[x])
             tier_code = reverse_map[selected]
             
             if tier_code == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
@@ -198,9 +201,21 @@ def render_store_page():
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
                         st.markdown(f"""
-                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
-                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color:white !important;">👉 Pay Now (Secure)</span>
+                        <style>
+                            a.pay-btn-link, a.pay-btn-link:visited, a.pay-btn-link:hover, a.pay-btn-link:active {{
+                                text-decoration: none !important; color: #FFFFFF !important;
+                            }}
+                        </style>
+                        <a href="{url}" target="_blank" class="pay-btn-link">
+                            <div style="
+                                display: block; width: 100%; padding: 14px;
+                                background-color:#2a5298; text-align: center;
+                                border-radius: 8px; font-weight: bold; margin-top: 10px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+                            ">
+                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: white !important;">
+                                    👉 Pay Now (Secure)
+                                </span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
@@ -208,8 +223,6 @@ def render_store_page():
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
-    is_civic = "Civic" in tier
-    is_santa = "Santa" in tier
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
@@ -228,7 +241,7 @@ def render_workspace_page():
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
-        if is_santa:
+        if "Santa" in tier:
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To (Child)**")
@@ -243,7 +256,7 @@ def render_workspace_page():
                 st.info("🎅 North Pole (Locked)")
                 from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
         
-        elif is_civic:
+        elif "Civic" in tier:
             st.info("Civic Mode: We auto-find your reps.")
             st.markdown("**Your Return Address**")
             from_name = st.text_input("Name", value=def_name, key="w_from_name")
@@ -321,6 +334,7 @@ def render_review_page():
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
+        # Signature
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -370,7 +384,7 @@ def show_main_app():
     # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
-    # Stripe Return Check (TOP LEVEL PRIORITY)
+    # Stripe Return Check
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
