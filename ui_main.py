@@ -55,46 +55,18 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGE: LEGAL (FULL TEXT RESTORED) ---
+# --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
-    
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
-    
     with tab_tos:
         with st.container(border=True):
-            st.subheader("1. Acceptance of Terms")
-            st.write("By accessing and using VerbaPost, you accept and agree to be bound by the terms and provision of this agreement.")
-            
-            st.subheader("2. Service Usage")
-            st.write("VerbaPost provides a service to convert dictated or typed content into physical mail. You agree NOT to use this service to send:")
-            st.markdown("""
-            * Threatening, abusive, or harassing content.
-            * Illegal substances or material soliciting illegal acts.
-            * Fraudulent or deceptive mail (mail fraud).
-            """)
-            
-            st.subheader("3. Payments & Refunds")
-            st.write("Payments are processed securely via Stripe. Once a letter has been handed off to our printing partners or the USPS, it cannot be cancelled or refunded.")
-            
-            st.subheader("4. Limitation of Liability")
-            st.write("VerbaPost is not liable for delays, loss, or damage caused by the United States Postal Service (USPS) or incorrect addresses provided by the user.")
-
+            st.subheader("1. Service Usage")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
     with tab_privacy:
         with st.container(border=True):
-            st.subheader("1. Data Collection")
-            st.write("We collect only the information necessary to process your letter:")
-            st.markdown("""
-            * **Voice Data:** Transcribed via AI and stored only until the letter is generated.
-            * **Addresses:** Stored securely to facilitate mailing.
-            * **Payment:** Processed via Stripe; we do not store your full credit card number.
-            """)
-            
-            st.subheader("2. Data Usage")
-            st.write("Your data is used strictly for the generation and mailing of your physical document. We do **not** sell your data to third parties.")
-            
-            st.subheader("3. Security")
-            st.write("We use industry-standard encryption (SSL) for data transmission. Our database is secured via Supabase with Row Level Security (RLS).")
+            st.subheader("Data Handling")
+            st.write("We process your voice data solely for transcription.")
 
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
@@ -186,15 +158,13 @@ def render_login_page():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
-    # ADMIN CONSOLE BUTTON (MOVED TO MAIN PAGE)
     if st.session_state.get("user"):
         u_email = st.session_state.get("user_email", "")
         admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-        if u_email and str(u_email).strip().lower() == admin_target:
-             if st.button("🔐 Open Admin Console", type="secondary", use_container_width=True):
-                 import ui_admin
-                 ui_admin.show_admin()
-                 return
+        if str(u_email).strip().lower() == admin_target:
+             if st.button("🔐 Open Admin Console", type="secondary"):
+                 st.session_state.app_mode = "admin" # Change Mode directly
+                 st.rerun()
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -203,9 +173,9 @@ def render_store_page():
             tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
             selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope, First Class Mail.")
-            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, physical stamp, premium feel.")
-            elif "Civic" in selected_option: st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope.")
+            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, real stamp.")
+            elif "Civic" in selected_option: st.info("3 letters sent to your representatives.")
             elif "Santa" in selected_option: st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
@@ -216,7 +186,6 @@ def render_store_page():
             elif "Civic" in selected_option: tier_code="Civic"
             elif "Santa" in selected_option: tier_code="Santa"
             else: tier_code="Standard"
-            
             price = prices[tier_code]
 
     with c2:
@@ -245,23 +214,19 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # FINAL CSS FIX FOR WHITE TEXT
+                        # FINAL CSS BOMB for White Text
                         st.markdown(f"""
-                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
-                            <div style="
-                                background-color:#2a5298 !important; 
-                                color: #FFFFFF !important;
-                                padding: 12px; 
-                                text-align: center; 
-                                border-radius: 8px; 
-                                font-weight: bold; 
-                                margin-top: 10px;
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                            ">
-                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;">
-                                    👉 Pay Now (Secure)
-                                </span>
-                            </div>
+                        <style>
+                            .pay-btn {{ text-decoration: none !important; display: block !important; }}
+                            .pay-btn * {{ color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; }}
+                            .pay-div {{ 
+                                background-color:#2a5298; color:#FFFFFF; 
+                                padding:12px; text-align:center; border-radius:8px; 
+                                font-weight:bold; margin-top:10px; box-shadow:0 4px 6px rgba(0,0,0,0.1);
+                            }}
+                        </style>
+                        <a href="{url}" target="_blank" class="pay-btn">
+                            <div class="pay-div">👉 Pay Now (Secure)</div>
                         </a>
                         """, unsafe_allow_html=True)
                     else: st.error("Payment System Offline")
@@ -275,17 +240,15 @@ def render_workspace_page():
     
     u_email = st.session_state.get("user_email")
     # Load defaults
+    def_name=def_street=def_city=def_state=def_zip=""
     if database and u_email:
         profile = database.get_user_profile(u_email)
-        def_name = profile.full_name if profile else ""
-        def_street = profile.address_line1 if profile else ""
-        def_city = profile.address_city if profile else ""
-        def_state = profile.address_state if profile else ""
-        def_zip = profile.address_zip if profile else ""
-    else:
-        def_name=def_street=def_city=def_state=def_zip=""
-
-    d = st.session_state.draft if "draft" in st.session_state else {}
+        if profile:
+            def_name = profile.full_name or ""
+            def_street = profile.address_line1 or ""
+            def_city = profile.address_city or ""
+            def_state = profile.address_state or ""
+            def_zip = profile.address_zip or ""
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
@@ -363,14 +326,22 @@ def render_workspace_page():
              if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
         st.write("🎤 **Dictation**")
-        audio = st.audio_input("Record")
-        if audio:
-            with st.status("Transcribing..."):
-                if ai_engine:
-                    text = ai_engine.transcribe_audio(audio)
-                    st.session_state.transcribed_text = text
-                    st.session_state.app_mode = "review"
-                    st.rerun()
+        # Validation Gate
+        ready = False
+        if is_civic and st.session_state.get("from_addr"): ready=True
+        elif st.session_state.get("to_addr") and st.session_state.get("to_addr").get("name"): ready=True
+        
+        if not ready:
+            st.warning("⚠️ Please Fill & Save Addresses Above First")
+        else:
+            audio = st.audio_input("Record")
+            if audio:
+                with st.status("Transcribing..."):
+                    if ai_engine:
+                        text = ai_engine.transcribe_audio(audio)
+                        st.session_state.transcribed_text = text
+                        st.session_state.app_mode = "review"
+                        st.rerun()
 
 def render_review_page():
     render_hero("Review", "Finalize Letter")
@@ -407,7 +378,6 @@ def render_review_page():
 
         if letter_format:
             pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang, sig_path, is_santa)
-            
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(pdf_bytes)
                 pdf_path = tmp.name
@@ -427,7 +397,9 @@ def render_review_page():
             
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
-            if st.button("Finish"): reset_app(); st.rerun()
+            
+            # FINISH BUTTON NOW USES CALLBACK
+            st.button("Finish", on_click=reset_app)
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -436,7 +408,7 @@ def show_main_app():
     # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
-    # Stripe Return Check
+    # Stripe Return Check (TOP LEVEL PRIORITY)
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
@@ -452,9 +424,10 @@ def show_main_app():
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
     
-    elif mode == "forgot_password":
-         render_hero("Recovery", "Reset Password")
-         if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
+    # --- ADMIN PAGE (Main Frame) ---
+    elif mode == "admin":
+        import ui_admin
+        ui_admin.show_admin()
 
     # 3. Sidebar
     with st.sidebar:
