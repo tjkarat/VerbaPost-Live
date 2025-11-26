@@ -1,76 +1,50 @@
 import streamlit as st
 import ui_main
 
-# --- 1. CONFIG (Force Sidebar Expanded) ---
+# --- 1. CONFIG ---
 st.set_page_config(
     page_title="VerbaPost",
     page_icon="📮",
     layout="centered",
-    initial_sidebar_state="expanded" 
+    initial_sidebar_state="expanded"  # <--- FORCE SIDEBAR VISIBLE
 )
 
-# --- 2. GLOBAL CSS (Force Dark Text & Clean UI) ---
+# --- 2. CSS ---
 def inject_global_css():
     st.markdown("""
     <style>
-        /* Main Background */
+        /* Core Theme */
         .stApp { background-color: #f8f9fc; }
         
-        /* Force Text Color to Dark Grey (Overrides Browser Dark Mode) */
-        h1, h2, h3, h4, h5, h6, p, li, label, span, div, .stMarkdown {
+        /* Force Dark Text (Fixes invisible text) */
+        h1, h2, h3, h4, h5, h6, p, li, label, span, div {
             color: #2d3748 !important;
         }
         
-        /* Hide Defaults */
-        header, .stDeployButton, footer { visibility: hidden; }
-        
-        /* Inputs: Force White Background */
+        /* Inputs & Sidebar */
         .stTextInput input, .stSelectbox div, div[data-baseweb="select"] > div {
-            background-color: white !important; 
-            color: #2d3748 !important; 
-            border: 1px solid #e2e8f0 !important;
+            background-color: white !important; color: #2d3748 !important; border: 1px solid #e2e8f0 !important;
         }
+        [data-testid="stSidebar"] { background-color: white !important; border-right: 1px solid #e2e8f0; }
         
-        /* Sidebar Styling */
-        [data-testid="stSidebar"] { 
-            background-color: white !important; 
-            border-right: 1px solid #e2e8f0; 
+        /* Buttons */
+        div.stButton > button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white !important; border: none; border-radius: 25px; padding: 0.5rem 1.5rem;
         }
-        
-        /* Primary Buttons */
-        div.stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-            color: white !important; 
-            border: none; 
-            border-radius: 25px; 
-            padding: 0.5rem 1.5rem;
-        }
-        /* Fix text color INSIDE primary buttons to be white */
-        div.stButton > button[kind="primary"] p { color: white !important; }
-        
-        /* Secondary Buttons (FIXED VISIBILITY) */
         div.stButton > button[kind="secondary"] {
-            background-color: white !important; 
-            color: #2d3748 !important; /* Force dark text */
-            border: 1px solid #e2e8f0 !important;
-            border-radius: 25px;
-        }
-        /* Explicitly target text inside secondary buttons */
-        div.stButton > button[kind="secondary"] p { 
-            color: #2d3748 !important; 
+            background: white; color: #555 !important; border: 1px solid #ddd;
         }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. RUN CONTROLLER ---
+# --- 3. RUN APP ---
 if __name__ == "__main__":
     inject_global_css()
     
-    # Init App State if missing
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
     
-    # Launch UI
     try:
         ui_main.show_main_app()
     except Exception as e:
