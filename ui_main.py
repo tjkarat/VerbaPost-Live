@@ -63,15 +63,11 @@ def render_legal_page():
         with st.container(border=True):
             st.subheader("1. Service Usage")
             st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
-            st.subheader("2. Refunds")
-            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
-
     with tab_privacy:
         with st.container(border=True):
             st.subheader("Data Handling")
             st.write("We process your voice data solely for transcription.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
     if st.button("← Return to Home", type="primary", use_container_width=True):
         st.session_state.app_mode = "splash"
         st.rerun()
@@ -195,9 +191,10 @@ def render_store_page():
                     u_email = st.session_state.get("user_email", "guest")
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
+                        # CSS Fix: White text on button
                         st.markdown(f"""
                         <a href="{url}" target="_self" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
@@ -294,7 +291,7 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        canvas = st_canvas(stroke_width=2, stroke_color="#000", background-color="#fff", height=150, width=400, key="canvas")
+        canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
         if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
         st.write("🎤 **Dictation**")
