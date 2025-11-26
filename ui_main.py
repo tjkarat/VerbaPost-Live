@@ -60,9 +60,13 @@ def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
     with tab_tos:
-        st.write("You agree NOT to use VerbaPost to send threatening content.")
+        with st.container(border=True):
+            st.subheader("1. Service Usage")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
     with tab_privacy:
-        st.write("We process your voice data solely for transcription.")
+        with st.container(border=True):
+            st.subheader("Data Handling")
+            st.write("We process your voice data solely for transcription.")
 
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
@@ -114,30 +118,37 @@ def render_login_page():
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.container(border=True):
-            email = st.text_input("Email")
-            password = st.text_input("Password", type="password")
+            # TABS FOR CLARITY
+            tab_login, tab_signup = st.tabs(["Log In", "Sign Up"])
             
-            if st.button("Log In", type="primary", use_container_width=True):
-                sb = get_supabase()
-                if not sb: st.error("❌ Connection Failed. Check Secrets.")
-                else:
-                    try:
-                        res = sb.auth.sign_in_with_password({"email": email, "password": password})
-                        st.session_state.user = res
-                        st.session_state.user_email = email
-                        st.session_state.app_mode = "store"
-                        st.rerun()
-                    except Exception as e: st.error(f"Login failed: {e}")
-
-            if st.button("Sign Up", use_container_width=True):
-                sb = get_supabase()
-                if not sb: st.error("❌ Connection Failed.")
-                else:
-                    try:
-                        sb.auth.sign_up({"email": email, "password": password})
-                        st.success("Check email.")
-                    except Exception as e: st.error(f"Signup failed: {e}")
+            with tab_login:
+                email = st.text_input("Email", key="login_email")
+                password = st.text_input("Password", type="password", key="login_pass")
+                if st.button("Log In", type="primary", use_container_width=True):
+                    sb = get_supabase()
+                    if not sb: st.error("❌ Connection Failed. Check Secrets.")
+                    else:
+                        try:
+                            res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                            st.session_state.user = res
+                            st.session_state.user_email = email
+                            st.session_state.app_mode = "store"
+                            st.rerun()
+                        except Exception as e: st.error(f"Login failed: {e}")
             
+            with tab_signup:
+                s_email = st.text_input("Email", key="signup_email")
+                s_pass = st.text_input("Password", type="password", key="signup_pass")
+                if st.button("Create Account", type="primary", use_container_width=True):
+                    sb = get_supabase()
+                    if not sb: st.error("❌ Connection Failed.")
+                    else:
+                        try:
+                            sb.auth.sign_up({"email": s_email, "password": s_pass})
+                            st.success("Check email.")
+                        except Exception as e: st.error(f"Signup failed: {e}")
+            
+            st.divider()
             if st.button("Forgot Password?", type="secondary"):
                 st.session_state.app_mode = "forgot_password"
                 st.rerun()
@@ -154,9 +165,9 @@ def render_store_page():
             tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
             selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope, First Class Mail.")
-            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, physical stamp, premium feel.")
-            elif "Civic" in selected_option: st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope.")
+            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, real stamp.")
+            elif "Civic" in selected_option: st.info("3 letters to your representatives.")
             elif "Santa" in selected_option: st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
@@ -196,24 +207,15 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # CSS BOMB: HTML Button with aggressive styling
+                        # FINAL CSS FIX FOR BLACK TEXT: Target all child elements
                         st.markdown(f"""
-                            <a href="{url}" target="_self" style="text-decoration:none; display:block;">
-                                <button style="
-                                    background-color:#2a5298;
-                                    color: white !important;
-                                    border: none;
-                                    padding: 12px;
-                                    width: 100%;
-                                    border-radius: 8px;
-                                    font-weight: bold;
-                                    font-size: 16px;
-                                    cursor: pointer;
-                                    margin-top: 10px;
-                                ">👉 Pay Now (Secure)</button>
-                            </a>
+                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
+                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;">👉 Pay Now (Secure)</span>
+                            </div>
+                        </a>
                         """, unsafe_allow_html=True)
-                    else: st.error("Payment System Offline")
+                    else: st.error("Payment System Offline (Check Secrets)")
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
@@ -226,11 +228,12 @@ def render_workspace_page():
     # Load defaults
     if database and u_email:
         profile = database.get_user_profile(u_email)
-        def_name = profile.full_name if profile else ""
-        def_street = profile.address_line1 if profile else ""
-        def_city = profile.address_city if profile else ""
-        def_state = profile.address_state if profile else ""
-        def_zip = profile.address_zip if profile else ""
+        if profile:
+            def_name = profile.full_name or ""
+            def_street = profile.address_line1 or ""
+            def_city = profile.address_city or ""
+            def_state = profile.address_state or ""
+            def_zip = profile.address_zip or ""
     else:
         def_name=def_street=def_city=def_state=def_zip=""
 
@@ -285,24 +288,20 @@ def render_workspace_page():
                 from_zip = c_c.text_input("Zip", value=def_zip, key="w_from_zip")
 
         if st.button("Save Addresses"):
-            if not to_name or not to_street:
-                st.error("Please enter a Recipient Name and Street.")
+            if database and u_email and not is_santa and not is_civic: 
+                database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
+            
+            if is_santa:
+                st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
+                st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
+            elif is_civic:
+                 st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
+                 st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
             else:
-                if database and u_email and not is_santa and not is_civic: 
-                    database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
+                st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
+                st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                 
-                # Save to session
-                if is_santa:
-                    st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
-                    st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
-                elif is_civic:
-                     st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
-                     st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
-                else:
-                    st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
-                    st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
-                    
-                st.toast("Addresses Saved!")
+            st.toast("Addresses Saved!")
 
     st.write("---")
     c_sig, c_mic = st.columns(2)
@@ -312,23 +311,18 @@ def render_workspace_page():
              st.info("Signature will be 'Santa Claus'")
              st.session_state.sig_data = None
         else:
-             # Fixed Syntax
              canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
              if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
         st.write("🎤 **Dictation**")
-        # VALIDATION GATE:
-        if not st.session_state.get("to_addr"):
-            st.warning("⚠️ Please Fill & Save Addresses Above First")
-        else:
-            audio = st.audio_input("Record")
-            if audio:
-                with st.status("Transcribing..."):
-                    if ai_engine:
-                        text = ai_engine.transcribe_audio(audio)
-                        st.session_state.transcribed_text = text
-                        st.session_state.app_mode = "review"
-                        st.rerun()
+        audio = st.audio_input("Record")
+        if audio:
+            with st.status("Transcribing..."):
+                if ai_engine:
+                    text = ai_engine.transcribe_audio(audio)
+                    st.session_state.transcribed_text = text
+                    st.session_state.app_mode = "review"
+                    st.rerun()
 
 def render_review_page():
     render_hero("Review", "Finalize Letter")
@@ -385,9 +379,7 @@ def render_review_page():
             
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
-            if st.button("Finish"): 
-                reset_app()
-                st.rerun()
+            if st.button("Finish"): reset_app(); st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
