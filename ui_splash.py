@@ -5,35 +5,27 @@ def set_mode(mode):
     st.session_state.app_mode = mode
 
 def show_splash():
-    # --- 1. LOGO (Made Smaller) ---
-    # Check if logo exists and center it using narrower middle column
+    # --- 1. LOGO (Bigger) ---
     if os.path.exists("logo.png"):
-        # Changed from [1, 2, 1] to [3, 2, 3] to constrain width
-        c1, c2, c3 = st.columns([3, 2, 3]) 
+        c1, c2, c3 = st.columns([1, 2, 1])  # Wider middle column = Bigger logo
         with c2:
             st.image("logo.png", use_container_width=True)
     
-    # --- 2. CENTERED TAGLINES ---
     st.markdown("""
     <div style="text-align: center; margin-bottom: 30px;">
-        <h3 style="font-weight: 600; margin-top: 0; color: #2d3748;">Turn your voice into a real letter.</h3>
-        <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
-            Texts are trivial. Emails are ignored.<br>
-            <b style="color: #2d3748;">REAL LETTERS GET OPENED AND READ.</b>
-        </p>
+        <h3 style="color: #2d3748;">Turn your voice into a real letter.</h3>
+        <p style="color: #555;">Texts are trivial. Emails are ignored.<br><b>REAL LETTERS GET OPENED.</b></p>
     </div>
     """, unsafe_allow_html=True)
     
-    # --- 3. CTA ---
+    # ... (Rest of splash logic same as previous) ...
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("🔐 Log In / Sign Up to Start", type="primary", use_container_width=True):
-            set_mode("login")
+            st.session_state.app_mode = "login"
             st.rerun()
 
     st.divider()
-    
-    # --- 4. FEATURES ---
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
     with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on your screen.")
@@ -41,54 +33,31 @@ def show_splash():
 
     st.divider()
     
-    # --- 5. USE CASES ---
+    # Use Cases (Including Santa)
     st.subheader("Why VerbaPost?")
     u1, u2, u3 = st.columns(3)
-    
     with u1:
         with st.container(border=True):
             st.write("**🎅 Letter from Santa**")
-            st.caption("Surprise a child with a letter mailed directly from the North Pole!")
-
+            st.caption("Directly from the North Pole!")
     with u2:
         with st.container(border=True):
             st.write("**🗳️ Civic Activists**")
-            st.caption("Write to Congress. Physical petitions get noticed.")
-
+            st.caption("Write to Congress.")
     with u3:
         with st.container(border=True):
             st.write("**🏡 Realtors & Sales**")
-            st.caption("Handwritten direct mail. High open rates. Instant follow-up.")
+            st.caption("Handwritten direct mail.")
 
     st.divider()
-
-    # --- 6. PRICING ---
     st.subheader("Pricing")
     p1, p2, p3, p4 = st.columns(4)
-
-    with p1:
-        with st.container(border=True):
-            st.metric(label="⚡ Standard", value="$2.99")
-            st.caption("Machine Postage")
-
-    with p2:
-        with st.container(border=True):
-            st.metric(label="🏺 Heirloom", value="$5.99")
-            st.caption("Real Stamp")
-
-    with p3:
-        with st.container(border=True):
-            st.metric(label="🏛️ Civic", value="$6.99")
-            st.caption("3 Letters to Congress")
-
-    with p4:
-        with st.container(border=True):
-            st.metric(label="🎅 Santa", value="$9.99")
-            st.caption("North Pole Address")
+    with p1: st.container(border=True).metric("⚡ Standard", "$2.99", "Machine")
+    with p2: st.container(border=True).metric("🏺 Heirloom", "$5.99", "Real Stamp")
+    with p3: st.container(border=True).metric("🏛️ Civic", "$6.99", "3 Letters")
+    with p4: st.container(border=True).metric("🎅 Santa", "$9.99", "North Pole")
 
     st.markdown("---")
-    
-    # --- 7. FOOTER ---
     f1, f2 = st.columns([4, 1])
     with f2:
         if st.button("Legal / Terms", type="secondary"):

@@ -46,12 +46,11 @@ def reset_app():
 
 def render_hero(title, subtitle):
     st.markdown(f"""
-    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
-    <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
+    <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -84,7 +83,7 @@ def show_main_app():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     if "processed_ids" not in st.session_state: st.session_state.processed_ids = []
 
-    # --- 1. STRIPE RETURN HANDLER ---
+    # --- 1. STRIPE RETURN HANDLER (CRITICAL FIX: IMMEDIATE RERUN) ---
     qp = st.query_params
     if "session_id" in qp:
         session_id = qp["session_id"]
@@ -97,17 +96,22 @@ def show_main_app():
                 if "tier" in qp: st.session_state.locked_tier = qp["tier"]
                 if "lang" in qp: st.session_state.selected_language = qp["lang"]
                 
+                # Force Workspace and Clear URL immediately
                 st.session_state.app_mode = "workspace"
                 st.query_params.clear()
                 st.rerun()
             else:
                 st.error("Payment verification failed.")
         else:
-            if st.session_state.payment_complete:
+            # If session ID is old but we are paid, ensure workspace
+            if st.session_state.payment_complete: 
                 st.session_state.app_mode = "workspace"
+                st.query_params.clear()
+                st.rerun()
 
     # --- 2. ROUTING ---
     if st.session_state.app_mode == "legal": render_legal_page(); return
+
     if st.session_state.app_mode == "forgot_password":
         render_hero("Recovery", "Reset Password")
         with st.container(border=True):
@@ -180,15 +184,13 @@ def show_main_app():
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
             
-            # --- ADMIN DEBUGGER ---
+            # --- ADMIN CHECK ---
             admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
-            # Visual Debugger
+            # Debugging Mismatch
             if user_clean != admin_target:
-                st.error("⚠️ Admin Mismatch:")
-                st.code(f"You:   '{user_clean}'\nAdmin: '{admin_target}'")
-                st.caption("Copy 'You' exactly into secrets.toml if you are the admin.")
+                st.caption(f"Debug: You='{user_clean}' vs Admin='{admin_target}'")
 
             if user_clean and admin_target and user_clean == admin_target:
                 st.divider()
@@ -197,8 +199,6 @@ def show_main_app():
                     if st.button("Generate Code"):
                         code = promo_engine.generate_code()
                         st.info(f"Code: `{code}`")
-                    
-                    # DB Status
                     if get_supabase(): st.write("DB: Online 🟢")
                     else: st.error("DB: Offline 🔴")
                     
@@ -216,59 +216,67 @@ def show_main_app():
         with c1:
             with st.container(border=True):
                 st.subheader("Options")
-                tier = st.radio("Tier", ["⚡ Standard ($2.99)", "🏺 Heirloom ($5.99)", "🏛️ Civic ($6.99)", "🎅 Santa ($9.99)"])
+                tier_display = {
+                    "Standard": "⚡ Standard ($2.99)", 
+                    "Heirloom": "🏺 Heirloom ($5.99)",
+                    "Civic": "🏛️ Civic ($6.99)", 
+                    "Santa": "🎅 Santa ($9.99)"
+                }
+                selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
+                
+                if selected_option == "Standard":
+                    st.info("**Standard:** Premium paper, window envelope, First Class Mail.")
+                elif selected_option == "Heirloom":
+                    st.info("**Heirloom:** Hand-addressed envelope with a physical stamp.")
+                elif selected_option == "Civic":
+                    st.info("**Civic:** Auto-sends to your 2 Senators and 1 Rep.")
+                elif selected_option == "Santa":
+                    st.success("**Santa Special:** Festive background, North Pole return address.")
+
                 lang = st.selectbox("Language", ["English", "Spanish", "French"])
+                
+                prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
+                price = prices[selected_option]
+                tier_code = selected_option 
+
         with c2:
             with st.container(border=True):
                 st.subheader("Checkout")
-                price = 2.99
-                if "Heirloom" in tier: price = 5.99
-                if "Civic" in tier: price = 6.99
-                if "Santa" in tier: price = 9.99
-                st.metric("Total", f"${price}")
+                st.metric("Total", f"${price:.2f}")
                 
                 promo_code = st.text_input("Promo Code (Optional)")
                 is_free = False
-                if promo_code and promo_engine.validate_code(promo_code):
-                    is_free = True; st.success("Code Applied!")
-
+                if promo_code and promo_engine:
+                    if promo_engine.validate_code(promo_code):
+                        is_free = True; st.success("✅ Code Applied!"); price = 0.00
+                    else: st.error("Invalid Code")
+                
+                st.info("⚠️ **Note:** Payment opens in a new tab.")
+                
                 if is_free:
                      if st.button("Start (Free)", type="primary"):
                          st.session_state.payment_complete = True
-                         st.session_state.app_mode = "workspace"
-                         st.session_state.locked_tier = tier.split()[1] if "Santa" not in tier else "Santa"
+                         st.session_state.locked_tier = tier_code
                          st.session_state.selected_language = lang
+                         st.session_state.app_mode = "workspace"
                          st.rerun()
                 else:
-                    st.info("⚠️ **Note:** Payment opens in a new tab.")
                     if st.button(f"Pay ${price} & Start", type="primary"):
                         user = st.session_state.get("user_email", "guest")
-                        database.save_draft(user, "", tier, price)
+                        database.save_draft(user, "", tier_code, price)
                         
-                        if "Santa" in tier: safe_tier = "Santa"
-                        else: safe_tier = tier.split()[1]
-                        
-                        link = f"{YOUR_APP_URL}?tier={safe_tier}&lang={lang}"
-                        url, sess_id = payment_engine.create_checkout_session(tier, int(price*100), link, YOUR_APP_URL)
-                        if url:
-                            # --- CSS FIX: Force White Text ---
+                        link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
+                        url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
+                        if url: 
+                            # Force White Text on Link
                             st.markdown(f"""
-                            <a href="{url}" target="_blank" style="text-decoration:none;">
-                                <div style="
-                                    background-color:#2a5298; 
-                                    color:white; 
-                                    padding:12px; 
-                                    border-radius:8px; 
-                                    text-align:center; 
-                                    font-weight:bold; 
-                                    margin-top:10px;
-                                    box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                    <span style="color:white !important; -webkit-text-fill-color: white !important;">👉 Pay Now (Secure)</span>
+                            <a href="{url}" target="_blank" style="text-decoration: none !important;">
+                                <div style="display: block; width: 100%; padding: 12px; background-color: #2a5298; color: white !important; text-align: center; border-radius: 8px; font-weight: bold; margin-top: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                                    👉 Pay Now (Secure)
                                 </div>
                             </a>
                             """, unsafe_allow_html=True)
-                        else:
-                            st.error("Payment System Offline")
+                        else: st.error("Payment System Offline")
 
     # --- 6. THE WORKSPACE ---
     elif st.session_state.app_mode == "workspace":
@@ -285,7 +293,7 @@ def show_main_app():
         def_zip = saved.address_zip if saved else ""
 
         with st.container(border=True):
-            st.subheader("Addressing")
+            st.subheader("📍 Addressing")
             if "Civic" in tier:
                 st.info("🏛️ **Civic Mode:** We auto-detect reps based on your address.")
                 with st.expander("📍 Your Return Address", expanded=True):
@@ -295,142 +303,12 @@ def show_main_app():
                     from_city = c1.text_input("City", value=def_city, key="civic_fcity")
                     from_state = c2.text_input("State", value=def_state, key="civic_fstate")
                     from_zip = c3.text_input("Zip", value=def_zip, key="civic_fzip")
+                    to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
+            
             elif "Santa" in tier:
                 c1, c2 = st.columns(2)
                 with c1:
                     st.markdown("**To (Child)**")
                     to_name = st.text_input("Name", key="santa_to_name")
                     to_street = st.text_input("Street", key="santa_to_street")
-                    c_x, c_y, c_z = st.columns(3)
-                    to_city = c_x.text_input("City", key="santa_to_city")
-                    to_state = c_y.text_input("State", key="santa_to_state")
-                    to_zip = c_z.text_input("Zip", key="santa_to_zip")
-                with c2:
-                    st.markdown("**From**")
-                    st.info("🎅 North Pole (Locked)")
-                    
-            else:
-                t1, t2 = st.tabs(["👉 Recipient", "👈 Sender"])
-                with t1:
-                    to_name = st.text_input("Recipient Name", key="std_toname")
-                    to_street = st.text_input("Street Address", key="std_tostreet")
-                    c1, c2, c3 = st.columns(3)
-                    to_city = c1.text_input("City", key="std_tocity")
-                    to_state = c2.text_input("State", key="std_tostate")
-                    to_zip = c3.text_input("Zip", key="std_tozip")
-                with t2:
-                    from_name = st.text_input("Your Name", value=def_name, key="std_fname")
-                    from_street = st.text_input("Street", value=def_street, key="std_fstreet")
-                    c1, c2, c3 = st.columns(3)
-                    from_city = c1.text_input("City", value=def_city, key="std_fcity")
-                    from_state = c2.text_input("State", value=def_state, key="std_fstate")
-                    from_zip = c3.text_input("Zip", value=def_zip, key="std_fzip")
-
-            if st.button("Save Addresses"):
-                if u_email and "Civic" not in tier and "Santa" not in tier: 
-                    database.update_user_profile(
-                        u_email, 
-                        st.session_state.get('std_fname', st.session_state.get('civic_fname')),
-                        st.session_state.get('std_fstreet', st.session_state.get('civic_fstreet')),
-                        st.session_state.get('std_fcity', st.session_state.get('civic_fcity')),
-                        st.session_state.get('std_fstate', st.session_state.get('civic_fstate')),
-                        st.session_state.get('std_fzip', st.session_state.get('civic_fzip'))
-                    )
-                st.toast("Addresses Saved!")
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        c_sig, c_mic = st.columns(2)
-        with c_sig:
-            st.write("Signature")
-            canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=300, key="sig")
-            if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
-        with c_mic:
-            st.write("Dictate Body")
-            st.info("👆 **Click microphone to start. Click red square to stop.**")
-            audio = st.audio_input("Record")
-            if audio:
-                with st.status("Transcribing..."):
-                    path = "temp.wav"
-                    with open(path, "wb") as f: f.write(audio.getvalue())
-                    text = ai_engine.transcribe_audio(path)
-                    st.session_state.transcribed_text = text
-                    st.session_state.app_mode = "review"
-                    st.rerun()
-
-    # --- 7. REVIEW ---
-    elif st.session_state.app_mode == "review":
-        render_hero("Review", "Finalize Letter")
-        txt = st.text_area("Body", st.session_state.transcribed_text, height=300)
-        
-        tier = st.session_state.get("locked_tier", "Standard")
-        
-        if st.button("🚀 Send Letter", type="primary"):
-            # Logic for recovery of addresses
-            if "Civic" in tier:
-                to_a = {'name': 'Civic', 'address_line1': 'Civic'}
-                from_a = {
-                    'name': st.session_state.get("civic_fname"),
-                    'address_line1': st.session_state.get("civic_fstreet"),
-                    'address_city': st.session_state.get("civic_fcity"),
-                    'address_state': st.session_state.get("civic_fstate"),
-                    'address_zip': st.session_state.get("civic_fzip")
-                }
-            elif "Santa" in tier:
-                from_a = {
-                    'name': 'Santa Claus', 'address_line1': '123 Elf Road', 'address_city': 'North Pole', 'address_state': 'NP', 'address_zip': '88888'
-                }
-                to_a = {
-                    'name': st.session_state.get("santa_to_name"),
-                    'address_line1': st.session_state.get("santa_to_street"),
-                    'address_city': st.session_state.get("santa_to_city"),
-                    'address_state': st.session_state.get("santa_to_state"),
-                    'address_zip': st.session_state.get("santa_to_zip")
-                }
-            else:
-                to_a = {
-                    'name': st.session_state.get("std_toname"),
-                    'address_line1': st.session_state.get("std_tostreet"),
-                    'address_city': st.session_state.get("std_tocity"),
-                    'address_state': st.session_state.get("std_tostate"),
-                    'address_zip': st.session_state.get("std_tozip")
-                }
-                from_a = {
-                    'name': st.session_state.get("std_fname"),
-                    'address_line1': st.session_state.get("std_fstreet"),
-                    'address_city': st.session_state.get("std_fcity"),
-                    'address_state': st.session_state.get("std_fstate"),
-                    'address_zip': st.session_state.get("std_fzip")
-                }
-
-            if not to_a.get('name') or not to_a.get('address_line1') and "Civic" not in tier:
-                st.error("❌ Error: Recipient Street and Name are required.")
-                return
-
-            to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}"
-            from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}"
-            is_heirloom = "Heirloom" in tier
-            is_santa = "Santa" in tier
-            lang = st.session_state.get("selected_language", "English")
-            
-            # Signature Path
-            sig_path = None
-            if "sig_data" in st.session_state and st.session_state.sig_data is not None:
-                try:
-                    img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
-                    bg = Image.new("RGB", img.size, (255,255,255))
-                    bg.paste(img, mask=img.split()[3])
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
-                        bg.save(tmp, format="PNG")
-                        sig_path = tmp.name
-                except: pass
-
-            pdf = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang, sig_path, is_santa)
-            
-            if "Civic" in tier:
-                st.info("Civic Mode: Sending to representatives...")
-                st.success("Civic Letters Sent!")
-            else:
-                res = mailer.send_letter(pdf, to_a, from_a)
-                if res: st.success("Letter Mailed via USPS!")
-                
-            if st.button("Finish"): reset_app()
+                    c_x
