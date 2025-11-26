@@ -1,72 +1,139 @@
 import streamlit as st
-from supabase import create_client
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
+from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
+from typing import Type, Any, Tuple, Dict
+import uuid
 
-def get_client():
+# Global placeholder variables
+Engine = None
+SessionLocal = None
+Base = None
+Models: Dict[str, Any] = {} 
+
+# --- 1. INITIALIZE DATABASE SETUP ---
+@st.cache_resource(ttl=3600)
+def initialize_database() -> Tuple[Any, Any, Any, Dict[str, Any]]:
+    global Engine, SessionLocal, Base, Models
+    
+    if Engine is not None and Models:
+        return Engine, SessionLocal, Base, Models
+
+    if "DATABASE_URL" in st.secrets:
+        db_url = st.secrets["DATABASE_URL"].replace("postgres://", "postgresql://")
+    else:
+        db_url = "sqlite:///local_dev.db"
+
     try:
-        url = st.secrets.get("SUPABASE_URL") or st.secrets["supabase"]["url"]
-        key = st.secrets.get("SUPABASE_KEY") or st.secrets["supabase"]["key"]
-        return create_client(url, key)
-    except: return None
+        Engine = create_engine(db_url, pool_pre_ping=True)
+        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=Engine)
+        Base = declarative_base()
+    except Exception as e:
+        print(f"❌ Database Engine Error: {e}")
+        Engine = create_engine("sqlite:///") 
+        SessionLocal = sessionmaker(bind=Engine)
+        Base = declarative_base()
+        return Engine, SessionLocal, Base, {}
 
-# --- USER PROFILES ---
+    # --- MODELS ---
+    class UserProfile(Base):
+        __tablename__ = "user_profiles"
+        id = Column(Integer, primary_key=True, index=True)
+        email = Column(String, unique=True, index=True)
+        full_name = Column(String)
+        address_line1 = Column(String)
+        address_city = Column(String)
+        address_state = Column(String)
+        address_zip = Column(String)
+        created_at = Column(DateTime, default=datetime.utcnow)
+
+    class LetterDraft(Base):
+        __tablename__ = "letter_drafts"
+        id = Column(Integer, primary_key=True, index=True)
+        user_email = Column(String, index=True)
+        transcription = Column(Text)
+        status = Column(String, default="Draft") 
+        tier = Column(String)
+        price = Column(String)
+        created_at = Column(DateTime, default=datetime.utcnow)
+    
+    Models = {'user_profiles': UserProfile, 'letter_drafts': LetterDraft}
+        
+    try:
+        Base.metadata.create_all(bind=Engine)
+    except Exception as e:
+        print(f"❌ Error Creating Tables: {e}")
+        
+    return Engine, SessionLocal, Base, Models
+
+initialize_database()
+
+# --- HELPER FUNCTIONS ---
+
+def get_session():
+    if not Engine: initialize_database()
+    return SessionLocal()
+
+def get_model(name: str):
+    if not Models: initialize_database()
+    return Models.get(name)
+
 def get_user_profile(email):
-    sb = get_client()
-    if not sb: return {}
+    UserProfile = get_model('user_profiles')
+    if not UserProfile: return None
+    db = get_session()
     try:
-        res = sb.table("user_profiles").select("*").eq("email", email).execute()
-        if res.data: return res.data[0]
-    except: pass
-    return {}
+        return db.query(UserProfile).filter(UserProfile.email == email).first()
+    except: return None
+    finally: db.close()
+
+def save_draft(email, text, tier, price, status="Draft", address_data=None):
+    LetterDraft = get_model('letter_drafts')
+    if not LetterDraft: return None
+    db = get_session()
+    try:
+        draft = LetterDraft(user_email=email, transcription=text, tier=tier, price=str(price), status=status)
+        db.add(draft); db.commit(); db.refresh(draft)
+        return draft.id
+    except: db.rollback(); return None
+    finally: db.close()
 
 def update_user_profile(email, name, street, city, state, zip_code):
-    sb = get_client()
-    if not sb: return False
+    UserProfile = get_model('user_profiles')
+    if not UserProfile: return None
+    db = get_session()
     try:
-        data = {
-            "email": email, "full_name": name,
-            "address_line1": street, "address_city": city,
-            "address_state": state, "address_zip": zip_code
-        }
-        sb.table("user_profiles").upsert(data, on_conflict="email").execute()
-        return True
-    except: return False
+        user = db.query(UserProfile).filter(UserProfile.email == email).first()
+        if not user:
+            user = UserProfile(email=email); db.add(user)
+        user.full_name = name; user.address_line1 = street; user.address_city = city
+        user.address_state = state; user.address_zip = zip_code
+        db.commit()
+    except: pass
+    finally: db.close()
 
-# --- LETTERS ---
-def fetch_pending_letters():
-    sb = get_client()
-    if not sb: return []
+# --- NEW FUNCTION FOR ADMIN CONSOLE ---
+def fetch_all_drafts():
+    """Returns all drafts as a list of dictionaries."""
+    LetterDraft = get_model('letter_drafts')
+    if not LetterDraft: return []
+    db = get_session()
     try:
-        return sb.table("letters").select("*").order("created_at", desc=True).execute().data
-    except: return []
-
-def mark_as_sent(letter_id):
-    sb = get_client()
-    if sb: sb.table("letters").update({"status": "sent"}).eq("id", letter_id).execute()
-
-def save_draft(user_email, text, tier, price, recipient_data=None, status="pending"):
-    """
-    Saves letter. Maps text to 'content' column.
-    """
-    sb = get_client()
-    if sb:
-        data = {
-            "user_email": user_email,
-            "content": text,  # <--- FIXED: Mapped to 'content' column
-            "body_text": text, # Saving to both just in case
-            "tier": tier,
-            "price": price,
-            "status": status,
-            "created_at": datetime.now().isoformat()
-        }
-        
-        if recipient_data:
-            data.update({
-                "recipient_name": recipient_data.get("name"),
-                "recipient_street": recipient_data.get("street"),
-                "recipient_city": recipient_data.get("city"),
-                "recipient_state": recipient_data.get("state"),
-                "recipient_zip": recipient_data.get("zip")
+        results = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
+        # Convert to dict list for Pandas
+        data = []
+        for r in results:
+            data.append({
+                "ID": r.id,
+                "Email": r.user_email,
+                "Tier": r.tier,
+                "Status": r.status,
+                "Date": r.created_at,
+                "Price": r.price
             })
-            
-        sb.table("letters").insert(data).execute()
+        return data
+    except Exception as e:
+        print(f"Fetch Error: {e}")
+        return []
+    finally:
+        db.close()
