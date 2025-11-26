@@ -55,8 +55,25 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGES ---
+# --- PAGE: LEGAL ---
+def render_legal_page():
+    render_hero("Legal Center", "Transparency & Trust")
+    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    with tab_tos:
+        with st.container(border=True):
+            st.subheader("1. Service Usage")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+    with tab_privacy:
+        with st.container(border=True):
+            st.subheader("Data Handling")
+            st.write("We process your voice data solely for transcription.")
 
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("← Return to Home", type="primary", use_container_width=True):
+        st.session_state.app_mode = "splash"
+        st.rerun()
+
+# --- SPLASH PAGE ---
 def render_splash_page():
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([3, 2, 3]) 
@@ -66,7 +83,7 @@ def render_splash_page():
     <div style="text-align: center; margin-bottom: 30px;">
         <h3 style="color: #2d3748; font-weight: 600;">Turn your voice into a real letter.</h3>
         <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
-            Texts are trivial. Emails are ignored.<br><b style="color: #2a5298;">REAL LETTERS GET OPENED.</b>
+            Texts are trivial. Emails are ignored.<br><b style="color: #2d3748;">REAL LETTERS GET OPENED.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -96,6 +113,7 @@ def render_splash_page():
         st.session_state.app_mode = "legal"
         st.rerun()
 
+# --- PAGE: LOGIN ---
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -131,6 +149,7 @@ def render_login_page():
 
     if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
 
+# --- PAGE: STORE ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     c1, c2 = st.columns([2, 1])
@@ -138,18 +157,19 @@ def render_store_page():
         with st.container(border=True):
             st.subheader("Options")
             tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
-            selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
+            reverse_map = {v: k for k, v in tier_display.items()}
+            selected = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
+            tier_code = reverse_map[selected]
             
-            if selected_option == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
-            elif selected_option == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
-            elif selected_option == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
-            elif selected_option == "Santa": st.success("Festive background, North Pole return address.")
+            if tier_code == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
+            elif tier_code == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
+            elif tier_code == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            elif tier_code == "Santa": st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            price = prices[selected_option]
-            tier_code = selected_option 
+            price = prices[tier_code]
 
     with c2:
         with st.container(border=True):
@@ -176,13 +196,11 @@ def render_store_page():
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                    
                     if url: 
-                        # FIX: Final White Text CSS (Inline + Span)
                         st.markdown(f"""
                         <a href="{url}" target="_blank" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color:white !important; -webkit-text-fill-color: white !important;">👉 Pay Now (Secure)</span>
+                                <span style="color:white !important;">👉 Pay Now (Secure)</span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
