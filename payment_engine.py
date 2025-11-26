@@ -4,15 +4,17 @@ import stripe
 def create_checkout_session(product_name, amount_cents, success_url, cancel_url):
     """
     Creates a Stripe Checkout Session.
+    Returns (url, session_id).
     """
     try:
-        # 1. Get Secret Key (Updated to match your TOML format)
+        # 1. Load Key (Supports your Nested TOML format)
         if "stripe" in st.secrets:
-            # You have: secret_key = "sk_test_xxx"
             stripe.api_key = st.secrets["stripe"]["secret_key"]
+        elif "STRIPE_SECRET_KEY" in st.secrets:
+            stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
         else:
             print("Stripe secrets missing")
-            return None
+            return None, None
 
         # 2. Create Session
         session = stripe.checkout.Session.create(
@@ -31,8 +33,24 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url)
             success_url=success_url,
             cancel_url=cancel_url,
         )
-        return session.url
+        
+        # FIX: Return BOTH the URL (for redirect) and ID (for verification)
+        return session.url, session.id
         
     except Exception as e:
         print(f"Stripe Error: {e}")
-        return None
+        return None, None
+
+def check_payment_status(session_id):
+    """
+    Verifies if a session was actually paid.
+    """
+    # Ensure key is loaded
+    if not stripe.api_key and "stripe" in st.secrets:
+        stripe.api_key = st.secrets["stripe"]["secret_key"]
+        
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+        return session.payment_status == 'paid'
+    except Exception:
+        return False
