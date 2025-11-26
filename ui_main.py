@@ -88,33 +88,56 @@ def render_store_page():
                     st.info("⚠️ **Note:** Payment opens in a new tab. Return here after.")
                     if st.button("Proceed to Payment", type="primary", use_container_width=True):
                         with st.spinner("Connecting to Stripe..."):
-                            url = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price * 100), f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}", YOUR_APP_URL)
-                            st.session_state.stripe_url = url
-                            st.rerun()
+                            # Unpack both values
+                            result = payment_engine.create_checkout_session(
+                                f"VerbaPost {tier_code}", 
+                                int(price * 100), 
+                                f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}", 
+                                YOUR_APP_URL
+                            )
+                            if result and result[0]:
+                                st.session_state.stripe_url = result[0]
+                                st.rerun()
+                            else:
+                                st.error("Stripe Error: Check Logs/Secrets")
                     
                     if st.session_state.get("stripe_url"):
                         url = st.session_state.stripe_url
-                        # FIX: Forced White Text using !important on :visited and span
+                        
+                        # --- CSS BOMB TO FIX BLACK TEXT ---
+                        # 1. Target links containing 'stripe.com'
+                        # 2. Target :visited state specifically
+                        # 3. Use !important on color and text-fill-color
                         st.markdown(f"""
                         <style>
-                            a.pay-btn-link, a.pay-btn-link:visited, a.pay-btn-link:hover, a.pay-btn-link:active {{
+                            a[href*="checkout.stripe.com"] {{
                                 text-decoration: none !important;
                                 color: #FFFFFF !important;
                             }}
+                            a[href*="checkout.stripe.com"]:visited {{
+                                color: #FFFFFF !important;
+                            }}
+                            a[href*="checkout.stripe.com"] div {{
+                                color: #FFFFFF !important;
+                            }}
+                            a[href*="checkout.stripe.com"] span {{
+                                color: #FFFFFF !important;
+                                -webkit-text-fill-color: #FFFFFF !important;
+                            }}
                         </style>
-                        <a href="{url}" target="_blank" class="pay-btn-link">
+                        <a href="{url}" target="_blank">
                             <div style="
                                 display: block;
                                 width: 100%;
-                                padding: 12px;
+                                padding: 14px;
                                 background-color: #2a5298;
                                 text-align: center;
                                 border-radius: 8px;
                                 margin-top: 10px;
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                                cursor: pointer;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+                                transition: transform 0.1s;
                             ">
-                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 16px;">
+                                <span style="font-weight: bold; font-size: 18px;">
                                     👉 Pay Now (Secure)
                                 </span>
                             </div>
