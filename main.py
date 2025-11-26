@@ -6,9 +6,8 @@ st.set_page_config(
     page_title="VerbaPost",
     page_icon="📮",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded" # <-- This forces the sidebar to be open
 )
-
 # --- 2. CSS ---
 def inject_global_css():
     st.markdown("""

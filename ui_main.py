@@ -55,24 +55,8 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGE: LEGAL ---
-def render_legal_page():
-    render_hero("Legal Center", "Transparency & Trust")
-    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
-    with tab_tos:
-        with st.container(border=True):
-            st.subheader("1. Service Usage")
-            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
-    with tab_privacy:
-        with st.container(border=True):
-            st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription.")
+# --- PAGES ---
 
-    if st.button("← Return to Home", type="primary", use_container_width=True):
-        st.session_state.app_mode = "splash"
-        st.rerun()
-
-# --- PAGE: SPLASH ---
 def render_splash_page():
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([3, 2, 3]) 
@@ -82,7 +66,7 @@ def render_splash_page():
     <div style="text-align: center; margin-bottom: 30px;">
         <h3 style="color: #2d3748; font-weight: 600;">Turn your voice into a real letter.</h3>
         <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
-            Texts are trivial. Emails are ignored.<br><b style="color: #2a5298;">REAL LETTERS GET OPENED.</b>
+            Texts are trivial. Emails are ignored.<br><b style="color: #2d3748;">REAL LETTERS GET OPENED.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -290,7 +274,6 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        # FIX: Corrected syntax error: background-color -> background_color
         canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
         if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
