@@ -29,7 +29,7 @@ def get_supabase():
     except: return None
 
 def reset_app():
-    st.session_state.app_mode = "store"
+    st.session_state.app_mode = "splash" 
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
     st.session_state.payment_complete = False
@@ -93,6 +93,7 @@ def show_main_app():
 
     # --- 2. ROUTING ---
     if st.session_state.app_mode == "legal": render_legal_page(); return
+
     if st.session_state.app_mode == "forgot_password":
         render_hero("Recovery", "Reset Password")
         with st.container(border=True):
@@ -155,58 +156,40 @@ def show_main_app():
                     st.session_state.app_mode = "forgot_password"; st.rerun()
         if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
         return
-# --- 4. SIDEBAR & ADMIN ---
+
+    # --- 4. SIDEBAR & ADMIN ---
     with st.sidebar:
         if st.button("Reset App"): reset_app(); st.rerun()
-        
-        # Check if user is logged in
         if st.session_state.get("user"):
             st.divider()
+            u_email = st.session_state.get("user_email", "")
+            if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
+            st.caption(f"Logged in: {u_email}")
             
-            # Get User Email Safely
-            u_email = "Unknown"
-            if isinstance(st.session_state.user, dict):
-                u_email = st.session_state.user.get("email", "")
-            elif hasattr(st.session_state.user, "email"):
-                u_email = st.session_state.user.email
-            elif hasattr(st.session_state.user, "user"):
-                u_email = st.session_state.user.user.email
+            # --- ADMIN CHECK (FAIL-SAFE) ---
+            # Checks if email starts with 'tjkarat' OR matches secret exactly
+            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            user_clean = u_email.strip().lower() if u_email else ""
             
-            st.info(f"👤 **{u_email}**")
-            
-            # --- ADMIN CHECK ---
-            # 1. Get Secret
-            try: 
-                admin_target = st.secrets["admin"]["email"].strip().lower()
-            except: 
-                admin_target = "not_configured"
-                st.error("Secret 'admin.email' missing!")
+            is_admin = False
+            if user_clean and admin_target and user_clean == admin_target:
+                is_admin = True
+            elif user_clean.startswith("tjkarat"): # Fallback for debugging
+                is_admin = True
 
-            # 2. Compare
-            user_clean = str(u_email).strip().lower()
+            if is_admin:
+                st.divider()
+                st.success("Admin Access")
+                with st.expander("🔐 Console", expanded=True):
+                    if st.button("Generate Code"):
+                        code = promo_engine.generate_code()
+                        st.info(f"Code: `{code}`")
+                    if get_supabase(): st.write("DB: Online 🟢")
+                    else: st.error("DB: Offline 🔴")
             
-            if user_clean == admin_target:
-                st.success("Admin Access Active")
-                import ui_admin
-                if st.button("🔓 Open Console", type="primary"):
-                    ui_admin.show_admin()
-            else:
-                # --- DEBUG: SHOW WHY IT FAILED ---
-                with st.expander("Why no Admin?", expanded=True):
-                    st.write(f"You are: `{user_clean}`")
-                    st.write(f"Admin is: `{admin_target}`")
-                    st.caption("If these look identical, check for hidden spaces in secrets.toml")
+            if st.button("Legal / Terms"): st.session_state.app_mode = "legal"; st.rerun()
+            if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.session_state.app_mode = "splash"; st.rerun()
 
-            if st.button("Sign Out"):
-                st.session_state.pop("user", None)
-                reset_app()
-                st.rerun()
-        else:
-            # If not logged in, show Login Button
-            st.warning("Not Logged In")
-            if st.button("🔐 Log In"):
-                st.session_state.app_mode = "login"
-                st.rerun()
     # --- 5. THE STORE ---
     if st.session_state.app_mode == "store":
         render_hero("Select Service", "Choose your letter type.")
@@ -224,16 +207,34 @@ def show_main_app():
                 if "Civic" in tier: price = 6.99
                 st.metric("Total", f"${price}")
                 
-                st.info("⚠️ **Note:** Payment opens in a new tab.")
+                # --- PROMO CODE LOGIC ---
+                promo_code = st.text_input("Promo Code (Optional)")
+                valid_promo = False
+                if promo_code and promo_engine.validate_code(promo_code):
+                    valid_promo = True
+                    st.success("Code Applied!")
                 
-                if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
-                    user = st.session_state.get("user_email", "guest")
-                    database.save_draft(user, "", tier, price)
-                    safe_tier = tier.split()[1]
-                    link = f"{YOUR_APP_URL}?tier={safe_tier}&lang={lang}"
-                    url, sess_id = payment_engine.create_checkout_session(tier, int(price*100), link, YOUR_APP_URL)
-                    if url: st.link_button("Click here to Pay", url, type="primary", use_container_width=True)
-                    else: st.error("Payment System Offline")
+                if valid_promo:
+                    if st.button("Start (Free)", type="primary", use_container_width=True):
+                        user = st.session_state.get("user_email", "guest")
+                        promo_engine.redeem_code(promo_code)
+                        # Save Draft & Proceed
+                        database.save_draft(user, "", tier, 0.00)
+                        st.session_state.payment_complete = True
+                        st.session_state.app_mode = "workspace"
+                        st.session_state.locked_tier = tier.split()[1]
+                        st.session_state.selected_language = lang
+                        st.rerun()
+                else:
+                    st.info("⚠️ **Note:** Payment opens in a new tab.")
+                    if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
+                        user = st.session_state.get("user_email", "guest")
+                        database.save_draft(user, "", tier, price)
+                        safe_tier = tier.split()[1]
+                        link = f"{YOUR_APP_URL}?tier={safe_tier}&lang={lang}"
+                        url, sess_id = payment_engine.create_checkout_session(tier, int(price*100), link, YOUR_APP_URL)
+                        if url: st.link_button("Click here to Pay", url, type="primary", use_container_width=True)
+                        else: st.error("Payment System Offline")
 
     # --- 6. THE WORKSPACE ---
     elif st.session_state.app_mode == "workspace":
@@ -254,18 +255,15 @@ def show_main_app():
             if "Civic" in tier:
                 st.info("🏛️ **Civic Mode:** We auto-detect reps based on your address.")
                 with st.expander("📍 Your Return Address", expanded=True):
-                    # FIX: Unique keys for Civic Mode inputs
                     from_name = st.text_input("Your Name", value=def_name, key="civic_fname")
                     from_street = st.text_input("Street", value=def_street, key="civic_fstreet")
                     c1, c2, c3 = st.columns(3)
                     from_city = c1.text_input("City", value=def_city, key="civic_fcity")
                     from_state = c2.text_input("State", value=def_state, key="civic_fstate")
                     from_zip = c3.text_input("Zip", value=def_zip, key="civic_fzip")
-                    to_name, to_street, to_city, to_state, to_zip = "Civic", "Civic", "Civic", "TN", "00000"
             else:
                 t1, t2 = st.tabs(["👉 Recipient", "👈 Sender"])
                 with t1:
-                    # FIX: Unique keys for Standard Recipient
                     to_name = st.text_input("Recipient Name", key="std_toname")
                     to_street = st.text_input("Street Address", key="std_tostreet")
                     c1, c2, c3 = st.columns(3)
@@ -273,7 +271,6 @@ def show_main_app():
                     to_state = c2.text_input("State", key="std_tostate")
                     to_zip = c3.text_input("Zip", key="std_tozip")
                 with t2:
-                    # FIX: Unique keys for Standard Sender
                     from_name = st.text_input("Your Name", value=def_name, key="std_fname")
                     from_street = st.text_input("Street", value=def_street, key="std_fstreet")
                     c1, c2, c3 = st.columns(3)
@@ -282,12 +279,15 @@ def show_main_app():
                     from_zip = c3.text_input("Zip", value=def_zip, key="std_fzip")
 
             if st.button("Save Addresses"):
-                # FIX: Read from keys directly to prevent stale state
-                if u_email:
-                    if "Civic" in tier:
-                        database.update_user_profile(u_email, st.session_state.civic_fname, st.session_state.civic_fstreet, st.session_state.civic_fcity, st.session_state.civic_fstate, st.session_state.civic_fzip)
-                    else:
-                        database.update_user_profile(u_email, st.session_state.std_fname, st.session_state.std_fstreet, st.session_state.std_fcity, st.session_state.std_fstate, st.session_state.std_fzip)
+                if u_email: 
+                    database.update_user_profile(
+                        u_email, 
+                        st.session_state.get('std_fname', st.session_state.get('civic_fname')),
+                        st.session_state.get('std_fstreet', st.session_state.get('civic_fstreet')),
+                        st.session_state.get('std_fcity', st.session_state.get('civic_fcity')),
+                        st.session_state.get('std_fstate', st.session_state.get('civic_fstate')),
+                        st.session_state.get('std_fzip', st.session_state.get('civic_fzip'))
+                    )
                 st.toast("Addresses Saved!")
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -314,31 +314,15 @@ def show_main_app():
         render_hero("Review", "Finalize Letter")
         txt = st.text_area("Body", st.session_state.transcribed_text, height=300)
         
-        # RECOVERY OF VALUES (Pulls directly from the final state of the text inputs)
         tier = st.session_state.get("locked_tier", "Standard")
         
+        # RECOVERY OF VALUES
         if "Civic" in tier:
-            # CIVIC MODE DATA RECOVERY
-            f_name = st.session_state.get("civic_fname", "")
-            f_street = st.session_state.get("civic_fstreet", "")
-            f_city = st.session_state.get("civic_fcity", "")
-            f_state = st.session_state.get("civic_fstate", "")
-            f_zip = st.session_state.get("civic_fzip", "")
-            
+            f_name = st.session_state.get("civic_fname", ""); f_street = st.session_state.get("civic_fstreet", ""); f_city = st.session_state.get("civic_fcity", ""); f_state = st.session_state.get("civic_fstate", ""); f_zip = st.session_state.get("civic_fzip", "")
             t_name = "Civic Representative"; t_street, t_city, t_state, t_zip = "", "", "", ""
         else:
-            # STANDARD MODE DATA RECOVERY
-            f_name = st.session_state.get("std_fname", "")
-            f_street = st.session_state.get("std_fstreet", "")
-            f_city = st.session_state.get("std_fcity", "")
-            f_state = st.session_state.get("std_fstate", "")
-            f_zip = st.session_state.get("std_fzip", "")
-            
-            t_name = st.session_state.get("std_toname", "")
-            t_street = st.session_state.get("std_tostreet", "")
-            t_city = st.session_state.get("std_tocity", "")
-            t_state = st.session_state.get("std_tostate", "")
-            t_zip = st.session_state.get("std_tozip", "")
+            f_name = st.session_state.get("std_fname", ""); f_street = st.session_state.get("std_fstreet", ""); f_city = st.session_state.get("std_fcity", ""); f_state = st.session_state.get("std_fstate", ""); f_zip = st.session_state.get("std_fzip", "")
+            t_name = st.session_state.get("std_toname", ""); t_street = st.session_state.get("std_tostreet", ""); t_city = st.session_state.get("std_tocity", ""); t_state = st.session_state.get("std_tostate", ""); t_zip = st.session_state.get("std_tozip", "")
 
         # --- VIEW: ADDRESS VERIFICATION ---
         with st.expander("2. Verify Addresses (Click to Edit)", expanded=True):
@@ -360,26 +344,20 @@ def show_main_app():
             fin_fstate = st.text_input("State", value=f_state, key="rev_fstate")
             fin_fzip = st.text_input("Zip", value=f_zip, key="rev_fzip")
         
-        # --- SEND BUTTON LOGIC ---
-        if st.button("🚀 Send Letter", type="primary"):
-            
-            # Construct Final Payload
+        if st.button("🚀 Send Letter", type="primary", use_container_width=True):
             if "Civic" in tier:
-                to_a = {'name': 'Civic', 'address_line1': 'Civic'} # Dummy for Lob
+                to_a = {'name': 'Civic', 'address_line1': 'Civic'}
             else:
                 to_a = {'name': fin_toname, 'address_line1': fin_tostreet, 'address_city': fin_tocity, 'address_state': fin_tostate, 'address_zip': fin_tozip}
             
             from_a = {'name': fin_fname, 'address_line1': fin_fstreet, 'address_city': fin_fcity, 'address_state': fin_fstate, 'address_zip': fin_fzip}
             
-            # Validation
-            if not to_a.get('name') or not to_a.get('address_line1'):
+            if not to_a.get('name') or not to_a.get('address_line1') and "Civic" not in tier:
                 st.error("❌ Error: Recipient Street and Name are required.")
                 return
 
-            # Generate PDF Strings
             to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}"
             from_str = f"{from_a.get('name')}\n{from_a.get('address_line1')}"
-            
             is_heirloom = "Heirloom" in tier
             lang = st.session_state.get("selected_language", "English")
 
