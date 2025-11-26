@@ -35,19 +35,14 @@ def get_supabase():
         return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
     except: return None
 
-# --- RESET CALLBACK ---
-def finish_session():
+def reset_app():
     st.session_state.app_mode = "splash" 
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
     st.session_state.payment_complete = False
     st.session_state.stripe_url = None
     st.session_state.sig_data = None
-    st.session_state.civic_targets = []
     st.query_params.clear()
-
-def reset_app():
-    finish_session() # wrapper for button
 
 def render_hero(title, subtitle):
     st.markdown(f"""
@@ -77,6 +72,32 @@ def render_legal_page():
 
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
+        st.rerun()
+
+# --- PAGE: FORGOT PASSWORD ---
+def render_forgot_password_page():
+    render_hero("Recovery", "Reset Password")
+    
+    with st.container(border=True):
+        reset_email = st.text_input("Enter your email address")
+        
+        if st.button("Send Reset Link", type="primary", use_container_width=True):
+            if not reset_email:
+                st.error("Please enter an email.")
+            else:
+                sb = get_supabase()
+                if sb:
+                    try:
+                        sb.auth.reset_password_email(reset_email, options={"redirect_to": f"{YOUR_APP_URL}"})
+                        st.success("If an account exists, a reset link has been sent!")
+                        st.info("Check your spam folder. Link expires in 1 hour.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+                else:
+                    st.error("Database Error.")
+
+    if st.button("Back to Login"):
+        st.session_state.app_mode = "login"
         st.rerun()
 
 # --- PAGE: SPLASH ---
@@ -165,11 +186,10 @@ def render_login_page():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
-    # ADMIN BYPASS
     if st.session_state.get("user"):
         u_email = st.session_state.get("user_email", "")
         admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-        if u_email and str(u_email).strip().lower() == admin_target:
+        if str(u_email).strip().lower() == admin_target:
              if st.button("🔐 Open Admin Console", type="secondary"):
                  import ui_admin
                  ui_admin.show_admin()
@@ -195,7 +215,6 @@ def render_store_page():
             elif "Civic" in selected_option: tier_code="Civic"
             elif "Santa" in selected_option: tier_code="Santa"
             else: tier_code="Standard"
-            
             price = prices[tier_code]
 
     with c2:
@@ -312,23 +331,11 @@ def render_workspace_page():
             elif is_civic:
                  st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                  st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
-                 
-                 # CIVIC LOOKUP
-                 if civic_engine:
-                     full_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
-                     with st.spinner("Locating Representatives..."):
-                         st.session_state.civic_targets = civic_engine.get_reps(full_addr)
-                         if st.session_state.civic_targets:
-                             st.success(f"Found {len(st.session_state.civic_targets)} Reps!")
             else:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                 
             st.toast("Addresses Saved!")
-            if is_civic and st.session_state.get("civic_targets"):
-                st.write("**Sending To:**")
-                for rep in st.session_state.civic_targets:
-                    st.info(f"{rep['name']} ({rep.get('title')})")
 
     st.write("---")
     c_sig, c_mic = st.columns(2)
@@ -342,13 +349,12 @@ def render_workspace_page():
              if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
         st.write("🎤 **Dictation**")
-        # Gatekeeper
         ready = False
         if is_civic and st.session_state.get("from_addr"): ready=True
         elif st.session_state.get("to_addr") and st.session_state.get("to_addr").get("name"): ready=True
         
         if not ready:
-             st.warning("⚠️ Save Addresses First")
+            st.warning("⚠️ Please Fill & Save Addresses Above First")
         else:
             audio = st.audio_input("Record")
             if audio:
@@ -367,13 +373,11 @@ def render_review_page():
         tier = st.session_state.get("locked_tier", "Standard")
         to_a = st.session_state.get("to_addr", {})
         from_a = st.session_state.get("from_addr", {})
-        is_civic = "Civic" in tier
-        is_santa = "Santa" in tier
         
-        if is_civic and not st.session_state.get("civic_targets"):
-            st.error("No representatives found. Please check address.")
-            return
+        if not to_a.get("name"): st.error("Recipient Name Missing!"); return
 
+        is_heirloom = "Heirloom" in tier
+        is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
         sig_path = None
@@ -391,34 +395,31 @@ def render_review_page():
                 sig_storage = base64.b64encode(buffered.getvalue()).decode()
             except: pass
 
-        # SEND LOGIC
-        if is_civic:
-            count = 0
-            for rep in st.session_state.civic_targets:
-                t_str = f"{rep['name']}\n{rep.get('address', {}).get('line1', 'Capitol')}"
-                f_str = f"{from_a.get('name')}\n{from_a.get('street')}..."
-                if letter_format:
-                    pdf = letter_format.create_pdf(txt, t_str, f_str, False, lang, sig_path, False)
-                count += 1
-            st.success(f"✅ {count} Letters Sent to Congress!")
-        
-        else:
-            to_str = f"{to_a.get('name')}\n{to_a.get('street')}\n{to_a.get('city')}..."
-            from_str = f"{from_a.get('name')}\n{from_a.get('street')}..."
-            
-            if letter_format:
-                pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, "Heirloom" in tier, lang, sig_path, is_santa)
-            st.success("Letter Sent!")
-            
-        # Database Save
-        u_email = st.session_state.get("user_email", "guest")
-        if database: 
-             database.save_draft(u_email, txt, tier, 2.99, to_a, from_a, sig_storage, "sent")
+        to_str = f"{to_a.get('name')}\n{to_a.get('street')}\n{to_a.get('city')}..."
+        from_str = f"{from_a.get('name')}\n{from_a.get('street')}..."
 
-        if sig_path: os.remove(sig_path)
-        
-        # BUTTON CALLBACK RESET
-        st.button("Finish", on_click=reset_app)
+        if letter_format:
+            pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom, lang, sig_path, is_santa)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                tmp.write(pdf_bytes)
+                pdf_path = tmp.name
+            
+            res = None
+            if not is_heirloom and not is_santa and mailer:
+                pass
+            
+            u_email = st.session_state.get("user_email", "guest")
+            status = "sent_api" if res else "pending"
+            
+            if database: 
+                database.save_draft(u_email, txt, tier, 2.99, to_a, from_a, sig_storage, status)
+            
+            os.remove(pdf_path)
+            if sig_path: os.remove(sig_path)
+            
+            st.session_state.letter_sent = True
+            st.success("Letter Sent!")
+            if st.button("Finish"): reset_app(); st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -439,10 +440,7 @@ def show_main_app():
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
-    
-    elif mode == "forgot_password":
-         render_hero("Recovery", "Reset Password")
-         if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
+    elif mode == "forgot_password": render_forgot_password_page()
 
     with st.sidebar:
         if st.button("Home"): reset_app(); st.rerun()
@@ -450,12 +448,4 @@ def show_main_app():
             st.divider()
             u_email = st.session_state.get("user_email", "")
             st.caption(f"Logged in: {u_email}")
-            
-            # SIDEBAR ADMIN (Optional backup)
-            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-            if str(u_email).strip().lower() == admin_target:
-                if st.button("Console (Sidebar)"):
-                    import ui_admin
-                    ui_admin.show_admin()
-            
             if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
