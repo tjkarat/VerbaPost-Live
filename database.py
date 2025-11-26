@@ -112,15 +112,14 @@ def update_user_profile(email, name, street, city, state, zip_code):
     except: pass
     finally: db.close()
 
-# --- NEW FUNCTION FOR ADMIN CONSOLE ---
+# --- UPDATED FETCH FOR ADMIN ---
 def fetch_all_drafts():
-    """Returns all drafts as a list of dictionaries."""
+    """Returns all drafts as a list of dictionaries including CONTENT."""
     LetterDraft = get_model('letter_drafts')
     if not LetterDraft: return []
     db = get_session()
     try:
         results = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
-        # Convert to dict list for Pandas
         data = []
         for r in results:
             data.append({
@@ -129,7 +128,8 @@ def fetch_all_drafts():
                 "Tier": r.tier,
                 "Status": r.status,
                 "Date": r.created_at,
-                "Price": r.price
+                "Price": r.price,
+                "Content": r.transcription # Added this field
             })
         return data
     except Exception as e:
