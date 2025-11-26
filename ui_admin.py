@@ -1,10 +1,15 @@
 import streamlit as st
 import pandas as pd
+import tempfile
+import os
 
+# Imports
 try: import database
 except: database = None
 try: import promo_engine
 except: promo_engine = None
+try: import letter_format
+except: letter_format = None
 
 def show_admin():
     st.title("🔐 Admin Console")
@@ -25,8 +30,73 @@ def show_admin():
     with c3: st.metric("Stripe", "Configured 🟢" if "stripe" in st.secrets else "Missing 🔴")
 
     st.divider()
-    tab_promo, tab_db = st.tabs(["🎟️ Promo Codes", "🗄️ Database Data"])
+    tab_orders, tab_promo = st.tabs(["📦 Order Fulfillment", "🎟️ Promo Codes"])
 
+    # --- TAB 1: FULFILLMENT ---
+    with tab_orders:
+        st.subheader("Recent Letters")
+        if database:
+            data = database.fetch_all_drafts()
+            if data:
+                df = pd.DataFrame(data)
+                # Show main table
+                st.dataframe(df[["ID", "Tier", "Email", "Date", "Status"]], use_container_width=True)
+                
+                st.divider()
+                st.subheader("🖨️ Print / Process Letter")
+                
+                # Selector
+                selected_id = st.number_input("Enter Letter ID to Process:", min_value=1, step=1)
+                
+                # Find selected letter
+                letter = next((item for item in data if item["ID"] == selected_id), None)
+                
+                if letter:
+                    st.success(f"Selected: Order #{letter['ID']} ({letter['Tier']})")
+                    
+                    c_view, c_action = st.columns(2)
+                    with c_view:
+                        st.markdown("**Letter Content:**")
+                        st.text_area("Transcription", letter["Content"], height=200, disabled=True)
+                    
+                    with c_action:
+                        st.markdown("**Generate PDF**")
+                        # Admin override for address (since historical drafts didn't save recipient)
+                        recip_addr = st.text_area("Recipient Address (Override)", "Recipient Name\n123 Street\nCity, State Zip")
+                        
+                        if st.button("Generate & Download PDF"):
+                            if letter_format:
+                                # Generate PDF
+                                pdf_bytes = letter_format.create_pdf(
+                                    letter["Content"], 
+                                    recip_addr, 
+                                    f"From: {letter['Email']}", # Fallback sender
+                                    is_heirloom="Heirloom" in letter["Tier"],
+                                    lang="English"
+                                )
+                                
+                                # Create temp file for download
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                    tmp.write(pdf_bytes)
+                                    tmp_path = tmp.name
+                                    
+                                with open(tmp_path, "rb") as f:
+                                    st.download_button(
+                                        label="⬇️ Download PDF",
+                                        data=f,
+                                        file_name=f"Order_{letter['ID']}.pdf",
+                                        mime="application/pdf"
+                                    )
+                            else:
+                                st.error("Letter Format module missing.")
+                else:
+                    st.info("Enter an ID above to view details.")
+            else:
+                st.info("No drafts found.")
+        else:
+            st.warning("Database not connected.")
+
+    # --- TAB 2: PROMO CODES ---
     with tab_promo:
         st.subheader("Generate Single-Use Code")
         if promo_engine:
@@ -34,19 +104,6 @@ def show_admin():
                 code = promo_engine.generate_code()
                 st.success(f"New Code: `{code}`")
         else: st.warning("Promo engine not loaded.")
-
-    with tab_db:
-        st.subheader("Recent Letters")
-        if database:
-            # Call the new function
-            data = database.fetch_all_drafts()
-            if data:
-                df = pd.DataFrame(data)
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("No drafts found in database.")
-        else:
-            st.warning("Database not connected.")
 
     st.markdown("---")
     if st.button("⬅️ Return to Main App"):
