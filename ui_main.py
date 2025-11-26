@@ -112,40 +112,44 @@ def render_splash_page():
         st.session_state.app_mode = "legal"
         st.rerun()
 
-# --- PAGE: LOGIN ---
+# --- PAGE: LOGIN (TABBED) ---
 def render_login_page():
-    st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>Welcome</h2>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         with st.container(border=True):
-            # TABS FOR CLARITY
+            # Separate Tabs to prevent input confusion
             tab_login, tab_signup = st.tabs(["Log In", "Sign Up"])
             
+            # --- LOGIN TAB ---
             with tab_login:
-                email = st.text_input("Email", key="login_email")
-                password = st.text_input("Password", type="password", key="login_pass")
+                l_email = st.text_input("Email", key="l_email_input")
+                l_pass = st.text_input("Password", type="password", key="l_pass_input")
+                
                 if st.button("Log In", type="primary", use_container_width=True):
                     sb = get_supabase()
                     if not sb: st.error("❌ Connection Failed. Check Secrets.")
                     else:
                         try:
-                            res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                            res = sb.auth.sign_in_with_password({"email": l_email, "password": l_pass})
                             st.session_state.user = res
-                            st.session_state.user_email = email
+                            st.session_state.user_email = l_email
                             st.session_state.app_mode = "store"
                             st.rerun()
                         except Exception as e: st.error(f"Login failed: {e}")
-            
+
+            # --- SIGNUP TAB ---
             with tab_signup:
-                s_email = st.text_input("Email", key="signup_email")
-                s_pass = st.text_input("Password", type="password", key="signup_pass")
+                s_email = st.text_input("Email", key="s_email_input")
+                s_pass = st.text_input("Password", type="password", key="s_pass_input")
+                
                 if st.button("Create Account", type="primary", use_container_width=True):
                     sb = get_supabase()
                     if not sb: st.error("❌ Connection Failed.")
                     else:
                         try:
                             sb.auth.sign_up({"email": s_email, "password": s_pass})
-                            st.success("Check email.")
+                            st.success("Check email for confirmation link.")
                         except Exception as e: st.error(f"Signup failed: {e}")
             
             st.divider()
@@ -166,19 +170,18 @@ def render_store_page():
             selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
             if "Standard" in selected_option: st.info("Premium paper, #10 window envelope.")
-            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, real stamp.")
-            elif "Civic" in selected_option: st.info("3 letters to your representatives.")
+            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, physical stamp.")
+            elif "Civic" in selected_option: st.info("3 letters sent to your representatives.")
             elif "Santa" in selected_option: st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            if "Standard" in selected_option: tier_code = "Standard"
-            elif "Heirloom" in selected_option: tier_code = "Heirloom"
-            elif "Civic" in selected_option: tier_code = "Civic"
-            elif "Santa" in selected_option: tier_code = "Santa"
-            else: tier_code = "Standard"
-            
+            if "Standard" in selected_option: tier_code="Standard"
+            elif "Heirloom" in selected_option: tier_code="Heirloom"
+            elif "Civic" in selected_option: tier_code="Civic"
+            elif "Santa" in selected_option: tier_code="Santa"
+            else: tier_code="Standard"
             price = prices[tier_code]
 
     with c2:
@@ -207,15 +210,19 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # FINAL CSS FIX FOR BLACK TEXT: Target all child elements
+                        # FINAL CSS Fix for White Text (Using Raw HTML)
                         st.markdown(f"""
-                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
-                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;">👉 Pay Now (Secure)</span>
+                        <a href="{url}" target="_self" style="text-decoration: none !important;">
+                            <div style="
+                                background-color:#2a5298; color:white !important;
+                                padding:12px; text-align:center; border-radius:8px;
+                                font-weight:bold; margin-top:10px;
+                                box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="color: #FFFFFF !important;">👉 Pay Now (Secure)</span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
-                    else: st.error("Payment System Offline (Check Secrets)")
+                    else: st.error("Payment System Offline")
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
@@ -225,7 +232,9 @@ def render_workspace_page():
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
-    # Load defaults
+    
+    # --- AUTO-POPULATE ---
+    def_name=def_street=def_city=def_state=def_zip=""
     if database and u_email:
         profile = database.get_user_profile(u_email)
         if profile:
@@ -234,10 +243,6 @@ def render_workspace_page():
             def_city = profile.address_city or ""
             def_state = profile.address_state or ""
             def_zip = profile.address_zip or ""
-    else:
-        def_name=def_street=def_city=def_state=def_zip=""
-
-    d = st.session_state.draft if "draft" in st.session_state else {}
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
@@ -291,6 +296,7 @@ def render_workspace_page():
             if database and u_email and not is_santa and not is_civic: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
             
+            # Save Session State
             if is_santa:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
@@ -341,7 +347,7 @@ def render_review_page():
         
         sig_path = None
         sig_storage = None
-        if "sig_data" in st.session_state and st.session_state.sig_data is not None and not is_santa:
+        if not is_santa and "sig_data" in st.session_state and st.session_state.sig_data is not None:
             try:
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
                 bg = Image.new("RGB", img.size, (255,255,255))
@@ -379,7 +385,11 @@ def render_review_page():
             
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
-            if st.button("Finish"): reset_app(); st.rerun()
+            
+            # FIX: Redirect to Splash on Finish
+            if st.button("Finish"): 
+                reset_app()
+                st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -388,7 +398,7 @@ def show_main_app():
     # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
-    # Stripe Return Check (TOP LEVEL PRIORITY)
+    # Stripe Return Check
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
