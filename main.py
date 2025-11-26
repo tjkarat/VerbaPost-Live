@@ -1,9 +1,10 @@
 import streamlit as st
 import streamlit.components.v1 as components
+import traceback
 
 st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="wide", initial_sidebar_state="expanded")
 
-# --- ANALYTICS (COMPONENTS METHOD) ---
+# --- ANALYTICS ---
 GA_ID = "G-D3P178CESF"
 components.html(f"""
 <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
@@ -41,16 +42,27 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-# --- IMPORTS ---
-# Added ui_santa here so it loads if available
-try: import ui_splash, ui_login, ui_admin, ui_main, auth_engine, ui_santa
-except: st.stop()
+# --- ROBUST IMPORT BLOCK ---
+# 1. Import Core Modules (Critical)
+try:
+    import ui_splash, ui_login, ui_admin, ui_main, auth_engine
+except Exception as e:
+    st.error(f"CRITICAL ERROR: Could not load core modules.\n{e}")
+    st.stop()
+
+# 2. Import Santa Module (Optional)
+# This allows the app to run even if ui_santa.py is missing
+santa_module = None
+try:
+    import ui_santa
+    santa_module = ui_santa
+except ImportError:
+    pass # Santa module not found, feature will be hidden
 
 if "current_view" not in st.session_state: st.session_state.current_view = "splash"
 if "user" not in st.session_state: st.session_state.user = None
 
 def check_is_admin():
-    # 1. Check if secret exists
     try:
         if "ADMIN_EMAIL" in st.secrets: t = st.secrets["ADMIN_EMAIL"]
         elif "admin" in st.secrets: t = st.secrets["admin"]["email"]
@@ -59,24 +71,20 @@ def check_is_admin():
     
     if not st.session_state.user: return False
     
-    # 2. Robust Email Extraction (Fixes the visibility issue)
     u = st.session_state.user
     e = ""
-    if isinstance(u, dict): 
-        e = u.get("email", "")
-    elif hasattr(u, "email"): 
-        e = u.email
-    elif hasattr(u, "user"): 
-        # This handles the nested case common in some auth providers
-        e = u.user.email 
+    if isinstance(u, dict): e = u.get("email", "")
+    elif hasattr(u, "email"): e = u.email
+    elif hasattr(u, "user"): e = u.user.email # Handle nested auth objects
         
     return e.strip().lower() == t.strip().lower()
 
 with st.sidebar:
     if st.button("🏠 Home", use_container_width=True): st.session_state.current_view = "splash"; st.rerun()
     
-    # Santa Link
-    if st.button("🎅 Letter from Santa", use_container_width=True): st.session_state.current_view="santa_app"; st.rerun()
+    # Only show Santa button if the module loaded successfully
+    if santa_module:
+        if st.button("🎅 Letter from Santa", use_container_width=True): st.session_state.current_view="santa_app"; st.rerun()
 
     if st.session_state.user:
         if check_is_admin():
@@ -104,9 +112,8 @@ elif v == "main_app": ui_main.show_main_app()
 elif v == "admin": 
     if check_is_admin(): ui_admin.show_admin()
     else: st.session_state.current_view="splash"; st.rerun()
-elif v == "santa_app": 
-    # Routing for the new module
-    ui_santa.render_santa_page()
+elif v == "santa_app" and santa_module: 
+    santa_module.render_santa_page()
 elif v == "forgot_password": ui_login.show_forgot_password(auth_engine.send_password_reset)
 elif v == "reset_verify": ui_login.show_reset_verify(auth_engine.reset_password_with_token)
 elif v == "legal": import ui_legal; ui_legal.show_legal()
