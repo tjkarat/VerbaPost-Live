@@ -55,27 +55,6 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGE: LEGAL (Added Back) ---
-def render_legal_page():
-    render_hero("Legal Center", "Transparency & Trust")
-    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
-    with tab_tos:
-        with st.container(border=True):
-            st.subheader("1. Service Usage")
-            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
-            st.subheader("2. Refunds")
-            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
-
-    with tab_privacy:
-        with st.container(border=True):
-            st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription. We do not sell your personal information.")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("← Return to Home", type="primary", use_container_width=True):
-        st.session_state.app_mode = "splash"
-        st.rerun()
-
 # --- PAGE: SPLASH ---
 def render_splash_page():
     # 1. LOGO
@@ -101,34 +80,12 @@ def render_splash_page():
             st.rerun()
 
     st.divider()
-    
-    # 4. FEATURES
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
     with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on your screen.")
     with c3: st.markdown("### 📮 3. We Mail"); st.caption("Printed, stamped, & sent.")
 
     st.divider()
-
-    # 5. USE CASES
-    st.subheader("Why VerbaPost?")
-    u1, u2, u3 = st.columns(3)
-    with u1:
-        with st.container(border=True):
-            st.write("🎅 **Holiday & Family**")
-            st.caption("Letters from Santa or personal notes to grandparents.")
-    with u2:
-        with st.container(border=True):
-            st.write("🗳️ **Civic Activists**")
-            st.caption("Write to Congress. Physical mail gets noticed by reps.")
-    with u3:
-        with st.container(border=True):
-            st.write("🏡 **Professionals**")
-            st.caption("Realtors & Sales. High open rates for follow-ups.")
-
-    st.divider()
-
-    # 6. PRICING
     st.subheader("Pricing")
     p1, p2, p3, p4 = st.columns(4)
     with p1: st.container(border=True).metric("⚡ Standard", "$2.99", "Machine Postage")
@@ -154,8 +111,7 @@ def render_login_page():
             
             if st.button("Log In", type="primary", use_container_width=True):
                 sb = get_supabase()
-                if not sb:
-                    st.error("❌ Connection Failed. Check Secrets.")
+                if not sb: st.error("❌ Connection Failed. Check Secrets.")
                 else:
                     try:
                         res = sb.auth.sign_in_with_password({"email": email, "password": password})
@@ -169,9 +125,7 @@ def render_login_page():
                 sb = get_supabase()
                 if not sb: st.error("❌ Connection Failed.")
                 else:
-                    try:
-                        sb.auth.sign_up({"email": email, "password": password})
-                        st.success("Check email.")
+                    try: sb.auth.sign_up({"email": email, "password": password}); st.success("Check email.")
                     except Exception as e: st.error(f"Signup failed: {e}")
             
             if st.button("Forgot Password?", type="secondary"):
@@ -187,22 +141,14 @@ def render_store_page():
     with c1:
         with st.container(border=True):
             st.subheader("Options")
-            tier_display = {
-                "Standard": "⚡ Standard ($2.99)", 
-                "Heirloom": "🏺 Heirloom ($5.99)",
-                "Civic": "🏛️ Civic ($6.99)", 
-                "Santa": "🎅 Santa ($9.99)"
-            }
-            # Helper map
-            reverse_map = {v: k for k, v in tier_display.items()}
+            tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
+            selected = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            selected = st.radio("Select Tier", list(tier_display.values()), format_func=lambda x: tier_display[x])
-            tier_code = reverse_map[selected]
-            
-            if tier_code == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
-            elif tier_code == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
-            elif tier_code == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
-            elif tier_code == "Santa": st.success("Festive background, North Pole return address.")
+            if "Standard" in selected: tier_code="Standard"; st.info("Premium paper, #10 window envelope.")
+            elif "Heirloom" in selected: tier_code="Heirloom"; st.info("Hand-addressed envelope, physical stamp.")
+            elif "Civic" in selected: tier_code="Civic"; st.info("3 letters to your representatives.")
+            elif "Santa" in selected: tier_code="Santa"; st.success("Festive background, North Pole return address.")
+            else: tier_code="Standard"
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
@@ -235,34 +181,12 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # CSS Fix: White text on button
-                        st.markdown(f"""
-                        <style>
-                            a.pay-btn-link, a.pay-btn-link:visited, a.pay-btn-link:hover, a.pay-btn-link:active {{
-                                text-decoration: none !important; color: #FFFFFF !important;
-                            }}
-                        </style>
-                        <a href="{url}" target="_blank" class="pay-btn-link">
-                            <div style="
-                                display: block; width: 100%; padding: 14px;
-                                background-color: #2a5298; text-align: center;
-                                border-radius: 8px; margin-top: 10px;
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
-                                transition: transform 0.1s;
-                            ">
-                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 18px; -webkit-text-fill-color: white !important;">
-                                    👉 Pay Now (Secure)
-                                </span>
-                            </div>
-                        </a>
-                        """, unsafe_allow_html=True)
+                        st.markdown(f"""<a href="{url}" target="_self" style="text-decoration:none;"><div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;">👉 Pay Now (Secure)</div></a>""", unsafe_allow_html=True)
                     else: st.error("Payment System Offline")
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
-    is_civic = "Civic" in tier
-    is_santa = "Santa" in tier
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
@@ -277,12 +201,9 @@ def render_workspace_page():
     else:
         def_name=def_street=def_city=def_state=def_zip=""
 
-    d = st.session_state.draft if "draft" in st.session_state else {}
-
     with st.container(border=True):
         st.subheader("📍 Addressing")
-        
-        if is_santa:
+        if "Santa" in tier:
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To (Child)**")
@@ -296,20 +217,7 @@ def render_workspace_page():
                 st.markdown("**From**")
                 st.info("🎅 North Pole (Locked)")
                 from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
-        
-        elif is_civic:
-            st.info("Civic Mode: We auto-find your reps.")
-            st.markdown("**Your Return Address**")
-            from_name = st.text_input("Name", value=def_name, key="w_from_name")
-            from_street = st.text_input("Street", value=def_street, key="w_from_street")
-            c1, c2, c3 = st.columns(3)
-            from_city = c1.text_input("City", value=def_city, key="w_from_city")
-            from_state = c2.text_input("State", value=def_state, key="w_from_state")
-            from_zip = c3.text_input("Zip", value=def_zip, key="w_from_zip")
-            to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
-
         else:
-            # Standard / Heirloom
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To**")
@@ -331,18 +239,12 @@ def render_workspace_page():
         if st.button("Save Addresses"):
             if database and u_email and "Santa" not in tier and "Civic" not in tier: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
-            
-            # Save to session
-            if is_santa:
+            if "Santa" in tier:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
-            elif is_civic:
-                 st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
-                 st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
             else:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
                 st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
-                
             st.toast("Addresses Saved!")
 
     st.write("---")
@@ -362,6 +264,7 @@ def render_workspace_page():
                     st.session_state.app_mode = "review"
                     st.rerun()
 
+# --- PAGE: REVIEW ---
 def render_review_page():
     render_hero("Review", "Finalize Letter")
     txt = st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
@@ -377,7 +280,6 @@ def render_review_page():
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
-        # Signature
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -405,8 +307,7 @@ def render_review_page():
             
             res = None
             if not is_heirloom and not is_santa and mailer:
-                # Mailer Logic
-                pass
+                pass # Mailer Logic
             
             u_email = st.session_state.get("user_email", "guest")
             status = "sent_api" if res else "pending"
