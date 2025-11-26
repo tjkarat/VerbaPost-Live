@@ -1,119 +1,51 @@
 import streamlit as st
-import streamlit.components.v1 as components
-import traceback
+import ui_main
 
-st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="wide", initial_sidebar_state="expanded")
+# --- 1. PAGE CONFIG ---
+st.set_page_config(
+    page_title="VerbaPost",
+    page_icon="✉️",
+    layout="centered" # Keep centered for clean mobile look
+)
 
-# --- ANALYTICS ---
-GA_ID = "G-D3P178CESF"
-components.html(f"""
-<script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){{dataLayer.push(arguments);}}
-  gtag('js', new Date());
-  gtag('config', '{GA_ID}');
-</script>
-""", height=0, width=0)
-
-# --- GLOBAL STYLES ---
-st.markdown(f"""
+# --- 2. CSS ---
+def inject_global_css():
+    st.markdown("""
     <style>
-    [data-testid="stAppViewContainer"] {{ background-color: #ffffff; }}
-    [data-testid="stSidebar"] {{ background-color: #f8f9fa; }}
-    h1, h2, h3, h4, p, li, label {{ color: #31333F !important; }}
-    
-    div.stButton > button {{
-        background-color: #ffffff; color: #31333F; border: 1px solid #e0e0e0;
-    }}
-    div.stButton > button[kind="primary"] {{
-        background-color: #2a5298 !important; border: none;
-    }}
-    div.stButton > button[kind="primary"] p {{ color: #FFFFFF !important; }}
-    
-    input, textarea, select {{
-        color: #31333F !important;
-        background-color: #ffffff !important;
-        border: 1px solid #e0e0e0 !important;
-    }}
-    
-    #MainMenu {{visibility: hidden;}}
-    footer {{visibility: hidden;}}
-    </style>
-""", unsafe_allow_html=True)
-
-# --- ROBUST IMPORT BLOCK ---
-# 1. Import Core Modules (Critical)
-try:
-    import ui_splash, ui_login, ui_admin, ui_main, auth_engine
-except Exception as e:
-    st.error(f"CRITICAL ERROR: Could not load core modules.\n{e}")
-    st.stop()
-
-# 2. Import Santa Module (Optional)
-# This allows the app to run even if ui_santa.py is missing
-santa_module = None
-try:
-    import ui_santa
-    santa_module = ui_santa
-except ImportError:
-    pass # Santa module not found, feature will be hidden
-
-if "current_view" not in st.session_state: st.session_state.current_view = "splash"
-if "user" not in st.session_state: st.session_state.user = None
-
-def check_is_admin():
-    try:
-        if "ADMIN_EMAIL" in st.secrets: t = st.secrets["ADMIN_EMAIL"]
-        elif "admin" in st.secrets: t = st.secrets["admin"]["email"]
-        else: return False
-    except: return False
-    
-    if not st.session_state.user: return False
-    
-    u = st.session_state.user
-    e = ""
-    if isinstance(u, dict): e = u.get("email", "")
-    elif hasattr(u, "email"): e = u.email
-    elif hasattr(u, "user"): e = u.user.email # Handle nested auth objects
+        .stApp { background-color: #f8f9fc; color: #2d3748; font-family: 'Helvetica Neue', sans-serif; }
+        header, .stDeployButton, footer { visibility: hidden; }
+        h1, h2, h3, p, div, label, span { color: #2d3748 !important; }
         
-    return e.strip().lower() == t.strip().lower()
+        /* Input Fields */
+        .stTextInput input, .stSelectbox div, div[data-baseweb="select"] > div {
+            background-color: white !important; color: #2d3748 !important; border: 1px solid #e2e8f0 !important;
+        }
+        
+        /* Sidebar */
+        [data-testid="stSidebar"] { background-color: white !important; border-right: 1px solid #e2e8f0; }
+        
+        /* Buttons */
+        div.stButton > button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white !important; border: none; border-radius: 25px; padding: 0.5rem 1.5rem;
+        }
+        div.stButton > button[kind="secondary"] {
+            background: white; color: #555 !important; border: 1px solid #ddd;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-with st.sidebar:
-    if st.button("🏠 Home", use_container_width=True): st.session_state.current_view = "splash"; st.rerun()
+# --- 3. RUN APP ---
+if __name__ == "__main__":
+    inject_global_css()
     
-    # Only show Santa button if the module loaded successfully
-    if santa_module:
-        if st.button("🎅 Letter from Santa", use_container_width=True): st.session_state.current_view="santa_app"; st.rerun()
+    # Default State
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "splash"
+        
+    # Check for Stripe Return
+    if "session_id" in st.query_params:
+        st.session_state.app_mode = "workspace"
 
-    if st.session_state.user:
-        if check_is_admin():
-            if st.button("🔐 Admin Console", type="primary", use_container_width=True): st.session_state.current_view="admin"; st.rerun()
-        if st.button("Sign Out", use_container_width=True): st.session_state.clear(); st.rerun()
-    else:
-        if st.session_state.current_view != "login":
-            if st.button("Log In", use_container_width=True): st.session_state.current_view="login"; st.rerun()
-
-if "session_id" in st.query_params: st.session_state.current_view = "main_app"
-v = st.session_state.current_view
-
-if v == "splash": ui_splash.show_splash()
-elif v == "login": 
-    def L(e,p): 
-        u,er=auth_engine.sign_in(e,p)
-        if u: st.session_state.user=u; st.session_state.current_view="main_app"; st.rerun()
-        else: st.error(er)
-    def S(e,p,n,s,c,stt,z,l):
-        u,er=auth_engine.sign_up(e,p,n,s,c,stt,z,l)
-        if u: st.session_state.user=u; st.session_state.current_view="main_app"; st.rerun()
-        else: st.error(er)
-    ui_login.show_login(L, S)
-elif v == "main_app": ui_main.show_main_app()
-elif v == "admin": 
-    if check_is_admin(): ui_admin.show_admin()
-    else: st.session_state.current_view="splash"; st.rerun()
-elif v == "santa_app" and santa_module: 
-    santa_module.render_santa_page()
-elif v == "forgot_password": ui_login.show_forgot_password(auth_engine.send_password_reset)
-elif v == "reset_verify": ui_login.show_reset_verify(auth_engine.reset_password_with_token)
-elif v == "legal": import ui_legal; ui_legal.show_legal()
+    # Hand off to the main controller
+    ui_main.show_main_app()
