@@ -19,8 +19,7 @@ def ensure_fonts():
             try:
                 r = requests.get(url, allow_redirects=True)
                 if r.status_code == 200:
-                    with open(filename, "wb") as f:
-                        f.write(r.content)
+                    with open(filename, "wb") as f: f.write(r.content)
             except: pass
 
 def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None):
@@ -29,6 +28,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="Engl
     
     # 2. Init PDF
     pdf = FPDF(format='Letter')
+    pdf.set_auto_page_break(True, margin=20)
     
     # 3. Register Fonts
     font_map = {}
@@ -65,38 +65,43 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="Engl
         addr_font = font_map['sans'] 
         body_size = 16 if body_font == 'Caveat' else 12
 
-    # --- CONTENT ---
+    # --- CONTENT (Using Absolute Positioning for Headers to fix glitches) ---
     
-    # Return Address
+    # 1. Return Address (Top Left)
     pdf.set_font(addr_font, '', 10)
-    pdf.set_xy(10, 10)
-    pdf.multi_cell(0, 5, return_addr)
+    current_y = 15 # Start Y position
+    for line in return_addr.split('\n'):
+        if line.strip():
+            pdf.text(12, current_y, line.strip()) # Absolute text placement
+            current_y += 5
     
-    # Date
-    pdf.set_xy(160, 10)
-    pdf.cell(0, 10, datetime.now().strftime("%Y-%m-%d"), ln=True, align='R')
+    # 2. Date (Top Right)
+    pdf.set_xy(150, 15)
+    pdf.cell(50, 0, datetime.now().strftime("%Y-%m-%d"), align='R')
     
-    # Recipient (Window Envelope Position)
-    pdf.set_xy(20, 40)
+    # 3. Recipient (Window Envelope Position - Fixed)
     pdf.set_font(addr_font, 'B', 12)
-    pdf.multi_cell(0, 6, recipient_addr)
+    current_y = 45 # Window envelope sweet spot
+    for line in recipient_addr.split('\n'):
+        if line.strip():
+            pdf.text(20, current_y, line.strip())
+            current_y += 6
     
-    # Body
-    pdf.set_xy(10, 80)
+    # 4. Body (Use MultiCell for wrapping)
+    pdf.set_xy(15, 80) # Start body lower
     pdf.set_font(body_font, '', body_size)
     pdf.multi_cell(0, 8, content)
     
-    # Signature
+    # 5. Signature
     if signature_path and os.path.exists(signature_path):
         pdf.ln(10)
         try: pdf.image(signature_path, w=40)
         except: pass
     
-    # Footer
+    # 6. Footer
     pdf.set_y(-20)
     pdf.set_font(addr_font, '', 8)
     pdf.cell(0, 10, 'Dictated via VerbaPost.com', 0, 0, 'C')
 
-    # --- FIX: Return Raw Bytes Directly ---
-    # fpdf2 returns a bytearray here, so we just pass it through.
+    # Return Raw Bytes
     return pdf.output(dest="S")
