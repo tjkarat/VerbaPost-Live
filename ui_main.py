@@ -45,39 +45,32 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    # CSS to force white text even on headers
     st.markdown(f"""
-    <style>
-        #hero-text h1, #hero-text div {{ color: #FFFFFF !important; }}
-    </style>
+    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <div id="hero-text">
-            <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
-            <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
-        </div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- SPLASH PAGE (FULLY RESTORED) ---
+# --- PAGES ---
+
 def render_splash_page():
-    # 1. LOGO
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([3, 2, 3]) 
         with c2: st.image("logo.png", use_container_width=True)
     
-    # 2. HEADER
     st.markdown("""
     <div style="text-align: center; margin-bottom: 30px;">
         <h3 style="color: #2d3748; font-weight: 600;">Turn your voice into a real letter.</h3>
         <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
-            Texts are trivial. Emails are ignored.<br><b style="color: #2a5298;">REAL LETTERS GET OPENED.</b>
+            Texts are trivial. Emails are ignored.<br><b style="color: #2d3748;">REAL LETTERS GET OPENED.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
     
-    # 3. CTA
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("🔐 Log In / Sign Up to Start", type="primary", use_container_width=True):
@@ -85,34 +78,12 @@ def render_splash_page():
             st.rerun()
 
     st.divider()
-    
-    # 4. FEATURES
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
     with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on your screen.")
     with c3: st.markdown("### 📮 3. We Mail"); st.caption("Printed, stamped, & sent.")
 
     st.divider()
-
-    # 5. USE CASES (RESTORED)
-    st.subheader("Why VerbaPost?")
-    u1, u2, u3 = st.columns(3)
-    with u1:
-        with st.container(border=True):
-            st.write("🎅 **Holiday & Family**")
-            st.caption("Letters from Santa or personal notes to grandparents.")
-    with u2:
-        with st.container(border=True):
-            st.write("🗳️ **Civic Activists**")
-            st.caption("Write to Congress. Physical mail gets noticed by reps.")
-    with u3:
-        with st.container(border=True):
-            st.write("🏡 **Professionals**")
-            st.caption("Realtors & Sales. High open rates for follow-ups.")
-
-    st.divider()
-
-    # 6. PRICING (RESTORED)
     st.subheader("Pricing")
     p1, p2, p3, p4 = st.columns(4)
     with p1: st.container(border=True).metric("⚡ Standard", "$2.99", "Machine Postage")
@@ -137,8 +108,7 @@ def render_login_page():
             
             if st.button("Log In", type="primary", use_container_width=True):
                 sb = get_supabase()
-                if not sb:
-                    st.error("❌ Connection Failed. Check Secrets.")
+                if not sb: st.error("❌ Connection Failed. Check Secrets.")
                 else:
                     try:
                         res = sb.auth.sign_in_with_password({"email": email, "password": password})
@@ -175,21 +145,18 @@ def render_store_page():
                 "Civic": "🏛️ Civic ($6.99)", 
                 "Santa": "🎅 Santa ($9.99)"
             }
-            # Map display name back to code
-            rev_map = {v: k for k, v in tier_display.items()}
+            selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            selected = st.radio("Select Tier", list(tier_display.values()))
-            tier_code = rev_map[selected]
-            
-            if tier_code == "Standard": st.info("Premium paper, #10 window envelope.")
-            elif tier_code == "Heirloom": st.info("Hand-addressed, physical stamp.")
-            elif tier_code == "Civic": st.info("3 letters to your representatives.")
-            elif tier_code == "Santa": st.success("Festive background, North Pole return address.")
+            if selected_option == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
+            elif selected_option == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
+            elif selected_option == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            elif selected_option == "Santa": st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            price = prices[tier_code]
+            price = prices[selected_option]
+            tier_code = selected_option 
 
     with c2:
         with st.container(border=True):
@@ -200,7 +167,7 @@ def render_store_page():
             is_free = False
             if promo and promo_engine and promo_engine.validate_code(promo):
                 is_free = True; st.success("Code Applied!")
-            
+
             if is_free:
                 if st.button("Start (Free)", type="primary"):
                     st.session_state.payment_complete = True
@@ -216,19 +183,15 @@ def render_store_page():
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                    
                     if url: 
-                        # FIX: White Text CSS for Link
+                        # CSS Fix: White text on button
                         st.markdown(f"""
                         <style>
-                            a.pay-btn {{ text-decoration: none !important; }}
-                            a.pay-btn div {{ color: #FFFFFF !important; background-color: #2a5298; }}
-                            a.pay-btn:hover div {{ background-color: #1e3c72; }}
-                            a.pay-btn span {{ color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important; }}
+                            a.pay-btn, a.pay-btn:visited {{ color: #FFFFFF !important; text-decoration: none !important; }}
                         </style>
-                        <a href="{url}" target="_self" class="pay-btn">
-                            <div style="display: block; width: 100%; padding: 14px; text-align: center; border-radius: 8px; font-weight: bold; margin-top: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                                <span>👉 Pay Now (Secure)</span>
+                        <a href="{url}" target="_blank" class="pay-btn">
+                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="color:white !important;">👉 Pay Now (Secure)</span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
@@ -282,7 +245,6 @@ def render_workspace_page():
             to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
 
         else:
-            # Standard / Heirloom
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To**")
@@ -304,18 +266,8 @@ def render_workspace_page():
         if st.button("Save Addresses"):
             if database and u_email and "Santa" not in tier and "Civic" not in tier: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
-            
-            # Save to session
-            if "Santa" in tier:
-                st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
-                st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
-            elif "Civic" in tier:
-                 st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
-                 st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
-            else:
-                st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
-                st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
-                
+            st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
+            st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
             st.toast("Addresses Saved!")
 
     st.write("---")
@@ -350,7 +302,6 @@ def render_review_page():
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
-        # Signature
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -398,17 +349,14 @@ def render_review_page():
 def show_main_app():
     if 'analytics' in globals(): analytics.inject_ga()
 
-    # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
-    # Stripe Return Check (TOP LEVEL PRIORITY)
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
         st.query_params.clear()
         st.rerun()
 
-    # 2. Render Views
     if mode == "splash": render_splash_page()
     elif mode == "login": render_login_page()
     elif mode == "legal": render_legal_page()
@@ -419,8 +367,7 @@ def show_main_app():
     elif mode == "forgot_password":
          render_hero("Recovery", "Reset Password")
          if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
-    
-    # 3. Sidebar
+
     with st.sidebar:
         if st.button("Home"): reset_app(); st.rerun()
         if st.session_state.get("user"):
