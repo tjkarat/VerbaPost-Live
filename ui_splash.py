@@ -51,11 +51,11 @@ def show_splash():
     uc1, uc2, uc3 = st.columns(3)
     
     with uc1:
-        st.info("**🏘️ Realtors & Sales**\n\nHandwritten Envelopes with stamps get opened.")
+        st.info("**🏘️ Realtors & Sales**\n\nHandwritten envelopes with stamps get opened.")
     with uc2:
         st.info("**🏛️ Civic Activists**\n\nPhysical petitions on desks get noticed. Emails get deleted.")
     with uc3:
-        st.info("**🧡 Families & Inmates**\n\nDirect prison delivery. Facility compliant. No stamps needed.")
+        st.info("**🧡 Families of Inmates**\n\nDirect prison delivery. Facility compliant. No stamps needed.")
 
     st.markdown("<br><hr>", unsafe_allow_html=True)
 
