@@ -46,17 +46,20 @@ def reset_app():
 
 def render_hero(title, subtitle):
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
+    <style>
+        #hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}
+    </style>
+    <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
-# --- SPLASH PAGE (Restored Content) ---
+# --- PAGES ---
+
 def render_splash_page():
-    # 1. LOGO
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([3, 2, 3]) 
         with c2: st.image("logo.png", use_container_width=True)
@@ -70,7 +73,6 @@ def render_splash_page():
     </div>
     """, unsafe_allow_html=True)
     
-    # 2. CTA
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("🔐 Log In / Sign Up to Start", type="primary", use_container_width=True):
@@ -78,34 +80,12 @@ def render_splash_page():
             st.rerun()
 
     st.divider()
-    
-    # 3. FEATURES
     c1, c2, c3 = st.columns(3)
     with c1: st.markdown("### 🎙️ 1. Dictate"); st.caption("You speak. AI types.")
     with c2: st.markdown("### ✍️ 2. Sign"); st.caption("Sign on your screen.")
     with c3: st.markdown("### 📮 3. We Mail"); st.caption("Printed, stamped, & sent.")
 
     st.divider()
-
-    # 4. USE CASES (Restored Boxes)
-    st.subheader("Why VerbaPost?")
-    u1, u2, u3 = st.columns(3)
-    with u1:
-        with st.container(border=True):
-            st.write("🎅 **Holiday & Family**")
-            st.caption("Letters from Santa or personal notes to grandparents.")
-    with u2:
-        with st.container(border=True):
-            st.write("🗳️ **Civic Activists**")
-            st.caption("Write to Congress. Physical mail gets noticed by reps.")
-    with u3:
-        with st.container(border=True):
-            st.write("🏡 **Professionals**")
-            st.caption("Realtors & Sales. High open rates for follow-ups.")
-
-    st.divider()
-
-    # 5. PRICING
     st.subheader("Pricing")
     p1, p2, p3, p4 = st.columns(4)
     with p1: st.container(border=True).metric("⚡ Standard", "$2.99", "Machine Postage")
@@ -114,9 +94,11 @@ def render_splash_page():
     with p4: st.container(border=True).metric("🎅 Santa", "$9.99", "North Pole")
 
     st.markdown("---")
-    if st.button("Legal / Terms", type="secondary"):
-        st.session_state.app_mode = "legal"
-        st.rerun()
+    f1, f2 = st.columns([4, 1])
+    with f2:
+        if st.button("Legal / Terms", type="secondary"):
+            st.session_state.app_mode = "legal"
+            st.rerun()
 
 def render_login_page():
     st.markdown("<h2 style='text-align: center;'>Welcome Back</h2>", unsafe_allow_html=True)
@@ -126,11 +108,9 @@ def render_login_page():
             email = st.text_input("Email")
             password = st.text_input("Password", type="password")
             
-            # DIRECT LOGIN LOGIC (Fixes loop)
             if st.button("Log In", type="primary", use_container_width=True):
                 sb = get_supabase()
-                if not sb:
-                    st.error("❌ Connection Failed. Check Secrets.")
+                if not sb: st.error("❌ Connection Failed. Check Secrets.")
                 else:
                     try:
                         res = sb.auth.sign_in_with_password({"email": email, "password": password})
@@ -167,23 +147,19 @@ def render_store_page():
                 "Civic": "🏛️ Civic ($6.99)", 
                 "Santa": "🎅 Santa ($9.99)"
             }
-            # Helper map
-            reverse_map = {v: k for k, v in tier_display.items()}
+            selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            selection = st.radio("Select Tier", list(tier_display.values()))
-            tier_code = reverse_map[selection]
-            
-            # RESTORED DESCRIPTIONS
-            if tier_code == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
-            elif tier_code == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
-            elif tier_code == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
-            elif tier_code == "Santa": st.success("Festive background, North Pole return address.")
+            if selected_option == "Standard": st.info("Premium paper, #10 window envelope, First Class Mail.")
+            elif selected_option == "Heirloom": st.info("Hand-addressed envelope, physical stamp, premium feel.")
+            elif selected_option == "Civic": st.info("3 letters sent to your 2 Senators and 1 Representative.")
+            elif selected_option == "Santa": st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            price = prices[tier_code]
-            
+            price = prices[selected_option]
+            tier_code = selected_option 
+
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
@@ -210,18 +186,26 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # White text fix
-                        st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;">👉 Pay Now (Secure)</div></a>""", unsafe_allow_html=True)
+                        # CSS Fix: White text on button
+                        st.markdown(f"""
+                        <style>
+                             a.stripe-btn, a.stripe-btn:visited, a.stripe-btn:hover, a.stripe-btn:active {{
+                                text-decoration: none !important; color: #FFFFFF !important;
+                            }}
+                        </style>
+                        <a href="{url}" target="_self" class="stripe-btn">
+                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="color:white !important;">👉 Pay Now (Secure)</span>
+                            </div>
+                        </a>
+                        """, unsafe_allow_html=True)
                     else: st.error("Payment System Offline")
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
-    is_civic = "Civic" in tier
-    is_santa = "Santa" in tier
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
-    # Load defaults
     if database and u_email:
         profile = database.get_user_profile(u_email)
         def_name = profile.full_name if profile else ""
@@ -237,7 +221,7 @@ def render_workspace_page():
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
-        if is_santa:
+        if "Santa" in tier:
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To (Child)**")
@@ -250,8 +234,9 @@ def render_workspace_page():
             with c2:
                 st.markdown("**From**")
                 st.info("🎅 North Pole (Locked)")
-                
-        elif is_civic:
+                from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
+        
+        elif "Civic" in tier:
             st.info("Civic Mode: We auto-find your reps.")
             st.markdown("**Your Return Address**")
             from_name = st.text_input("Name", value=def_name, key="w_from_name")
@@ -260,9 +245,9 @@ def render_workspace_page():
             from_city = c1.text_input("City", value=def_city, key="w_from_city")
             from_state = c2.text_input("State", value=def_state, key="w_from_state")
             from_zip = c3.text_input("Zip", value=def_zip, key="w_from_zip")
+            to_name="Civic"; to_street="Civic"; to_city="Civic"; to_state="TN"; to_zip="00000"
 
         else:
-            # Standard / Heirloom
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("**To**")
@@ -330,7 +315,6 @@ def render_review_page():
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
-        # Signature
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -381,7 +365,7 @@ def show_main_app():
     # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
-    # Stripe Return Check
+    # Stripe Return Check (TOP LEVEL PRIORITY)
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
@@ -399,6 +383,11 @@ def show_main_app():
     elif mode == "forgot_password":
          render_hero("Recovery", "Reset Password")
          if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
+    
+    # --- ADMIN PAGE (If selected from Sidebar) ---
+    elif mode == "admin_console":
+        import ui_admin
+        ui_admin.show_admin()
 
     # 3. Sidebar
     with st.sidebar:
@@ -414,7 +403,8 @@ def show_main_app():
             
             if user_clean == admin_target:
                 st.success("Admin Access")
-                import ui_admin
-                if st.button("Open Console"): ui_admin.show_admin()
+                if st.button("Open Console"): 
+                    st.session_state.app_mode = "admin_console"
+                    st.rerun()
             
             if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
