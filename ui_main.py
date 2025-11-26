@@ -194,9 +194,9 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # Final CSS Fix: White text on button
+                        # FINAL CSS FIX: White text on button
                         st.markdown(f"""
-                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
+                        <a href="{url}" target="_self" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
                                 <span style="color:white !important;">👉 Pay Now (Secure)</span>
                             </div>
@@ -291,7 +291,6 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        # FIX: The original typo was here: background-color -> background_color
         canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
         if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:

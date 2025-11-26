@@ -6,18 +6,23 @@ st.set_page_config(
     page_title="VerbaPost",
     page_icon="📮",
     layout="centered",
-    initial_sidebar_state="expanded" # Keep expanded so it is visible
+    initial_sidebar_state="expanded" # <--- CHANGED BACK TO EXPANDED
 )
 
 # --- 2. CSS ---
 def inject_global_css():
     st.markdown("""
     <style>
-        .stApp { background-color: #f8f9fc; color: #2d3748; font-family: 'Helvetica Neue', sans-serif; }
+        .stApp { background-color: #f8f9fc; }
         header, .stDeployButton, footer { visibility: hidden; }
         
+        /* Force ALL Text Dark */
+        h1, h2, h3, h4, h5, h6, p, li, label, span, div {
+            color: #2d3748 !important;
+        }
+        
         /* Inputs & Sidebar */
-        .stTextInput input, .stSelectbox div, div[data-baseweb="select"] > div {
+        .stTextInput input, div[data-baseweb="select"] > div {
             background-color: white !important; color: #2d3748 !important; border: 1px solid #e2e8f0 !important;
         }
         [data-testid="stSidebar"] { background-color: white !important; border-right: 1px solid #e2e8f0; }
@@ -37,11 +42,9 @@ def inject_global_css():
 if __name__ == "__main__":
     inject_global_css()
     
-    # Initialize App Mode
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
     
-    # Hand off to UI Controller
     try:
         ui_main.show_main_app()
     except Exception as e:
