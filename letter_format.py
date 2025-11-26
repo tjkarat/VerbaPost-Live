@@ -3,7 +3,9 @@ import os
 from datetime import datetime
 
 class LetterPDF(FPDF):
-    def header(self): pass 
+    def header(self): 
+        pass 
+        
     def footer(self):
         self.set_y(-0.6)
         self.set_font("Times", "I", 8)
@@ -17,6 +19,7 @@ def create_pdf(body_text, recipient_info, sender_info, is_heirloom=False, signat
     pdf.set_margins(1.0, 1.0, 1.0) 
     
     # Load Handwriting Font
+    # Ensure "Caveat-Regular.ttf" is in the same folder as this script
     caveat_path = "Caveat-Regular.ttf"
     has_handwriting = os.path.exists(caveat_path)
     if has_handwriting:
@@ -38,7 +41,16 @@ def create_pdf(body_text, recipient_info, sender_info, is_heirloom=False, signat
     # Positioned specifically for standard #10 window envelopes
     pdf.set_xy(1.0, 2.25)
     pdf.set_font("Times", "B", 12)
-    pdf.multi_cell(4.0, 0.22, recipient_info.upper())
+    
+    # --- ADDRESS FIX: Sanitize to max 3 lines ---
+    # Split the incoming string by newlines
+    lines = recipient_info.strip().split('\n')
+    # Remove any empty lines (just in case)
+    clean_lines = [line.strip() for line in lines if line.strip()]
+    # Keep only the first 3 lines and join them back together
+    clean_recipient_info = "\n".join(clean_lines[:3])
+    
+    pdf.multi_cell(4.0, 0.22, clean_recipient_info.upper())
     
     # 5. BODY - Handwriting
     pdf.set_xy(1.0, 3.75) # Clear separation
@@ -60,9 +72,10 @@ def create_pdf(body_text, recipient_info, sender_info, is_heirloom=False, signat
     if signature_path and os.path.exists(signature_path):
         pdf.image(signature_path, x=1.0, y=pdf.get_y(), w=2.0)
     else:
-        # Fallback
+        # Fallback text if image missing
         pdf.ln(0.5)
         pdf.set_font("Times", "I", 12)
         pdf.cell(0, 0.2, "Signed via VerbaPost")
 
+    # Return PDF bytes
     return pdf.output(dest='S').encode('latin-1')
