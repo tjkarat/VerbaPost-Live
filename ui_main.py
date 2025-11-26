@@ -1,10 +1,10 @@
-# ... (Keep imports and top functions the same) ...
 import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
 from PIL import Image
-import json # Added import
+import base64
+from io import BytesIO
 
 # --- IMPORTS ---
 try: import database
@@ -51,7 +51,6 @@ def show_main_app():
         else: render_workspace_page()
 
 def render_store_page():
-    # ... (Store page code remains exactly the same as previous) ...
     render_hero("Select Service", "Choose your letter type")
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -64,6 +63,7 @@ def render_store_page():
             tier_code = selected_tier_name.split(" ")[1] 
             st.session_state.temp_tier = tier_code
             st.session_state.temp_price = price
+            st.session_state.temp_lang = lang
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
@@ -77,13 +77,6 @@ def render_store_page():
             st.divider()
             if is_free:
                 if st.button("🚀 Start (Promo Applied)", type="primary", use_container_width=True):
-                    u_email = "guest"
-                    if st.session_state.get("user"):
-                        u = st.session_state.user
-                        if isinstance(u, dict): u_email = u.get("email")
-                        elif hasattr(u, "email"): u_email = u.email
-                        elif hasattr(u, "user"): u_email = u.user.email
-                    promo_engine.log_usage(promo_code, u_email)
                     st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code
                     st.session_state.app_mode = "workspace"; st.rerun()
             else:
@@ -91,7 +84,6 @@ def render_store_page():
                     st.info("⚠️ **Note:** Payment opens in a new tab. Return here after.")
                     if st.button("Proceed to Payment", type="primary", use_container_width=True):
                         with st.spinner("Connecting to Stripe..."):
-                            # Unpack both values
                             result = payment_engine.create_checkout_session(
                                 f"VerbaPost {tier_code}", 
                                 int(price * 100), 
@@ -114,11 +106,13 @@ def render_store_page():
                         </style>
                         <a href="{url}" target="_blank" class="pay-btn-link">
                             <div style="
-                                display: block; width: 100%; padding: 12px; background-color: #2a5298;
-                                text-align: center; border-radius: 8px; margin-top: 10px;
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.1); cursor: pointer;
+                                display: block; width: 100%; padding: 14px;
+                                background-color: #2a5298; text-align: center;
+                                border-radius: 8px; margin-top: 10px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+                                transition: transform 0.1s;
                             ">
-                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 16px;">
+                                <span style="font-weight: bold; font-size: 18px;">
                                     👉 Pay Now (Secure)
                                 </span>
                             </div>
@@ -129,7 +123,6 @@ def render_store_page():
                     if st.button("Bypass"): st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code; st.rerun()
 
 def render_workspace_page():
-    # ... (Workspace logic remains same) ...
     tier = st.session_state.get("locked_tier", "Standard")
     is_civic = "Civic" in tier
     render_hero("Compose Letter", f"{tier} Edition")
@@ -239,11 +232,9 @@ def render_review_page():
             st.rerun()
         return
 
-    # --- FIX: Use correct variable 'txt' ---
     txt = st.text_area("Body", st.session_state.get("transcribed_text", ""), height=300)
     
     if st.button("🚀 Send Letter", type="primary", use_container_width=True):
-        # ... (Data gathering remains same) ...
         to_name = d.get("to_name","").strip()
         to_street = d.get("to_street","").strip()
         to_city = d.get("to_city","").strip()
@@ -265,21 +256,39 @@ def render_review_page():
         from_addr = {"name": from_name, "address_line1": from_street, "address_city": from_city, "address_state": from_state, "address_zip": from_zip}
         
         sig_path = None
-        # Handle Signature
+        sig_storage = None # For DB
+
+        # --- FIX: Convert Signature to Base64 for DB ---
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
             try:
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
                 bg = Image.new("RGB", img.size, (255,255,255))
                 bg.paste(img, mask=img.split()[3])
+                
+                # Save to temp file for Mailer (Immediate)
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
                     bg.save(tmp_sig, format="PNG")
                     sig_path = tmp_sig.name
+                
+                # Save to Base64 for Database (Long term)
+                buffered = BytesIO()
+                bg.save(buffered, format="PNG")
+                sig_storage = base64.b64encode(buffered.getvalue()).decode()
+                
             except: pass
 
-        # --- PDF GEN ---
+        lang = st.session_state.get("temp_lang", "English")
+        
         if mailer and letter_format:
-            # Pass 'txt' (edited) not original transcript
-            pdf_bytes = letter_format.create_pdf(txt, f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}", is_heirloom, "English", sig_path)
+            pdf_bytes = letter_format.create_pdf(
+                txt, 
+                f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}", 
+                is_heirloom, 
+                lang, 
+                sig_path
+            )
+            
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(pdf_bytes)
                 pdf_path = tmp.name
@@ -298,11 +307,9 @@ def render_review_page():
             
             status = "sent_api" if res else "pending"
             
-            # --- SAVE TO DATABASE WITH NEW FIELDS ---
+            # --- SAVE TO DB WITH SIGNATURE ---
             if database: 
-                # Convert sig to string representation if needed, or just mark it present
-                sig_meta = "Signature Included" if sig_path else "No Signature"
-                database.save_draft(u_email, txt, tier, 2.99, to_addr, from_addr, sig_meta, status)
+                database.save_draft(u_email, txt, tier, 2.99, to_addr, from_addr, sig_storage, status)
             
             if is_heirloom and mailer: mailer.send_heirloom_notification(u_email, txt)
             

@@ -3,6 +3,7 @@ import pandas as pd
 import tempfile
 import os
 import json
+import base64
 
 try: import database
 except: database = None
@@ -14,8 +15,20 @@ except: letter_format = None
 def show_admin():
     st.title("🔐 Admin Console")
     
-    # User check (same as before)
-    # ...
+    u_email = "Unknown"
+    if st.session_state.get("user"):
+        u = st.session_state.user
+        if isinstance(u, dict): u_email = u.get("email", "Unknown")
+        elif hasattr(u, "email"): u_email = u.email
+        elif hasattr(u, "user"): u_email = u.user.email
+            
+    st.info(f"Logged in as: {u_email}")
+    
+    # 1. Stats
+    c1, c2, c3 = st.columns(3)
+    with c1: st.metric("System", "Online 🟢")
+    with c2: st.metric("Database", "Connected 🟢" if database else "Offline 🔴")
+    with c3: st.metric("Stripe", "Configured 🟢" if "stripe" in st.secrets else "Missing 🔴")
 
     st.divider()
     tab_orders, tab_promo = st.tabs(["📦 Order Fulfillment", "🎟️ Promo Codes"])
@@ -37,36 +50,45 @@ def show_admin():
                 if letter:
                     st.success(f"Selected: Order #{letter['ID']} ({letter['Tier']})")
                     
-                    # Parse JSON addresses
+                    # --- FIX: Parse JSON Addresses ---
                     try:
-                        to_a = json.loads(letter["Recipient"])
-                        # Construct readable string
-                        to_str = f"{to_a.get('name')}\n{to_a.get('address_line1')}\n{to_a.get('address_city')}, {to_a.get('address_state')} {to_a.get('address_zip')}"
-                    except: to_str = "Error parsing recipient data"
+                        to_data = json.loads(letter["Recipient"])
+                        to_str = f"{to_data.get('name', '')}\n{to_data.get('address_line1', '')}\n{to_data.get('address_city', '')}, {to_data.get('address_state', '')} {to_data.get('address_zip', '')}"
+                    except: to_str = "Error parsing recipient"
 
                     try:
-                        from_a = json.loads(letter["Sender"])
-                        from_str = f"From: {from_a.get('name')}\n{from_a.get('address_line1')}"
+                        from_data = json.loads(letter["Sender"])
+                        from_str = f"{from_data.get('name', '')}\n{from_data.get('address_line1', '')}\n{from_data.get('address_city', '')}, {from_data.get('address_state', '')} {from_data.get('address_zip', '')}"
                     except: from_str = f"From: {letter['Email']}"
+
+                    # --- FIX: Decode Signature ---
+                    sig_path = None
+                    if letter.get("Signature") and len(str(letter["Signature"])) > 50:
+                        try:
+                            sig_bytes = base64.b64decode(letter["Signature"])
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                                tmp.write(sig_bytes)
+                                sig_path = tmp.name
+                        except: pass
 
                     c_view, c_action = st.columns(2)
                     with c_view:
                         st.markdown("**Letter Content:**")
                         st.text_area("Body", letter["Content"], height=200, disabled=True)
-                        st.markdown("**Addresses:**")
-                        st.text(f"TO:\n{to_str}")
+                        st.markdown("**Recipient:**")
+                        st.code(to_str)
                     
                     with c_action:
                         st.markdown("**Generate PDF**")
                         if st.button("Generate & Download PDF"):
                             if letter_format:
-                                # Generate PDF using stored data
                                 pdf_bytes = letter_format.create_pdf(
                                     letter["Content"], 
                                     to_str, 
                                     from_str, 
                                     is_heirloom="Heirloom" in letter["Tier"],
-                                    language="English"
+                                    language="English",
+                                    signature_path=sig_path
                                 )
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                     tmp.write(pdf_bytes)
@@ -74,10 +96,18 @@ def show_admin():
                                     
                                 with open(tmp_path, "rb") as f:
                                     st.download_button("⬇️ Download PDF", f, f"Order_{letter['ID']}.pdf", "application/pdf")
+                                
+                                # Cleanup
+                                if sig_path: os.remove(sig_path)
                             else: st.error("Letter Format module missing.")
                 else: st.info("Enter an ID above.")
             else: st.info("No drafts found.")
         else: st.warning("Database not connected.")
 
-    # (Promo tab same as before)
-    # ...
+    with tab_promo:
+        # ... promo code logic ...
+        pass
+    
+    if st.button("⬅️ Return to Main App"):
+        st.session_state.current_view = "splash"
+        st.rerun()
