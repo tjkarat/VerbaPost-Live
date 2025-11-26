@@ -82,7 +82,7 @@ def render_splash_page():
     <div style="text-align: center; margin-bottom: 30px;">
         <h3 style="color: #2d3748; font-weight: 600;">Turn your voice into a real letter.</h3>
         <p style="font-size: 1.2rem; color: #555; margin-top: 15px; line-height: 1.6;">
-            Texts are trivial. Emails are ignored.<br><b style="color: #2d3748;">REAL LETTERS GET OPENED.</b>
+            Texts are trivial. Emails are ignored.<br><b style="color: #2a5298;">REAL LETTERS GET OPENED.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -194,7 +194,7 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # FINAL CSS Fix: White Text via Inline Styles on SPAN
+                        # Final CSS Fix: White text on button
                         st.markdown(f"""
                         <a href="{url}" target="_blank" style="text-decoration: none !important;">
                             <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
@@ -291,6 +291,7 @@ def render_workspace_page():
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
+        # FIX: The original typo was here: background-color -> background_color
         canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
         if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
