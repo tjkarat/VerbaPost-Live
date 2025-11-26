@@ -3,13 +3,12 @@ import stripe
 
 def create_checkout_session(product_name, amount_cents, success_url, cancel_url):
     try:
-        # Aggressive Key Loading
         if "stripe" in st.secrets:
             stripe.api_key = st.secrets["stripe"]["secret_key"]
         elif "STRIPE_SECRET_KEY" in st.secrets:
             stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
         else:
-            st.error("System Error: Stripe keys not found in secrets.")
+            st.error("DEBUG: Stripe Keys Missing in Secrets")
             return None, None
 
         session = stripe.checkout.Session.create(
@@ -31,8 +30,7 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url)
         return session.url, session.id
         
     except Exception as e:
-        # Show the real error
-        st.error(f"Stripe Connection Failed: {e}")
+        st.error(f"Stripe Error: {e}")
         return None, None
 
 def check_payment_status(session_id):
