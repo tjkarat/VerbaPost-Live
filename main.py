@@ -41,25 +41,43 @@ st.markdown(f"""
     </style>
 """, unsafe_allow_html=True)
 
-try: import ui_splash, ui_login, ui_admin, ui_main, auth_engine
+# --- IMPORTS ---
+# Added ui_santa here so it loads if available
+try: import ui_splash, ui_login, ui_admin, ui_main, auth_engine, ui_santa
 except: st.stop()
 
 if "current_view" not in st.session_state: st.session_state.current_view = "splash"
 if "user" not in st.session_state: st.session_state.user = None
 
 def check_is_admin():
+    # 1. Check if secret exists
     try:
         if "ADMIN_EMAIL" in st.secrets: t = st.secrets["ADMIN_EMAIL"]
         elif "admin" in st.secrets: t = st.secrets["admin"]["email"]
         else: return False
     except: return False
+    
     if not st.session_state.user: return False
+    
+    # 2. Robust Email Extraction (Fixes the visibility issue)
     u = st.session_state.user
-    e = u.get("email") if isinstance(u, dict) else (u.email if hasattr(u, "email") else "")
+    e = ""
+    if isinstance(u, dict): 
+        e = u.get("email", "")
+    elif hasattr(u, "email"): 
+        e = u.email
+    elif hasattr(u, "user"): 
+        # This handles the nested case common in some auth providers
+        e = u.user.email 
+        
     return e.strip().lower() == t.strip().lower()
 
 with st.sidebar:
     if st.button("🏠 Home", use_container_width=True): st.session_state.current_view = "splash"; st.rerun()
+    
+    # Santa Link
+    if st.button("🎅 Letter from Santa", use_container_width=True): st.session_state.current_view="santa_app"; st.rerun()
+
     if st.session_state.user:
         if check_is_admin():
             if st.button("🔐 Admin Console", type="primary", use_container_width=True): st.session_state.current_view="admin"; st.rerun()
@@ -86,6 +104,9 @@ elif v == "main_app": ui_main.show_main_app()
 elif v == "admin": 
     if check_is_admin(): ui_admin.show_admin()
     else: st.session_state.current_view="splash"; st.rerun()
+elif v == "santa_app": 
+    # Routing for the new module
+    ui_santa.render_santa_page()
 elif v == "forgot_password": ui_login.show_forgot_password(auth_engine.send_password_reset)
 elif v == "reset_verify": ui_login.show_reset_verify(auth_engine.reset_password_with_token)
 elif v == "legal": import ui_legal; ui_legal.show_legal()

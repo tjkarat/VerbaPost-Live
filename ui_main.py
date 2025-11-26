@@ -261,7 +261,8 @@ def render_review_page():
         text = st.session_state.get("transcribed_text", "")
         
         if mailer and letter_format:
-            pdf_bytes = letter_format.create_pdf(text, f"{to_name}\n{to_street}\n{to_city}, {to_state}", f"{from_name}\n{from_street}\n{from_city}, {from_state}", is_heirloom, sig_path)
+            # --- UPDATE: Added Zip Codes here ---
+            pdf_bytes = letter_format.create_pdf(text, f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}", is_heirloom, sig_path)
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(pdf_bytes)
                 pdf_path = tmp.name
