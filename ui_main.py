@@ -45,8 +45,25 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    st.markdown(f"""
-    <style>#hero-container h1, #hero-container div {{ color: #FFFFFF !important; }}</style>
+    # INJECT CSS HERE TO ENSURE IT LOADS
+    st.markdown("""
+    <style>
+        /* Force White Text in Hero */
+        #hero-container h1, #hero-container div { color: #FFFFFF !important; }
+        
+        /* FIX: Secondary Buttons (Legal/Terms) - Force Dark Text */
+        div.stButton > button[kind="secondary"] {
+            background-color: white !important;
+            color: #333333 !important;
+            border: 1px solid #cccccc !important;
+        }
+        div.stButton > button[kind="secondary"] p {
+            color: #333333 !important;
+        }
+        
+        /* Sidebar Force Visible */
+        [data-testid="stSidebar"] { display: block !important; }
+    </style>
     <div id="hero-container" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
@@ -54,6 +71,23 @@ def render_hero(title, subtitle):
         <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
+
+# --- PAGE: LEGAL ---
+def render_legal_page():
+    render_hero("Legal Center", "Transparency & Trust")
+    tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    with tab_tos:
+        with st.container(border=True):
+            st.subheader("1. Service Usage")
+            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
+    with tab_privacy:
+        with st.container(border=True):
+            st.subheader("Data Handling")
+            st.write("We process your voice data solely for transcription.")
+
+    if st.button("← Return to Home", type="primary"):
+        st.session_state.app_mode = "splash"
+        st.rerun()
 
 # --- PAGE: SPLASH ---
 def render_splash_page():
@@ -124,16 +158,26 @@ def render_login_page():
                         sb.auth.sign_up({"email": email, "password": password})
                         st.success("Check email.")
                     except Exception as e: st.error(f"Signup failed: {e}")
-            
-            if st.button("Forgot Password?", type="secondary"):
-                st.session_state.app_mode = "forgot_password"
-                st.rerun()
 
     if st.button("← Back"): st.session_state.app_mode = "splash"; st.rerun()
 
 # --- PAGE: STORE ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
+    
+    # --- ADMIN BUTTON (Main Page Fallback) ---
+    if st.session_state.get("user"):
+        u_email = st.session_state.get("user_email", "")
+        if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
+        admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
+        user_clean = str(u_email).strip().lower()
+        
+        if user_clean == admin_target:
+             if st.button("🔐 Open Admin Console", type="secondary"):
+                 import ui_admin
+                 ui_admin.show_admin()
+                 return # Stop rendering store if admin clicked
+    
     c1, c2 = st.columns([2, 1])
     with c1:
         with st.container(border=True):
@@ -149,7 +193,7 @@ def render_store_page():
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            
+            # Map back to key
             if "Standard" in selected_option: tier_code = "Standard"
             elif "Heirloom" in selected_option: tier_code = "Heirloom"
             elif "Civic" in selected_option: tier_code = "Civic"
@@ -184,10 +228,20 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
+                        # FIX: CSS Bomb for White Text (Using text-fill-color)
                         st.markdown(f"""
-                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
-                            <div style="background-color:#2a5298;color:white;padding:12px;text-align:center;border-radius:8px;font-weight:bold;margin-top:10px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color:white !important; -webkit-text-fill-color: white !important;">👉 Pay Now (Secure)</span>
+                        <a href="{url}" target="_self" style="text-decoration: none !important;">
+                            <div style="
+                                background-color:#2a5298; color:#FFFFFF !important;
+                                padding:12px; text-align:center; border-radius:8px;
+                                font-weight:bold; margin-top:10px;
+                                box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                                <span style="
+                                    color: #FFFFFF !important; 
+                                    -webkit-text-fill-color: #FFFFFF !important;
+                                    text-decoration: none !important;">
+                                    👉 Pay Now (Secure)
+                                </span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
@@ -201,18 +255,18 @@ def render_workspace_page():
     render_hero("Compose", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
+    
+    # --- AUTO-POPULATE LOGIC ---
+    def_name=def_street=def_city=def_state=def_zip=""
     if database and u_email:
         profile = database.get_user_profile(u_email)
-        def_name = profile.full_name if profile else ""
-        def_street = profile.address_line1 if profile else ""
-        def_city = profile.address_city if profile else ""
-        def_state = profile.address_state if profile else ""
-        def_zip = profile.address_zip if profile else ""
-    else:
-        def_name=def_street=def_city=def_state=def_zip=""
-
-    d = st.session_state.draft if "draft" in st.session_state else {}
-
+        if profile:
+            def_name = profile.full_name or ""
+            def_street = profile.address_line1 or ""
+            def_city = profile.address_city or ""
+            def_state = profile.address_state or ""
+            def_zip = profile.address_zip or ""
+    
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
@@ -227,15 +281,9 @@ def render_workspace_page():
                 to_state = c_y.text_input("State", key="w_to_state")
                 to_zip = c_z.text_input("Zip", key="w_to_zip")
             with c2:
-                st.markdown("**From (Locked)**")
-                st.info("🎅 North Pole Official")
-                # Hardcoded Santa Display (Disabled)
-                st.text_input("Sender", value="SANTA CLAUS", disabled=True)
-                st.text_input("Street", value="123 ELF ROAD", disabled=True)
-                st.text_input("Location", value="NORTH POLE, 88888", disabled=True)
-                
-                # Set variables for logic
-                from_name="SANTA CLAUS"; from_street="123 ELF ROAD"; from_city="NORTH POLE"; from_state="NP"; from_zip="88888"
+                st.markdown("**From**")
+                st.info("🎅 North Pole (Locked)")
+                from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
         
         elif is_civic:
             st.info("Civic Mode: We auto-find your reps.")
@@ -260,6 +308,7 @@ def render_workspace_page():
                 to_zip = c_z.text_input("Zip", key="w_to_zip")
             with c2:
                 st.markdown("**From**")
+                # Use variables populated from DB
                 from_name = st.text_input("Name", value=def_name, key="w_from_name")
                 from_street = st.text_input("Street", value=def_street, key="w_from_street")
                 c_a, c_b, c_c = st.columns(3)
@@ -268,12 +317,13 @@ def render_workspace_page():
                 from_zip = c_c.text_input("Zip", value=def_zip, key="w_from_zip")
 
         if st.button("Save Addresses"):
-            if database and u_email and "Santa" not in tier and "Civic" not in tier: 
+            # Update DB with new values for future
+            if database and u_email and not is_santa and not is_civic: 
                 database.update_user_profile(u_email, from_name, from_street, from_city, from_state, from_zip)
             
             if is_santa:
                 st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
-                st.session_state.from_addr = {"name": "SANTA CLAUS", "street": "123 ELF ROAD", "city": "NORTH POLE", "state": "NP", "zip": "88888"}
+                st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888"}
             elif is_civic:
                  st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
                  st.session_state.to_addr = {"name": "Civic", "street": "Civic"}
@@ -315,6 +365,7 @@ def render_review_page():
         is_santa = "Santa" in tier
         lang = st.session_state.get("selected_language", "English")
         
+        # Signature logic...
         sig_path = None
         sig_storage = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
@@ -355,21 +406,7 @@ def render_review_page():
             
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
-            
-            # --- FIXED FINISH REDIRECT ---
-            if st.button("Finish"): 
-                reset_app()
-                st.rerun()
-
-# --- PAGE: LEGAL ---
-def render_legal_page():
-    render_hero("Legal", "Terms & Privacy")
-    with st.container(border=True):
-         st.subheader("Terms of Service")
-         st.write("Do not use this service for illegal activities.")
-         st.subheader("Privacy Policy")
-         st.write("We protect your data.")
-    if st.button("Back"): st.session_state.app_mode = "splash"; st.rerun()
+            if st.button("Finish"): reset_app(); st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -397,7 +434,7 @@ def show_main_app():
          render_hero("Recovery", "Reset Password")
          if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
 
-    # 3. Sidebar
+    # 3. Sidebar (Backup)
     with st.sidebar:
         if st.button("Home"): reset_app(); st.rerun()
         if st.session_state.get("user"):
@@ -405,13 +442,4 @@ def show_main_app():
             u_email = st.session_state.get("user_email", "")
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
-            
-            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-            user_clean = str(u_email).strip().lower()
-            
-            if user_clean == admin_target:
-                st.success("Admin Access")
-                import ui_admin
-                if st.button("Open Console"): ui_admin.show_admin()
-            
             if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
