@@ -55,20 +55,46 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-# --- PAGE: LEGAL ---
+# --- PAGE: LEGAL (FULL TEXT RESTORED) ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
+    
     tab_tos, tab_privacy = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy"])
+    
     with tab_tos:
         with st.container(border=True):
-            st.subheader("1. Service Usage")
-            st.write("You agree NOT to use VerbaPost to send threatening, abusive, or illegal content via US Mail.")
-            st.subheader("2. Refunds")
-            st.write("Once a letter has been processed by our printing partners, it cannot be cancelled.")
+            st.subheader("1. Acceptance of Terms")
+            st.write("By accessing and using VerbaPost, you accept and agree to be bound by the terms and provision of this agreement.")
+            
+            st.subheader("2. Service Usage")
+            st.write("VerbaPost provides a service to convert dictated or typed content into physical mail. You agree NOT to use this service to send:")
+            st.markdown("""
+            * Threatening, abusive, or harassing content.
+            * Illegal substances or material soliciting illegal acts.
+            * Fraudulent or deceptive mail (mail fraud).
+            """)
+            
+            st.subheader("3. Payments & Refunds")
+            st.write("Payments are processed securely via Stripe. Once a letter has been handed off to our printing partners or the USPS, it cannot be cancelled or refunded.")
+            
+            st.subheader("4. Limitation of Liability")
+            st.write("VerbaPost is not liable for delays, loss, or damage caused by the United States Postal Service (USPS) or incorrect addresses provided by the user.")
+
     with tab_privacy:
         with st.container(border=True):
-            st.subheader("Data Handling")
-            st.write("We process your voice data solely for transcription. We do not sell your personal information.")
+            st.subheader("1. Data Collection")
+            st.write("We collect only the information necessary to process your letter:")
+            st.markdown("""
+            * **Voice Data:** Transcribed via AI and stored only until the letter is generated.
+            * **Addresses:** Stored securely to facilitate mailing.
+            * **Payment:** Processed via Stripe; we do not store your full credit card number.
+            """)
+            
+            st.subheader("2. Data Usage")
+            st.write("Your data is used strictly for the generation and mailing of your physical document. We do **not** sell your data to third parties.")
+            
+            st.subheader("3. Security")
+            st.write("We use industry-standard encryption (SSL) for data transmission. Our database is secured via Supabase with Row Level Security (RLS).")
 
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
@@ -160,13 +186,12 @@ def render_login_page():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
-    # ADMIN BYPASS BUTTON
+    # ADMIN CONSOLE BUTTON (MOVED TO MAIN PAGE)
     if st.session_state.get("user"):
         u_email = st.session_state.get("user_email", "")
-        if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
         admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-        if str(u_email).strip().lower() == admin_target:
-             if st.button("🔐 Open Admin Console", type="secondary"):
+        if u_email and str(u_email).strip().lower() == admin_target:
+             if st.button("🔐 Open Admin Console", type="secondary", use_container_width=True):
                  import ui_admin
                  ui_admin.show_admin()
                  return
@@ -178,19 +203,19 @@ def render_store_page():
             tier_display = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
             selected_option = st.radio("Select Tier", list(tier_display.keys()), format_func=lambda x: tier_display[x])
             
-            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope.")
-            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, physical stamp.")
-            elif "Civic" in selected_option: st.info("3 letters sent to your representatives.")
+            if "Standard" in selected_option: st.info("Premium paper, #10 window envelope, First Class Mail.")
+            elif "Heirloom" in selected_option: st.info("Hand-addressed envelope, physical stamp, premium feel.")
+            elif "Civic" in selected_option: st.info("3 letters sent to your 2 Senators and 1 Representative.")
             elif "Santa" in selected_option: st.success("Festive background, North Pole return address.")
 
             lang = st.selectbox("Language", ["English", "Spanish", "French"])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            if "Standard" in selected_option: tier_code = "Standard"
-            elif "Heirloom" in selected_option: tier_code = "Heirloom"
-            elif "Civic" in selected_option: tier_code = "Civic"
-            elif "Santa" in selected_option: tier_code = "Santa"
-            else: tier_code = "Standard"
+            if "Standard" in selected_option: tier_code="Standard"
+            elif "Heirloom" in selected_option: tier_code="Heirloom"
+            elif "Civic" in selected_option: tier_code="Civic"
+            elif "Santa" in selected_option: tier_code="Santa"
+            else: tier_code="Standard"
             
             price = prices[tier_code]
 
@@ -220,17 +245,22 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&lang={lang}&session_id={{CHECKOUT_SESSION_ID}}"
                     url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                     if url: 
-                        # DEFINITIVE WHITE TEXT FIX
+                        # FINAL CSS FIX FOR WHITE TEXT
                         st.markdown(f"""
-                        <style>
-                        a.pay-link, a.pay-link:visited, a.pay-link:hover, a.pay-link:active {{
-                            color: #FFFFFF !important;
-                            text-decoration: none !important;
-                        }}
-                        </style>
-                        <a href="{url}" target="_self" class="pay-link">
-                            <div style="background-color:#2a5298; padding:12px; text-align:center; border-radius:8px; margin-top:10px; box-shadow:0 4px 6px rgba(0,0,0,0.1);">
-                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 18px;">👉 Pay Now (Secure)</span>
+                        <a href="{url}" target="_blank" style="text-decoration: none !important;">
+                            <div style="
+                                background-color:#2a5298 !important; 
+                                color: #FFFFFF !important;
+                                padding: 12px; 
+                                text-align: center; 
+                                border-radius: 8px; 
+                                font-weight: bold; 
+                                margin-top: 10px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                            ">
+                                <span style="color: #FFFFFF !important; -webkit-text-fill-color: #FFFFFF !important;">
+                                    👉 Pay Now (Secure)
+                                </span>
                             </div>
                         </a>
                         """, unsafe_allow_html=True)
@@ -333,23 +363,14 @@ def render_workspace_page():
              if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
         st.write("🎤 **Dictation**")
-        
-        # Validation Gate: Check if address is saved
-        is_ready = False
-        if is_civic and st.session_state.get("from_addr"): is_ready = True
-        elif st.session_state.get("to_addr") and st.session_state.get("to_addr").get("name"): is_ready = True
-        
-        if not is_ready:
-            st.warning("⚠️ Please Fill & Save Addresses Above First")
-        else:
-            audio = st.audio_input("Record")
-            if audio:
-                with st.status("Transcribing..."):
-                    if ai_engine:
-                        text = ai_engine.transcribe_audio(audio)
-                        st.session_state.transcribed_text = text
-                        st.session_state.app_mode = "review"
-                        st.rerun()
+        audio = st.audio_input("Record")
+        if audio:
+            with st.status("Transcribing..."):
+                if ai_engine:
+                    text = ai_engine.transcribe_audio(audio)
+                    st.session_state.transcribed_text = text
+                    st.session_state.app_mode = "review"
+                    st.rerun()
 
 def render_review_page():
     render_hero("Review", "Finalize Letter")
@@ -360,9 +381,7 @@ def render_review_page():
         to_a = st.session_state.get("to_addr", {})
         from_a = st.session_state.get("from_addr", {})
         
-        if not to_a.get("name") and "Civic" not in tier: 
-            st.error("Recipient Name Missing! Go back and save address.")
-            return
+        if not to_a.get("name"): st.error("Recipient Name Missing!"); return
 
         is_heirloom = "Heirloom" in tier
         is_santa = "Santa" in tier
@@ -394,7 +413,8 @@ def render_review_page():
                 pdf_path = tmp.name
             
             res = None
-            # Mailer Logic...
+            if not is_heirloom and not is_santa and mailer:
+                pass
             
             u_email = st.session_state.get("user_email", "guest")
             status = "sent_api" if res else "pending"
@@ -407,11 +427,7 @@ def render_review_page():
             
             st.session_state.letter_sent = True
             st.success("Letter Sent!")
-            
-            # Explicit Reset
-            if st.button("Finish"): 
-                reset_app()
-                st.rerun()
+            if st.button("Finish"): reset_app(); st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -420,7 +436,7 @@ def show_main_app():
     # 1. Handle Routing
     mode = st.session_state.get("app_mode", "splash")
 
-    # Stripe Return Check (TOP LEVEL PRIORITY)
+    # Stripe Return Check
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
@@ -448,13 +464,5 @@ def show_main_app():
             u_email = st.session_state.get("user_email", "")
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
-            
-            admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
-            user_clean = str(u_email).strip().lower()
-            
-            if user_clean == admin_target:
-                st.success("Admin Access")
-                import ui_admin
-                if st.button("Open Console"): ui_admin.show_admin()
             
             if st.button("Sign Out"): st.session_state.pop("user", None); reset_app(); st.rerun()
