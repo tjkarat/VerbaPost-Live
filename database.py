@@ -2,95 +2,72 @@ import streamlit as st
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
-from typing import Type, Any, Tuple, Dict
-import uuid
 
-# Global placeholder variables
-Engine = None
-SessionLocal = None
-Base = None
-Models: Dict[str, Any] = {} 
+# --- GLOBAL SETUP (Define Models Once) ---
+Base = declarative_base()
 
-# --- 1. INITIALIZE DATABASE SETUP ---
-@st.cache_resource(ttl=3600)
-def initialize_database() -> Tuple[Any, Any, Any, Dict[str, Any]]:
-    global Engine, SessionLocal, Base, Models
-    
-    if Engine is not None and Models:
-        return Engine, SessionLocal, Base, Models
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, index=True)
+    full_name = Column(String)
+    address_line1 = Column(String)
+    address_city = Column(String)
+    address_state = Column(String)
+    address_zip = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
+class LetterDraft(Base):
+    __tablename__ = "letter_drafts"
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String, index=True)
+    transcription = Column(Text)
+    status = Column(String, default="Draft") 
+    tier = Column(String)
+    price = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+# --- ENGINE MANAGEMENT ---
+@st.cache_resource
+def get_engine():
+    """Creates and caches the database engine."""
     if "DATABASE_URL" in st.secrets:
+        # Fix postgres:// compatibility
         db_url = st.secrets["DATABASE_URL"].replace("postgres://", "postgresql://")
     else:
+        print("⚠️ Warning: Using local SQLite.")
         db_url = "sqlite:///local_dev.db"
 
     try:
-        Engine = create_engine(db_url, pool_pre_ping=True)
-        SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=Engine)
-        Base = declarative_base()
+        engine = create_engine(db_url, pool_pre_ping=True)
+        # Create tables if they don't exist
+        Base.metadata.create_all(bind=engine)
+        return engine
     except Exception as e:
-        print(f"❌ Database Engine Error: {e}")
-        Engine = create_engine("sqlite:///") 
-        SessionLocal = sessionmaker(bind=Engine)
-        Base = declarative_base()
-        return Engine, SessionLocal, Base, {}
+        print(f"❌ DB Connection Error: {e}")
+        return None
 
-    # --- MODELS ---
-    class UserProfile(Base):
-        __tablename__ = "user_profiles"
-        id = Column(Integer, primary_key=True, index=True)
-        email = Column(String, unique=True, index=True)
-        full_name = Column(String)
-        address_line1 = Column(String)
-        address_city = Column(String)
-        address_state = Column(String)
-        address_zip = Column(String)
-        created_at = Column(DateTime, default=datetime.utcnow)
-
-    class LetterDraft(Base):
-        __tablename__ = "letter_drafts"
-        id = Column(Integer, primary_key=True, index=True)
-        user_email = Column(String, index=True)
-        transcription = Column(Text)
-        status = Column(String, default="Draft") 
-        tier = Column(String)
-        price = Column(String)
-        created_at = Column(DateTime, default=datetime.utcnow)
-    
-    Models = {'user_profiles': UserProfile, 'letter_drafts': LetterDraft}
-        
-    try:
-        Base.metadata.create_all(bind=Engine)
-    except Exception as e:
-        print(f"❌ Error Creating Tables: {e}")
-        
-    return Engine, SessionLocal, Base, Models
-
-initialize_database()
+# --- SESSION MANAGEMENT ---
+def get_session():
+    """Creates a new database session."""
+    engine = get_engine()
+    if not engine: return None
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return SessionLocal()
 
 # --- HELPER FUNCTIONS ---
 
-def get_session():
-    if not Engine: initialize_database()
-    return SessionLocal()
-
-def get_model(name: str):
-    if not Models: initialize_database()
-    return Models.get(name)
-
 def get_user_profile(email):
-    UserProfile = get_model('user_profiles')
-    if not UserProfile: return None
     db = get_session()
+    if not db: return None
     try:
         return db.query(UserProfile).filter(UserProfile.email == email).first()
     except: return None
     finally: db.close()
 
 def save_draft(email, text, tier, price, status="Draft", address_data=None):
-    LetterDraft = get_model('letter_drafts')
-    if not LetterDraft: return None
     db = get_session()
+    if not db: return None
     try:
         draft = LetterDraft(user_email=email, transcription=text, tier=tier, price=str(price), status=status)
         db.add(draft); db.commit(); db.refresh(draft)
@@ -99,9 +76,8 @@ def save_draft(email, text, tier, price, status="Draft", address_data=None):
     finally: db.close()
 
 def update_user_profile(email, name, street, city, state, zip_code):
-    UserProfile = get_model('user_profiles')
-    if not UserProfile: return None
     db = get_session()
+    if not db: return
     try:
         user = db.query(UserProfile).filter(UserProfile.email == email).first()
         if not user:
@@ -112,12 +88,10 @@ def update_user_profile(email, name, street, city, state, zip_code):
     except: pass
     finally: db.close()
 
-# --- UPDATED FETCH FOR ADMIN ---
 def fetch_all_drafts():
-    """Returns all drafts as a list of dictionaries including CONTENT."""
-    LetterDraft = get_model('letter_drafts')
-    if not LetterDraft: return []
+    """Returns all drafts as a list of dictionaries for the Admin Console."""
     db = get_session()
+    if not db: return []
     try:
         results = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
         data = []
@@ -129,11 +103,8 @@ def fetch_all_drafts():
                 "Status": r.status,
                 "Date": r.created_at,
                 "Price": r.price,
-                "Content": r.transcription # Added this field
+                "Content": r.transcription # Included for PDF generation
             })
         return data
-    except Exception as e:
-        print(f"Fetch Error: {e}")
-        return []
-    finally:
-        db.close()
+    except: return []
+    finally: db.close()
