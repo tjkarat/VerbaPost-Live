@@ -94,20 +94,24 @@ def render_store_page():
                     
                     if st.session_state.get("stripe_url"):
                         url = st.session_state.stripe_url
+                        # FIX: Nested div forces white text, overriding standard link colors
                         st.markdown(f"""
-                        <a href="{url}" target="_self" style="
-                            display: block;
-                            width: 100%;
-                            padding: 12px;
-                            background-color: #2a5298;
-                            color: white !important;
-                            text-align: center;
-                            border-radius: 8px;
-                            text-decoration: none;
-                            font-weight: bold;
-                            margin-top: 10px;
-                            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-                        ">👉 Pay Now (Secure)</a>
+                        <a href="{url}" target="_self" style="text-decoration: none;">
+                            <div style="
+                                display: block;
+                                width: 100%;
+                                padding: 12px;
+                                background-color: #2a5298;
+                                color: #FFFFFF !important;
+                                text-align: center;
+                                border-radius: 8px;
+                                font-weight: bold;
+                                margin-top: 10px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                            ">
+                                👉 Pay Now (Secure)
+                            </div>
+                        </a>
                         """, unsafe_allow_html=True)
                 else:
                     st.warning("No Payment Engine")
