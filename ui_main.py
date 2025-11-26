@@ -61,6 +61,7 @@ def render_store_page():
             tier_code = selected_tier_name.split(" ")[1] 
             st.session_state.temp_tier = tier_code
             st.session_state.temp_price = price
+            st.session_state.temp_lang = lang # Store language selection
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
@@ -74,13 +75,6 @@ def render_store_page():
             st.divider()
             if is_free:
                 if st.button("🚀 Start (Promo Applied)", type="primary", use_container_width=True):
-                    u_email = "guest"
-                    if st.session_state.get("user"):
-                        u = st.session_state.user
-                        if isinstance(u, dict): u_email = u.get("email")
-                        elif hasattr(u, "email"): u_email = u.email
-                        elif hasattr(u, "user"): u_email = u.user.email
-                    promo_engine.log_usage(promo_code, u_email)
                     st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code
                     st.session_state.app_mode = "workspace"; st.rerun()
             else:
@@ -88,53 +82,33 @@ def render_store_page():
                     st.info("⚠️ **Note:** Payment opens in a new tab. Return here after.")
                     if st.button("Proceed to Payment", type="primary", use_container_width=True):
                         with st.spinner("Connecting to Stripe..."):
-                            # Unpack both values
-                            result = payment_engine.create_checkout_session(
+                            url, sess_id = payment_engine.create_checkout_session(
                                 f"VerbaPost {tier_code}", 
                                 int(price * 100), 
                                 f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}&tier={tier_code}", 
                                 YOUR_APP_URL
                             )
-                            if result and result[0]:
-                                st.session_state.stripe_url = result[0]
+                            if url:
+                                st.session_state.stripe_url = url
                                 st.rerun()
                             else:
                                 st.error("Stripe Error: Check Logs/Secrets")
                     
                     if st.session_state.get("stripe_url"):
                         url = st.session_state.stripe_url
-                        
-                        # --- CSS BOMB TO FIX BLACK TEXT ---
                         st.markdown(f"""
                         <style>
-                            a[href*="checkout.stripe.com"] {{
-                                text-decoration: none !important;
-                                color: #FFFFFF !important;
-                            }}
-                            a[href*="checkout.stripe.com"]:visited {{
-                                color: #FFFFFF !important;
-                            }}
-                            a[href*="checkout.stripe.com"] div {{
-                                color: #FFFFFF !important;
-                            }}
-                            a[href*="checkout.stripe.com"] span {{
-                                color: #FFFFFF !important;
-                                -webkit-text-fill-color: #FFFFFF !important;
+                            a.pay-btn-link, a.pay-btn-link:visited, a.pay-btn-link:hover, a.pay-btn-link:active {{
+                                text-decoration: none !important; color: #FFFFFF !important;
                             }}
                         </style>
-                        <a href="{url}" target="_blank">
+                        <a href="{url}" target="_blank" class="pay-btn-link">
                             <div style="
-                                display: block;
-                                width: 100%;
-                                padding: 14px;
-                                background-color: #2a5298;
-                                text-align: center;
-                                border-radius: 8px;
-                                margin-top: 10px;
-                                box-shadow: 0 4px 6px rgba(0,0,0,0.15);
-                                transition: transform 0.1s;
+                                display: block; width: 100%; padding: 12px; background-color: #2a5298;
+                                text-align: center; border-radius: 8px; margin-top: 10px;
+                                box-shadow: 0 4px 6px rgba(0,0,0,0.1); cursor: pointer;
                             ">
-                                <span style="font-weight: bold; font-size: 18px;">
+                                <span style="color: #FFFFFF !important; font-weight: bold; font-size: 16px;">
                                     👉 Pay Now (Secure)
                                 </span>
                             </div>
@@ -277,24 +251,39 @@ def render_review_page():
         to_addr = {"name": to_name, "address_line1": to_street, "address_city": to_city, "address_state": to_state, "address_zip": to_zip}
         from_addr = {"name": from_name, "address_line1": from_street, "address_city": from_city, "address_state": from_state, "address_zip": from_zip}
         
+        # --- SIGNATURE HANDLING ---
         sig_path = None
         if "sig_data" in st.session_state and st.session_state.sig_data is not None:
             try:
+                # Convert numpy array to Image
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
+                
+                # Handle transparency (flatten to white background)
                 bg = Image.new("RGB", img.size, (255,255,255))
-                bg.paste(img, mask=img.split()[3])
+                bg.paste(img, mask=img.split()[3]) # Use alpha channel as mask
+                
+                # Save to temp file for FPDF
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
                     bg.save(tmp_sig, format="PNG")
                     sig_path = tmp_sig.name
-            except: pass
+            except Exception as e:
+                print(f"Sig Error: {e}")
 
         text = st.session_state.get("transcribed_text", "")
+        lang = st.session_state.get("temp_lang", "English") # Get language from store state
         
         if mailer and letter_format:
-            pdf_bytes = letter_format.create_pdf(text, f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}", is_heirloom, sig_path)
+            # --- FIXED CALL: Pass args in correct order (content, to, from, heirloom, lang, SIG_PATH) ---
+            pdf_bytes = letter_format.create_pdf(
+                text, 
+                f"{to_name}\n{to_street}\n{to_city}, {to_state} {to_zip}", 
+                f"{from_name}\n{from_street}\n{from_city}, {from_state} {from_zip}", 
+                is_heirloom, 
+                lang, 
+                sig_path  # <--- NOW PASSING SIGNATURE PATH CORRECTLY
+            )
             
-            # --- FIX: Write as binary ("wb") ---
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf", mode="wb") as tmp:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                 tmp.write(pdf_bytes)
                 pdf_path = tmp.name
             
@@ -315,7 +304,7 @@ def render_review_page():
             if is_heirloom and mailer: mailer.send_heirloom_notification(u_email, text)
             
             os.remove(pdf_path)
-            if sig_path: os.remove(sig_path)
+            if sig_path: os.remove(sig_path) # Cleanup temp signature
             
             st.session_state.letter_sent = True
             st.rerun()
