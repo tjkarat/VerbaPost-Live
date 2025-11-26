@@ -6,25 +6,24 @@ st.set_page_config(
     page_title="VerbaPost",
     page_icon="📮",
     layout="centered",
-    initial_sidebar_state="expanded" # <--- CHANGED BACK TO EXPANDED
+    initial_sidebar_state="collapsed"
 )
 
 # --- 2. CSS ---
 def inject_global_css():
     st.markdown("""
     <style>
-        .stApp { background-color: #f8f9fc; }
+        /* Core Theme */
+        .stApp { background-color: #f8f9fc; color: #2d3748; font-family: 'Helvetica Neue', sans-serif; }
         header, .stDeployButton, footer { visibility: hidden; }
+        h1, h2, h3, p, div, label, span { color: #2d3748 !important; }
         
-        /* Force ALL Text Dark */
-        h1, h2, h3, h4, h5, h6, p, li, label, span, div {
-            color: #2d3748 !important;
-        }
-        
-        /* Inputs & Sidebar */
-        .stTextInput input, div[data-baseweb="select"] > div {
+        /* Input Fields */
+        .stTextInput input, .stSelectbox div, div[data-baseweb="select"] > div {
             background-color: white !important; color: #2d3748 !important; border: 1px solid #e2e8f0 !important;
         }
+        
+        /* Sidebar */
         [data-testid="stSidebar"] { background-color: white !important; border-right: 1px solid #e2e8f0; }
         
         /* Buttons */
