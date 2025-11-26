@@ -41,36 +41,6 @@ def reset_app():
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="hero-banner"><div class="hero-title">{title}</div><div class="hero-subtitle">{subtitle}</div></div>""", unsafe_allow_html=True)
 
-# --- AUTH CALLBACKS (FIXED DATA FLOW) ---
-def login_callback():
-    # Pull directly from state to ensure we get what the user JUST typed
-    email = st.session_state.login_email
-    password = st.session_state.login_password
-    
-    sb = get_supabase()
-    if not sb: st.error("❌ Connection Failed. Check Secrets."); return
-    try:
-        res = sb.auth.sign_in_with_password({"email": email, "password": password})
-        st.session_state.user = res
-        st.session_state.user_email = email 
-        reset_app()
-        st.session_state.app_mode = "store"
-        # No rerun needed here, the callback end triggers a rerun
-    except Exception as e: 
-        st.error(f"Login failed: {e}")
-
-def signup_callback():
-    email = st.session_state.login_email
-    password = st.session_state.login_password
-    
-    sb = get_supabase()
-    if not sb: st.error("❌ Connection Failed. Check Secrets."); return
-    try:
-        sb.auth.sign_up({"email": email, "password": password})
-        st.success("Check email for confirmation.")
-    except Exception as e: 
-        st.error(f"Signup failed: {e}")
-
 # --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Transparency & Trust")
@@ -85,7 +55,7 @@ def render_legal_page():
             st.write("We process your voice data solely for transcription.")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("← Return to Home", type="primary", use_container_width=True):
+    if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
         st.rerun()
 
@@ -120,24 +90,51 @@ def show_main_app():
     if st.session_state.app_mode == "legal": render_legal_page(); return
 
     if st.session_state.app_mode == "forgot_password":
-        # ... (Forgot Password Logic from previous steps) ...
         auth_ui.route_auth_page("forgot_password") 
         return
 
-    # --- 3. LOGIN PAGE (FIXED CALLBACKS) ---
+    if st.session_state.app_mode == "verify_reset":
+        auth_ui.route_auth_page("verify_reset")
+        return
+
+    # --- 3. LOGIN PAGE (Simplified Logic) ---
     if st.session_state.app_mode == "login":
         st.markdown("<h1 style='text-align: center;'>Welcome Back</h1>", unsafe_allow_html=True)
         
         c1, c2, c3 = st.columns([1, 2, 1])
         with c2:
             with st.container(border=True):
-                # Keys are critical for the callback to find the data
-                st.text_input("Email Address", key="login_email")
-                st.text_input("Password", type="password", key="login_password")
+                email = st.text_input("Email Address")
+                password = st.text_input("Password", type="password")
                 
-                # FIX: Removed 'args'. Logic is now inside the function.
-                st.button("Log In", type="primary", use_container_width=True, on_click=login_callback)
-                st.button("Sign Up", use_container_width=True, on_click=signup_callback)
+                # DIRECT LOGIC - No complex callbacks
+                if st.button("Log In", type="primary", use_container_width=True):
+                    sb = get_supabase()
+                    if not sb:
+                         st.error("❌ Connection Failed. Check Secrets.")
+                    else:
+                        try:
+                            res = sb.auth.sign_in_with_password({"email": email, "password": password})
+                            st.session_state.user = res
+                            st.session_state.user_email = email
+                            
+                            # Reset and Redirect
+                            reset_app()
+                            st.session_state.app_mode = "store"
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Login failed: {e}")
+
+                if st.button("Sign Up", use_container_width=True):
+                    sb = get_supabase()
+                    if not sb:
+                         st.error("❌ Connection Failed. Check Secrets.")
+                    else:
+                        try:
+                            sb.auth.sign_up({"email": email, "password": password})
+                            st.success("Check email for confirmation.")
+                        except Exception as e:
+                            st.error(f"Signup failed: {e}")
                 
                 if st.button("Forgot Password?", type="secondary", use_container_width=True):
                     st.session_state.app_mode = "forgot_password"
@@ -155,7 +152,7 @@ def show_main_app():
             if not u_email and hasattr(st.session_state.user, 'user'): u_email = st.session_state.user.user.email
             st.caption(f"Logged in: {u_email}")
             
-            # --- ADMIN DEBUG ---
+            # --- ADMIN CHECK ---
             admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower()
             user_clean = u_email.strip().lower() if u_email else ""
             
@@ -167,7 +164,6 @@ def show_main_app():
                         code = promo_engine.generate_code()
                         st.info(f"Code: `{code}`")
                     
-                    # Link to full console
                     import ui_admin
                     if st.button("Open Full Database"):
                         ui_admin.show_admin()
@@ -205,7 +201,7 @@ def show_main_app():
                      if st.button("Start (Free)", type="primary"):
                          st.session_state.payment_complete = True
                          st.session_state.app_mode = "workspace"
-                         st.session_state.locked_tier = tier
+                         st.session_state.locked_tier = tier.split()[1] if "Santa" not in tier else "Santa"
                          st.session_state.selected_language = lang
                          st.rerun()
                 else:
@@ -227,8 +223,8 @@ def show_main_app():
         tier = st.session_state.get("locked_tier", "Standard")
         render_hero("Compose", f"{tier} Edition")
         
-        # ... (Full Workspace Logic from previous successful file) ...
-        # Placeholder for brevity, but ensure the full address/dictation block is here
+        # ... (Copy full Workspace logic from previous steps) ...
+        # Placeholder to ensure file compiles - restore full logic here
         st.info("Dictation Workspace Active")
         st.button("Skip to Review (Debug)", on_click=lambda: st.session_state.update(app_mode="review"))
 
