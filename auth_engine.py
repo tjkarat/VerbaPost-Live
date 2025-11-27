@@ -1,12 +1,14 @@
 import streamlit as st
 from supabase import create_client
+import secrets_manager
 
-# --- HELPER: CONNECT TO DB ---
 def get_client():
     try:
-        # Support both formats of secrets
-        url = st.secrets.get("SUPABASE_URL") or st.secrets["supabase"]["url"]
-        key = st.secrets.get("SUPABASE_KEY") or st.secrets["supabase"]["key"]
+        # MATCHES YOUR SECRETS FILE EXACTLY
+        url = secrets_manager.get_secret("SUPABASE_URL")
+        key = secrets_manager.get_secret("SUPABASE_KEY")
+        
+        if not url or not key: return None, "Missing Supabase Credentials"
         return create_client(url, key), None
     except Exception as e:
         return None, f"Connection Error: {e}"

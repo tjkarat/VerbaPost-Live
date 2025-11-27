@@ -1,12 +1,14 @@
 import streamlit as st
 import stripe
+import secrets_manager # <--- New Import
 
 def create_checkout_session(product_name, amount_cents, success_url, cancel_url):
     try:
-        if "stripe" in st.secrets:
-            stripe.api_key = st.secrets["stripe"]["secret_key"]
-        elif "STRIPE_SECRET_KEY" in st.secrets:
-            stripe.api_key = st.secrets["STRIPE_SECRET_KEY"]
+        # UPDATED: Get Key safely
+        stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
+        
+        if stripe_key:
+            stripe.api_key = stripe_key
         else:
             st.error("DEBUG: Stripe Keys Missing in Secrets")
             return None, None
@@ -34,8 +36,11 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url)
         return None, None
 
 def check_payment_status(session_id):
-    if "stripe" in st.secrets:
-        stripe.api_key = st.secrets["stripe"]["secret_key"]
+    # UPDATED: Get Key safely
+    stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
+    if stripe_key:
+        stripe.api_key = stripe_key
+        
     try:
         session = stripe.checkout.Session.retrieve(session_id)
         return session.payment_status == 'paid'

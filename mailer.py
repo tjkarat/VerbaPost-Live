@@ -1,19 +1,24 @@
 import streamlit as st
 import requests
 import resend
+import secrets_manager # <--- New Import
 
-# --- CONFIGURATION ---
 def get_postgrid_key():
-    try: return st.secrets["postgrid"]["api_key"]
-    except: return None
+    # Matches [postgrid] api_key
+    return secrets_manager.get_secret("postgrid.api_key")
 
 def get_resend_key():
-    try:
-        # Check [email] block first (Your setup)
-        if "email" in st.secrets: return st.secrets["email"]["password"]
-        # Check [resend] block fallback
-        elif "resend" in st.secrets: return st.secrets["resend"]["api_key"]
-    except: return None
+    # MATCHES YOUR SECRETS: [email] password
+    return secrets_manager.get_secret("email.password")
+
+# --- CONFIG ---
+def get_postgrid_key():
+    # Looks for postgrid.api_key OR POSTGRID_API_KEY
+    return secrets_manager.get_secret("postgrid.api_key")
+
+def get_resend_key():
+    # Looks for resend.api_key OR RESEND_API_KEY
+    return secrets_manager.get_secret("resend.api_key")
 
 # --- FUNCTION 1: SEND PHYSICAL MAIL (POSTGRID) ---
 def send_letter(pdf_path, to_address, from_address):
@@ -56,15 +61,13 @@ def send_letter(pdf_path, to_address, from_address):
 
 # --- FUNCTION 2: SEND ADMIN ALERT (HEIRLOOM) ---
 def send_heirloom_notification(user_email, letter_text):
-    """
-    Sends email alert using the SAFE 'onboarding' address to ensure delivery.
-    """
     key = get_resend_key()
     if not key: 
         print("❌ Resend Key Missing")
         return False
     
     resend.api_key = key
+    admin_email = secrets_manager.get_secret("admin.email") or "tjkarat@gmail.com"
 
     subject = f"🔔 New Heirloom Order: {user_email}"
     
@@ -79,11 +82,9 @@ def send_heirloom_notification(user_email, letter_text):
     """
 
     try:
-        # CRITICAL FIX: Use 'onboarding@resend.dev' to guarantee delivery 
-        # until your custom domain is 100% DNS verified.
         r = resend.Emails.send({
             "from": "VerbaPost Admin <onboarding@resend.dev>",
-            "to": ["tjkarat@gmail.com", "support@verbapost.com"],
+            "to": [admin_email],
             "subject": subject,
             "html": html
         })
@@ -92,31 +93,3 @@ def send_heirloom_notification(user_email, letter_text):
     except Exception as e:
         print(f"❌ Admin Email Failed: {e}")
         return False
-
-# --- FUNCTION 3: SHIPPING CONFIRMATION ---
-def send_shipping_confirmation(user_email, recipient_info):
-    key = get_resend_key()
-    if not key: return False, "Missing Key"
-    resend.api_key = key
-    
-    r_name = recipient_info.get('recipient_name') or "Recipient"
-    
-    html = f"""
-    <div style="font-family: sans-serif; padding: 20px; color: #333;">
-        <h2 style="color: #2a5298;">🚀 Your Letter is on the way!</h2>
-        <p>Your letter to <strong>{r_name}</strong> has been mailed.</p>
-        <p>Thank you for using VerbaPost.</p>
-    </div>
-    """
-
-    try:
-        # Use onboarding address for safety
-        r = resend.Emails.send({
-            "from": "VerbaPost Support <onboarding@resend.dev>",
-            "to": user_email,
-            "subject": "Your letter has been mailed!",
-            "html": html
-        })
-        return True, f"ID: {r.get('id')}"
-    except Exception as e:
-        return False, str(e)

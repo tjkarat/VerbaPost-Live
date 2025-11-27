@@ -3,6 +3,7 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import json
+import secrets_manager # <--- The new import
 
 # --- GLOBAL SETUP ---
 Base = declarative_base()
@@ -34,10 +35,16 @@ class LetterDraft(Base):
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
-    if "DATABASE_URL" in st.secrets:
-        db_url = st.secrets["DATABASE_URL"].replace("postgres://", "postgresql://")
+    # UPDATED: Use secrets_manager
+    db_url = secrets_manager.get_secret("DATABASE_URL")
+    
+    if db_url:
+        # Fix SQLAlchemy bug with postgres:// -> postgresql://
+        db_url = db_url.replace("postgres://", "postgresql://")
     else:
+        # Fallback for local testing if no secret set
         db_url = "sqlite:///local_dev.db"
+        
     try:
         engine = create_engine(db_url, pool_pre_ping=True)
         Base.metadata.create_all(bind=engine)

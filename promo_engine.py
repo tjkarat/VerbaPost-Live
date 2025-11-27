@@ -1,11 +1,13 @@
 import streamlit as st
 from supabase import create_client
 from datetime import datetime
+import secrets_manager # <--- New Import
 
 def get_client():
     try:
-        url = st.secrets.get("SUPABASE_URL") or st.secrets["supabase"]["url"]
-        key = st.secrets.get("SUPABASE_KEY") or st.secrets["supabase"]["key"]
+        # UPDATED: Use secrets manager
+        url = secrets_manager.get_secret("supabase.url")
+        key = secrets_manager.get_secret("supabase.key")
         return create_client(url, key)
     except: return None
 
