@@ -5,20 +5,37 @@ def inject_ga():
     # YOUR MEASUREMENT ID
     GA_ID = "G-D3P178CESF"
     
-    # Define the JS code
-    # We use a hidden iframe approach that is more stable in Streamlit
-    ga_js = f"""
-    <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
+    # This script injects the GA tags into the PARENT window (the actual app),
+    # breaking out of the Streamlit iframe sandbox.
+    js_breakout = f"""
     <script>
-        window.dataLayer = window.dataLayer || [];
-        function gtag(){{dataLayer.push(arguments);}}
-        gtag('js', new Date());
-        gtag('config', '{GA_ID}', {{
-            'anonymize_ip': true
-        }});
+        // Check if GA is already loaded to prevent duplicates
+        if (!window.parent.document.getElementById('google-analytics')) {{
+            // 1. Load the GTag Script
+            var script = window.parent.document.createElement('script');
+            script.src = "https://www.googletagmanager.com/gtag/js?id={GA_ID}";
+            script.async = true;
+            script.id = 'google-analytics';
+            window.parent.document.head.appendChild(script);
+
+            // 2. Initialize GTag
+            script.onload = function() {{
+                var script2 = window.parent.document.createElement('script');
+                script2.innerHTML = `
+                    window.dataLayer = window.dataLayer || [];
+                    function gtag(){{dataLayer.push(arguments);}}
+                    gtag('js', new Date());
+                    gtag('config', '{GA_ID}', {{
+                        'anonymize_ip': true,
+                        'cookie_flags': 'SameSite=None;Secure'
+                    }});
+                `;
+                window.parent.document.head.appendChild(script2);
+                console.log("VerbaPost Analytics Injected Successfully");
+            }};
+        }}
     </script>
     """
     
-    # Inject it into the head of the app invisibly
-    # height=0 hides the component visually
-    components.html(ga_js, height=0, width=0)
+    # Inject invisibly
+    components.html(js_breakout, height=0, width=0)
