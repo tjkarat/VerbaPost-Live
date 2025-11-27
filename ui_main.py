@@ -70,7 +70,11 @@ def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     u_email = st.session_state.get("user_email", "")
     
-   admin_target = ""
+def render_store_page():
+    render_hero("Select Service", "Choose your letter type")
+    u_email = st.session_state.get("user_email", "")
+    
+    admin_target = ""
     try:
         # Try finding it via manager first
         if secrets_manager:
