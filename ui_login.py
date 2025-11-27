@@ -4,7 +4,6 @@ def show_login(login_func, signup_func):
     c1, c2, c3 = st.columns([1, 1.5, 1])
     
     with c2:
-        # BRANDING HEADER (Brand Blue Color)
         st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
             <h1 style="color: #2a5298 !important; margin-bottom: 0;">VerbaPost 📮</h1>
@@ -17,9 +16,9 @@ def show_login(login_func, signup_func):
                 st.error(st.session_state.auth_error)
                 del st.session_state.auth_error
             
-            tab_login, tab_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
+            tab_login, tab_signup = st.tabs(["🔑 Log In", "📝 Sign Up"])
             
-            # --- LOGIN TAB ---
+            # --- LOGIN ---
             with tab_login:
                 email = st.text_input("Email Address", key="login_email")
                 password = st.text_input("Password", type="password", key="login_pass")
@@ -32,25 +31,22 @@ def show_login(login_func, signup_func):
                     else:
                         st.warning("Enter email & password")
                 
-                # Forgot Password Link
-                st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
                     st.session_state.current_view = "forgot_password"
                     st.rerun()
             
-            # --- SIGNUP TAB (UPDATED) ---
+            # --- SIGNUP WITH ADDRESS ---
             with tab_signup:
+                st.caption("Create your account to save your Return Address.")
                 new_email = st.text_input("Email", key="new_email")
                 new_pass = st.text_input("Password", type="password", key="new_pass")
-                # NEW: Confirm Password Field
                 confirm_pass = st.text_input("Confirm Password", type="password", key="confirm_pass")
                 
                 st.markdown("---")
-                name = st.text_input("Full Name")
-                lang = st.selectbox("Language", ["English", "Spanish", "French"])
+                st.markdown("**Your Return Address**")
+                name = st.text_input("Full Name", placeholder="John Doe")
+                addr = st.text_input("Street Address", placeholder="123 Main St")
                 
-                st.caption("Address (for return labels)")
-                addr = st.text_input("Street Address")
                 c_city, c_state, c_zip = st.columns([2, 1, 1])
                 city = c_city.text_input("City")
                 state = c_state.text_input("State")
@@ -59,68 +55,23 @@ def show_login(login_func, signup_func):
                 st.markdown("<br>", unsafe_allow_html=True)
                 
                 if st.button("Create Account", type="primary", use_container_width=True):
-                    # 1. Check Passwords Match
                     if new_pass != confirm_pass:
                         st.error("❌ Passwords do not match")
-                    # 2. Check Required Fields
-                    elif new_email and new_pass and name:
+                    elif new_email and new_pass and name and addr and zip_code:
                         with st.spinner("Creating account..."):
-                            signup_func(new_email, new_pass, name, addr, city, state, zip_code, lang)
+                            signup_func(new_email, new_pass, name, addr, city, state, zip_code, "English")
                     else:
-                        st.warning("Please fill in Email, Password, and Name")
+                        st.warning("Please fill in all fields (Email, Password, Name, Address)")
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:
         if st.button("← Back to Home", type="secondary", use_container_width=True):
-            st.session_state.current_view = "splash"
+            st.session_state.app_mode = "splash"
             st.rerun()
 
-# --- FORGOT PASSWORD SCREENS ---
 def show_forgot_password(send_code_func):
-    c1, c2, c3 = st.columns([1, 1.5, 1])
-    with c2:
-        st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Recovery 🔐</h2>", unsafe_allow_html=True)
-        with st.container(border=True):
-            st.info("Enter your email. We will send you a verification token.")
-            email = st.text_input("Email Address", key="reset_email_input")
-            
-            if st.button("Send Token", type="primary", use_container_width=True):
-                if email:
-                    success, msg = send_code_func(email)
-                    if success:
-                        st.session_state.reset_email = email
-                        st.session_state.current_view = "reset_verify"
-                        st.rerun()
-                    else:
-                        st.error(f"Error: {msg}")
-                else:
-                    st.warning("Please enter your email")
-            
-            if st.button("Cancel", type="secondary", use_container_width=True):
-                st.session_state.current_view = "login"
-                st.rerun()
+    st.info("Feature coming soon.")
+    if st.button("Back"): st.session_state.app_mode = "login"; st.rerun()
 
 def show_reset_verify(verify_func):
-    c1, c2, c3 = st.columns([1, 1.5, 1])
-    with c2:
-        st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Set Password 🔑</h2>", unsafe_allow_html=True)
-        with st.container(border=True):
-            email = st.session_state.get("reset_email", "")
-            st.success(f"Token sent to: **{email}**")
-            
-            token = st.text_input("Enter Token (from email)")
-            new_pass = st.text_input("New Password", type="password")
-            
-            if st.button("Update Password", type="primary", use_container_width=True):
-                if token and new_pass:
-                    success, msg = verify_func(email, token, new_pass)
-                    if success:
-                        st.success("✅ Password Updated! Please log in.")
-                        if st.button("Go to Login"):
-                            st.session_state.current_view = "login"
-                            st.rerun()
-                    else:
-                        st.error(f"Failed: {msg}")
-                else:
-                    st.warning("Please enter token and new password")
+    pass

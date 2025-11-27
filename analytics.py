@@ -4,10 +4,12 @@ def inject_ga():
     # YOUR MEASUREMENT ID
     GA_ID = "G-D3P178CESF"
     
-    # Note: We use 'unsafe_allow_html' to inject the script tag directly into the page body.
-    # This works better than components.html for tracking main page views.
+    # Injected into the <head> logic via streamlit
+    # Note: Streamlit executions are wrapped, so we inject this script 
+    # to run on load.
     
     ga_code = f"""
+    <!-- Global site tag (gtag.js) - Google Analytics -->
     <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
     <script>
         window.dataLayer = window.dataLayer || [];
@@ -19,4 +21,5 @@ def inject_ga():
         }});
     </script>
     """
+    # This might print slightly visible whitespace in some themes, but it's the standard way
     st.markdown(ga_code, unsafe_allow_html=True)
