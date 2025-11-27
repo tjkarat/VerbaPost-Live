@@ -9,17 +9,11 @@ from sqlalchemy import text
 
 try: import database
 except: database = None
-try: import promo_engine
-except: promo_engine = None
 try: import letter_format
 except: letter_format = None
-try: import mailer
-except: mailer = None
 
 def generate_admin_pdf(letter, is_santa=False, is_heirloom=False):
-    """Helper to generate PDF bytes"""
     try:
-        # Robust Data Parsing
         raw_to = letter.get("Recipient", "{}")
         raw_from = letter.get("Sender", "{}")
         
@@ -30,19 +24,42 @@ def generate_admin_pdf(letter, is_santa=False, is_heirloom=False):
         if not isinstance(from_data, dict): from_data = {}
 
         to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
-        from_str = "Santa Claus" if is_santa else f"{from_data.get('name','')}\n{from_data.get('street','')}"
+        
+        # FIX 1: Add City/State/Zip to Sender Address
+        if is_santa:
+            from_str = "Santa Claus"
+        else:
+            from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+
+        # FIX 2: Decode Base64 Signature
+        sig_path = None
+        raw_sig = letter.get("Signature")
+        if raw_sig and len(raw_sig) > 50: # Simple check to see if it might be base64
+            try:
+                # If it's a string representation of a list, this will fail (handling old bad data)
+                if not raw_sig.startswith("[[["): 
+                    sig_bytes = base64.b64decode(raw_sig)
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
+                        tmp.write(sig_bytes)
+                        sig_path = tmp.name
+            except Exception as e:
+                print(f"Sig Decode Error: {e}")
 
         if letter_format:
-            return letter_format.create_pdf(
+            pdf_data = letter_format.create_pdf(
                 letter.get("Content", ""), 
                 to_str, 
                 from_str, 
                 is_heirloom=is_heirloom,
-                is_santa=is_santa
+                is_santa=is_santa,
+                signature_path=sig_path # Pass the recovered signature
             )
-        else:
-            st.error("Letter Format module missing")
-            return None
+            
+            # Clean up temp file
+            if sig_path and os.path.exists(sig_path): os.remove(sig_path)
+            return pdf_data
+            
+        return None
     except Exception as e:
         st.error(f"PDF Generation Error: {e}")
         return None
