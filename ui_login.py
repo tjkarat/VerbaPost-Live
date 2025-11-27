@@ -28,7 +28,7 @@ def show_login(login_func, signup_func):
             
             tab_login, tab_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
             
-            # --- LOGIN TAB (FORM) ---
+            # --- LOGIN TAB ---
             with tab_login:
                 with st.form("login_form"):
                     email = st.text_input("Email Address", key="login_email")
@@ -44,12 +44,12 @@ def show_login(login_func, signup_func):
                         else:
                             st.warning("Enter email & password")
                 
-                # IMPORTANT FIX: Update app_mode, NOT current_view
+                # Forgot Password Link
                 if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
                     st.session_state.app_mode = "forgot_password"
                     st.rerun()
             
-            # --- SIGNUP TAB (FORM WITH VALIDATION) ---
+            # --- SIGNUP TAB ---
             with tab_signup:
                 st.caption("Please fill out your details below. Your address is required for return labels.")
                 
@@ -73,7 +73,7 @@ def show_login(login_func, signup_func):
                     submitted_signup = st.form_submit_button("Create Account", type="primary", use_container_width=True)
                     
                     if submitted_signup:
-                        # 1. Validation
+                        # Validation
                         addr_errors = validate_address(addr, city, state, zip_code)
                         
                         if new_pass != confirm_pass:

@@ -1,14 +1,16 @@
 import streamlit as st
 from supabase import create_client
-import secrets_manager
+import secrets_manager 
 
 def get_client():
     try:
-        # MATCHES YOUR SECRETS FILE EXACTLY
-        url = secrets_manager.get_secret("SUPABASE_URL")
-        key = secrets_manager.get_secret("SUPABASE_KEY")
+        # Robust lookup: Checks GCP Env Vars (Uppercase) first, then Streamlit Secrets
+        url = secrets_manager.get_secret("SUPABASE_URL") or secrets_manager.get_secret("supabase.url")
+        key = secrets_manager.get_secret("SUPABASE_KEY") or secrets_manager.get_secret("supabase.key")
         
-        if not url or not key: return None, "Missing Supabase Credentials"
+        if not url or not key: 
+            return None, "Missing Supabase Credentials"
+        
         return create_client(url, key), None
     except Exception as e:
         return None, f"Connection Error: {e}"
@@ -60,6 +62,7 @@ def send_password_reset(email):
     client, err = get_client()
     if err: return False, err
     try:
+        # This sends the magic link/token to the user's email
         client.auth.reset_password_email(email)
         return True, None
     except Exception as e:
@@ -69,8 +72,10 @@ def reset_password_with_token(email, token, new_password):
     client, err = get_client()
     if err: return False, err
     try:
+        # Verify the OTP token
         res = client.auth.verify_otp({"email": email, "token": token, "type": "recovery"})
         if res.user:
+            # If verified, update the password
             client.auth.update_user({"password": new_password})
             return True, None
         else:

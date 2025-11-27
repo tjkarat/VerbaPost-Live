@@ -50,7 +50,7 @@ except ImportError:
     secrets_manager = None
 
 # --- CONFIG ---
-DEFAULT_URL = "https://verbapost.streamlit.app/"
+DEFAULT_URL = "https://verbapost.com/"
 YOUR_APP_URL = DEFAULT_URL
 
 try:
@@ -64,18 +64,17 @@ except:
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
 def reset_app():
-    # Force navigation to Store (Dashboard) if logged in, else Splash
     if st.session_state.get("user_email"):
         st.session_state.app_mode = "store"
     else:
         st.session_state.app_mode = "splash"
     
-    # Clear all processing state
-    keys_to_clear = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "from_addr", "letter_sent_success"]
-    for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
-            
+    st.session_state.audio_path = None
+    st.session_state.transcribed_text = ""
+    st.session_state.payment_complete = False
+    st.session_state.sig_data = None
+    st.session_state.to_addr = {}
+    st.session_state.from_addr = {}
     st.query_params.clear()
 
 def render_hero(title, subtitle):
@@ -110,6 +109,7 @@ def render_legal_page():
         **3. Delivery**
         VerbaPost acts as a fulfillment agent. We are not liable for USPS lost or delayed mail.
         """)
+        
         st.divider()
         st.subheader("Privacy Policy")
         st.write("We retain letter data for 30 days. Payment data is handled securely by Stripe.")
@@ -276,12 +276,10 @@ def render_review_page():
     if "letter_sent_success" not in st.session_state:
         st.session_state.letter_sent_success = False
 
-    # 2. Text Area (Disabled if sent)
     txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300, disabled=st.session_state.letter_sent_success)
     st.session_state.transcribed_text = txt 
     
     # 3. THE "SWAP" LOGIC
-    # If NOT sent yet, show Send Button
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             with st.spinner("Processing & Mailing..."):
@@ -296,7 +294,6 @@ def render_review_page():
                 if tier == "Santa": from_str = "Santa Claus"
                 else: from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
                 
-                # Signature
                 sig_path = None
                 sig_db_value = None
                 is_santa = (tier == "Santa")
@@ -312,11 +309,9 @@ def render_review_page():
                         sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
                     except: pass
 
-                # PDF Gen
                 if letter_format:
                     pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
                     
-                    # PostGrid
                     postgrid_success = False
                     if tier == "Standard" and mailer:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -346,7 +341,6 @@ def render_review_page():
 
                     if sig_path and os.path.exists(sig_path): os.remove(sig_path)
                     
-                    # DB Save
                     if database:
                         if tier == "Standard":
                             final_status = "Completed" if postgrid_success else "Pending Admin"
@@ -360,17 +354,14 @@ def render_review_page():
                             sig_data=sig_db_value
                         )
                 
-                # --- STATE UPDATE (Prevents Double Send) ---
                 st.session_state.letter_sent_success = True
                 st.rerun()
 
-    # 4. IF SENT, SHOW SUCCESS + FINISH
     else:
         show_santa_animation()
         st.success("✅ Letter Queued for Delivery!")
         st.info("You can now return to the dashboard.")
         
-        # This button is now the ONLY option, preventing double-sends
         if st.button("🏁 Finish & Return Home"): 
             reset_app()
             st.rerun()
@@ -387,6 +378,16 @@ def show_main_app():
 
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": import ui_login; import auth_engine; ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,c,s,z,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,l))
+    
+    # --- ADDED THESE MISSING ROUTES ---
+    elif mode == "forgot_password":
+        import ui_login; import auth_engine
+        ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
+    elif mode == "reset_verify":
+        import ui_login; import auth_engine
+        ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
+    # ----------------------------------
+
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
