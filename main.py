@@ -28,6 +28,15 @@ def inject_global_css():
         .custom-hero h1, .custom-hero div {
             color: white !important;
         }
+                /* Forces text inside the Blue Hero Box to be White */
+        .custom-hero h1, .custom-hero div {
+            color: white !important;
+        }
+        
+        /* Forces text inside Buttons to be White */
+        div.stButton > button p {
+            color: white !important;
+        }
         /* INPUT LABELS - BRAND BLUE FIX */
         label, .stTextInput label, .stSelectbox label {
             color: #2a5298 !important;

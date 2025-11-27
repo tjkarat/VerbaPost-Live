@@ -40,7 +40,7 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    # ADDED class='custom-hero' so CSS in main.py can target this specific box
+    # We add class="custom-hero" so we can target this specific box with CSS
     st.markdown(f"""
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
