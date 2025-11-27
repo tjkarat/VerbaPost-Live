@@ -28,7 +28,10 @@ class LetterPDF(FPDF):
     def header(self):
         # This runs automatically every time a new page is added
         if self.is_santa:
-            # 1. Cream Background
+            # Save current state to prevent infinite loops or layout shifts
+            self.set_auto_page_break(False)
+            
+            # 1. Cream Background (Draw full page rect)
             self.set_fill_color(252, 247, 235) 
             self.rect(0, 0, 215.9, 279.4, 'F')
             
@@ -44,6 +47,7 @@ class LetterPDF(FPDF):
             # 3. Header Text (Only on Page 1)
             if self.page_no() == 1:
                 self.set_y(20)
+                # Fallback to Helvetica if fonts aren't loaded yet
                 self.set_font("Helvetica", "B", 24)
                 self.set_text_color(180, 20, 20) 
                 self.cell(0, 10, "FROM THE DESK OF SANTA CLAUS", 0, 1, 'C')
@@ -52,6 +56,9 @@ class LetterPDF(FPDF):
                 self.set_text_color(20, 100, 20) 
                 self.cell(0, 5, "Official North Pole Correspondence | List Status: NICE", 0, 1, 'C')
                 self.set_text_color(0, 0, 0) # Reset text color
+            
+            # Restore auto page break for the body content
+            self.set_auto_page_break(True, margin=20)
 
 def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language="English", signature_path=None, is_santa=False):
     ensure_fonts()
@@ -118,7 +125,9 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
     pdf.ln(20) 
     if is_santa:
         pdf.set_x(pdf.l_margin)
-        pdf.set_font(font_map['hand'], '', 32)
+        # Ensure 'hand' font is available, else fallback
+        sig_font = font_map.get('hand', 'Helvetica')
+        pdf.set_font(sig_font, '', 32)
         pdf.set_text_color(180, 20, 20) 
         pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
     elif signature_path and os.path.exists(signature_path):
@@ -132,6 +141,10 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
     footer = 'Official North Pole Mail' if is_santa else 'Dictated & Mailed via VerbaPost.com'
     pdf.cell(0, 10, footer, 0, 0, 'C')
 
-    # FIX: Use pdf.output() to return bytearray directly.
-    # Do not use dest="S" as it returns string which fails b64 encoding.
-    return bytes(pdf.output())
+    # FIX: Explicitly Output String and Encode to Bytes
+    # This prevents the "string argument without an encoding" error
+    try:
+        return pdf.output(dest='S').encode('latin-1')
+    except Exception as e:
+        print(f"PDF Output Error: {e}")
+        return None
