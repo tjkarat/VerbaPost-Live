@@ -64,21 +64,18 @@ except:
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
 def reset_app():
-    # FIX: Smart Redirect
-    # If user is logged in -> Go to "Store" (Main Dashboard)
-    # If not logged in -> Go to "Splash" (Landing Page)
+    # Force navigation to Store (Dashboard) if logged in, else Splash
     if st.session_state.get("user_email"):
         st.session_state.app_mode = "store"
     else:
         st.session_state.app_mode = "splash"
     
-    # Clear session data to restart the flow
-    st.session_state.audio_path = None
-    st.session_state.transcribed_text = ""
-    st.session_state.payment_complete = False
-    st.session_state.sig_data = None
-    st.session_state.to_addr = {}
-    st.session_state.from_addr = {}
+    # Clear all processing state
+    keys_to_clear = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "from_addr", "letter_sent_success"]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+            
     st.query_params.clear()
 
 def render_hero(title, subtitle):
@@ -113,7 +110,6 @@ def render_legal_page():
         **3. Delivery**
         VerbaPost acts as a fulfillment agent. We are not liable for USPS lost or delayed mail.
         """)
-        
         st.divider()
         st.subheader("Privacy Policy")
         st.write("We retain letter data for 30 days. Payment data is handled securely by Stripe.")
@@ -275,92 +271,106 @@ def render_workspace_page():
 
 def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
-    txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300)
+    
+    # 1. State Management for the "Process"
+    if "letter_sent_success" not in st.session_state:
+        st.session_state.letter_sent_success = False
+
+    # 2. Text Area (Disabled if sent)
+    txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300, disabled=st.session_state.letter_sent_success)
     st.session_state.transcribed_text = txt 
     
-    if st.button("🚀 Send Letter", type="primary"):
-        tier = st.session_state.get("locked_tier", "Standard")
-        u_email = st.session_state.get("user_email")
-        
-        to_data = st.session_state.get("to_addr", {})
-        from_data = st.session_state.get("from_addr", {})
-        
-        to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
-        
-        if tier == "Santa": from_str = "Santa Claus"
-        else: from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
-        
-        sig_path = None
-        sig_db_value = None
-        is_santa = (tier == "Santa")
-        
-        if not is_santa and st.session_state.get("sig_data") is not None:
-            try:
-                img_data = st.session_state.sig_data
-                img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
-                    img.save(tmp_sig.name)
-                    sig_path = tmp_sig.name
-                buf = io.BytesIO()
-                img.save(buf, format="PNG")
-                sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
-            except: pass
+    # 3. THE "SWAP" LOGIC
+    # If NOT sent yet, show Send Button
+    if not st.session_state.letter_sent_success:
+        if st.button("🚀 Send Letter", type="primary"):
+            with st.spinner("Processing & Mailing..."):
+                tier = st.session_state.get("locked_tier", "Standard")
+                u_email = st.session_state.get("user_email")
+                
+                to_data = st.session_state.get("to_addr", {})
+                from_data = st.session_state.get("from_addr", {})
+                
+                to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
+                
+                if tier == "Santa": from_str = "Santa Claus"
+                else: from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+                
+                # Signature
+                sig_path = None
+                sig_db_value = None
+                is_santa = (tier == "Santa")
+                if not is_santa and st.session_state.get("sig_data") is not None:
+                    try:
+                        img_data = st.session_state.sig_data
+                        img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
+                            img.save(tmp_sig.name)
+                            sig_path = tmp_sig.name
+                        buf = io.BytesIO()
+                        img.save(buf, format="PNG")
+                        sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
+                    except: pass
 
-        if letter_format:
-            pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
-            
-            # --- RESTORED POSTGRID LOGIC ---
-            postgrid_success = False
-            if tier == "Standard" and mailer:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                    tmp.write(pdf_bytes)
-                    tmp_path = tmp.name
-                
-                pg_to = {
-                    'name': to_data.get('name'), 
-                    'address_line1': to_data.get('street'),
-                    'address_city': to_data.get('city'),
-                    'address_state': to_data.get('state'),
-                    'address_zip': to_data.get('zip')
-                }
-                pg_from = {
-                    'name': from_data.get('name'), 
-                    'address_line1': from_data.get('street'),
-                    'address_city': from_data.get('city'),
-                    'address_state': from_data.get('state'),
-                    'address_zip': from_data.get('zip')
-                }
-                
-                print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
-                resp = mailer.send_letter(tmp_path, pg_to, pg_from)
-                os.remove(tmp_path)
-                
-                if resp and resp.get("id"):
-                    postgrid_success = True
-                    print(f"DEBUG: PostGrid Success ID: {resp.get('id')}")
-                else:
-                    print("DEBUG: PostGrid Failed")
+                # PDF Gen
+                if letter_format:
+                    pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
+                    
+                    # PostGrid
+                    postgrid_success = False
+                    if tier == "Standard" and mailer:
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                            tmp.write(pdf_bytes)
+                            tmp_path = tmp.name
+                        
+                        pg_to = {
+                            'name': to_data.get('name'), 
+                            'address_line1': to_data.get('street'),
+                            'address_city': to_data.get('city'),
+                            'address_state': to_data.get('state'),
+                            'address_zip': to_data.get('zip')
+                        }
+                        pg_from = {
+                            'name': from_data.get('name'), 
+                            'address_line1': from_data.get('street'),
+                            'address_city': from_data.get('city'),
+                            'address_state': from_data.get('state'),
+                            'address_zip': from_data.get('zip')
+                        }
+                        print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
+                        resp = mailer.send_letter(tmp_path, pg_to, pg_from)
+                        os.remove(tmp_path)
+                        if resp and resp.get("id"):
+                            postgrid_success = True
+                            print(f"DEBUG: PostGrid Success ID: {resp.get('id')}")
 
-            if sig_path and os.path.exists(sig_path): os.remove(sig_path)
-            
-            # --- SAVE TO DB ---
-            if database:
-                if tier == "Standard":
-                    final_status = "Completed" if postgrid_success else "Pending Admin"
-                else:
-                    final_status = "Pending Admin"
+                    if sig_path and os.path.exists(sig_path): os.remove(sig_path)
+                    
+                    # DB Save
+                    if database:
+                        if tier == "Standard":
+                            final_status = "Completed" if postgrid_success else "Pending Admin"
+                        else:
+                            final_status = "Pending Admin"
+                        
+                        database.save_draft(
+                            u_email, txt, tier, "0.00", 
+                            to_addr=to_data, from_addr=from_data, 
+                            status=final_status, 
+                            sig_data=sig_db_value
+                        )
                 
-                database.save_draft(
-                    u_email, txt, tier, "0.00", 
-                    to_addr=to_data, from_addr=from_data, 
-                    status=final_status, 
-                    sig_data=sig_db_value
-                )
-        
+                # --- STATE UPDATE (Prevents Double Send) ---
+                st.session_state.letter_sent_success = True
+                st.rerun()
+
+    # 4. IF SENT, SHOW SUCCESS + FINISH
+    else:
         show_santa_animation()
-        st.success("Letter Queued for Delivery!")
+        st.success("✅ Letter Queued for Delivery!")
+        st.info("You can now return to the dashboard.")
         
-        # --- FIXED: Finish Button Logic ---
+        # This button is now the ONLY option, preventing double-sends
         if st.button("🏁 Finish & Return Home"): 
             reset_app()
             st.rerun()
