@@ -7,6 +7,7 @@ from datetime import datetime
 FONT_MAP = {
     "Caveat-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Regular.ttf",
 }
+# Fallback font path for Linux/Cloud (Asian Characters)
 CJK_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 
 def ensure_fonts():
@@ -16,7 +17,9 @@ def ensure_fonts():
                 r = requests.get(url, allow_redirects=True)
                 if r.status_code == 200:
                     with open(filename, "wb") as f: f.write(r.content)
-            except: pass# --- CUSTOM PDF CLASS ---
+            except: pass
+
+# --- CUSTOM PDF CLASS ---
 class LetterPDF(FPDF):
     def __init__(self, is_santa=False, **kwargs):
         super().__init__(**kwargs)
@@ -48,7 +51,9 @@ class LetterPDF(FPDF):
                 self.set_font("Helvetica", "I", 10)
                 self.set_text_color(20, 100, 20) 
                 self.cell(0, 5, "Official North Pole Correspondence | List Status: NICE", 0, 1, 'C')
-                self.set_text_color(0, 0, 0) # Reset text colordef create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None, is_santa=False):
+                self.set_text_color(0, 0, 0) # Reset text color
+
+def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language="English", signature_path=None, is_santa=False):
     ensure_fonts()
     
     # Initialize using the Custom Class
@@ -102,7 +107,9 @@ class LetterPDF(FPDF):
     recip_y = 80 if is_santa else 45
     pdf.set_xy(20, recip_y)
     pdf.set_font(addr_font, 'B', 12)
-    pdf.multi_cell(0, 6, recipient_addr)# 4. Main Body Content
+    pdf.multi_cell(0, 6, recipient_addr)
+    
+    # 4. Main Body Content
     pdf.set_xy(20, recip_y + 30)
     pdf.set_font(body_font, '', body_size)
     pdf.multi_cell(170, 8, content)
@@ -125,4 +132,6 @@ class LetterPDF(FPDF):
     footer = 'Official North Pole Mail' if is_santa else 'Dictated & Mailed via VerbaPost.com'
     pdf.cell(0, 10, footer, 0, 0, 'C')
 
-    return pdf.output(dest="S")
+    # FIX: Use pdf.output() to return bytearray directly.
+    # Do not use dest="S" as it returns string which fails b64 encoding.
+    return bytes(pdf.output())
