@@ -79,20 +79,21 @@ def inject_global_css():
             border-right: 1px solid #e2e8f0; 
         }
         
-        /* ANIMATIONS */
+      /* --- SANTA ANIMATION FIX --- */
+        /* Use 'vw' (viewport width) instead of % to ensure he crosses the whole screen */
         @keyframes flyAcross {
-            0% { transform: translateX(-100%); }
-            100% { transform: translateX(150%); }
+            0% { transform: translateX(-200px); }
+            100% { transform: translateX(110vw); } /* Flies 110% across the screen width */
         }
         .santa-sled {
             position: fixed;
             top: 20%;
-            left: -100px;
+            left: 0;
             font-size: 80px;
             z-index: 9999;
-            animation: flyAcross 4s linear forwards;
+            animation: flyAcross 12s linear forwards; /* Increased to 12s for a slower, majestic pace */
             pointer-events: none;
-        }
+        } 
     </style>
     """, unsafe_allow_html=True)
 

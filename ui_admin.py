@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from sqlalchemy import text
 import tempfile
 import os
 import json
@@ -152,8 +153,8 @@ def show_admin():
         # Database Check
         if database:
             try:
-                # Simple query to test connection
-                res = database.get_session().execute(text("SELECT 1")).fetchone()
+                # FIX: Wrap the query string in text()
+                res = database.get_session().execute(text("SELECT 1")).fetchone() 
                 st.success("✅ Database Connected")
             except Exception as e:
                 st.error(f"❌ Database Error: {e}")
