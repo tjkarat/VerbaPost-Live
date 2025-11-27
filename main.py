@@ -24,7 +24,10 @@ def inject_global_css():
         h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span, div { 
             color: #2d3748 !important; 
         }
-
+/* --- HERO HEADER (Blue Box) --- */
+        .custom-hero h1, .custom-hero div {
+            color: white !important;
+        }
         /* INPUT LABELS - BRAND BLUE FIX */
         label, .stTextInput label, .stSelectbox label {
             color: #2a5298 !important;

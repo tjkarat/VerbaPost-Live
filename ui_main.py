@@ -36,9 +36,9 @@ YOUR_APP_URL = "https://verbapost.streamlit.app/"def reset_app():
     st.session_state.from_addr = {}
     st.session_state.civic_targets = []
     st.query_params.clear()
-
+    
 def render_hero(title, subtitle):
-    # ADDED class='custom-hero' for CSS targeting
+    # ADDED class='custom-hero' so CSS in main.py can target this specific box
     st.markdown(f"""
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
