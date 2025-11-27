@@ -8,26 +8,64 @@ import numpy as np
 from PIL import Image
 import io
 
-# --- IMPORTS ---
-try: import database
-except: database = None
-try: import ai_engine
-except: ai_engine = None
-try: import payment_engine
-except: payment_engine = None
-try: import letter_format
-except: letter_format = None
-try: import mailer
-except: mailer = None
-try: import analytics
-except: analytics = None
-try: import promo_engine 
-except: promo_engine = None
-# Added for robust secret handling
-try: import secrets_manager
-except: secrets_manager = None
+# --- IMPORTS (Safe Block) ---
+try:
+    import database
+except ImportError:
+    database = None
 
-YOUR_APP_URL = "https://verbapost.streamlit.app/"
+try:
+    import ai_engine
+except ImportError:
+    ai_engine = None
+
+try:
+    import payment_engine
+except ImportError:
+    payment_engine = None
+
+try:
+    import letter_format
+except ImportError:
+    letter_format = None
+
+try:
+    import mailer
+except ImportError:
+    mailer = None
+
+try:
+    import analytics
+except ImportError:
+    analytics = None
+
+try:
+    import promo_engine
+except ImportError:
+    promo_engine = None
+
+try:
+    import secrets_manager
+except ImportError:
+    secrets_manager = None
+
+# --- CONFIG ---
+# This logic ensures the app redirects to the correct URL after payment
+# regardless of whether it is running on Streamlit Cloud or GCP.
+DEFAULT_URL = "https://verbapost.streamlit.app/"
+YOUR_APP_URL = DEFAULT_URL
+
+try:
+    if secrets_manager:
+        # Check GCP Env Var or Secrets
+        found_url = secrets_manager.get_secret("BASE_URL")
+        if found_url:
+            YOUR_APP_URL = found_url
+except:
+    pass
+
+# Ensure no double slashes at the end
+YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
 def reset_app():
     if st.session_state.get("user_email"):
@@ -74,35 +112,13 @@ def render_store_page():
     
     u_email = st.session_state.get("user_email", "")
     
-    # --- ADMIN CHECK (DEBUGGING VERSION) ---
+    # --- ADMIN CHECK ---
     admin_target = ""
-    
-    # 1. Try Secrets Manager
     try:
+        # 1. Try Secrets Manager (Works on Local + GCP)
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email") or secrets_manager.get_secret("ADMIN_EMAIL")
-    except: pass
-
-    # 2. Brute Force Fallback (Direct OS Env Check)
-    if not admin_target:
-        admin_target = os.environ.get("ADMIN_EMAIL", "")
-
-    # 3. Local Fallback
-    if not admin_target and "admin" in st.secrets:
-        try: admin_target = st.secrets["admin"].get("email", "")
-        except: pass
-
-    # --- LOGGING TO CLOUD CONSOLE ---
-    print(f"DEBUG: Current User: '{u_email}'")
-    print(f"DEBUG: Target Admin: '{admin_target}'")
-    print(f"DEBUG: Match? {str(u_email).strip().lower() == str(admin_target).strip().lower()}")
-    # --------------------------------
-
-    # Check match
-    if str(u_email).strip().lower() == str(admin_target).strip().lower() and admin_target != "":
-        if st.button("🔐 Open Admin Console", type="secondary"):
-            st.session_state.app_mode = "admin"
-            st.rerun()
+        
         # 2. Fallback to direct secrets if manager fails (Local only)
         if not admin_target and "admin" in st.secrets:
             admin_target = st.secrets["admin"].get("email", "")
@@ -110,11 +126,11 @@ def render_store_page():
         pass
 
     # Check if current user matches admin email
-    if str(u_email).strip().lower() == str(admin_target).strip().lower() and admin_target != "":
+    if str(u_email).strip().lower() == str(admin_target).strip().lower() and admin_target:
         if st.button("🔐 Open Admin Console", type="secondary"):
             st.session_state.app_mode = "admin"
             st.rerun()
-    # ---------------------------------------
+    # -------------------
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -157,10 +173,13 @@ def render_store_page():
                 st.metric("Total", f"${price}")
                 if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
                     if database: database.save_draft(u_email, "", tier_code, price)
+                    # Redirect logic handles the return URL automatically now
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                    
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                        if url: st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+                        if url:
+                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
@@ -295,6 +314,7 @@ def show_main_app():
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
+        if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
         st.query_params.clear()
         st.rerun()
 
