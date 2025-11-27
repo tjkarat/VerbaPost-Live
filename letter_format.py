@@ -16,9 +16,7 @@ def ensure_fonts():
                 r = requests.get(url, allow_redirects=True)
                 if r.status_code == 200:
                     with open(filename, "wb") as f: f.write(r.content)
-            except: pass
-
-def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None, is_santa=False):
+            except: passdef create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None, is_santa=False):
     ensure_fonts()
     
     pdf = FPDF(format='Letter')
@@ -59,9 +57,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="Engl
         pdf.set_font("Helvetica", "I", 10)
         pdf.set_text_color(20, 100, 20) 
         pdf.cell(0, 5, "Official North Pole Correspondence | List Status: NICE", 0, 1, 'C')
-        pdf.set_text_color(0, 0, 0)
-
-    # 1. Create First Page
+        pdf.set_text_color(0, 0, 0)# 1. Create First Page
     pdf.add_page()
     
     if is_santa:
@@ -106,9 +102,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom, language="Engl
     # Capture page number before writing text
     start_page = pdf.page_no()
     pdf.multi_cell(170, 8, content)
-    end_page = pdf.page_no()
-
-    # 5. Post-Processing for Multi-Page Santa Border
+    end_page = pdf.page_no()# 5. Post-Processing for Multi-Page Santa Border
     # If text spilled to new pages, go back and draw borders/backgrounds on them
     if is_santa and end_page > start_page:
         for p in range(start_page + 1, end_page + 1):
