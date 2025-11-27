@@ -40,7 +40,7 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    # We add class="custom-hero" so we can target this specific box with CSS
+    # ADDED class='custom-hero' so CSS in main.py can target this specific box
     st.markdown(f"""
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
@@ -50,6 +50,10 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
+def show_santa_animation():
+    st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)
+
+# --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
     
@@ -85,51 +89,6 @@ def render_legal_page():
         
         **3. Your Rights**
         You may request the immediate deletion of your account and data by emailing **privacy@verbapost.com**.
-        """)
-
-    if st.button("← Return to Home", type="primary"):
-        st.session_state.app_mode = "splash"
-        st.rerun()   
-
-def show_santa_animation():
-    st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)
-
-# --- PAGE: LEGAL ---
-def render_legal_page():
-    render_hero("Legal Center", "Terms & Privacy")
-    
-    with st.container(border=True):
-        st.subheader("Terms of Service")
-        st.markdown("""
-        **1. Acceptance of Terms**
-        By accessing and using VerbaPost, you accept and agree to be bound by the terms and provision of this agreement.
-        
-        **2. Service Description**
-        VerbaPost provides a service to convert audio and digital text into physical mail. We utilize third-party APIs (PostGrid, Lob) for the printing and mailing process.
-        
-        **3. User Content**
-        You are responsible for the content of your letters. We do not endorse, support, or guarantee the completeness, truthfulness, accuracy, or reliability of any content posted via the Service.
-        
-        **4. Refunds**
-        Refunds are generally not provided once a letter has been processed for printing. However, if a technical error occurs on our end preventing the generation of your letter, a full refund will be issued.
-        """)
-        
-        st.divider()
-        
-        st.subheader("Privacy Policy")
-        st.markdown("""
-        **1. Information Collection**
-        We collect personal information such as your name, address, and email address when you register. We also process the audio and text content of the letters you send.
-        
-        **2. Data Usage**
-        - **Fulfillment:** Your address and letter content are sent to our printing partners solely for the purpose of mailing.
-        - **AI Processing:** Audio files are processed using OpenAI's Whisper API. We do not use your data to train AI models.
-        
-        **3. Data Security**
-        We implement security measures designed to protect your information. Payment data is handled securely by Stripe; we never store your full credit card number.
-        
-        **4. Contact**
-        For privacy concerns or to request data deletion, contact support@verbapost.com.
         """)
 
     if st.button("← Return to Home", type="primary"):
@@ -186,7 +145,8 @@ def render_store_page():
                 
                 if url:
                     st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
-                    # --- PAGE: WORKSPACE (Address Logic) ---
+
+# --- PAGE: WORKSPACE (Address Logic) ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     render_hero("Compose Letter", f"{tier} Edition")
@@ -306,6 +266,7 @@ def render_review_page():
         to_data = st.session_state.get("to_addr", {})
         from_data = st.session_state.get("from_addr", {})
         
+        # Formatting address strings
         to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
         from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
         
@@ -316,7 +277,9 @@ def render_review_page():
         if not is_santa and st.session_state.get("sig_data") is not None:
             try:
                 img_data = st.session_state.sig_data
+                # Convert numpy array to Image
                 if isinstance(img_data, np.ndarray):
+                    # Convert RGBA numpy array to image
                     img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
                         img.save(tmp_sig.name)
@@ -324,7 +287,6 @@ def render_review_page():
             except Exception as e:
                 print(f"Sig Error: {e}")
 
-        # 3. GENERATE PDF
         if letter_format:
             pdf_bytes = letter_format.create_pdf(
                 txt, 
@@ -335,10 +297,11 @@ def render_review_page():
                 signature_path=sig_path
             )
             
+            # Cleanup signature file
             if sig_path and os.path.exists(sig_path):
                 os.remove(sig_path)
             
-            # 4. SEND (STANDARD)
+            # 3. IF STANDARD -> SEND TO POSTGRID
             postgrid_success = False
             if tier == "Standard" and mailer:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
@@ -346,12 +309,18 @@ def render_review_page():
                     tmp_path = tmp.name
                 
                 pg_to = {
-                    'name': to_data.get('name'), 'address_line1': to_data.get('street'),
-                    'address_city': to_data.get('city'), 'address_state': to_data.get('state'), 'address_zip': to_data.get('zip')
+                    'name': to_data.get('name'), 
+                    'address_line1': to_data.get('street'),
+                    'address_city': to_data.get('city'),
+                    'address_state': to_data.get('state'),
+                    'address_zip': to_data.get('zip')
                 }
                 pg_from = {
-                    'name': from_data.get('name'), 'address_line1': from_data.get('street'),
-                    'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 'address_zip': from_data.get('zip')
+                    'name': from_data.get('name'), 
+                    'address_line1': from_data.get('street'),
+                    'address_city': from_data.get('city'),
+                    'address_state': from_data.get('state'),
+                    'address_zip': from_data.get('zip')
                 }
                 
                 resp = mailer.send_letter(tmp_path, pg_to, pg_from)
@@ -360,12 +329,16 @@ def render_review_page():
                     postgrid_success = True
                     st.toast(f"PostGrid ID: {resp.get('id')}")
             
-            # 5. SAVE DB
+            # 4. SAVE TO DB (CRITICAL FIX: Pass address data)
             if database:
                 final_status = "Completed" if postgrid_success else "Pending Admin"
                 database.save_draft(
-                    u_email, txt, tier, "0.00", 
-                    to_addr=to_data, from_addr=from_data, 
+                    u_email, 
+                    txt, 
+                    tier, 
+                    "0.00", 
+                    to_addr=to_data, 
+                    from_addr=from_data, 
                     status=final_status
                 )
         
