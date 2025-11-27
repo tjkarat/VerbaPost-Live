@@ -4,6 +4,8 @@ import os
 import tempfile
 import json
 import base64
+import numpy as np
+from PIL import Image
 
 # --- IMPORTS ---
 try: import database
@@ -38,8 +40,9 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
+    # ADDED class='custom-hero' so CSS in main.py can target this specific box
     st.markdown(f"""
-    <div style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
+    <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
                 margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
         <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
@@ -106,7 +109,6 @@ def render_store_page():
     user_clean = str(u_email).strip().lower()
 
     if user_clean and user_clean == admin_target:
-        # FIX: We now set state to 'admin' instead of just importing it temporarily
         if st.button("🔐 Open Admin Console", type="secondary"):
             st.session_state.app_mode = "admin"
             st.rerun()
@@ -143,8 +145,7 @@ def render_store_page():
                 
                 if url:
                     st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
-
-# --- PAGE: WORKSPACE (Address Logic) ---
+                    # --- PAGE: WORKSPACE (Address Logic) ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     render_hero("Compose Letter", f"{tier} Edition")
@@ -260,59 +261,72 @@ def render_review_page():
         tier = st.session_state.get("locked_tier", "Standard")
         u_email = st.session_state.get("user_email")
         
-        # 1. GENERATE PDF
-        # Need to reconstruct formatted address strings
+        # 1. PREPARE ADDRESSES
         to_data = st.session_state.get("to_addr", {})
         from_data = st.session_state.get("from_addr", {})
         
         to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
         from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
         
-        # Save temp PDF
+        # 2. PROCESS SIGNATURE
+        sig_path = None
+        is_santa = (tier == "Santa")
+        
+        if not is_santa and st.session_state.get("sig_data") is not None:
+            try:
+                img_data = st.session_state.sig_data
+                if isinstance(img_data, np.ndarray):
+                    img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
+                        img.save(tmp_sig.name)
+                        sig_path = tmp_sig.name
+            except Exception as e:
+                print(f"Sig Error: {e}")
+
+        # 3. GENERATE PDF
         if letter_format:
-            is_santa = (tier == "Santa")
             pdf_bytes = letter_format.create_pdf(
                 txt, 
                 to_str, 
                 from_str, 
                 is_heirloom=("Heirloom" in tier),
-                is_santa=is_santa
+                is_santa=is_santa,
+                signature_path=sig_path
             )
             
-            # 2. IF STANDARD -> SEND TO POSTGRID
+            if sig_path and os.path.exists(sig_path):
+                os.remove(sig_path)
+            
+            # 4. SEND (STANDARD)
             postgrid_success = False
             if tier == "Standard" and mailer:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                     tmp.write(pdf_bytes)
                     tmp_path = tmp.name
                 
-                # IMPORTANT: Map the dict keys correctly for mailer.py
                 pg_to = {
-                    'name': to_data.get('name'), 
-                    'address_line1': to_data.get('street'),
-                    'address_city': to_data.get('city'),
-                    'address_state': to_data.get('state'),
-                    'address_zip': to_data.get('zip')
+                    'name': to_data.get('name'), 'address_line1': to_data.get('street'),
+                    'address_city': to_data.get('city'), 'address_state': to_data.get('state'), 'address_zip': to_data.get('zip')
                 }
                 pg_from = {
-                    'name': from_data.get('name'), 
-                    'address_line1': from_data.get('street'),
-                    'address_city': from_data.get('city'),
-                    'address_state': from_data.get('state'),
-                    'address_zip': from_data.get('zip')
+                    'name': from_data.get('name'), 'address_line1': from_data.get('street'),
+                    'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 'address_zip': from_data.get('zip')
                 }
                 
                 resp = mailer.send_letter(tmp_path, pg_to, pg_from)
                 os.remove(tmp_path)
-                
                 if resp and resp.get("id"):
                     postgrid_success = True
                     st.toast(f"PostGrid ID: {resp.get('id')}")
             
-            # 3. SAVE TO DB
+            # 5. SAVE DB
             if database:
                 final_status = "Completed" if postgrid_success else "Pending Admin"
-                database.save_draft(u_email, txt, tier, "0.00", status=final_status)
+                database.save_draft(
+                    u_email, txt, tier, "0.00", 
+                    to_addr=to_data, from_addr=from_data, 
+                    status=final_status
+                )
         
         show_santa_animation()
         st.success("Letter Queued for Delivery!")
@@ -334,7 +348,6 @@ def show_main_app():
         st.query_params.clear()
         st.rerun()
 
-    # Views - FIX: ADD ADMIN ROUTE HERE
     if mode == "splash": 
         import ui_splash
         ui_splash.show_splash()
@@ -350,12 +363,10 @@ def show_main_app():
     elif mode == "review": render_review_page()
     elif mode == "legal": render_legal_page()
     
-    # NEW: Admin Route
     elif mode == "admin":
         import ui_admin
         ui_admin.show_admin()
 
-    # FORGOT PASSWORD ROUTING
     elif mode == "forgot_password":
         import ui_login
         import auth_engine
@@ -365,7 +376,6 @@ def show_main_app():
         import auth_engine
         ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
 
-    # Sidebar
     with st.sidebar:
         if st.button("🏠 Home"): reset_app(); st.rerun()
         if st.session_state.get("user_email"):
