@@ -53,22 +53,23 @@ def render_hero(title, subtitle):
 def show_santa_animation():
     st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)
 
-# --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
     with st.container(border=True):
-        st.write("Terms and Privacy content here...")
+        st.subheader("Terms of Service")
+        st.write("Last Updated: November 2024. By using this service, you agree that VerbaPost acts as a fulfillment agent. We are not liable for USPS delays.")
+        st.divider()
+        st.subheader("Privacy Policy")
+        st.write("We retain letter data for 30 days to ensure delivery. Audio is processed via OpenAI but not used for training. Payment data is handled by Stripe.")
+    
     if st.button("← Return to Home", type="primary"):
-        st.session_state.app_mode = "splash"
+        reset_app()
         st.rerun()
 
-# --- PAGE: STORE (PROMO LOGIC ADDED HERE) ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
-    
     u_email = st.session_state.get("user_email", "")
     
-    # Admin Link
     admin_target = ""
     if "admin" in st.secrets: admin_target = st.secrets["admin"].get("email", "")
     if str(u_email).strip().lower() == str(admin_target).strip().lower():
@@ -81,10 +82,10 @@ def render_store_page():
         with st.container(border=True):
             st.subheader("Available Packages")
             tier_options = {
-                "Standard": "⚡ Standard ($2.99) - Machine generated, window envelope.",
-                "Heirloom": "🏺 Heirloom ($5.99) - Handwriting font, thick paper, real stamp.",
-                "Civic": "🏛️ Civic ($6.99) - Write to Congress. We find your Reps automatically.",
-                "Santa": "🎅 Santa ($9.99) - Direct from North Pole. Festive background."
+                "Standard": "⚡ Standard ($2.99)",
+                "Heirloom": "🏺 Heirloom ($5.99)",
+                "Civic": "🏛️ Civic ($6.99)",
+                "Santa": "🎅 Santa ($9.99)"
             }
             sel = st.radio("Select Tier", list(tier_options.keys()), format_func=lambda x: tier_options[x])
             tier_code = sel
@@ -94,8 +95,6 @@ def render_store_page():
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
-            
-            # --- PROMO CODE LOGIC START ---
             discounted = False
             if promo_engine:
                 code_input = st.text_input("Promo Code", key="promo_box")
@@ -109,11 +108,8 @@ def render_store_page():
             if discounted:
                 st.metric("Total", "$0.00", delta=f"-${price} off")
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
-                    # Log usage
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
-                    # Save draft
                     if database: database.save_draft(u_email, "", tier_code, "0.00")
-                    # Grant Access
                     st.session_state.payment_complete = True
                     st.session_state.locked_tier = tier_code
                     st.session_state.app_mode = "workspace"
@@ -125,11 +121,8 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                        if url:
-                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
-            # --- PROMO CODE LOGIC END ---
+                        if url: st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
 
-# --- PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     render_hero("Compose Letter", f"{tier} Edition")
@@ -206,7 +199,6 @@ def render_workspace_page():
 
 def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
-    
     txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300)
     st.session_state.transcribed_text = txt 
     
@@ -219,10 +211,8 @@ def render_review_page():
         
         to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
         
-        if tier == "Santa":
-            from_str = "Santa Claus"
-        else:
-            from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+        if tier == "Santa": from_str = "Santa Claus"
+        else: from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
         
         sig_path = None
         sig_db_value = None
@@ -235,39 +225,21 @@ def render_review_page():
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
                     img.save(tmp_sig.name)
                     sig_path = tmp_sig.name
-                
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
                 sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
-                
-            except Exception as e:
-                print(f"Sig Error: {e}")
+            except: pass
 
         if letter_format:
-            pdf_bytes = letter_format.create_pdf(
-                txt, to_str, from_str, 
-                is_heirloom=("Heirloom" in tier),
-                is_santa=is_santa,
-                signature_path=sig_path
-            )
-            
+            letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
             if sig_path and os.path.exists(sig_path): os.remove(sig_path)
-            
-            if tier == "Standard" and mailer:
-                pass # (Simplified for brevity)
             
             if database:
                 final_status = "Completed" if tier == "Standard" else "Pending Admin"
-                database.save_draft(
-                    u_email, txt, tier, "0.00", 
-                    to_addr=to_data, from_addr=from_data, 
-                    status=final_status,
-                    sig_data=sig_db_value
-                )
+                database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
         
         show_santa_animation()
         st.success("Letter Queued for Delivery!")
-        
         if st.button("🏁 Finish & Return Home"): 
             reset_app()
             st.rerun()
@@ -279,15 +251,11 @@ def show_main_app():
     if "session_id" in st.query_params:
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
-        if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
         st.query_params.clear()
         st.rerun()
 
-    if mode == "splash": 
-        import ui_splash; ui_splash.show_splash()
-    elif mode == "login": 
-        import ui_login; import auth_engine
-        ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,c,s,z,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,l))
+    if mode == "splash": import ui_splash; ui_splash.show_splash()
+    elif mode == "login": import ui_login; import auth_engine; ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,c,s,z,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,l))
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
@@ -298,9 +266,7 @@ def show_main_app():
         if st.button("🏠 Home"): reset_app(); st.rerun()
         if st.session_state.get("user_email"):
             st.write(f"User: {st.session_state.user_email}")
-            if st.button("Logout"):
-                st.session_state.clear()
-                st.rerun()
+            if st.button("Logout"): st.session_state.clear(); st.rerun()
 
 def _handle_login(auth, email, password):
     res, err = auth.sign_in(email, password)
