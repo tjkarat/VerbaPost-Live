@@ -51,7 +51,9 @@ def render_hero(title, subtitle):
     """, unsafe_allow_html=True)
 
 def show_santa_animation():
-    st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)# --- PAGE: LEGAL ---
+    st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)
+
+# --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
     
@@ -91,7 +93,9 @@ def render_legal_page():
 
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
-        st.rerun()# --- PAGE: STORE ---
+        st.rerun()
+
+# --- PAGE: STORE ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
@@ -140,7 +144,8 @@ def render_store_page():
                 url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                 
                 if url:
-                    st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)# --- PAGE: WORKSPACE (Address Logic) ---
+                    st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+                    # --- PAGE: WORKSPACE (Address Logic) ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     render_hero("Compose Letter", f"{tier} Edition")
@@ -243,7 +248,9 @@ def render_workspace_page():
                         text = ai_engine.transcribe_audio(audio)
                         st.session_state.transcribed_text = text
                         st.session_state.app_mode = "review"
-                        st.rerun()def render_review_page():
+                        st.rerun()
+
+def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
     
     st.info("Please review the text below. You can edit it if the AI made a mistake.")
@@ -254,7 +261,7 @@ def render_workspace_page():
         tier = st.session_state.get("locked_tier", "Standard")
         u_email = st.session_state.get("user_email")
         
-        # 1. PREPARE ADDRESSES
+        # 1. GENERATE PDF
         to_data = st.session_state.get("to_addr", {})
         from_data = st.session_state.get("from_addr", {})
         
