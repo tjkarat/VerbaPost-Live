@@ -74,13 +74,35 @@ def render_store_page():
     
     u_email = st.session_state.get("user_email", "")
     
-    # --- ADMIN CHECK (Fixed Indentation) ---
+    # --- ADMIN CHECK (DEBUGGING VERSION) ---
     admin_target = ""
+    
+    # 1. Try Secrets Manager
     try:
-        # 1. Try Secrets Manager (Works on Local + GCP)
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email") or secrets_manager.get_secret("ADMIN_EMAIL")
-        
+    except: pass
+
+    # 2. Brute Force Fallback (Direct OS Env Check)
+    if not admin_target:
+        admin_target = os.environ.get("ADMIN_EMAIL", "")
+
+    # 3. Local Fallback
+    if not admin_target and "admin" in st.secrets:
+        try: admin_target = st.secrets["admin"].get("email", "")
+        except: pass
+
+    # --- LOGGING TO CLOUD CONSOLE ---
+    print(f"DEBUG: Current User: '{u_email}'")
+    print(f"DEBUG: Target Admin: '{admin_target}'")
+    print(f"DEBUG: Match? {str(u_email).strip().lower() == str(admin_target).strip().lower()}")
+    # --------------------------------
+
+    # Check match
+    if str(u_email).strip().lower() == str(admin_target).strip().lower() and admin_target != "":
+        if st.button("🔐 Open Admin Console", type="secondary"):
+            st.session_state.app_mode = "admin"
+            st.rerun()
         # 2. Fallback to direct secrets if manager fails (Local only)
         if not admin_target and "admin" in st.secrets:
             admin_target = st.secrets["admin"].get("email", "")
