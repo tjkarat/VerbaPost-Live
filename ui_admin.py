@@ -15,7 +15,51 @@ except: letter_format = None
 try: import mailer
 except: mailer = None
 
-def show_admin():
+def generate_admin_pdf(order_list, target_id, is_santa=False, is_heirloom=False):
+    """Helper to generate PDF and download link"""
+    letter = next((item for item in order_list if item["ID"] == target_id), None)
+    if letter:
+        try:
+            # Parse JSON addresses safely
+            to_data = json.loads(letter["Recipient"]) if isinstance(letter["Recipient"], str) else letter["Recipient"]
+            from_data = json.loads(letter["Sender"]) if isinstance(letter["Sender"], str) else letter["Sender"]
+            
+            # Ensure they are dicts
+            if not isinstance(to_data, dict): to_data = {}
+            if not isinstance(from_data, dict): from_data = {}
+
+            # Format strings
+            to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
+            
+            if is_santa:
+                from_str = "Santa Claus\n123 Elf Road\nNorth Pole, 88888"
+            else:
+                from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+
+            # Generate
+            if letter_format:
+                pdf_bytes = letter_format.create_pdf(
+                    letter["Content"], 
+                    to_str, 
+                    from_str, 
+                    is_heirloom=is_heirloom,
+                    is_santa=is_santa
+                )
+                
+                b64 = base64.b64encode(pdf_bytes).decode()
+                fname = f"Order_{target_id}.pdf"
+                href = f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background-color:#4CAF50; color:white; padding:10px; border-radius:5px; text-decoration:none; display:inline-block; margin-top:10px;">⬇️ Download PDF</a>'
+                st.markdown(href, unsafe_allow_html=True)
+                
+                st.write("")
+                if st.button(f"Mark Order #{target_id} as Completed"):
+                    if database: database.update_status(target_id, "Completed")
+                    st.success("Updated!")
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Error generating PDF: {e}")
+    else:
+        st.error("Order ID not found in this list.")def show_admin():
     st.title("🔐 Admin Console")
     
     u_email = "Unknown"
@@ -26,6 +70,10 @@ def show_admin():
         elif hasattr(u, "user"): u_email = u.user.email
             
     st.info(f"Logged in as: {u_email}")
+    
+    if st.button("⬅️ Return to App"):
+        st.session_state.app_mode = "store"
+        st.rerun()
     
     # Stats
     c1, c2, c3 = st.columns(3)
@@ -39,10 +87,6 @@ def show_admin():
     
     tab_orders, tab_santa, tab_heirloom, tab_maint, tab_promo, tab_danger = st.tabs(["📦 Standard Orders", "🎅 Santa Export", "🏺 Heirloom Export", "🛠️ Maintenance", "🎟️ Promo Codes", "⚠️ Danger Zone"])
 
-
-### `ui_admin.py` - Part 2 of 4
-
-```python
     with tab_orders:
         st.subheader("Recent Standard Letters")
         if database:
@@ -53,6 +97,7 @@ def show_admin():
                 
                 if std_orders:
                     df = pd.DataFrame(std_orders).sort_values(by="ID", ascending=False)
+                    # Helper for highlighting
                     def highlight_status(val):
                         color = 'lightgreen' if val == 'completed' else 'lightcoral'
                         return f'background-color: {color}'
@@ -98,10 +143,6 @@ def show_admin():
             else:
                 st.info("No Heirloom orders.")
 
-
-### `ui_admin.py` - Part 3 of 4
-
-```python
     with tab_maint:
         st.subheader("System Health Check")
         
@@ -144,58 +185,3 @@ def show_admin():
                  st.rerun()
              else:
                  st.error("Function missing.")
-
-    st.markdown("---")
-    if st.button("⬅️ Return to Main App"):
-        st.session_state.app_mode = "store"
-        st.rerun()
-
-
-### `ui_admin.py` - Part 4 of 4
-
-```python
-def generate_admin_pdf(order_list, target_id, is_santa=False, is_heirloom=False):
-    """Helper to generate PDF and download link"""
-    letter = next((item for item in order_list if item["ID"] == target_id), None)
-    if letter:
-        try:
-            # Parse JSON addresses safely
-            to_data = json.loads(letter["Recipient"]) if isinstance(letter["Recipient"], str) else letter["Recipient"]
-            from_data = json.loads(letter["Sender"]) if isinstance(letter["Sender"], str) else letter["Sender"]
-            
-            # Ensure they are dicts
-            if not isinstance(to_data, dict): to_data = {}
-            if not isinstance(from_data, dict): from_data = {}
-
-            # Format strings
-            to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
-            
-            if is_santa:
-                from_str = "Santa Claus\n123 Elf Road\nNorth Pole, 88888"
-            else:
-                from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
-
-            # Generate
-            if letter_format:
-                pdf_bytes = letter_format.create_pdf(
-                    letter["Content"], 
-                    to_str, 
-                    from_str, 
-                    is_heirloom=is_heirloom,
-                    is_santa=is_santa
-                )
-                
-                b64 = base64.b64encode(pdf_bytes).decode()
-                fname = f"Order_{target_id}.pdf"
-                href = f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background-color:#4CAF50; color:white; padding:10px; border-radius:5px; text-decoration:none; display:inline-block; margin-top:10px;">⬇️ Download PDF</a>'
-                st.markdown(href, unsafe_allow_html=True)
-                
-                st.write("")
-                if st.button(f"Mark Order #{target_id} as Completed"):
-                    if database: database.update_status(target_id, "Completed")
-                    st.success("Updated!")
-                    st.rerun()
-        except Exception as e:
-            st.error(f"Error generating PDF: {e}")
-    else:
-        st.error("Order ID not found in this list.")
