@@ -16,9 +16,7 @@ def ensure_fonts():
                 r = requests.get(url, allow_redirects=True)
                 if r.status_code == 200:
                     with open(filename, "wb") as f: f.write(r.content)
-            except: pass
-
-# --- CUSTOM CLASS FOR RECURRING BORDERS ---
+            except: pass# --- CUSTOM PDF CLASS ---
 class LetterPDF(FPDF):
     def __init__(self, is_santa=False, **kwargs):
         super().__init__(**kwargs)
@@ -40,7 +38,7 @@ class LetterPDF(FPDF):
             self.set_draw_color(20, 100, 20) # Green
             self.rect(8, 8, 199.9, 263.4)
             
-            # 3. Header (Only on Page 1)
+            # 3. Header Text (Only on Page 1)
             if self.page_no() == 1:
                 self.set_y(20)
                 self.set_font("Helvetica", "B", 24)
@@ -50,10 +48,10 @@ class LetterPDF(FPDF):
                 self.set_font("Helvetica", "I", 10)
                 self.set_text_color(20, 100, 20) 
                 self.cell(0, 5, "Official North Pole Correspondence | List Status: NICE", 0, 1, 'C')
-                self.set_text_color(0, 0, 0) # Reset textdef create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None, is_santa=False):
+                self.set_text_color(0, 0, 0) # Reset text colordef create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None, is_santa=False):
     ensure_fonts()
     
-    # Use our custom class instead of standard FPDF
+    # Initialize using the Custom Class
     pdf = LetterPDF(is_santa=is_santa, format='Letter')
     pdf.set_auto_page_break(True, margin=20)
     
@@ -70,10 +68,10 @@ class LetterPDF(FPDF):
             font_map['cjk'] = 'NotoCJK'
         except: pass
 
-    # Create First Page (Triggers header() automatically)
+    # Create First Page
     pdf.add_page()
 
-    # 2. Font Selection
+    # Fonts
     if language in ["Japanese", "Chinese", "Korean"] and 'cjk' in font_map:
         body_font = font_map['cjk']; addr_font = font_map['cjk']; body_size = 12
     else:
@@ -81,30 +79,30 @@ class LetterPDF(FPDF):
         addr_font = 'Helvetica' 
         body_size = 18 if is_santa else (16 if body_font == 'Caveat' else 12)
 
-    # 3. Header Info (Date & Address)
+    # --- CONTENT PLACEMENT ---
     pdf.set_text_color(0, 0, 0)
     
-    # Move date down if Santa header exists
+    # 1. Date (Top Right)
     date_y = 50 if is_santa else 15
     pdf.set_xy(140, date_y)
     pdf.set_font(addr_font, '', 10)
     pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
     
-    # SANTA ADDRESS FIX: Explicitly placed below date
+    # 2. Return Address
     if is_santa:
-        pdf.set_x(140) # Align right
+        # Force North Pole Address below Date
+        pdf.set_x(140) 
         pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
-    elif not is_santa:
+    else:
+        # Standard Top-Left
         pdf.set_xy(15, 15)
         pdf.multi_cell(0, 5, return_addr)
 
-    # Recipient Address
+    # 3. Recipient Address
     recip_y = 80 if is_santa else 45
     pdf.set_xy(20, recip_y)
     pdf.set_font(addr_font, 'B', 12)
-    pdf.multi_cell(0, 6, recipient_addr)
-
-    # 4. Body Content
+    pdf.multi_cell(0, 6, recipient_addr)# 4. Main Body Content
     pdf.set_xy(20, recip_y + 30)
     pdf.set_font(body_font, '', body_size)
     pdf.multi_cell(170, 8, content)
@@ -120,7 +118,7 @@ class LetterPDF(FPDF):
         try: pdf.image(signature_path, x=20, w=40)
         except: pass
     
-    # Footer
+    # 6. Footer
     pdf.set_y(-20)
     pdf.set_font('Helvetica', 'I', 8)
     pdf.set_text_color(100, 100, 100)
