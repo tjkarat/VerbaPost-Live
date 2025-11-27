@@ -1,7 +1,7 @@
 import streamlit as st
-import sys
 
 # --- 1. CONFIG ---
+# This MUST be the very first Streamlit command in the file.
 st.set_page_config(
     page_title="VerbaPost | Send Real Mail from Audio",
     page_icon="📮",
@@ -31,10 +31,10 @@ def inject_global_css():
             font-weight: 600 !important;
         }
         
-        /* INPUT BOXES: Force White Background, Dark Text */
+        /* INPUT BOXES: White BG, Brand Blue Text */
         .stTextInput input, .stTextArea textarea, .stSelectbox div, div[data-baseweb="select"] > div {
             background-color: #ffffff !important; 
-            color: #2d3748 !important; 
+            color: #2a5298 !important; /* Brand Blue text for readability */
             border: 1px solid #cbd5e0 !important;
             border-radius: 8px;
         }
@@ -93,12 +93,12 @@ if __name__ == "__main__":
         st.session_state.app_mode = "splash"
     
     try:
-        # Import inside main block to avoid circular issues during startup
+        # Lazy import to prevent circular dependency crash on startup
         import ui_main
         ui_main.show_main_app()
     except Exception as e:
         st.error(f"⚠️ Application Error: {e}")
-        # Add a hard reset button in case of stuck state
+        # Hard Reset button to clear stuck states
         if st.button("Hard Reset App"):
             st.session_state.clear()
             st.rerun()
