@@ -1,0 +1,14 @@
+.gcloudignore
+.git
+.gitignore
+__pycache__/
+venv/
+env/
+.DS_Store
+README.md
+secrets.toml
+.streamlit/secrets.toml
+.env
+secrets.toml
+.streamlit/secrets.toml
+.env
