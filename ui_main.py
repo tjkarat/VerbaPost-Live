@@ -52,8 +52,44 @@ def show_santa_animation():
 # --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
-    # ... (Keep existing legal content or abbreviate for brevity) ...
-    st.write("Terms and Privacy Policy content...")
+    
+    with st.container(border=True):
+        st.subheader("Terms of Service")
+        st.markdown("""
+        **Last Updated: November 2024**
+        
+        **1. Service Description**
+        VerbaPost ("we", "us") provides a platform to convert digital audio and text into physical mail. By using our service, you agree that you are solely responsible for the content of your letters. We reserve the right to refuse service for content that is illegal, threatening, or abusive.
+        
+        **2. Delivery & Fulfillment**
+        We utilize third-party carriers (primarily USPS) for delivery. While we guarantee that your letter will be handed off to the carrier within 2 business days of payment, we cannot guarantee specific delivery dates once the item is in the carrier's possession.
+        
+        **3. User Responsibilities**
+        You agree to provide accurate address information. VerbaPost is not liable for undeliverable mail due to incorrect addresses provided by the user.
+        
+        **4. Refunds**
+        Refunds are issued at our discretion for system errors (e.g., audio transcription failure). We do not issue refunds for letters that have already been printed or for user-supplied address errors.
+        """)
+        
+        st.divider()
+        
+        st.subheader("Privacy Policy")
+        st.markdown("""
+        **1. Information We Collect**
+        We collect your name, email address, physical address, and the audio/text content you submit.
+        
+        **2. How We Use Your Data**
+        - **Fulfillment:** Your address and letter content are shared with our printing partners (e.g., PostGrid, Lob) solely for the purpose of creating and mailing your document.
+        - **AI Processing:** Your audio is processed by OpenAI's Whisper API for transcription. We do not use your data to train AI models.
+        - **Communication:** We use your email to send order confirmations and tracking updates.
+        
+        **3. Data Security**
+        We use industry-standard encryption for data in transit and at rest. Your payment information is handled exclusively by Stripe; we do not store your credit card details.
+        
+        **4. Account Deletion**
+        You may request full account deletion at any time by contacting support@verbapost.com.
+        """)
+
     if st.button("← Return to Home", type="primary"):
         st.session_state.app_mode = "splash"
         st.rerun()

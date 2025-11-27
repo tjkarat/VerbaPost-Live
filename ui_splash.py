@@ -18,7 +18,9 @@ def show_splash():
     # --- 1. HERO ---
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([1, 2, 1])
-        with c2: st.image("logo.png", use_container_width=True)
+        with c2: 
+            # FIXED DEPRECATION WARNING
+            st.image("logo.png", width="stretch")
     
     st.markdown("""
     <div style="text-align: center; margin-bottom: 30px;">

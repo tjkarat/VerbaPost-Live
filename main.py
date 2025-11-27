@@ -1,5 +1,5 @@
 import streamlit as st
-import ui_main
+import sys
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -93,9 +93,12 @@ if __name__ == "__main__":
         st.session_state.app_mode = "splash"
     
     try:
+        # Import inside main block to avoid circular issues during startup
+        import ui_main
         ui_main.show_main_app()
     except Exception as e:
         st.error(f"⚠️ Application Error: {e}")
+        # Add a hard reset button in case of stuck state
         if st.button("Hard Reset App"):
             st.session_state.clear()
             st.rerun()

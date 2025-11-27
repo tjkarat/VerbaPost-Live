@@ -44,8 +44,9 @@ def show_login(login_func, signup_func):
                         else:
                             st.warning("Enter email & password")
                 
+                # IMPORTANT FIX: Update app_mode, NOT current_view
                 if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
-                    st.session_state.current_view = "forgot_password"
+                    st.session_state.app_mode = "forgot_password"
                     st.rerun()
             
             # --- SIGNUP TAB (FORM WITH VALIDATION) ---
@@ -59,13 +60,13 @@ def show_login(login_func, signup_func):
                     
                     st.markdown("---")
                     st.markdown("**Your Return Address**")
-                    name = st.text_input("Full Name", placeholder="John Doe")
-                    addr = st.text_input("Street Address", placeholder="123 Main St")
+                    name = st.text_input("Full Legal Name", placeholder="e.g. John Doe")
+                    addr = st.text_input("Street Address", placeholder="e.g. 123 Main St")
                     
                     c_city, c_state, c_zip = st.columns([2, 1, 1])
                     city = c_city.text_input("City")
-                    state = c_state.text_input("State (e.g. TN)")
-                    zip_code = c_zip.text_input("Zip (5-digit)")
+                    state = c_state.text_input("State (2 letters)")
+                    zip_code = c_zip.text_input("Zip Code (5 digits)")
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
