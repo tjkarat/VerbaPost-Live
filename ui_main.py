@@ -50,7 +50,7 @@ except ImportError:
     secrets_manager = None
 
 # --- CONFIG ---
-DEFAULT_URL = "https://verbapost.com/"
+DEFAULT_URL = "https://verbapost.streamlit.app/"
 YOUR_APP_URL = DEFAULT_URL
 
 try:
@@ -109,7 +109,6 @@ def render_legal_page():
         **3. Delivery**
         VerbaPost acts as a fulfillment agent. We are not liable for USPS lost or delayed mail.
         """)
-        
         st.divider()
         st.subheader("Privacy Policy")
         st.write("We retain letter data for 30 days. Payment data is handled securely by Stripe.")
@@ -120,7 +119,6 @@ def render_legal_page():
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
-    
     u_email = st.session_state.get("user_email", "")
     
     # --- ADMIN CHECK ---
@@ -272,14 +270,12 @@ def render_workspace_page():
 def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
     
-    # 1. State Management for the "Process"
     if "letter_sent_success" not in st.session_state:
         st.session_state.letter_sent_success = False
 
     txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300, disabled=st.session_state.letter_sent_success)
     st.session_state.transcribed_text = txt 
     
-    # 3. THE "SWAP" LOGIC
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             with st.spinner("Processing & Mailing..."):
@@ -379,20 +375,25 @@ def show_main_app():
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": import ui_login; import auth_engine; ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,c,s,z,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,l))
     
-    # --- ADDED THESE MISSING ROUTES ---
+    # --- ROUTES FOR PASSWORD RESET (FIX) ---
     elif mode == "forgot_password":
         import ui_login; import auth_engine
         ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
     elif mode == "reset_verify":
         import ui_login; import auth_engine
         ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
-    # ----------------------------------
+    # ---------------------------------------
 
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
     elif mode == "legal": render_legal_page()
     elif mode == "admin": import ui_admin; ui_admin.show_admin()
+    
+    # Fallback to catch blank pages
+    else:
+        st.error(f"Error: Unknown App Mode '{mode}'")
+        if st.button("Reset"): reset_app(); st.rerun()
 
     with st.sidebar:
         if st.button("🏠 Home"): reset_app(); st.rerun()
