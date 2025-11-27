@@ -70,8 +70,16 @@ def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     u_email = st.session_state.get("user_email", "")
     
-    admin_target = ""
-    if "admin" in st.secrets: admin_target = st.secrets["admin"].get("email", "")
+   admin_target = ""
+    try:
+        # Try finding it via manager first
+        if secrets_manager:
+            admin_target = secrets_manager.get_secret("admin.email") or secrets_manager.get_secret("ADMIN_EMAIL")
+        
+        # Fallback for local dev if manager fails but secrets exist
+        if not admin_target and "admin" in st.secrets:
+            admin_target = st.secrets["admin"].get("email", "")
+    except: pass
     if str(u_email).strip().lower() == str(admin_target).strip().lower():
         if st.button("🔐 Open Admin Console", type="secondary"):
             st.session_state.app_mode = "admin"

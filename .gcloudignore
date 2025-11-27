@@ -1,14 +1,30 @@
-.gcloudignore
+# --- Version Control (Huge source of slowness) ---
 .git
 .gitignore
+.github
+
+# --- Python & Local Environment ---
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
 venv/
 env/
+.venv/
+.env
+
+# --- Mac OS Junk ---
 .DS_Store
+
+# --- Security (CRITICAL) ---
+secrets.toml
+.streamlit/secrets.toml
+
+# --- Local Data ---
+*.db
+*.sqlite
+test_data/
+backup/
+
+# --- Documentation ---
 README.md
-secrets.toml
-.streamlit/secrets.toml
-.env
-secrets.toml
-.streamlit/secrets.toml
-.env
