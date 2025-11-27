@@ -58,13 +58,13 @@ def generate_admin_pdf(order_list, target_id, is_santa=False, is_heirloom=False)
                     st.rerun()
         except Exception as e:
             st.error(f"Error generating PDF: {e}")
-   else:
+    else:
         st.error("Order ID not found in this list.")
 
 # --- Start of the next function ---
 def show_admin():
     st.title("🔐 Admin Console")
-    
+
     u_email = "Unknown"
     if st.session_state.get("user"):
         u = st.session_state.user
