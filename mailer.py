@@ -47,9 +47,19 @@ def send_letter(pdf_path, to_address, from_address):
             'from[countryCode]': 'US',
             'color': 'false', 'express': 'false', 'addressPlacement': 'top_first_page'
         }
+        # In mailer.py, inside send_letter function:
 
         response = requests.post(url, headers=headers, data=data, files=files)
         files['pdf'].close()
+
+        if response.status_code in [200, 201]:
+            # NEW: Log this so you can see it in Cloud Run Logs
+            print(f"✅ PostGrid SUCCESS. ID: {response.json().get('id')}")
+            print(f"   Payload sent to: {to_address}")
+            return response.json()
+        else:
+            print(f"❌ PostGrid Error: {response.text}")
+            return None
 
         if response.status_code in [200, 201]: return response.json()
         else:

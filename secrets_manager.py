@@ -3,34 +3,41 @@ import os
 
 def get_secret(key_path):
     """
-    1. Checks Environment Variables (GCP Priority) - Prevents crashing if secrets.toml is missing.
-    2. Checks Streamlit secrets (Local Fallback) - Only runs if Env Var is missing.
+    Retrieves secrets with logging to help debug Cloud Run issues.
     """
     
-    # --- PRIORITY 1: ENVIRONMENT VARIABLES (GCP) ---
-    # Convert "stripe.secret_key" -> "STRIPE_SECRET_KEY"
+    # --- 1. ENVIRONMENT VARIABLES (GCP Priority) ---
+    # Flatten key: "stripe.secret_key" -> "STRIPE_SECRET_KEY"
     env_key = key_path.replace(".", "_").upper()
     value = os.environ.get(env_key)
     
+    # DEBUG LOGGING
     if value:
+        # We found it! Print success (masked)
+        print(f"✅ SECRETS_MANAGER: Found '{env_key}' in Environment Variables.")
         return value
+    else:
+        # We missed. Print failure.
+        print(f"⚠️ SECRETS_MANAGER: Could NOT find '{env_key}' in Environment Variables.")
 
-    # --- PRIORITY 2: STREAMLIT SECRETS (LOCAL) ---
-    # We wrap this in a try/except because simply accessing st.secrets 
-    # when the file is missing causes a hard crash on some Streamlit versions.
+    # --- 2. STREAMLIT SECRETS (Local Fallback) ---
     try:
         # Check Exact Match
         if key_path in st.secrets:
             return st.secrets[key_path]
             
-        # Check Nested Match (e.g. "stripe.secret_key")
+        # Check Nested Match
         if "." in key_path:
             section, key = key_path.split(".")
             if section in st.secrets:
                 return st.secrets[section].get(key)
+                
     except FileNotFoundError:
+        print("ℹ️ SECRETS_MANAGER: No secrets.toml found (Expected in Cloud Run).")
         return None
-    except Exception:
+    except Exception as e:
+        print(f"❌ SECRETS_MANAGER: Error reading secrets.toml: {e}")
         return None
         
+    print(f"❌ SECRETS_MANAGER: Could NOT find '{key_path}' anywhere.")
     return None
