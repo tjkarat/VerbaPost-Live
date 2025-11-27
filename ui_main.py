@@ -26,9 +26,7 @@ try: import analytics
 except: analytics = None
 
 # --- CONFIG ---
-YOUR_APP_URL = "https://verbapost.streamlit.app/"
-
-def reset_app():
+YOUR_APP_URL = "https://verbapost.streamlit.app/"def reset_app():
     st.session_state.app_mode = "splash" 
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
@@ -40,7 +38,7 @@ def reset_app():
     st.query_params.clear()
 
 def render_hero(title, subtitle):
-    # ADDED class='custom-hero' so CSS in main.py can target this specific box
+    # ADDED class='custom-hero' for CSS targeting
     st.markdown(f"""
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); 
                 padding: 40px; border-radius: 15px; text-align: center; 
@@ -52,6 +50,97 @@ def render_hero(title, subtitle):
 
 def show_santa_animation():
     st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)# --- PAGE: LEGAL ---
+def render_legal_page():
+    render_hero("Legal Center", "Terms & Privacy")
+    
+    with st.container(border=True):
+        st.subheader("Terms of Service")
+        st.markdown("""
+        **1. Acceptance of Terms**
+        By accessing and using VerbaPost, you accept and agree to be bound by the terms and provision of this agreement.
+        
+        **2. Service Description**
+        VerbaPost provides a service to convert audio and digital text into physical mail. We utilize third-party APIs (PostGrid, Lob) for the printing and mailing process.
+        
+        **3. User Content**
+        You are responsible for the content of your letters. We do not endorse, support, or guarantee the completeness, truthfulness, accuracy, or reliability of any content posted via the Service.
+        
+        **4. Refunds**
+        Refunds are generally not provided once a letter has been processed for printing. However, if a technical error occurs on our end preventing the generation of your letter, a full refund will be issued.
+        """)
+        
+        st.divider()
+        
+        st.subheader("Privacy Policy")
+        st.markdown("""
+        **1. Information Collection**
+        We collect personal information such as your name, address, and email address when you register. We also process the audio and text content of the letters you send.
+        
+        **2. Data Usage**
+        - **Fulfillment:** Your address and letter content are sent to our printing partners solely for the purpose of mailing.
+        - **AI Processing:** Audio files are processed using OpenAI's Whisper API. We do not use your data to train AI models.
+        
+        **3. Data Security**
+        We implement security measures designed to protect your information. Payment data is handled securely by Stripe; we never store your full credit card number.
+        
+        **4. Contact**
+        For privacy concerns or to request data deletion, contact support@verbapost.com.
+        """)
+
+    if st.button("← Return to Home", type="primary"):
+        st.session_state.app_mode = "splash"
+        st.rerun()
+
+# --- PAGE: STORE ---
+def render_store_page():
+    render_hero("Select Service", "Choose your letter type")
+    
+    # --- ADMIN LINK ---
+    u_email = st.session_state.get("user_email", "")
+    admin_target = ""
+    if "admin" in st.secrets:
+        admin_target = st.secrets["admin"].get("email", "")
+    
+    admin_target = str(admin_target).strip().lower()
+    user_clean = str(u_email).strip().lower()
+
+    if user_clean and user_clean == admin_target:
+        if st.button("🔐 Open Admin Console", type="secondary"):
+            st.session_state.app_mode = "admin"
+            st.rerun()
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        with st.container(border=True):
+            st.subheader("Available Packages")
+            tier_options = {
+                "Standard": "⚡ Standard ($2.99) - Machine generated, window envelope.",
+                "Heirloom": "🏺 Heirloom ($5.99) - Handwriting font, thick paper, real stamp.",
+                "Civic": "🏛️ Civic ($6.99) - Write to Congress. We find your Reps automatically.",
+                "Santa": "🎅 Santa ($9.99) - Direct from North Pole. Festive background."
+            }
+            sel = st.radio("Select Tier", list(tier_options.keys()), format_func=lambda x: tier_options[x])
+            tier_code = sel
+            prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
+            price = prices[tier_code]
+            
+            if tier_code == "Santa":
+                st.info("🎅 **Santa Special:** Includes a magical North Pole background.")
+            elif tier_code == "Civic":
+                st.info("🏛️ **Civic Action:** Dictate one letter, we mail all your Reps.")
+
+    with c2:
+        with st.container(border=True):
+            st.subheader("Checkout")
+            st.metric("Total", f"${price}")
+            
+            if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
+                if database: database.save_draft(u_email, "", tier_code, price)
+                link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
+                
+                if url:
+                    st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)# --- PAGE: LEGAL ---
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
     
@@ -328,9 +417,7 @@ def render_workspace_page():
         
         if st.button("🏁 Finish & Return Home"): 
             reset_app()
-            st.rerun()
-
-# --- MAIN CONTROLLER ---
+            st.rerun()# --- MAIN CONTROLLER ---
 def show_main_app():
     if analytics: analytics.inject_ga()
     
