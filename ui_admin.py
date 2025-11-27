@@ -38,7 +38,7 @@ def show_admin():
     st.divider()
     
     tab_orders, tab_santa, tab_heirloom, tab_maint, tab_promo, tab_danger = st.tabs(["📦 Standard Orders", "🎅 Santa Export", "🏺 Heirloom Export", "🛠️ Maintenance", "🎟️ Promo Codes", "⚠️ Danger Zone"])
-```
+
 
 ### `ui_admin.py` - Part 2 of 4
 
@@ -97,7 +97,7 @@ def show_admin():
                     generate_admin_pdf(heirloom_orders, sel_h_id, is_heirloom=True)
             else:
                 st.info("No Heirloom orders.")
-```
+
 
 ### `ui_admin.py` - Part 3 of 4
 
@@ -149,7 +149,7 @@ def show_admin():
     if st.button("⬅️ Return to Main App"):
         st.session_state.app_mode = "store"
         st.rerun()
-```
+
 
 ### `ui_admin.py` - Part 4 of 4
 
