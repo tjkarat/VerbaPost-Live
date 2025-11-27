@@ -26,39 +26,36 @@ def inject_global_css():
             font-weight: 600 !important;
         }
         
-        /* HERO HEADER (Blue Box) */
+        /* HERO HEADER */
         .custom-hero h1, .custom-hero div {
             color: white !important;
         }
         
-        /* --- BUTTON FIXES (CRITICAL) --- */
+        /* --- BUTTONS: THE NUCLEAR FIX --- */
         
-        /* 1. All Button Texts default to Blue */
-        button p {
-            color: #2a5298 !important;
+        /* 1. Target the Paragraph <p> inside the Form Submit Button specifically */
+        button[data-testid="stFormSubmitButton"] p {
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important; /* Webkit override */
+            font-weight: bold !important;
         }
         
-        /* 2. PRIMARY Buttons (Gradient Background + White Text) */
-        /* Targets standard st.button(type='primary') */
+        /* 2. Target the Paragraph <p> inside any Primary Button */
+        button[kind="primary"] p {
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important;
+            font-weight: bold !important;
+        }
+
+        /* 3. Button Backgrounds (Blue Gradient) */
+        button[data-testid="stFormSubmitButton"], 
         button[kind="primary"] {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
             border: none !important;
-        }
-        button[kind="primary"] p {
-            color: white !important;
-        }
-        
-        /* 3. FORM SUBMIT Buttons (e.g. Login) */
-        /* Targets st.form_submit_button(type='primary') */
-        button[data-testid="stFormSubmitButton"] {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
-            border: none !important;
-        }
-        button[data-testid="stFormSubmitButton"] p {
             color: white !important;
         }
 
-        /* Hover Effects */
+        /* 4. Hover Effects */
         button:hover {
             transform: scale(1.02);
         }
