@@ -21,8 +21,14 @@ def inject_global_css():
         .stApp { background-color: #f8f9fc; }
         
         /* TEXT COLORS */
-        h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, label, span, div { 
+        h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span, div { 
             color: #2d3748 !important; 
+        }
+
+        /* INPUT LABELS - BRAND BLUE FIX */
+        label, .stTextInput label, .stSelectbox label {
+            color: #2a5298 !important;
+            font-weight: 600 !important;
         }
         
         /* INPUT BOXES: Force White Background, Dark Text */
@@ -61,8 +67,20 @@ def inject_global_css():
             border-right: 1px solid #e2e8f0; 
         }
         
-        /* SUCCESS/INFO BOX TEXT FIX */
-        .stAlert div { color: inherit !important; }
+        /* SANTA ANIMATION KEYFRAMES */
+        @keyframes flyAcross {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(150%); }
+        }
+        .santa-sled {
+            position: fixed;
+            top: 20%;
+            left: -100px;
+            font-size: 80px;
+            z-index: 9999;
+            animation: flyAcross 4s linear forwards;
+            pointer-events: none;
+        }
     </style>
     """, unsafe_allow_html=True)
 
