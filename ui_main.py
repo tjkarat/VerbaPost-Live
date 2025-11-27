@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 import io
 
-# --- IMPORTS ---
+# --- IMPORTS (Safe Block) ---
 try:
     import database
 except ImportError:
@@ -64,10 +64,8 @@ except:
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
 def reset_app():
-    if st.session_state.get("user_email"):
-        st.session_state.app_mode = "store"
-    else:
-        st.session_state.app_mode = "splash"
+    # FIX: Explicitly send user to Splash Page as requested
+    st.session_state.app_mode = "splash"
     
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
@@ -92,13 +90,44 @@ def show_santa_animation():
 
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
-    with st.container(border=True):
-        st.subheader("Terms of Service")
-        st.write("Last Updated: November 2024. By using this service, you agree that VerbaPost acts as a fulfillment agent. We are not liable for USPS delays.")
-        st.divider()
-        st.subheader("Privacy Policy")
-        st.write("We retain letter data for 30 days to ensure delivery. Audio is processed via OpenAI but not used for training. Payment data is handled by Stripe.")
     
+    with st.container(border=True):
+        st.subheader("Terms of Service & Privacy Waiver")
+        st.markdown("""
+        **Last Updated: November 2024**
+        
+        **1. MANUAL HANDLING DISCLOSURE (NO PRIVACY)**
+        **For "Heirloom" and "Santa" Tiers:**
+        These letters are created using special materials that require **manual printing and packaging**. 
+        By selecting these tiers, you explicitly acknowledge and agree that **VerbaPost staff will view and handle your letter content**. 
+        **THERE IS NO EXPECTATION OF PRIVACY** for Heirloom or Santa letters. Do not include sensitive, financial, medical (HIPAA), or highly confidential information in these specific tiers.
+        
+        **2. Automated Handling (Standard/Civic)**
+        Standard and Civic letters are processed via API (PostGrid/Lob) and are **not** read by humans unless a technical delivery failure requires investigation.
+        
+        **3. Prohibited Content**
+        You agree NOT to send letters containing: illegal acts, threats, harassment, or hate speech. VerbaPost reserves the right to refuse fulfillment of any letter without refund if it violates this policy.
+        
+        **4. Delivery & Liability**
+        VerbaPost acts as a fulfillment agent. Our responsibility ends when the letter is handed to the USPS. We are not liable for lost, delayed, or damaged mail once in the possession of the carrier.
+        """)
+        
+        st.divider()
+        
+        st.subheader("Privacy Policy")
+        st.markdown("""
+        **1. Data Retention**
+        To ensure delivery and handle support requests, we retain letter content and address data for **30 days** after creation. After this period, data may be permanently deleted.
+        
+        **2. Third-Party Sharing**
+        - **Mailing:** Address and content data is shared with our print partners (PostGrid/Lob) for fulfillment.
+        - **AI Processing:** Audio is processed via OpenAI. We do not opt-in to having your data train their models.
+        - **Payment:** Credit card data is processed exclusively by Stripe. We never see or store your full card number.
+        
+        **3. Your Rights**
+        You may request the immediate deletion of your account and data by emailing **privacy@verbapost.com**.
+        """)
+
     if st.button("← Return to Home", type="primary"):
         reset_app()
         st.rerun()
@@ -166,13 +195,11 @@ def render_store_page():
                 if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    # Safe Link formatting
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                         if url:
-                            # Safe HTML formatting
                             btn_html = f"""
                             <a href="{url}" target="_blank" style="text-decoration:none;">
                                 <div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">
@@ -304,6 +331,8 @@ def render_review_page():
         
         show_santa_animation()
         st.success("Letter Queued for Delivery!")
+        
+        # RESET TO SPLASH
         if st.button("🏁 Finish & Return Home"): 
             reset_app()
             st.rerun()
