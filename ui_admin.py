@@ -7,12 +7,19 @@ import base64
 from datetime import datetime
 from sqlalchemy import text
 
+# --- IMPORTS ---
 try: import database
 except: database = None
 try: import letter_format
 except: letter_format = None
+try: import mailer
+except: mailer = None
+# FIX: Added promo_engine import here
+try: import promo_engine
+except: promo_engine = None
 
 def generate_admin_pdf(letter, is_santa=False, is_heirloom=False):
+    """Helper to generate PDF bytes"""
     try:
         raw_to = letter.get("Recipient", "{}")
         raw_from = letter.get("Sender", "{}")
@@ -25,25 +32,22 @@ def generate_admin_pdf(letter, is_santa=False, is_heirloom=False):
 
         to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
         
-        # FIX 1: Add City/State/Zip to Sender Address
         if is_santa:
             from_str = "Santa Claus"
         else:
             from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
 
-        # FIX 2: Decode Base64 Signature
+        # Signature Decoding
         sig_path = None
         raw_sig = letter.get("Signature")
-        if raw_sig and len(raw_sig) > 50: # Simple check to see if it might be base64
+        if raw_sig and len(raw_sig) > 50:
             try:
-                # If it's a string representation of a list, this will fail (handling old bad data)
                 if not raw_sig.startswith("[[["): 
                     sig_bytes = base64.b64decode(raw_sig)
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp:
                         tmp.write(sig_bytes)
                         sig_path = tmp.name
-            except Exception as e:
-                print(f"Sig Decode Error: {e}")
+            except: pass
 
         if letter_format:
             pdf_data = letter_format.create_pdf(
@@ -52,13 +56,10 @@ def generate_admin_pdf(letter, is_santa=False, is_heirloom=False):
                 from_str, 
                 is_heirloom=is_heirloom,
                 is_santa=is_santa,
-                signature_path=sig_path # Pass the recovered signature
+                signature_path=sig_path
             )
-            
-            # Clean up temp file
             if sig_path and os.path.exists(sig_path): os.remove(sig_path)
             return pdf_data
-            
         return None
     except Exception as e:
         st.error(f"PDF Generation Error: {e}")
@@ -67,7 +68,6 @@ def generate_admin_pdf(letter, is_santa=False, is_heirloom=False):
 def show_admin():
     st.title("🔐 Admin Console")
     
-    # -- HEADER & AUTH --
     u_email = st.session_state.get("user", {}).email if hasattr(st.session_state.get("user"), "email") else "Unknown"
     st.info(f"Logged in as: {u_email}")
     
@@ -75,7 +75,6 @@ def show_admin():
         st.session_state.app_mode = "store"
         st.rerun()
 
-    # -- TABS --
     tab_orders, tab_santa, tab_heirloom, tab_maint, tab_promo, tab_danger = st.tabs(["📦 Standard", "🎅 Santa", "🏺 Heirloom", "🛠️ Maint", "🎟️ Promo", "⚠️ Danger"])
 
     # --- TAB 1: STANDARD ---
@@ -84,118 +83,55 @@ def show_admin():
         if database:
             data = database.fetch_all_drafts()
             if data:
-                # Filter safely
                 std_orders = [d for d in data if d.get("Tier") and ("Standard" in d["Tier"] or "Civic" in d["Tier"])]
-                if std_orders:
-                    st.dataframe(pd.DataFrame(std_orders))
-                else:
-                    st.info("No standard orders.")
+                if std_orders: st.dataframe(pd.DataFrame(std_orders))
+                else: st.info("No standard orders.")
             else: st.info("No data.")
 
-# --- TAB 2: SANTA ---
+    # --- TAB 2: SANTA ---
     with tab_santa:
-        st.subheader("🎅 Santa Fulfillment (Debug Mode)")
+        st.subheader("🎅 Santa Fulfillment")
         if database:
             data = database.fetch_all_drafts()
             santa_orders = [d for d in data if d.get("Tier") and "Santa" in d["Tier"]]
             
             if santa_orders:
                 st.dataframe(pd.DataFrame(santa_orders)[["ID", "Email", "Date", "Status"]])
-                
-                # SELECT ORDER
                 s_id = st.selectbox("Select Order ID", [d["ID"] for d in santa_orders], key="santa_sel")
                 target_letter = next((d for d in santa_orders if d["ID"] == s_id), None)
                 
                 if target_letter:
-                    st.divider()
-                    c1, c2 = st.columns(2)
+                    if st.button("Generate PDF", key="santa_gen"):
+                        pdf_bytes = generate_admin_pdf(target_letter, is_santa=True)
+                        if pdf_bytes:
+                            if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1', 'ignore')
+                            b64 = base64.b64encode(pdf_bytes).decode()
+                            href = f'<a href="data:application/pdf;base64,{b64}" download="Santa_Order_{s_id}.pdf">⬇️ Download PDF</a>'
+                            st.markdown(href, unsafe_allow_html=True)
                     
-                    # 1. ORIGINAL DOWNLOAD BUTTON
-                    with c1:
-                        if st.button("Generate & Download PDF", key="gen_pdf_btn"):
-                            with st.spinner("Generating..."):
-                                try:
-                                    pdf_bytes = generate_admin_pdf(target_letter, is_santa=True)
-                                    if pdf_bytes:
-                                        if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1')
-                                        b64 = base64.b64encode(pdf_bytes).decode()
-                                        fname = f"Santa_Order_{s_id}.pdf"
-                                        href = f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background-color:#d32f2f; color:white; padding:10px; border-radius:5px; text-decoration:none; display:block; text-align:center;">⬇️ Download PDF</a>'
-                                        st.markdown(href, unsafe_allow_html=True)
-                                    else:
-                                        st.error("PDF Generation returned None.")
-                                except Exception as e:
-                                    st.error(f"Generation Failed: {e}")
-
-                    # 2. NEW DEBUG BUTTON (Use this to find the error)
-                    with c2:
-                        if st.button("🐞 Debug PDF Generation"):
-                            st.write("### Debug Log")
-                            try:
-                                st.info("1. Inspecting Data...")
-                                st.json(target_letter)
-                                
-                                st.info("2. Attempting PDF Generation...")
-                                # Call the function directly here to catch the crash
-                                import letter_format
-                                
-                                # Manually parse data like the helper does to see if parsing fails
-                                raw_to = target_letter.get("Recipient", "{}")
-                                st.write(f"Raw Recipient Data Type: {type(raw_to)}")
-                                
-                                # Attempt generation
-                                pdf_bytes = generate_admin_pdf(target_letter, is_santa=True)
-                                
-                                if pdf_bytes:
-                                    st.success(f"✅ Success! PDF Size: {len(pdf_bytes)} bytes")
-                                else:
-                                    st.error("❌ Generator returned None (Check Console Logs)")
-                                    
-                            except Exception as e:
-                                st.error("❌ CRITICAL ERROR CAUGHT")
-                                st.exception(e) # This prints the red traceback box
-                                
-                    st.divider()
-                    # 3. Mark Completed Button
-                    if st.button(f"Mark Order #{s_id} Completed", key=f"btn_santa_{s_id}"):
+                    if st.button("Mark Completed", key="santa_mark"):
                         database.update_status(s_id, "Completed")
-                        st.success("Marked Completed!")
-                        st.rerun()
-            else: st.info("No Santa orders.")
-    
+                        st.success("Updated!"); st.rerun()
+
     # --- TAB 3: HEIRLOOM ---
     with tab_heirloom:
         st.subheader("🏺 Heirloom Fulfillment")
         if database:
             data = database.fetch_all_drafts()
-            heirloom_orders = [d for d in data if d.get("Tier") and "Heirloom" in d["Tier"]]
-            
-            if heirloom_orders:
-                st.dataframe(pd.DataFrame(heirloom_orders)[["ID", "Email", "Date", "Status"]])
-                
-                h_id = st.selectbox("Select Order ID", [d["ID"] for d in heirloom_orders], key="heir_sel")
-                target_h = next((d for d in heirloom_orders if d["ID"] == h_id), None)
+            heir_orders = [d for d in data if d.get("Tier") and "Heirloom" in d["Tier"]]
+            if heir_orders:
+                st.dataframe(pd.DataFrame(heir_orders)[["ID", "Email", "Date", "Status"]])
+                h_id = st.selectbox("Select Order ID", [d["ID"] for d in heir_orders], key="heir_sel")
+                target_h = next((d for d in heir_orders if d["ID"] == h_id), None)
                 
                 if target_h:
-                    pdf_bytes = generate_admin_pdf(target_h, is_heirloom=True)
-                    if pdf_bytes:
-                        try:
-                            if isinstance(pdf_bytes, str):
-                                pdf_bytes = pdf_bytes.encode('latin-1')
-                                
+                    if st.button("Generate PDF", key="heir_gen"):
+                        pdf_bytes = generate_admin_pdf(target_h, is_heirloom=True)
+                        if pdf_bytes:
+                            if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1', 'ignore')
                             b64 = base64.b64encode(pdf_bytes).decode()
-                            fname = f"Heirloom_Order_{h_id}.pdf"
-                            href = f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background-color:#8B4513; color:white; padding:10px; border-radius:5px; text-decoration:none; display:block; text-align:center;">⬇️ Download PDF</a>'
+                            href = f'<a href="data:application/pdf;base64,{b64}" download="Heirloom_Order_{h_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
-                        except Exception as e:
-                            st.error(f"Encoding Error: {e}")
-
-                    st.divider()
-                    if st.button(f"Mark Order #{h_id} Completed", key=f"btn_heir_{h_id}"):
-                        database.update_status(h_id, "Completed")
-                        st.success("Marked Completed!")
-                        st.rerun()
-            else: st.info("No Heirloom orders.")
 
     # --- TAB 4: MAINT ---
     with tab_maint:
@@ -205,16 +141,26 @@ def show_admin():
                 database.get_session().execute(text("SELECT 1")).fetchone()
                 st.success("✅ Database Connected")
             except Exception as e: st.error(f"❌ DB Error: {e}")
-        
-        pg_key = st.secrets.get("postgrid", {}).get("api_key")
-        if pg_key: st.success("✅ PostGrid Key Found")
-        else: st.error("❌ PostGrid Key Missing")
 
-    # --- TAB 5/6: EXTRAS ---
+    # --- TAB 5: PROMO ---
     with tab_promo:
-        if promo_engine and st.button("Generate Code"):
-             st.success(f"Code: `{promo_engine.generate_code()}`")
-    
+        st.subheader("Promo Codes")
+        if promo_engine:
+            c1, c2 = st.columns(2)
+            with c1:
+                new_code = st.text_input("New Code")
+                if st.button("Create Code"):
+                    success, msg = promo_engine.create_code(new_code)
+                    if success: st.success(msg)
+                    else: st.error(msg)
+            with c2:
+                st.write("Usage Stats")
+                stats = promo_engine.get_all_codes_with_usage()
+                if stats: st.dataframe(stats)
+        else:
+            st.warning("Promo Engine not loaded.")
+
+    # --- TAB 6: DANGER ---
     with tab_danger:
         if st.button("TRUNCATE ALL DATA"):
              if database: database.clear_all_drafts(); st.success("Wiped."); st.rerun()
