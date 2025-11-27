@@ -5,7 +5,8 @@ st.set_page_config(
     page_title="VerbaPost | Send Real Mail from Audio",
     page_icon="📮",
     layout="centered",
-    initial_sidebar_state="expanded"
+    # FIX: "collapsed" ensures the mobile view isn't blocked on load
+    initial_sidebar_state="collapsed" 
 )
 
 # --- 2. CSS ---
@@ -15,8 +16,8 @@ def inject_global_css():
         /* GLOBAL THEME */
         .stApp { background-color: #f8f9fc; }
         
-        /* TEXT COLORS - Scoped safely to avoid hiding system elements */
-        h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span { 
+        /* TEXT COLORS */
+        h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span, div { 
             color: #2d3748 !important; 
         }
 
@@ -33,32 +34,34 @@ def inject_global_css():
         
         /* --- BUTTON FIXES --- */
         
-        /* 1. General Buttons (Blue Text) */
-        div.stButton > button p {
+        /* 1. Default Button Text (Blue) */
+        button p {
             color: #2a5298 !important;
         }
         
-        /* 2. Primary Buttons (White Text) */
-        div.stButton > button[kind="primary"] {
+        /* 2. Primary Buttons (Gradient + White Text) */
+        button[kind="primary"] {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
             border: none !important;
         }
-        div.stButton > button[kind="primary"] p {
+        button[kind="primary"] p {
             color: white !important;
         }
 
-        /* 3. LOGIN/FORM BUTTONS (Specific Fix) */
-        /* Targets the button inside the form submit container */
+        /* 3. LOGIN/FORM BUTTONS (SUPER NUCLEAR FIX) */
+        /* Target every layer of the button to force White */
+        [data-testid="stFormSubmitButton"] button,
+        [data-testid="stFormSubmitButton"] button > div,
+        [data-testid="stFormSubmitButton"] button > div > p {
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important; /* Critical for Chrome/Safari */
+            font-weight: 600 !important;
+        }
+        
+        /* Ensure the background stays Blue */
         [data-testid="stFormSubmitButton"] button {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
             border: none !important;
-        }
-        
-        /* Forces the text inside to be white */
-        [data-testid="stFormSubmitButton"] button p {
-            color: #ffffff !important;
-            -webkit-text-fill-color: #ffffff !important;
-            font-weight: bold !important;
         }
 
         /* Hover Effects */
