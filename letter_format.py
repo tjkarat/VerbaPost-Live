@@ -16,10 +16,45 @@ def ensure_fonts():
                 r = requests.get(url, allow_redirects=True)
                 if r.status_code == 200:
                     with open(filename, "wb") as f: f.write(r.content)
-            except: passdef create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None, is_santa=False):
+            except: pass
+
+# --- CUSTOM CLASS FOR RECURRING BORDERS ---
+class LetterPDF(FPDF):
+    def __init__(self, is_santa=False, **kwargs):
+        super().__init__(**kwargs)
+        self.is_santa = is_santa
+
+    def header(self):
+        # This runs automatically every time a new page is added
+        if self.is_santa:
+            # 1. Cream Background
+            self.set_fill_color(252, 247, 235) 
+            self.rect(0, 0, 215.9, 279.4, 'F')
+            
+            # 2. Festive Borders
+            self.set_line_width(2)
+            self.set_draw_color(180, 20, 20) # Red
+            self.rect(5, 5, 205.9, 269.4)
+            
+            self.set_line_width(1)
+            self.set_draw_color(20, 100, 20) # Green
+            self.rect(8, 8, 199.9, 263.4)
+            
+            # 3. Header (Only on Page 1)
+            if self.page_no() == 1:
+                self.set_y(20)
+                self.set_font("Helvetica", "B", 24)
+                self.set_text_color(180, 20, 20) 
+                self.cell(0, 10, "FROM THE DESK OF SANTA CLAUS", 0, 1, 'C')
+                
+                self.set_font("Helvetica", "I", 10)
+                self.set_text_color(20, 100, 20) 
+                self.cell(0, 5, "Official North Pole Correspondence | List Status: NICE", 0, 1, 'C')
+                self.set_text_color(0, 0, 0) # Reset textdef create_pdf(content, recipient_addr, return_addr, is_heirloom, language="English", signature_path=None, is_santa=False):
     ensure_fonts()
     
-    pdf = FPDF(format='Letter')
+    # Use our custom class instead of standard FPDF
+    pdf = LetterPDF(is_santa=is_santa, format='Letter')
     pdf.set_auto_page_break(True, margin=20)
     
     # Register Fonts
@@ -35,36 +70,10 @@ def ensure_fonts():
             font_map['cjk'] = 'NotoCJK'
         except: pass
 
-    # --- HELPER: Draw Border ---
-    def draw_santa_border():
-        # Cream Background
-        pdf.set_fill_color(252, 247, 235) 
-        pdf.rect(0, 0, 215.9, 279.4, 'F')
-        # Red/Green Border
-        pdf.set_line_width(2)
-        pdf.set_draw_color(180, 20, 20); pdf.rect(5, 5, 205.9, 269.4)
-        pdf.set_line_width(1)
-        pdf.set_draw_color(20, 100, 20); pdf.rect(8, 8, 199.9, 263.4)
-        # Reset to black text
-        pdf.set_text_color(0, 0, 0)
-
-    # --- HELPER: Draw Header ---
-    def draw_santa_header():
-        pdf.set_y(20)
-        pdf.set_font("Helvetica", "B", 24)
-        pdf.set_text_color(180, 20, 20) 
-        pdf.cell(0, 10, "FROM THE DESK OF SANTA CLAUS", 0, 1, 'C')
-        pdf.set_font("Helvetica", "I", 10)
-        pdf.set_text_color(20, 100, 20) 
-        pdf.cell(0, 5, "Official North Pole Correspondence | List Status: NICE", 0, 1, 'C')
-        pdf.set_text_color(0, 0, 0)# 1. Create First Page
+    # Create First Page (Triggers header() automatically)
     pdf.add_page()
-    
-    if is_santa:
-        draw_santa_border()
-        draw_santa_header()
 
-    # 2. Fonts
+    # 2. Font Selection
     if language in ["Japanese", "Chinese", "Korean"] and 'cjk' in font_map:
         body_font = font_map['cjk']; addr_font = font_map['cjk']; body_size = 12
     else:
@@ -72,24 +81,24 @@ def ensure_fonts():
         addr_font = 'Helvetica' 
         body_size = 18 if is_santa else (16 if body_font == 'Caveat' else 12)
 
-    # 3. Header Info
+    # 3. Header Info (Date & Address)
     pdf.set_text_color(0, 0, 0)
     
-    # Date & Santa Address (Top Right)
+    # Move date down if Santa header exists
     date_y = 50 if is_santa else 15
     pdf.set_xy(140, date_y)
     pdf.set_font(addr_font, '', 10)
     pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
     
+    # SANTA ADDRESS FIX: Explicitly placed below date
     if is_santa:
-        pdf.set_x(140) # Align with date
+        pdf.set_x(140) # Align right
         pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
     elif not is_santa:
-        # Standard Return Address (Top Left)
         pdf.set_xy(15, 15)
         pdf.multi_cell(0, 5, return_addr)
 
-    # Recipient
+    # Recipient Address
     recip_y = 80 if is_santa else 45
     pdf.set_xy(20, recip_y)
     pdf.set_font(addr_font, 'B', 12)
@@ -98,29 +107,14 @@ def ensure_fonts():
     # 4. Body Content
     pdf.set_xy(20, recip_y + 30)
     pdf.set_font(body_font, '', body_size)
-    
-    # Capture page number before writing text
-    start_page = pdf.page_no()
     pdf.multi_cell(170, 8, content)
-    end_page = pdf.page_no()# 5. Post-Processing for Multi-Page Santa Border
-    # If text spilled to new pages, go back and draw borders/backgrounds on them
-    if is_santa and end_page > start_page:
-        for p in range(start_page + 1, end_page + 1):
-            pdf.page = p
-            # We have to redraw background/border without overwriting text
-            # FPDF doesn't support layers easily, so we rely on the fact that
-            # we set the fill color for the next page add.
-            # A simple workaround for existing pages is tricky in standard FPDF.
-            # We will rely on the white paper for subsequent pages or simple borders.
-            # Drawing rects now would cover the text.
-            pass 
 
-    # 6. Signature
-    pdf.ln(20)
+    # 5. Signature
+    pdf.ln(20) 
     if is_santa:
         pdf.set_x(pdf.l_margin)
         pdf.set_font(font_map['hand'], '', 32)
-        pdf.set_text_color(180, 20, 20)
+        pdf.set_text_color(180, 20, 20) 
         pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
     elif signature_path and os.path.exists(signature_path):
         try: pdf.image(signature_path, x=20, w=40)
