@@ -75,9 +75,9 @@ def show_admin():
                     st.info("No standard orders.")
             else: st.info("No data.")
 
-    # --- TAB 2: SANTA ---
+# --- TAB 2: SANTA ---
     with tab_santa:
-        st.subheader("🎅 Santa Fulfillment")
+        st.subheader("🎅 Santa Fulfillment (Debug Mode)")
         if database:
             data = database.fetch_all_drafts()
             santa_orders = [d for d in data if d.get("Tier") and "Santa" in d["Tier"]]
@@ -90,29 +90,62 @@ def show_admin():
                 target_letter = next((d for d in santa_orders if d["ID"] == s_id), None)
                 
                 if target_letter:
-                    # 1. Generate PDF immediately when selected
-                    pdf_bytes = generate_admin_pdf(target_letter, is_santa=True)
-                    if pdf_bytes:
-                        try:
-                            # Ensure bytes before encoding
-                            if isinstance(pdf_bytes, str):
-                                pdf_bytes = pdf_bytes.encode('latin-1')
-                                
-                            b64 = base64.b64encode(pdf_bytes).decode()
-                            fname = f"Santa_Order_{s_id}.pdf"
-                            href = f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background-color:#d32f2f; color:white; padding:10px; border-radius:5px; text-decoration:none; display:block; text-align:center;">⬇️ Download PDF</a>'
-                            st.markdown(href, unsafe_allow_html=True)
-                        except Exception as e:
-                            st.error(f"Encoding Error: {e}")
-
                     st.divider()
-                    # 2. Mark Completed Button
+                    c1, c2 = st.columns(2)
+                    
+                    # 1. ORIGINAL DOWNLOAD BUTTON
+                    with c1:
+                        if st.button("Generate & Download PDF", key="gen_pdf_btn"):
+                            with st.spinner("Generating..."):
+                                try:
+                                    pdf_bytes = generate_admin_pdf(target_letter, is_santa=True)
+                                    if pdf_bytes:
+                                        if isinstance(pdf_bytes, str): pdf_bytes = pdf_bytes.encode('latin-1')
+                                        b64 = base64.b64encode(pdf_bytes).decode()
+                                        fname = f"Santa_Order_{s_id}.pdf"
+                                        href = f'<a href="data:application/pdf;base64,{b64}" download="{fname}" style="background-color:#d32f2f; color:white; padding:10px; border-radius:5px; text-decoration:none; display:block; text-align:center;">⬇️ Download PDF</a>'
+                                        st.markdown(href, unsafe_allow_html=True)
+                                    else:
+                                        st.error("PDF Generation returned None.")
+                                except Exception as e:
+                                    st.error(f"Generation Failed: {e}")
+
+                    # 2. NEW DEBUG BUTTON (Use this to find the error)
+                    with c2:
+                        if st.button("🐞 Debug PDF Generation"):
+                            st.write("### Debug Log")
+                            try:
+                                st.info("1. Inspecting Data...")
+                                st.json(target_letter)
+                                
+                                st.info("2. Attempting PDF Generation...")
+                                # Call the function directly here to catch the crash
+                                import letter_format
+                                
+                                # Manually parse data like the helper does to see if parsing fails
+                                raw_to = target_letter.get("Recipient", "{}")
+                                st.write(f"Raw Recipient Data Type: {type(raw_to)}")
+                                
+                                # Attempt generation
+                                pdf_bytes = generate_admin_pdf(target_letter, is_santa=True)
+                                
+                                if pdf_bytes:
+                                    st.success(f"✅ Success! PDF Size: {len(pdf_bytes)} bytes")
+                                else:
+                                    st.error("❌ Generator returned None (Check Console Logs)")
+                                    
+                            except Exception as e:
+                                st.error("❌ CRITICAL ERROR CAUGHT")
+                                st.exception(e) # This prints the red traceback box
+                                
+                    st.divider()
+                    # 3. Mark Completed Button
                     if st.button(f"Mark Order #{s_id} Completed", key=f"btn_santa_{s_id}"):
                         database.update_status(s_id, "Completed")
                         st.success("Marked Completed!")
                         st.rerun()
             else: st.info("No Santa orders.")
-
+    
     # --- TAB 3: HEIRLOOM ---
     with tab_heirloom:
         st.subheader("🏺 Heirloom Fulfillment")

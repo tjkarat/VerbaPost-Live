@@ -61,90 +61,80 @@ class LetterPDF(FPDF):
             self.set_auto_page_break(True, margin=20)
 
 def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language="English", signature_path=None, is_santa=False):
-    ensure_fonts()
-    
-    # Initialize using the Custom Class
-    pdf = LetterPDF(is_santa=is_santa, format='Letter')
-    pdf.set_auto_page_break(True, margin=20)
-    
-    # Register Fonts
-    font_map = {}
-    if os.path.exists("Caveat-Regular.ttf"):
-        pdf.add_font('Caveat', '', 'Caveat-Regular.ttf', uni=True)
-        font_map['hand'] = 'Caveat'
-    else: font_map['hand'] = 'Helvetica'
-
-    if os.path.exists(CJK_PATH):
-        try:
-            pdf.add_font('NotoCJK', '', CJK_PATH, uni=True)
-            font_map['cjk'] = 'NotoCJK'
-        except: pass
-
-    # Create First Page
-    pdf.add_page()
-
-    # Fonts
-    if language in ["Japanese", "Chinese", "Korean"] and 'cjk' in font_map:
-        body_font = font_map['cjk']; addr_font = font_map['cjk']; body_size = 12
-    else:
-        body_font = font_map['hand'] if (is_heirloom or is_santa) else 'Helvetica'
-        addr_font = 'Helvetica' 
-        body_size = 18 if is_santa else (16 if body_font == 'Caveat' else 12)
-
-    # --- CONTENT PLACEMENT ---
-    pdf.set_text_color(0, 0, 0)
-    
-    # 1. Date (Top Right)
-    date_y = 50 if is_santa else 15
-    pdf.set_xy(140, date_y)
-    pdf.set_font(addr_font, '', 10)
-    pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
-    
-    # 2. Return Address
-    if is_santa:
-        # Force North Pole Address below Date
-        pdf.set_x(140) 
-        pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
-    else:
-        # Standard Top-Left
-        pdf.set_xy(15, 15)
-        pdf.multi_cell(0, 5, return_addr)
-
-    # 3. Recipient Address
-    recip_y = 80 if is_santa else 45
-    pdf.set_xy(20, recip_y)
-    pdf.set_font(addr_font, 'B', 12)
-    pdf.multi_cell(0, 6, recipient_addr)
-    
-    # 4. Main Body Content
-    pdf.set_xy(20, recip_y + 30)
-    pdf.set_font(body_font, '', body_size)
-    pdf.multi_cell(170, 8, content)
-
-    # 5. Signature
-    pdf.ln(20) 
-    if is_santa:
-        pdf.set_x(pdf.l_margin)
-        # Ensure 'hand' font is available, else fallback
-        sig_font = font_map.get('hand', 'Helvetica')
-        pdf.set_font(sig_font, '', 32)
-        pdf.set_text_color(180, 20, 20) 
-        pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
-    elif signature_path and os.path.exists(signature_path):
-        try: pdf.image(signature_path, x=20, w=40)
-        except: pass
-    
-    # 6. Footer
-    pdf.set_y(-20)
-    pdf.set_font('Helvetica', 'I', 8)
-    pdf.set_text_color(100, 100, 100)
-    footer = 'Official North Pole Mail' if is_santa else 'Dictated & Mailed via VerbaPost.com'
-    pdf.cell(0, 10, footer, 0, 0, 'C')
-
-    # FIX: Explicitly Output String and Encode to Bytes
-    # This prevents the "string argument without an encoding" error
+    print("--- PDF GENERATION STARTED ---")
     try:
-        return pdf.output(dest='S').encode('latin-1')
+        ensure_fonts()
+        print("1. Fonts checked")
+        
+        # Initialize
+        pdf = LetterPDF(is_santa=is_santa, format='Letter')
+        pdf.set_auto_page_break(True, margin=20)
+        print("2. PDF Class Initialized")
+        
+        # Fonts
+        font_map = {}
+        if os.path.exists("Caveat-Regular.ttf"):
+            pdf.add_font('Caveat', '', 'Caveat-Regular.ttf', uni=True)
+            font_map['hand'] = 'Caveat'
+            print("3. Caveat Font Loaded")
+        else:
+            font_map['hand'] = 'Helvetica'
+            print("3. Caveat Missing, using Helvetica")
+
+        # Page Add (This triggers header)
+        try:
+            pdf.add_page()
+            print("4. Page Added (Header Rendered)")
+        except Exception as e:
+            print(f"ERROR IN HEADER: {e}")
+            raise e
+
+        # Body Config
+        body_font = font_map['hand'] if (is_heirloom or is_santa) else 'Helvetica'
+        body_size = 18 if is_santa else 12
+        
+        # Content
+        pdf.set_text_color(0, 0, 0)
+        
+        # Attempting to write text (Common failure point with emojis)
+        try:
+            # Recipient
+            pdf.set_xy(20, 80 if is_santa else 45)
+            pdf.set_font('Helvetica', 'B', 12)
+            # Sanitize input to remove incompatible characters if strictly needed
+            # recipient_addr = recipient_addr.encode('latin-1', 'replace').decode('latin-1') 
+            pdf.multi_cell(0, 6, str(recipient_addr))
+            print("5. Address Written")
+
+            # Body
+            pdf.set_xy(20, (80 if is_santa else 45) + 30)
+            pdf.set_font(body_font, '', body_size)
+            pdf.multi_cell(170, 8, str(content))
+            print("6. Body Written")
+        except Exception as e:
+            print(f"ERROR WRITING TEXT: {e}")
+            raise e
+
+        # Signature
+        pdf.ln(20) 
+        if is_santa:
+            pdf.set_x(pdf.l_margin)
+            pdf.set_font(font_map.get('hand', 'Helvetica'), '', 32)
+            pdf.set_text_color(180, 20, 20) 
+            pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
+            print("7. Santa Sig Written")
+        
+        # Output
+        print("8. Attempting Output...")
+        # CRITICAL: Using 'S' returns a string. We must encode it safely.
+        # 'latin-1' creates the PDF bytes. 'ignore' drops emojis instead of crashing.
+        output_string = pdf.output(dest='S')
+        byte_data = output_string.encode('latin-1', 'ignore') 
+        
+        print(f"9. Success! Generated {len(byte_data)} bytes")
+        return byte_data
+
     except Exception as e:
-        print(f"PDF Output Error: {e}")
+        print(f"❌ FATAL PDF ERROR: {e}")
+        # Return nothing so UI knows it failed
         return None
