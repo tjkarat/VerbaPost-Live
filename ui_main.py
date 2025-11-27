@@ -23,8 +23,11 @@ try: import analytics
 except: analytics = None
 try: import promo_engine 
 except: promo_engine = None
+# Added for robust secret handling
+try: import secrets_manager
+except: secrets_manager = None
 
-YOUR_APP_URL = "https://verbapost.com"
+YOUR_APP_URL = "https://verbapost.streamlit.app/"
 
 def reset_app():
     if st.session_state.get("user_email"):
@@ -68,26 +71,28 @@ def render_legal_page():
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
+    
     u_email = st.session_state.get("user_email", "")
     
-def render_store_page():
-    render_hero("Select Service", "Choose your letter type")
-    u_email = st.session_state.get("user_email", "")
-    
+    # --- ADMIN CHECK (Fixed Indentation) ---
     admin_target = ""
     try:
-        # Try finding it via manager first
+        # 1. Try Secrets Manager (Works on Local + GCP)
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email") or secrets_manager.get_secret("ADMIN_EMAIL")
         
-        # Fallback for local dev if manager fails but secrets exist
+        # 2. Fallback to direct secrets if manager fails (Local only)
         if not admin_target and "admin" in st.secrets:
             admin_target = st.secrets["admin"].get("email", "")
-    except: pass
-    if str(u_email).strip().lower() == str(admin_target).strip().lower():
+    except:
+        pass
+
+    # Check if current user matches admin email
+    if str(u_email).strip().lower() == str(admin_target).strip().lower() and admin_target != "":
         if st.button("🔐 Open Admin Console", type="secondary"):
             st.session_state.app_mode = "admin"
             st.rerun()
+    # ---------------------------------------
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -248,7 +253,12 @@ def render_review_page():
             
             if database:
                 final_status = "Completed" if tier == "Standard" else "Pending Admin"
-                database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
+                database.save_draft(
+                    u_email, txt, tier, "0.00", 
+                    to_addr=to_data, from_addr=from_data, 
+                    status=final_status, 
+                    sig_data=sig_db_value
+                )
         
         show_santa_animation()
         st.success("Letter Queued for Delivery!")
