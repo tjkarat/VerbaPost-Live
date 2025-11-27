@@ -8,7 +8,7 @@ import numpy as np
 from PIL import Image
 import io
 
-# --- IMPORTS (Safe Block) ---
+# --- IMPORTS ---
 try:
     import database
 except ImportError:
@@ -64,9 +64,15 @@ except:
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
 def reset_app():
-    # FIX: Explicitly send user to Splash Page as requested
-    st.session_state.app_mode = "splash"
+    # FIX: Smart Redirect
+    # If user is logged in -> Go to "Store" (Main Dashboard)
+    # If not logged in -> Go to "Splash" (Landing Page)
+    if st.session_state.get("user_email"):
+        st.session_state.app_mode = "store"
+    else:
+        st.session_state.app_mode = "splash"
     
+    # Clear session data to restart the flow
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
     st.session_state.payment_complete = False
@@ -90,9 +96,8 @@ def show_santa_animation():
 
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
-    
     with st.container(border=True):
-        st.subheader("Terms of Service & Privacy Waiver")
+        st.subheader("Terms of Service")
         st.markdown("""
         **Last Updated: November 2024**
         
@@ -100,34 +105,19 @@ def render_legal_page():
         **For "Heirloom" and "Santa" Tiers:**
         These letters are created using special materials that require **manual printing and packaging**. 
         By selecting these tiers, you explicitly acknowledge and agree that **VerbaPost staff will view and handle your letter content**. 
-        **THERE IS NO EXPECTATION OF PRIVACY** for Heirloom or Santa letters. Do not include sensitive, financial, medical (HIPAA), or highly confidential information in these specific tiers.
+        **THERE IS NO EXPECTATION OF PRIVACY** for Heirloom or Santa letters.
         
         **2. Automated Handling (Standard/Civic)**
-        Standard and Civic letters are processed via API (PostGrid/Lob) and are **not** read by humans unless a technical delivery failure requires investigation.
+        Standard and Civic letters are processed via API and are **not** read by humans unless a technical delivery failure requires investigation.
         
-        **3. Prohibited Content**
-        You agree NOT to send letters containing: illegal acts, threats, harassment, or hate speech. VerbaPost reserves the right to refuse fulfillment of any letter without refund if it violates this policy.
-        
-        **4. Delivery & Liability**
-        VerbaPost acts as a fulfillment agent. Our responsibility ends when the letter is handed to the USPS. We are not liable for lost, delayed, or damaged mail once in the possession of the carrier.
+        **3. Delivery**
+        VerbaPost acts as a fulfillment agent. We are not liable for USPS lost or delayed mail.
         """)
         
         st.divider()
-        
         st.subheader("Privacy Policy")
-        st.markdown("""
-        **1. Data Retention**
-        To ensure delivery and handle support requests, we retain letter content and address data for **30 days** after creation. After this period, data may be permanently deleted.
-        
-        **2. Third-Party Sharing**
-        - **Mailing:** Address and content data is shared with our print partners (PostGrid/Lob) for fulfillment.
-        - **AI Processing:** Audio is processed via OpenAI. We do not opt-in to having your data train their models.
-        - **Payment:** Credit card data is processed exclusively by Stripe. We never see or store your full card number.
-        
-        **3. Your Rights**
-        You may request the immediate deletion of your account and data by emailing **privacy@verbapost.com**.
-        """)
-
+        st.write("We retain letter data for 30 days. Payment data is handled securely by Stripe.")
+    
     if st.button("← Return to Home", type="primary"):
         reset_app()
         st.rerun()
@@ -317,11 +307,49 @@ def render_review_page():
             except: pass
 
         if letter_format:
-            letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
+            pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
+            
+            # --- RESTORED POSTGRID LOGIC ---
+            postgrid_success = False
+            if tier == "Standard" and mailer:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(pdf_bytes)
+                    tmp_path = tmp.name
+                
+                pg_to = {
+                    'name': to_data.get('name'), 
+                    'address_line1': to_data.get('street'),
+                    'address_city': to_data.get('city'),
+                    'address_state': to_data.get('state'),
+                    'address_zip': to_data.get('zip')
+                }
+                pg_from = {
+                    'name': from_data.get('name'), 
+                    'address_line1': from_data.get('street'),
+                    'address_city': from_data.get('city'),
+                    'address_state': from_data.get('state'),
+                    'address_zip': from_data.get('zip')
+                }
+                
+                print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
+                resp = mailer.send_letter(tmp_path, pg_to, pg_from)
+                os.remove(tmp_path)
+                
+                if resp and resp.get("id"):
+                    postgrid_success = True
+                    print(f"DEBUG: PostGrid Success ID: {resp.get('id')}")
+                else:
+                    print("DEBUG: PostGrid Failed")
+
             if sig_path and os.path.exists(sig_path): os.remove(sig_path)
             
+            # --- SAVE TO DB ---
             if database:
-                final_status = "Completed" if tier == "Standard" else "Pending Admin"
+                if tier == "Standard":
+                    final_status = "Completed" if postgrid_success else "Pending Admin"
+                else:
+                    final_status = "Pending Admin"
+                
                 database.save_draft(
                     u_email, txt, tier, "0.00", 
                     to_addr=to_data, from_addr=from_data, 
@@ -332,7 +360,7 @@ def render_review_page():
         show_santa_animation()
         st.success("Letter Queued for Delivery!")
         
-        # RESET TO SPLASH
+        # --- FIXED: Finish Button Logic ---
         if st.button("🏁 Finish & Return Home"): 
             reset_app()
             st.rerun()
