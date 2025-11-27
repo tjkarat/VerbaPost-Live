@@ -110,30 +110,55 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         # --- CONTENT PLACEMENT ---
         pdf.set_text_color(0, 0, 0)
         
-        # 1. Date
-        date_y = 50 if is_santa else 15
-        pdf.set_xy(140, date_y)
-        pdf.set_font('Helvetica', '', 10)
-        pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
-        
-        # 2. Return Address
-        if is_santa:
-            pdf.set_x(140) 
-            pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
-        else:
-            pdf.set_xy(15, 15)
-            pdf.multi_cell(0, 5, sanitize_text(return_addr))
+        # CRITICAL FIX: Determine "Standard" mode
+        is_standard = not (is_heirloom or is_santa)
 
-        # 3. Recipient Address
-        recip_y = 80 if is_santa else 45
-        pdf.set_xy(20, recip_y)
-        pdf.set_font('Helvetica', 'B', 12)
-        pdf.multi_cell(0, 6, sanitize_text(recipient_addr))
-        
-        # 4. Main Body Content
-        pdf.set_xy(20, recip_y + 30)
+        if is_standard:
+            # --- STANDARD MODE (For PostGrid) ---
+            # We must leave the top ~100mm blank for PostGrid's address overlay.
+            # We do NOT print addresses here. PostGrid adds them.
+            
+            # Start Body much lower to clear the window zone
+            pdf.set_xy(20, 100) 
+            
+            # Optional: Add Date (High enough to not hit address, or below address)
+            # Let's put date at the very top right, safely out of window zone
+            pdf.set_xy(140, 15)
+            pdf.set_font('Helvetica', '', 10)
+            pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
+            
+            # Reset cursor for body
+            pdf.set_xy(20, 100)
+
+        else:
+            # --- HEIRLOOM / SANTA MODE (Manual Print) ---
+            # We MUST print addresses because a human needs to read them to pack it.
+            
+            # 1. Date
+            date_y = 50 if is_santa else 15
+            pdf.set_xy(140, date_y)
+            pdf.set_font('Helvetica', '', 10)
+            pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
+            
+            # 2. Return Address
+            if is_santa:
+                pdf.set_x(140) 
+                pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
+            else:
+                pdf.set_xy(15, 15)
+                pdf.multi_cell(0, 5, sanitize_text(return_addr))
+
+            # 3. Recipient Address
+            recip_y = 80 if is_santa else 45
+            pdf.set_xy(20, recip_y)
+            pdf.set_font('Helvetica', 'B', 12)
+            pdf.multi_cell(0, 6, sanitize_text(recipient_addr))
+            
+            # Set cursor for body
+            pdf.set_xy(20, recip_y + 30)
+
+        # 4. Main Body Content (Common)
         pdf.set_font(body_font, '', body_size)
-        
         safe_content = sanitize_text(content)
         pdf.multi_cell(170, 8, safe_content)
 
@@ -155,16 +180,13 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         footer = 'Official North Pole Mail' if is_santa else 'Dictated & Mailed via VerbaPost.com'
         pdf.cell(0, 10, footer, 0, 0, 'C')
 
-        # --- ROBUST OUTPUT (THE FIX) ---
+        # --- OUTPUT ---
         raw_output = pdf.output(dest='S')
-        
-        # Check type to avoid crash
         if isinstance(raw_output, (bytes, bytearray)):
             return bytes(raw_output)
         elif isinstance(raw_output, str):
             return raw_output.encode('latin-1', 'ignore')
         else:
-            # Fallback for weird FPDF versions
             return bytes(raw_output)
 
     except Exception as e:
