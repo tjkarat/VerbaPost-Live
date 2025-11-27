@@ -3,6 +3,7 @@ from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
 import json
+import base64
 
 # --- IMPORTS ---
 try: import database
@@ -56,38 +57,35 @@ def render_legal_page():
     with st.container(border=True):
         st.subheader("Terms of Service")
         st.markdown("""
-        **Last Updated: November 2024**
+        **1. Acceptance of Terms**
+        By accessing and using VerbaPost, you accept and agree to be bound by the terms and provision of this agreement.
         
-        **1. Service Description**
-        VerbaPost ("we", "us") provides a platform to convert digital audio and text into physical mail. By using our service, you agree that you are solely responsible for the content of your letters. We reserve the right to refuse service for content that is illegal, threatening, or abusive.
+        **2. Service Description**
+        VerbaPost provides a service to convert audio and digital text into physical mail. We utilize third-party APIs (PostGrid, Lob) for the printing and mailing process.
         
-        **2. Delivery & Fulfillment**
-        We utilize third-party carriers (primarily USPS) for delivery. While we guarantee that your letter will be handed off to the carrier within 2 business days of payment, we cannot guarantee specific delivery dates once the item is in the carrier's possession.
-        
-        **3. User Responsibilities**
-        You agree to provide accurate address information. VerbaPost is not liable for undeliverable mail due to incorrect addresses provided by the user.
+        **3. User Content**
+        You are responsible for the content of your letters. We do not endorse, support, or guarantee the completeness, truthfulness, accuracy, or reliability of any content posted via the Service.
         
         **4. Refunds**
-        Refunds are issued at our discretion for system errors (e.g., audio transcription failure). We do not issue refunds for letters that have already been printed or for user-supplied address errors.
+        Refunds are generally not provided once a letter has been processed for printing. However, if a technical error occurs on our end preventing the generation of your letter, a full refund will be issued.
         """)
         
         st.divider()
         
         st.subheader("Privacy Policy")
         st.markdown("""
-        **1. Information We Collect**
-        We collect your name, email address, physical address, and the audio/text content you submit.
+        **1. Information Collection**
+        We collect personal information such as your name, address, and email address when you register. We also process the audio and text content of the letters you send.
         
-        **2. How We Use Your Data**
-        - **Fulfillment:** Your address and letter content are shared with our printing partners (e.g., PostGrid, Lob) solely for the purpose of creating and mailing your document.
-        - **AI Processing:** Your audio is processed by OpenAI's Whisper API for transcription. We do not use your data to train AI models.
-        - **Communication:** We use your email to send order confirmations and tracking updates.
+        **2. Data Usage**
+        - **Fulfillment:** Your address and letter content are sent to our printing partners solely for the purpose of mailing.
+        - **AI Processing:** Audio files are processed using OpenAI's Whisper API. We do not use your data to train AI models.
         
         **3. Data Security**
-        We use industry-standard encryption for data in transit and at rest. Your payment information is handled exclusively by Stripe; we do not store your credit card details.
+        We implement security measures designed to protect your information. Payment data is handled securely by Stripe; we never store your full credit card number.
         
-        **4. Account Deletion**
-        You may request full account deletion at any time by contacting support@verbapost.com.
+        **4. Contact**
+        For privacy concerns or to request data deletion, contact support@verbapost.com.
         """)
 
     if st.button("← Return to Home", type="primary"):
@@ -98,14 +96,30 @@ def render_legal_page():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
-    # Admin Link logic...
+    # --- ADMIN DEBUGGER (TEMPORARY) ---
     u_email = st.session_state.get("user_email", "")
-    admin_target = st.secrets.get("admin", {}).get("email", "").strip().lower() if "admin" in st.secrets else ""
-    if str(u_email).strip().lower() == admin_target:
-        if st.button("🔐 Open Admin Console", type="secondary"):
-            import ui_admin
-            ui_admin.show_admin()
-            return
+    # Check both formats of secrets
+    admin_target = ""
+    if "admin" in st.secrets:
+        admin_target = st.secrets["admin"].get("email", "")
+    
+    admin_target = str(admin_target).strip().lower()
+    user_clean = str(u_email).strip().lower()
+
+    # Show Debug info only if logged in
+    if user_clean:
+        if user_clean == admin_target:
+            st.success("Admin Recognized!")
+            if st.button("🔐 Open Admin Console", type="secondary"):
+                import ui_admin
+                ui_admin.show_admin()
+                return
+        else:
+            # THIS IS THE DEBUGGER - Remove after fixing
+            with st.expander("Debug Admin Issues"):
+                st.write(f"Logged in as: '{user_clean}'")
+                st.write(f"Secret expects: '{admin_target}'")
+                st.info("If these match but the button is missing, check for hidden spaces.")
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -256,17 +270,70 @@ def render_review_page():
         tier = st.session_state.get("locked_tier", "Standard")
         u_email = st.session_state.get("user_email")
         
-        # Save Final Draft
-        if database:
-            st.toast("Processing...")
-            show_santa_animation() # TRIGGER SANTA
+        # 1. GENERATE PDF
+        # Need to reconstruct formatted address strings
+        to_data = st.session_state.get("to_addr", {})
+        from_data = st.session_state.get("from_addr", {})
+        
+        to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
+        from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+        
+        # Save temp PDF
+        if letter_format:
+            is_santa = (tier == "Santa")
+            pdf_bytes = letter_format.create_pdf(
+                txt, 
+                to_str, 
+                from_str, 
+                is_heirloom=("Heirloom" in tier),
+                is_santa=is_santa
+            )
             
-            st.success("Letter Queued for Delivery!")
+            # 2. IF STANDARD -> SEND TO POSTGRID
+            postgrid_success = False
+            if tier == "Standard" and mailer:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                    tmp.write(pdf_bytes)
+                    tmp_path = tmp.name
+                
+                # IMPORTANT: Map the dict keys correctly for mailer.py
+                # mailer.py expects 'address_line1', 'address_city' etc. 
+                # but our session state has 'street', 'city'.
+                # We need to map them.
+                pg_to = {
+                    'name': to_data.get('name'), 
+                    'address_line1': to_data.get('street'),
+                    'address_city': to_data.get('city'),
+                    'address_state': to_data.get('state'),
+                    'address_zip': to_data.get('zip')
+                }
+                pg_from = {
+                    'name': from_data.get('name'), 
+                    'address_line1': from_data.get('street'),
+                    'address_city': from_data.get('city'),
+                    'address_state': from_data.get('state'),
+                    'address_zip': from_data.get('zip')
+                }
+                
+                resp = mailer.send_letter(tmp_path, pg_to, pg_from)
+                os.remove(tmp_path)
+                
+                if resp and resp.get("id"):
+                    postgrid_success = True
+                    st.toast(f"PostGrid ID: {resp.get('id')}")
             
-            # FINISH BUTTON
-            if st.button("🏁 Finish & Return Home"): 
-                reset_app()
-                st.rerun()
+            # 3. SAVE TO DB
+            if database:
+                # If Sent via PostGrid, mark 'Completed', else 'Draft' (for Santa/Heirloom manual)
+                final_status = "Completed" if postgrid_success else "Pending Admin"
+                database.save_draft(u_email, txt, tier, "0.00", status=final_status)
+        
+        show_santa_animation()
+        st.success("Letter Queued for Delivery!")
+        
+        if st.button("🏁 Finish & Return Home"): 
+            reset_app()
+            st.rerun()
 
 # --- MAIN CONTROLLER ---
 def show_main_app():
@@ -297,7 +364,7 @@ def show_main_app():
     elif mode == "review": render_review_page()
     elif mode == "legal": render_legal_page()
     
-    # FORGOT PASSWORD ROUTING FIX
+    # FORGOT PASSWORD ROUTING
     elif mode == "forgot_password":
         import ui_login
         import auth_engine
