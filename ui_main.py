@@ -50,6 +50,47 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
+ def render_legal_page():
+    render_hero("Legal Center", "Terms & Privacy")
+    
+    with st.container(border=True):
+        st.subheader("Terms of Service")
+        st.markdown("""
+        **Last Updated: November 2024**
+        
+        **1. Human Handling Disclosure**
+        For "Heirloom" and "Santa" tiers, you acknowledge that **VerbaPost staff will view, print, and handle your letter content manually**. By using these services, you waive any expectation of privacy regarding the content of these specific letters during the fulfillment process.
+        
+        **2. Prohibited Content**
+        You agree NOT to send letters containing: illegal acts, threats, harassment, sensitive personal information (SSN, financial info, HIPAA/medical data), or highly confidential material. VerbaPost reserves the right to refuse fulfillment of any letter without refund if it violates this policy.
+        
+        **3. Delivery & Liability**
+        VerbaPost acts as a fulfillment agent. Our responsibility ends when the letter is handed to the USPS. We are not liable for lost, delayed, or damaged mail once in the possession of the carrier.
+        
+        **4. User Content**
+        You retain ownership of your text. You grant VerbaPost a temporary license to use, print, and mail this content solely for the purpose of fulfilling your order.
+        """)
+        
+        st.divider()
+        
+        st.subheader("Privacy Policy")
+        st.markdown("""
+        **1. Data Retention**
+        To ensure delivery and handle support requests, we retain letter content and address data for **30 days** after creation. After this period, data may be permanently deleted from our active servers.
+        
+        **2. Third-Party Sharing**
+        - **Standard/Civic Orders:** Data is shared via API with PostGrid or Lob for automated printing.
+        - **AI Processing:** Audio is processed via OpenAI. We do not opt-in to having your data train their models.
+        - **Payment:** Credit card data is processed exclusively by Stripe. We never see or store your full card number.
+        
+        **3. Your Rights**
+        You may request the immediate deletion of your account and data by emailing **privacy@verbapost.com**.
+        """)
+
+    if st.button("← Return to Home", type="primary"):
+        st.session_state.app_mode = "splash"
+        st.rerun()   
+
 def show_santa_animation():
     st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)
 
