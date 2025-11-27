@@ -2,7 +2,7 @@ from fpdf import FPDF
 import os
 import requests
 from datetime import datetime
-import streamlit as st # Added to show errors in UI
+import streamlit as st
 
 # --- CONFIG ---
 FONT_MAP = {
@@ -89,7 +89,6 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         # Fonts
         font_map = {}
         if os.path.exists("Caveat-Regular.ttf"):
-            # Check if file is empty (corruption check)
             if os.path.getsize("Caveat-Regular.ttf") > 0:
                 try:
                     pdf.add_font('Caveat', '', 'Caveat-Regular.ttf', uni=True)
@@ -123,20 +122,18 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
         else:
             pdf.set_xy(15, 15)
-            # Sanitize Address
             pdf.multi_cell(0, 5, sanitize_text(return_addr))
 
         # 3. Recipient Address
         recip_y = 80 if is_santa else 45
         pdf.set_xy(20, recip_y)
         pdf.set_font('Helvetica', 'B', 12)
-        # Sanitize Address
         pdf.multi_cell(0, 6, sanitize_text(recipient_addr))
         
         # 4. Main Body Content
         pdf.set_xy(20, recip_y + 30)
         pdf.set_font(body_font, '', body_size)
-        # Sanitize Content (The Fix)
+        
         safe_content = sanitize_text(content)
         pdf.multi_cell(170, 8, safe_content)
 
@@ -158,11 +155,19 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         footer = 'Official North Pole Mail' if is_santa else 'Dictated & Mailed via VerbaPost.com'
         pdf.cell(0, 10, footer, 0, 0, 'C')
 
-        # Output
-        return pdf.output(dest='S').encode('latin-1', 'ignore')
+        # --- ROBUST OUTPUT (THE FIX) ---
+        raw_output = pdf.output(dest='S')
+        
+        # Check type to avoid crash
+        if isinstance(raw_output, (bytes, bytearray)):
+            return bytes(raw_output)
+        elif isinstance(raw_output, str):
+            return raw_output.encode('latin-1', 'ignore')
+        else:
+            # Fallback for weird FPDF versions
+            return bytes(raw_output)
 
     except Exception as e:
-        # This will now show up in your Debug UI!
         st.error(f"INTERNAL PDF ENGINE ERROR: {e}")
         print(f"PDF Error: {e}")
         return None
