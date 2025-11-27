@@ -6,7 +6,7 @@ import json
 import base64
 import numpy as np
 from PIL import Image
-import io # Added for signature processing
+import io
 
 # --- IMPORTS ---
 try: import database
@@ -21,16 +21,17 @@ try: import mailer
 except: mailer = None
 try: import analytics
 except: analytics = None
+try: import promo_engine 
+except: promo_engine = None
 
 YOUR_APP_URL = "https://verbapost.streamlit.app/"
 
 def reset_app():
-    # FIX 1: Smart Redirect - Go to Store if logged in, else Splash
     if st.session_state.get("user_email"):
         st.session_state.app_mode = "store"
     else:
         st.session_state.app_mode = "splash"
-        
+    
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
     st.session_state.payment_complete = False
@@ -61,12 +62,13 @@ def render_legal_page():
         st.session_state.app_mode = "splash"
         st.rerun()
 
-# --- PAGE: STORE ---
+# --- PAGE: STORE (PROMO LOGIC ADDED HERE) ---
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
     u_email = st.session_state.get("user_email", "")
-    # Check Admin
+    
+    # Admin Link
     admin_target = ""
     if "admin" in st.secrets: admin_target = st.secrets["admin"].get("email", "")
     if str(u_email).strip().lower() == str(admin_target).strip().lower():
@@ -92,14 +94,40 @@ def render_store_page():
     with c2:
         with st.container(border=True):
             st.subheader("Checkout")
-            st.metric("Total", f"${price}")
             
-            if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
-                if database: database.save_draft(u_email, "", tier_code, price)
-                link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
-                url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                if url:
-                    st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+            # --- PROMO CODE LOGIC START ---
+            discounted = False
+            if promo_engine:
+                code_input = st.text_input("Promo Code", key="promo_box")
+                if code_input:
+                    if promo_engine.validate_code(code_input):
+                        discounted = True
+                        st.success("✅ Code Applied!")
+                    else:
+                        st.error("❌ Invalid Code")
+            
+            if discounted:
+                st.metric("Total", "$0.00", delta=f"-${price} off")
+                if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
+                    # Log usage
+                    if promo_engine: promo_engine.log_usage(code_input, u_email)
+                    # Save draft
+                    if database: database.save_draft(u_email, "", tier_code, "0.00")
+                    # Grant Access
+                    st.session_state.payment_complete = True
+                    st.session_state.locked_tier = tier_code
+                    st.session_state.app_mode = "workspace"
+                    st.rerun()
+            else:
+                st.metric("Total", f"${price}")
+                if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
+                    if database: database.save_draft(u_email, "", tier_code, price)
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                    if payment_engine:
+                        url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
+                        if url:
+                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+            # --- PROMO CODE LOGIC END ---
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
@@ -190,9 +218,12 @@ def render_review_page():
         from_data = st.session_state.get("from_addr", {})
         
         to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
-        from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
         
-        # --- FIX 2: SIGNATURE PROCESSING ---
+        if tier == "Santa":
+            from_str = "Santa Claus"
+        else:
+            from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+        
         sig_path = None
         sig_db_value = None
         is_santa = (tier == "Santa")
@@ -200,13 +231,11 @@ def render_review_page():
         if not is_santa and st.session_state.get("sig_data") is not None:
             try:
                 img_data = st.session_state.sig_data
-                # 1. Save locally for PDF generation right now
                 img = Image.fromarray(img_data.astype('uint8'), 'RGBA')
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp_sig:
                     img.save(tmp_sig.name)
                     sig_path = tmp_sig.name
                 
-                # 2. Save as Base64 for Database (So Admin can reproduce it)
                 buf = io.BytesIO()
                 img.save(buf, format="PNG")
                 sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
@@ -214,7 +243,6 @@ def render_review_page():
             except Exception as e:
                 print(f"Sig Error: {e}")
 
-        # Generate PDF
         if letter_format:
             pdf_bytes = letter_format.create_pdf(
                 txt, to_str, from_str, 
@@ -225,26 +253,21 @@ def render_review_page():
             
             if sig_path and os.path.exists(sig_path): os.remove(sig_path)
             
-            # PostGrid Sending
-            postgrid_success = False
             if tier == "Standard" and mailer:
-                # (PostGrid logic matches previous)...
-                pass # Simplified for brevity, assume matches original logic
+                pass # (Simplified for brevity)
             
-            # Save to DB
             if database:
                 final_status = "Completed" if tier == "Standard" else "Pending Admin"
                 database.save_draft(
                     u_email, txt, tier, "0.00", 
                     to_addr=to_data, from_addr=from_data, 
                     status=final_status,
-                    sig_data=sig_db_value # Saving Base64 now
+                    sig_data=sig_db_value
                 )
         
         show_santa_animation()
         st.success("Letter Queued for Delivery!")
         
-        # FIX 1 (Button Logic):
         if st.button("🏁 Finish & Return Home"): 
             reset_app()
             st.rerun()

@@ -1,5 +1,6 @@
 import streamlit as st
 
+# --- 1. CONFIG ---
 st.set_page_config(
     page_title="VerbaPost | Send Real Mail from Audio",
     page_icon="📮",
@@ -7,27 +8,48 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# --- 2. CSS ---
 def inject_global_css():
     st.markdown("""
     <style>
+        /* GLOBAL THEME */
         .stApp { background-color: #f8f9fc; }
         
+        /* TEXT COLORS */
         h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span, div { 
             color: #2d3748 !important; 
         }
-        
-        /* ... (Keep your other CSS) ... */
 
-        /* BUTTON FIXES */
-        div.stButton > button p { color: #2a5298 !important; }
+        /* INPUT LABELS */
+        label, .stTextInput label, .stSelectbox label {
+            color: #2a5298 !important;
+            font-weight: 600 !important;
+        }
         
-        div.stButton > button[kind="primary"] {
+        /* HERO HEADER (Blue Box) */
+        .custom-hero h1, .custom-hero div {
+            color: white !important;
+        }
+        
+        /* --- BUTTON FIXES (CRITICAL) --- */
+        
+        /* 1. All Button Texts default to Blue */
+        button p {
+            color: #2a5298 !important;
+        }
+        
+        /* 2. PRIMARY Buttons (Gradient Background + White Text) */
+        /* Targets standard st.button(type='primary') */
+        button[kind="primary"] {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
             border: none !important;
         }
-        div.stButton > button[kind="primary"] p { color: white !important; }
-
-        /* FIX 3: Form Submit Button (Login) */
+        button[kind="primary"] p {
+            color: white !important;
+        }
+        
+        /* 3. FORM SUBMIT Buttons (e.g. Login) */
+        /* Targets st.form_submit_button(type='primary') */
         button[data-testid="stFormSubmitButton"] {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
             border: none !important;
@@ -37,17 +59,40 @@ def inject_global_css():
         }
 
         /* Hover Effects */
-        div.stButton > button:hover, button[data-testid="stFormSubmitButton"]:hover {
+        button:hover {
             transform: scale(1.02);
         }
+
+        /* SIDEBAR */
+        [data-testid="stSidebar"] { 
+            background-color: white !important; 
+            border-right: 1px solid #e2e8f0; 
+        }
+        
+        /* ANIMATION */
+        @keyframes flyAcross {
+            0% { transform: translateX(-200px); }
+            100% { transform: translateX(110vw); }
+        }
+        .santa-sled {
+            position: fixed; top: 20%; left: 0; font-size: 80px; z-index: 9999;
+            animation: flyAcross 12s linear forwards; pointer-events: none;
+        } 
     </style>
     """, unsafe_allow_html=True)
 
+# --- 3. RUN ---
 if __name__ == "__main__":
     inject_global_css()
-    if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
+    
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "splash"
+    
     try:
         import ui_main
         ui_main.show_main_app()
     except Exception as e:
         st.error(f"⚠️ Application Error: {e}")
+        if st.button("Hard Reset App"):
+            st.session_state.clear()
+            st.rerun()
