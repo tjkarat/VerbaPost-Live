@@ -133,14 +133,36 @@ def show_admin():
                             href = f'<a href="data:application/pdf;base64,{b64}" download="Heirloom_Order_{h_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
 
-    # --- TAB 4: MAINT ---
+   # --- TAB 4: MAINT ---
     with tab_maint:
         st.subheader("System Health")
+        
+        # 1. Database Check
         if database:
             try:
                 database.get_session().execute(text("SELECT 1")).fetchone()
                 st.success("✅ Database Connected")
             except Exception as e: st.error(f"❌ DB Error: {e}")
+        
+        # 2. PostGrid Check (Via Secrets Manager)
+        # Checks [postgrid] api_key (Local) OR POSTGRID_API_KEY (GCP)
+        if secrets_manager.get_secret("postgrid.api_key"):
+            st.success("✅ PostGrid Key Found")
+        else:
+            st.error("❌ PostGrid Key Missing (Check secrets.toml or GCP Env Vars)")
+
+        # 3. Email Check (Via Secrets Manager)
+        # Checks [email] password (Local) OR EMAIL_PASSWORD (GCP)
+        if secrets_manager.get_secret("email.password"):
+            st.success("✅ Email Configured")
+        else:
+            st.error("❌ Email Password Missing (Check secrets.toml or GCP Env Vars)")
+            
+        # 4. Stripe Check
+        if secrets_manager.get_secret("stripe.secret_key"):
+             st.success("✅ Stripe Configured")
+        else:
+             st.error("❌ Stripe Key Missing")
 
     # --- TAB 5: PROMO ---
     with tab_promo:
