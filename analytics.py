@@ -1,25 +1,24 @@
 import streamlit as st
+import streamlit.components.v1 as components
 
 def inject_ga():
     # YOUR MEASUREMENT ID
     GA_ID = "G-D3P178CESF"
     
-    # Injected into the <head> logic via streamlit
-    # Note: Streamlit executions are wrapped, so we inject this script 
-    # to run on load.
-    
-    ga_code = f"""
-    <!-- Global site tag (gtag.js) - Google Analytics -->
+    # Define the JS code
+    # We use a hidden iframe approach that is more stable in Streamlit
+    ga_js = f"""
     <script async src="https://www.googletagmanager.com/gtag/js?id={GA_ID}"></script>
     <script>
         window.dataLayer = window.dataLayer || [];
         function gtag(){{dataLayer.push(arguments);}}
         gtag('js', new Date());
         gtag('config', '{GA_ID}', {{
-            'anonymize_ip': true,
-            'cookie_flags': 'SameSite=None;Secure'
+            'anonymize_ip': true
         }});
     </script>
     """
-    # This might print slightly visible whitespace in some themes, but it's the standard way
-    st.markdown(ga_code, unsafe_allow_html=True)
+    
+    # Inject it into the head of the app invisibly
+    # height=0 hides the component visually
+    components.html(ga_js, height=0, width=0)
