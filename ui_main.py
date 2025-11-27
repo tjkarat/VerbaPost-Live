@@ -50,7 +50,7 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
- def render_legal_page():
+def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
     
     with st.container(border=True):
