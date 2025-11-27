@@ -14,6 +14,7 @@ st.set_page_config(
 )
 
 # --- 2. CSS ---
+# --- 2. CSS ---
 def inject_global_css():
     st.markdown("""
     <style>
@@ -24,53 +25,52 @@ def inject_global_css():
         h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span, div { 
             color: #2d3748 !important; 
         }
-/* --- HERO HEADER (Blue Box) --- */
-        .custom-hero h1, .custom-hero div {
-            color: white !important;
-        }
-                /* Forces text inside the Blue Hero Box to be White */
-        .custom-hero h1, .custom-hero div {
-            color: white !important;
-        }
-        
-        /* Forces text inside Buttons to be White */
-        div.stButton > button p {
-            color: white !important;
-        }
-        /* INPUT LABELS - BRAND BLUE FIX */
+
+        /* INPUT LABELS */
         label, .stTextInput label, .stSelectbox label {
             color: #2a5298 !important;
             font-weight: 600 !important;
         }
         
-        /* INPUT BOXES: White BG, Brand Blue Text */
-        .stTextInput input, .stTextArea textarea, .stSelectbox div, div[data-baseweb="select"] > div {
+        /* INPUT BOXES */
+        .stTextInput > div > div, .stTextArea > div > div {
             background-color: #ffffff !important; 
-            color: #2a5298 !important; /* Brand Blue text for readability */
             border: 1px solid #cbd5e0 !important;
-            border-radius: 8px;
+            border-radius: 8px !important;
+        }
+        .stTextInput input, .stTextArea textarea {
+            color: #2a5298 !important;
+            -webkit-text-fill-color: #2a5298 !important;
+            caret-color: #2a5298 !important;
         }
         
-        /* BUTTONS: Gradient Blue */
-        div.stButton > button {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white !important; 
-            border: none; 
-            border-radius: 25px; 
-            padding: 0.5rem 1.5rem;
-            font-weight: 600;
-            transition: transform 0.1s;
-        }
-        div.stButton > button:hover {
-            transform: scale(1.02);
+        /* HERO HEADER (Blue Box) */
+        .custom-hero h1, .custom-hero div {
             color: white !important;
         }
         
-        /* SECONDARY BUTTONS */
-        div.stButton > button[kind="secondary"] {
-            background: white; 
-            color: #2a5298 !important; 
-            border: 2px solid #2a5298;
+        /* --- BUTTONS (The Fix) --- */
+        
+        /* 1. ALL Buttons default to Blue Text (Fixes the white-on-white issue) */
+        div.stButton > button p {
+            color: #2a5298 !important;
+        }
+        
+        /* 2. Primary Buttons get the Blue Gradient Background */
+        div.stButton > button[kind="primary"] {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
+            border: none !important;
+            transition: transform 0.1s;
+        }
+        
+        /* 3. Primary Buttons get White Text (Overrides rule #1) */
+        div.stButton > button[kind="primary"] p {
+            color: white !important;
+        }
+
+        /* Hover Effects */
+        div.stButton > button:hover {
+            transform: scale(1.02);
         }
 
         /* SIDEBAR */
@@ -79,7 +79,7 @@ def inject_global_css():
             border-right: 1px solid #e2e8f0; 
         }
         
-        /* SANTA ANIMATION KEYFRAMES */
+        /* ANIMATIONS */
         @keyframes flyAcross {
             0% { transform: translateX(-100%); }
             100% { transform: translateX(150%); }
