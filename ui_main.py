@@ -96,9 +96,8 @@ def render_legal_page():
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     
-    # --- ADMIN DEBUGGER (TEMPORARY) ---
+    # --- ADMIN LINK ---
     u_email = st.session_state.get("user_email", "")
-    # Check both formats of secrets
     admin_target = ""
     if "admin" in st.secrets:
         admin_target = st.secrets["admin"].get("email", "")
@@ -106,20 +105,11 @@ def render_store_page():
     admin_target = str(admin_target).strip().lower()
     user_clean = str(u_email).strip().lower()
 
-    # Show Debug info only if logged in
-    if user_clean:
-        if user_clean == admin_target:
-            st.success("Admin Recognized!")
-            if st.button("🔐 Open Admin Console", type="secondary"):
-                import ui_admin
-                ui_admin.show_admin()
-                return
-        else:
-            # THIS IS THE DEBUGGER - Remove after fixing
-            with st.expander("Debug Admin Issues"):
-                st.write(f"Logged in as: '{user_clean}'")
-                st.write(f"Secret expects: '{admin_target}'")
-                st.info("If these match but the button is missing, check for hidden spaces.")
+    if user_clean and user_clean == admin_target:
+        # FIX: We now set state to 'admin' instead of just importing it temporarily
+        if st.button("🔐 Open Admin Console", type="secondary"):
+            st.session_state.app_mode = "admin"
+            st.rerun()
 
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -297,9 +287,6 @@ def render_review_page():
                     tmp_path = tmp.name
                 
                 # IMPORTANT: Map the dict keys correctly for mailer.py
-                # mailer.py expects 'address_line1', 'address_city' etc. 
-                # but our session state has 'street', 'city'.
-                # We need to map them.
                 pg_to = {
                     'name': to_data.get('name'), 
                     'address_line1': to_data.get('street'),
@@ -324,7 +311,6 @@ def render_review_page():
             
             # 3. SAVE TO DB
             if database:
-                # If Sent via PostGrid, mark 'Completed', else 'Draft' (for Santa/Heirloom manual)
                 final_status = "Completed" if postgrid_success else "Pending Admin"
                 database.save_draft(u_email, txt, tier, "0.00", status=final_status)
         
@@ -348,7 +334,7 @@ def show_main_app():
         st.query_params.clear()
         st.rerun()
 
-    # Views
+    # Views - FIX: ADD ADMIN ROUTE HERE
     if mode == "splash": 
         import ui_splash
         ui_splash.show_splash()
@@ -364,6 +350,11 @@ def show_main_app():
     elif mode == "review": render_review_page()
     elif mode == "legal": render_legal_page()
     
+    # NEW: Admin Route
+    elif mode == "admin":
+        import ui_admin
+        ui_admin.show_admin()
+
     # FORGOT PASSWORD ROUTING
     elif mode == "forgot_password":
         import ui_login
