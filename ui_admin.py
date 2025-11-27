@@ -153,7 +153,7 @@ def show_admin():
         if database:
             try:
                 # Simple query to test connection
-                res = database.get_session().execute("SELECT 1").fetchone()
+                res = database.get_session().execute(text("SELECT 1")).fetchone()
                 st.success("✅ Database Connected")
             except Exception as e:
                 st.error(f"❌ Database Error: {e}")
