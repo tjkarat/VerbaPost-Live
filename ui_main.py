@@ -24,7 +24,7 @@ except: analytics = None
 try: import promo_engine 
 except: promo_engine = None
 
-YOUR_APP_URL = "https://verbapost.streamlit.app/"
+YOUR_APP_URL = "https://verbapost.com"
 
 def reset_app():
     if st.session_state.get("user_email"):
