@@ -5,7 +5,11 @@ import secrets_manager
 
 # --- CONFIGURATION ---
 def get_postgrid_key():
-    return secrets_manager.get_secret("postgrid.api_key")
+    # Tries to get the key from Secrets Manager (GCP) or local secrets.toml
+    key = secrets_manager.get_secret("postgrid.api_key")
+    if not key:
+        print("❌ ERROR: PostGrid API Key is MISSING.")
+    return key
 
 def get_resend_key():
     return secrets_manager.get_secret("email.password")
@@ -20,22 +24,28 @@ def send_letter(pdf_path, to_address, from_address):
         headers = {"x-api-key": api_key}
         files = {'pdf': open(pdf_path, 'rb')}
         
-        # Map fields with International Support
-        # Note: PostGrid expects 'countryCode' (ISO 2-char like 'GB', 'CA')
+        # DEBUG: Print payload to logs (visible in Cloud Run Logs)
+        print(f"DEBUG: Sending to PostGrid. To: {to_address.get('country_code')} From: {from_address.get('country_code')}")
+
         data = {
             'description': f"VerbaPost to {to_address.get('name')}",
+            
+            # RECIPIENT
             'to[firstName]': to_address.get('name'), 
             'to[addressLine1]': to_address.get('address_line1'),
             'to[city]': to_address.get('address_city'),
             'to[provinceOrState]': to_address.get('address_state'),
             'to[postalOrZip]': to_address.get('address_zip'),
             'to[countryCode]': to_address.get('country_code', 'US'), 
+            
+            # SENDER (THE FIX: Now Dynamic)
             'from[firstName]': from_address.get('name'),
             'from[addressLine1]': from_address.get('address_line1'),
             'from[city]': from_address.get('address_city'),
             'from[provinceOrState]': from_address.get('address_state'),
             'from[postalOrZip]': from_address.get('address_zip'),
-            'from[countryCode]': 'US', # Sender is US
+            'from[countryCode]': from_address.get('country_code', 'US'), # <--- FIXED (Was 'US')
+            
             'color': 'false', 
             'express': 'false', 
             'addressPlacement': 'top_first_page'
@@ -45,21 +55,19 @@ def send_letter(pdf_path, to_address, from_address):
         files['pdf'].close()
 
         if response.status_code in [200, 201]:
-            # NEW: Log this so you can see it in Cloud Run Logs
             print(f"✅ PostGrid SUCCESS. ID: {response.json().get('id')}")
             return response.json()
         else:
-            print(f"❌ PostGrid Error: {response.text}")
+            # This prints the specific rejection reason from PostGrid
+            print(f"❌ PostGrid REJECTION: {response.text}")
             return None
+            
     except Exception as e:
         print(f"❌ Connection Error: {e}")
         return None
 
 # --- FUNCTION 2: SEND ADMIN ALERT (HEIRLOOM) ---
 def send_heirloom_notification(user_email, letter_text):
-    """
-    Sends email alert using the SAFE 'onboarding' address to ensure delivery.
-    """
     key = get_resend_key()
     if not key: 
         print("❌ Resend Key Missing")
@@ -81,8 +89,6 @@ def send_heirloom_notification(user_email, letter_text):
     """
 
     try:
-        # CRITICAL FIX: Use 'onboarding@resend.dev' to guarantee delivery 
-        # until your custom domain is 100% DNS verified.
         r = resend.Emails.send({
             "from": "VerbaPost Admin <onboarding@resend.dev>",
             "to": [admin_email],
@@ -112,7 +118,6 @@ def send_shipping_confirmation(user_email, recipient_info):
     """
 
     try:
-        # Use onboarding address for safety
         r = resend.Emails.send({
             "from": "VerbaPost Support <onboarding@resend.dev>",
             "to": user_email,
