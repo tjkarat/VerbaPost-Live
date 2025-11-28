@@ -3,26 +3,48 @@ import os
 
 def set_mode(mode, view_preference="login"):
     st.session_state.app_mode = mode
-    st.session_state.auth_view = view_preference # <--- NEW: Tells the login page which tab to show
+    st.session_state.auth_view = view_preference
     st.rerun()
 
 def show_splash():
-    # --- HERO SECTION ---
+    # --- 1. SEO INJECTION ---
+    st.markdown("""
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "VerbaPost",
+      "operatingSystem": "Web",
+      "applicationCategory": "CommunicationApplication",
+      "offers": {
+        "@type": "Offer",
+        "price": "2.99",
+        "priceCurrency": "USD"
+      },
+      "description": "The easiest way to send real physical mail online. Dictate letters to Santa, Congress, or family members and we print, stamp, and mail them via USPS.",
+      "featureList": "Voice-to-Text Dictation, USPS Mail Delivery, Santa Letters, Civic Engagement Tools"
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
+    # --- 2. HERO SECTION ---
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2: 
-            st.image("logo.png", width=150)
+            # UPDATED: Increased width from 150 to 220
+            st.image("logo.png", width=220)
     
+    # UPDATED: New Tagline
     st.markdown("""
     <div style="text-align: center; padding-bottom: 20px;">
         <h1 style="color: #1e3c72; margin-bottom: 0;">VerbaPost</h1>
-        <p style="font-size: 1.5rem; color: #555; margin-top: 5px;">
-            The easiest way to send real mail.
+        <p style="font-size: 1.5rem; color: #555; margin-top: 5px; font-weight: 500;">
+            Texts are trivial, emails ignored, <b>REAL MAIL gets READ.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- HOW IT WORKS ---
+    # --- 3. HOW IT WORKS ---
     st.markdown("### 📝 How it Works")
     step1, step2, step3 = st.columns(3)
     
@@ -43,19 +65,18 @@ def show_splash():
 
     st.markdown("---")
 
-    # --- MID-PAGE CTA ---
+    # --- 4. MID-PAGE CTA ---
     c_cta1, c_cta2, c_cta3 = st.columns([1, 2, 1])
     with c_cta2:
         st.info("💡 You must be logged in to create a letter.")
-        # BUTTON UPDATES:
         if st.button("🚀 Create Free Account & Start", type="primary", use_container_width=True, key="top_signup_btn"):
-            set_mode("login", view_preference="signup") # <--- Directs to Signup Tab
+            set_mode("login", view_preference="signup")
         if st.button("Already have an account? Log In", type="secondary", use_container_width=True, key="top_login_btn"):
             set_mode("login", view_preference="login")
 
     st.markdown("---")
 
-    # --- PRODUCT GRID ---
+    # --- 5. PRODUCT GRID ---
     st.subheader("What can you send?")
     
     col_a, col_b = st.columns(2)
@@ -78,14 +99,14 @@ def show_splash():
             st.markdown("### ⚡ Standard")
             st.caption("Quick, printed letters. Easier than a printer.")
 
-    # --- BOTTOM CTA BUTTON ---
+    # --- 6. BOTTOM CTA ---
     st.markdown("<br>", unsafe_allow_html=True)
     c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
     with c_bot2:
         if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
-            set_mode("login", view_preference="signup") # <--- Directs to Signup Tab
+            set_mode("login", view_preference="signup")
 
-    # --- FOOTER ---
+    # --- 7. FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
     f1, f2 = st.columns([4, 1])
     with f2:
