@@ -1,8 +1,9 @@
 import streamlit as st
 import os
 
-def set_mode(mode):
+def set_mode(mode, view_preference="login"):
     st.session_state.app_mode = mode
+    st.session_state.auth_view = view_preference # <--- NEW: Tells the login page which tab to show
     st.rerun()
 
 def show_splash():
@@ -46,10 +47,11 @@ def show_splash():
     c_cta1, c_cta2, c_cta3 = st.columns([1, 2, 1])
     with c_cta2:
         st.info("💡 You must be logged in to create a letter.")
+        # BUTTON UPDATES:
         if st.button("🚀 Create Free Account & Start", type="primary", use_container_width=True, key="top_signup_btn"):
-            set_mode("login")
+            set_mode("login", view_preference="signup") # <--- Directs to Signup Tab
         if st.button("Already have an account? Log In", type="secondary", use_container_width=True, key="top_login_btn"):
-            set_mode("login")
+            set_mode("login", view_preference="login")
 
     st.markdown("---")
 
@@ -59,7 +61,6 @@ def show_splash():
     col_a, col_b = st.columns(2)
     with col_a:
         with st.container(border=True):
-            # --- THE UPDATE ---
             st.markdown("### 🎅 Letters FROM Santa")
             st.caption("Don't just write *to* him. Send a magical letter **FROM** the North Pole directly to your child.")
     with col_b:
@@ -82,11 +83,12 @@ def show_splash():
     c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
     with c_bot2:
         if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
-            set_mode("login")
+            set_mode("login", view_preference="signup") # <--- Directs to Signup Tab
 
     # --- FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
     f1, f2 = st.columns([4, 1])
     with f2:
         if st.button("Legal / Privacy"):
-            set_mode("legal")
+            st.session_state.app_mode = "legal"
+            st.rerun()

@@ -3,8 +3,9 @@ import streamlit as st
 def show_legal():
     st.title("⚖️ Legal & Compliance")
     
-    if st.button("⬅️ Back to Home"):
-        st.session_state.current_view = "splash"
+    # --- FIX: Changed 'current_view' to 'app_mode' ---
+    if st.button("⬅️ Back to Home", type="secondary"):
+        st.session_state.app_mode = "splash"
         st.rerun()
         
     tab_privacy, tab_terms = st.tabs(["Privacy Policy", "Terms of Service"])
@@ -24,14 +25,14 @@ def show_legal():
         * **Payment Data:** We use Stripe for payments. We do not store your full credit card number.
         
         **3. How We Use Your Data**
-        * **Fulfillment:** We transmit your letter content and address data to our print partner (Lob.com) solely for the purpose of printing and mailing your physical document.
+        * **Fulfillment:** We transmit your letter content and address data to our print partner (Lob/PostGrid) solely for the purpose of printing and mailing your physical document.
         * **Processing:** We use OpenAI's API to transcribe and polish your voice dictation.
         * **Civic Features:** We use Geocodio to identify your elected officials based on your address.
         
         **4. Data Sharing**
         We do not sell your data. We share data only with the following infrastructure providers to deliver the service:
         * **Stripe:** Payment processing.
-        * **Lob:** Physical mail printing and delivery.
+        * **PostGrid:** Physical mail printing and delivery.
         * **OpenAI:** Audio transcription.
         * **Supabase:** Secure database storage.
         
@@ -71,3 +72,10 @@ def show_legal():
         **6. Governing Law**
         These terms are governed by the laws of the State of Tennessee.
         """)
+    
+    st.divider()
+    
+    # Added a bottom button for convenience
+    if st.button("⬅️ Return to Home Page", type="secondary", key="bot_home_btn"):
+        st.session_state.app_mode = "splash"
+        st.rerun()
