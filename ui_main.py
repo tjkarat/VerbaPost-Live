@@ -25,7 +25,6 @@ try: import promo_engine
 except ImportError: promo_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
-# Added Civic Engine
 try: import civic_engine
 except ImportError: civic_engine = None
 
@@ -53,7 +52,7 @@ def reset_app():
     st.session_state.sig_data = None
     st.session_state.to_addr = {}
     st.session_state.from_addr = {}
-    st.session_state.civic_targets = [] # Clear civic targets
+    st.session_state.civic_targets = []
     if "letter_sent_success" in st.session_state: del st.session_state.letter_sent_success
     st.query_params.clear()
 
@@ -165,11 +164,11 @@ def render_workspace_page():
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
-        # --- CIVIC LOGIC (The Fix) ---
+        # --- CIVIC LOGIC ---
         if tier == "Civic":
             c1, c2 = st.columns(2)
             with c2:
-                st.markdown("**Your Address (From)**")
+                st.markdown("**Your Address (Required for Lookup)**")
                 def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
                 from_name = st.text_input("Name", value=def_n, key="w_from_name")
                 from_street = st.text_input("Street", value=def_s, key="w_from_street")
@@ -180,29 +179,16 @@ def render_workspace_page():
             
             with c1:
                 st.markdown("**To: Your Representatives**")
-                search_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
-                
-                # Auto-Lookup
-                if from_street and from_zip and len(from_zip) >= 5:
-                    if civic_engine:
-                        # Only fetch if we haven't already or if address changed
-                        if "civic_targets" not in st.session_state or not st.session_state.civic_targets:
-                            with st.spinner("Finding your reps..."):
-                                reps = civic_engine.get_reps(search_addr)
-                                st.session_state.civic_targets = reps
-                        
-                        if st.session_state.civic_targets:
-                            st.success(f"✅ Found {len(st.session_state.civic_targets)} Reps")
-                            for r in st.session_state.civic_targets:
-                                st.info(f"🏛️ **{r['title']}** {r['name']}")
-                        else:
-                            st.warning("No reps found. Check address.")
+                # Show existing targets if we have them
+                if "civic_targets" in st.session_state and st.session_state.civic_targets:
+                    st.success(f"✅ Found {len(st.session_state.civic_targets)} Reps:")
+                    for r in st.session_state.civic_targets:
+                        st.info(f"🏛️ **{r['title']}** {r['name']}")
                 else:
-                    st.info("Enter your address on the right to find reps.")
+                    st.info("Enter your address and click 'Save & Find Reps' to auto-discover your Congress people.")
                 
                 to_name="Civic Action"; to_street="Capitol"; to_city="DC"; to_state="DC"; to_zip="20000"
 
-        # --- SANTA LOGIC ---
         elif tier == "Santa":
             c1, c2 = st.columns(2)
             with c1:
@@ -217,8 +203,6 @@ def render_workspace_page():
                 st.markdown("**From**")
                 st.success("🎅 Locked: North Pole")
                 from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
-        
-        # --- STANDARD / HEIRLOOM LOGIC ---
         else:
             c1, c2 = st.columns(2)
             with c1:
@@ -239,9 +223,21 @@ def render_workspace_page():
                 from_state = c_b.text_input("State", value=def_st, key="w_from_state")
                 from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
 
-        if st.button("Save Addresses"):
+        # --- SAVE & LOOKUP BUTTON ---
+        btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
+        if st.button(btn_label):
              st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
              st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
+             
+             # TRIGGER CIVIC LOOKUP HERE
+             if tier == "Civic" and civic_engine and from_street and from_zip:
+                 with st.spinner("Searching Congressional Database..."):
+                     search_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
+                     reps = civic_engine.get_reps(search_addr)
+                     st.session_state.civic_targets = reps
+                     if not reps: st.error("No reps found. Please verify address is in the US.")
+                     else: st.rerun() # Rerun to show the green box above
+             
              st.toast("Addresses Saved!")
 
     st.write("---")
@@ -270,17 +266,26 @@ def render_workspace_page():
 def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
     if "letter_sent_success" not in st.session_state: st.session_state.letter_sent_success = False
+    
+    tier = st.session_state.get("locked_tier", "Standard")
+    
+    # --- VISIBLE CIVIC CONFIRMATION ---
+    if tier == "Civic" and "civic_targets" in st.session_state and st.session_state.civic_targets:
+        st.info(f"🏛️ **This letter will be mailed to {len(st.session_state.civic_targets)} representatives:**")
+        for r in st.session_state.civic_targets:
+            st.markdown(f"- **{r['title']} {r['name']}**")
+        st.write("---")
+
     txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300, disabled=st.session_state.letter_sent_success)
     st.session_state.transcribed_text = txt 
     
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             with st.spinner("Processing & Mailing..."):
-                tier = st.session_state.get("locked_tier", "Standard")
                 u_email = st.session_state.get("user_email")
                 from_data = st.session_state.get("from_addr", {})
                 
-                # --- SIGNATURE ---
+                # Signature
                 sig_path = None; sig_db_value = None
                 is_santa = (tier == "Santa")
                 if not is_santa and st.session_state.get("sig_data") is not None:
@@ -292,16 +297,15 @@ def render_review_page():
                         buf = io.BytesIO(); img.save(buf, format="PNG"); sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
                     except: pass
 
-                # --- TARGET LIST (Single or Multiple for Civic) ---
+                # Determine Targets
                 targets = []
                 if tier == "Civic" and "civic_targets" in st.session_state:
                     for rep in st.session_state.civic_targets:
-                        # Convert rep object to address dict
                         targets.append(rep['address_obj']) 
                 else:
                     targets.append(st.session_state.get("to_addr", {}))
 
-                # --- LOOP SENDING ---
+                # Loop Send
                 for to_data in targets:
                     to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
                     if tier == "Santa": from_str = "Santa Claus"
@@ -331,12 +335,10 @@ def render_review_page():
                             os.remove(tmp_path)
                             if resp and resp.get("id"): postgrid_success = True
 
-                        # DB Save
                         if database:
                             final_status = "Pending Admin"
                             if tier == "Standard" or tier == "Civic":
                                 final_status = "Completed" if postgrid_success else "Pending Admin"
-                            
                             database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
 
                 if sig_path and os.path.exists(sig_path): os.remove(sig_path)
