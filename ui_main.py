@@ -64,10 +64,8 @@ except:
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
 def reset_app():
-    if st.session_state.get("user_email"):
-        st.session_state.app_mode = "store"
-    else:
-        st.session_state.app_mode = "splash"
+    # Force Splash Page on reset
+    st.session_state.app_mode = "splash"
     
     st.session_state.audio_path = None
     st.session_state.transcribed_text = ""
@@ -75,6 +73,11 @@ def reset_app():
     st.session_state.sig_data = None
     st.session_state.to_addr = {}
     st.session_state.from_addr = {}
+    
+    # Clear specific flags
+    if "letter_sent_success" in st.session_state:
+        del st.session_state.letter_sent_success
+        
     st.query_params.clear()
 
 def render_hero(title, subtitle):
@@ -109,6 +112,7 @@ def render_legal_page():
         **3. Delivery**
         VerbaPost acts as a fulfillment agent. We are not liable for USPS lost or delayed mail.
         """)
+        
         st.divider()
         st.subheader("Privacy Policy")
         st.write("We retain letter data for 30 days. Payment data is handled securely by Stripe.")
@@ -119,6 +123,7 @@ def render_legal_page():
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
+    
     u_email = st.session_state.get("user_email", "")
     
     # --- ADMIN CHECK ---
@@ -328,9 +333,11 @@ def render_review_page():
                             'address_state': from_data.get('state'),
                             'address_zip': from_data.get('zip')
                         }
+                        
                         print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
                         resp = mailer.send_letter(tmp_path, pg_to, pg_from)
                         os.remove(tmp_path)
+                        
                         if resp and resp.get("id"):
                             postgrid_success = True
                             print(f"DEBUG: PostGrid Success ID: {resp.get('id')}")
@@ -375,25 +382,20 @@ def show_main_app():
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": import ui_login; import auth_engine; ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,c,s,z,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,l))
     
-    # --- ROUTES FOR PASSWORD RESET (FIX) ---
+    # --- ADDED THESE MISSING ROUTES ---
     elif mode == "forgot_password":
         import ui_login; import auth_engine
         ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
     elif mode == "reset_verify":
         import ui_login; import auth_engine
         ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
-    # ---------------------------------------
+    # ----------------------------------
 
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
     elif mode == "legal": render_legal_page()
     elif mode == "admin": import ui_admin; ui_admin.show_admin()
-    
-    # Fallback to catch blank pages
-    else:
-        st.error(f"Error: Unknown App Mode '{mode}'")
-        if st.button("Reset"): reset_app(); st.rerun()
 
     with st.sidebar:
         if st.button("🏠 Home"): reset_app(); st.rerun()
