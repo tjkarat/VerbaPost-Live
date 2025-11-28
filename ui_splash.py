@@ -59,8 +59,9 @@ def show_splash():
     col_a, col_b = st.columns(2)
     with col_a:
         with st.container(border=True):
-            st.markdown("### 🎅 Santa Letters")
-            st.caption("Beautiful North Pole designs. Perfect for kids.")
+            # --- THE UPDATE ---
+            st.markdown("### 🎅 Letters FROM Santa")
+            st.caption("Don't just write *to* him. Send a magical letter **FROM** the North Pole directly to your child.")
     with col_b:
         with st.container(border=True):
             st.markdown("### 🏛️ Civic Action")
@@ -76,11 +77,10 @@ def show_splash():
             st.markdown("### ⚡ Standard")
             st.caption("Quick, printed letters. Easier than a printer.")
 
-    # --- NEW: BOTTOM CTA BUTTON ---
+    # --- BOTTOM CTA BUTTON ---
     st.markdown("<br>", unsafe_allow_html=True)
     c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
     with c_bot2:
-        # This is the new button you requested
         if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
             set_mode("login")
 
