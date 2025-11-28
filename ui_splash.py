@@ -111,6 +111,20 @@ def show_splash():
         if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
             set_mode("login", view_preference="signup")
 
+    st.markdown("---")
+    st.subheader("Frequently Asked Questions")
+    
+    with st.expander("📮 How long does delivery take?"):
+        st.write("We mail all letters via **USPS First Class Mail** within 24 hours. Domestic delivery typically takes 4-6 business days. International mail takes 5-21 days depending on the destination.")
+        
+    with st.expander("🔒 Is my audio private?"):
+        st.write("Yes. For Standard and Civic letters, the process is automated. Your audio is transcribed by AI and sent directly to our printing API (PostGrid). No humans listen to your dictation.")
+        
+    with st.expander("🌍 Can I send letters internationally?"):
+        st.write("Yes! We support mailing to over 180 countries including the UK, Canada, Australia, and most of Europe for a small surcharge.")
+        
+    with st.expander("🎅 How does the Santa letter work?"):
+        st.write("You dictate a message to your child. We print it on festive North Pole stationery and mail it with a specialized **North Pole postmark** so it looks like it came directly from Santa's desk.")
     # --- 7. FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
     f1, f2 = st.columns([4, 1])
