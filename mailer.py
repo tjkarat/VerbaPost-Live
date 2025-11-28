@@ -5,7 +5,6 @@ import secrets_manager
 
 # --- CONFIGURATION ---
 def get_postgrid_key():
-    # Tries to get the key from Secrets Manager (GCP) or local secrets.toml
     key = secrets_manager.get_secret("postgrid.api_key")
     if not key:
         print("❌ ERROR: PostGrid API Key is MISSING.")
@@ -24,28 +23,22 @@ def send_letter(pdf_path, to_address, from_address):
         headers = {"x-api-key": api_key}
         files = {'pdf': open(pdf_path, 'rb')}
         
-        # DEBUG: Print payload to logs (visible in Cloud Run Logs)
         print(f"DEBUG: Sending to PostGrid. To: {to_address.get('country_code')} From: {from_address.get('country_code')}")
 
         data = {
             'description': f"VerbaPost to {to_address.get('name')}",
-            
-            # RECIPIENT
             'to[firstName]': to_address.get('name'), 
             'to[addressLine1]': to_address.get('address_line1'),
             'to[city]': to_address.get('address_city'),
             'to[provinceOrState]': to_address.get('address_state'),
             'to[postalOrZip]': to_address.get('address_zip'),
             'to[countryCode]': to_address.get('country_code', 'US'), 
-            
-            # SENDER (THE FIX: Now Dynamic)
             'from[firstName]': from_address.get('name'),
             'from[addressLine1]': from_address.get('address_line1'),
             'from[city]': from_address.get('address_city'),
             'from[provinceOrState]': from_address.get('address_state'),
             'from[postalOrZip]': from_address.get('address_zip'),
-            'from[countryCode]': from_address.get('country_code', 'US'), # <--- FIXED (Was 'US')
-            
+            'from[countryCode]': from_address.get('country_code', 'US'), 
             'color': 'false', 
             'express': 'false', 
             'addressPlacement': 'top_first_page'
@@ -58,47 +51,50 @@ def send_letter(pdf_path, to_address, from_address):
             print(f"✅ PostGrid SUCCESS. ID: {response.json().get('id')}")
             return response.json()
         else:
-            # This prints the specific rejection reason from PostGrid
             print(f"❌ PostGrid REJECTION: {response.text}")
             return None
-            
     except Exception as e:
         print(f"❌ Connection Error: {e}")
         return None
 
-# --- FUNCTION 2: SEND ADMIN ALERT (HEIRLOOM) ---
-def send_heirloom_notification(user_email, letter_text):
+# --- FUNCTION 2: SEND ADMIN ALERT (UPDATED) ---
+def send_admin_alert(user_email, letter_text, tier):
+    """
+    Sends an instant email to the Admin when a manual order (Santa/Heirloom) is placed.
+    """
     key = get_resend_key()
     if not key: 
         print("❌ Resend Key Missing")
         return False
     
     resend.api_key = key
+    # Defaults to your email if secret is missing
     admin_email = secrets_manager.get_secret("admin.email") or "tjkarat@gmail.com"
 
-    subject = f"🔔 New Heirloom Order: {user_email}"
+    subject = f"🔔 New {tier} Order to Fulfill"
     
     html = f"""
-    <div style="font-family: sans-serif; padding: 20px; color: #333;">
-        <h2 style="color: #2a5298;">🏺 New Heirloom Order</h2>
-        <p><strong>User:</strong> {user_email}</p>
+    <div style="font-family: sans-serif; padding: 20px; color: #333; border: 1px solid #ddd; border-radius: 8px;">
+        <h2 style="color: #2a5298;">📮 New {tier} Order</h2>
+        <p><strong>Customer:</strong> {user_email}</p>
+        <p><strong>Action Required:</strong> Log in to Admin Console > {tier} Tab > Generate PDF.</p>
         <hr>
-        <pre style="background: #eee; padding: 15px; white-space: pre-wrap;">{letter_text}</pre>
-        <p><em>Please go to Admin Console > Mailroom to print this PDF.</em></p>
+        <p><strong>Content Preview:</strong></p>
+        <pre style="background: #f4f4f4; padding: 15px; white-space: pre-wrap; border-radius: 5px;">{letter_text}</pre>
     </div>
     """
 
     try:
         r = resend.Emails.send({
-            "from": "VerbaPost Admin <onboarding@resend.dev>",
+            "from": "VerbaPost System <onboarding@resend.dev>",
             "to": [admin_email],
             "subject": subject,
             "html": html
         })
-        print(f"✅ Admin Notification Sent! ID: {r.get('id')}")
+        print(f"✅ Admin Alert Sent! ID: {r.get('id')}")
         return True
     except Exception as e:
-        print(f"❌ Admin Email Failed: {e}")
+        print(f"❌ Admin Alert Failed: {e}")
         return False
 
 # --- FUNCTION 3: SHIPPING CONFIRMATION ---

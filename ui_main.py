@@ -87,7 +87,6 @@ def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     u_email = st.session_state.get("user_email", "")
     
-    # --- ROBUST ADMIN CHECK ---
     is_admin = False
     try:
         if secrets_manager:
@@ -109,7 +108,6 @@ def render_store_page():
         with st.container(border=True):
             st.subheader("Available Packages")
             
-            # --- TIER SETUP ---
             tier_options_list = ["Standard", "Heirloom", "Civic", "Santa"]
             tier_labels = {
                 "Standard": "⚡ Standard ($2.99)",
@@ -117,8 +115,6 @@ def render_store_page():
                 "Civic": "🏛️ Civic ($6.99)",
                 "Santa": "🎅 Santa ($9.99)"
             }
-            
-            # --- DESCRIPTIONS ---
             tier_descriptions = {
                 "Standard": "Your words professionally printed on standard paper and mailed via USPS First Class.",
                 "Heirloom": "Printed on heavyweight archival stock with a wet-ink style font for a timeless look.",
@@ -140,14 +136,11 @@ def render_store_page():
                 key="tier_selection_radio" 
             )
             tier_code = sel
-            
-            # Show Description
             st.info(tier_descriptions[tier_code])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
             price = prices[tier_code]
 
-            # --- INTERNATIONAL TOGGLE ---
             is_intl = False
             if tier_code in ["Standard", "Heirloom"]:
                 is_intl = st.checkbox("Send Internationally? (+$2.00)", key="intl_toggle_check")
@@ -182,11 +175,8 @@ def render_store_page():
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
                     if database: database.save_draft(u_email, "", tier_code, price)
-                    
-                    # --- STRIPE LINK BUILDER ---
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if is_intl: link += "&intl=1"
-                    
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                         if url:
@@ -199,7 +189,6 @@ def render_workspace_page():
     title_suffix = " (International)" if is_intl else ""
     render_hero("Compose Letter", f"{tier} Edition{title_suffix}")
     
-    # --- FETCH USER PROFILE FOR DEFAULTS ---
     u_email = st.session_state.get("user_email")
     user_addr = {}
     if database and u_email:
@@ -216,18 +205,12 @@ def render_workspace_page():
         st.subheader("📍 Addressing")
         
         # --- 1. SENDER SECTION ---
-        # Defaults
         def_n=user_addr.get("name",""); def_s=user_addr.get("street","")
         def_c=user_addr.get("city",""); def_st=user_addr.get("state","")
         def_z=user_addr.get("zip",""); def_cntry=user_addr.get("country","US")
         
-        # SANTA EXCEPTION
         if tier == "Santa":
             st.info("🎅 **From:** Santa Claus, North Pole (Locked)")
-            # We don't save these to widgets, just to state later
-            st.session_state.w_santa_mode = True 
-        
-        # CIVIC EXCEPTION
         elif tier == "Civic":
              st.markdown("**(From) Your Voting Address**")
              st.text_input("Name", value=def_n, key="w_from_name")
@@ -236,26 +219,18 @@ def render_workspace_page():
              c_a.text_input("City", value=def_c, key="w_from_city")
              c_b.text_input("State", value=def_st, key="w_from_state")
              c_c.text_input("Zip", value=def_z, key="w_from_zip")
-             # Hidden country field for Civic (always US)
              st.session_state.w_from_country = "US"
              st.caption("We use this to find your representatives.")
-
-        # STANDARD/HEIRLOOM
         else:
             with st.expander(f"✉️ From: {def_n} (Click to Edit)", expanded=False):
                 st.text_input("Sender Name", value=def_n, key="w_from_name")
                 st.text_input("Sender Street", value=def_s, key="w_from_street")
-                
-                # Auto-select user's country
                 try: c_idx = list(COUNTRIES.keys()).index(def_cntry)
                 except: c_idx = 0
-                
                 c_scntry, c_scity = st.columns([1, 2])
                 c_scntry.selectbox("From Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=c_idx, key="w_from_country")
                 c_scity.text_input("Sender City", value=def_c, key="w_from_city")
-
                 c_sstate, c_szip = st.columns([1, 1])
-                # Note: We rely on the session state update for labels to shift, might need rerun, but defaults work.
                 c_sstate.text_input("State/Prov", value=def_st, key="w_from_state")
                 c_szip.text_input("Zip/Postal", value=def_z, key="w_from_zip")
 
@@ -279,20 +254,15 @@ def render_workspace_page():
                 c_city.text_input("City", key="w_to_city")
                 c_state.text_input("State", key="w_to_state")
                 c_zip.text_input("Zip", key="w_to_zip")
-                # Implicit US
                 st.session_state.w_to_country = "US"
 
         # --- SAVE BUTTON ---
         st.markdown("<br>", unsafe_allow_html=True)
         btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
-        
         if st.button(btn_label, type="primary"):
-             # EXPLICIT SAVE (Legacy)
              _save_addresses_from_widgets(tier, is_intl)
-             
              if tier == "Civic" and civic_engine:
                  with st.spinner("Searching Congressional Database..."):
-                     # Re-grab from session to be safe
                      fs = st.session_state.w_from_street; fc = st.session_state.w_from_city
                      fst = st.session_state.w_from_state; fz = st.session_state.w_from_zip
                      search_addr = f"{fs}, {fc}, {fst} {fz}"
@@ -326,18 +296,13 @@ def render_workspace_page():
                     st.session_state.app_mode = "review"
                     st.rerun()
 
-# --- HELPER: AUTO-SAVE LOGIC ---
 def _save_addresses_from_widgets(tier, is_intl):
-    """Pulls data from widgets (w_ prefix) and saves to main state dicts."""
-    
-    # 1. FROM ADDRESS
     if tier == "Santa":
         st.session_state.from_addr = {
             "name": "Santa Claus", "street": "123 Elf Road", 
             "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"
         }
     else:
-        # Standard/Heirloom/Civic use widgets
         f_cntry = st.session_state.get("w_from_country", "US")
         st.session_state.from_addr = {
             "name": st.session_state.get("w_from_name"),
@@ -347,8 +312,6 @@ def _save_addresses_from_widgets(tier, is_intl):
             "zip": st.session_state.get("w_from_zip"),
             "country": f_cntry
         }
-
-    # 2. TO ADDRESS
     if tier == "Civic":
         st.session_state.to_addr = {
             "name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"
@@ -371,11 +334,9 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
 
-    # --- THE FIX: AUTO-SAVE CHECK ---
-    # If the user skipped the "Save" button, we run the save logic now.
+    # AUTO-SAVE CHECK
     if not st.session_state.get("to_addr") or not st.session_state.get("from_addr"):
         _save_addresses_from_widgets(tier, is_intl)
-    # --------------------------------
 
     if tier == "Civic" and "civic_targets" in st.session_state and st.session_state.civic_targets:
         st.info(f"🏛️ **This letter will be mailed to {len(st.session_state.civic_targets)} representatives:**")
@@ -389,21 +350,19 @@ def render_review_page():
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             
-            # LAST DITCH VALIDATION
             to_chk = st.session_state.get("to_addr", {})
             from_chk = st.session_state.get("from_addr", {})
             if not to_chk.get("street") and tier != "Civic":
-                st.error("⚠️ Recipient Address missing. Please go back and enter details.")
+                st.error("⚠️ Recipient Address missing.")
                 return
             if not from_chk.get("street") and tier != "Santa":
-                st.error("⚠️ Sender Address missing. Please go back and enter details.")
+                st.error("⚠️ Sender Address missing.")
                 return
 
             with st.spinner("Processing & Mailing..."):
                 u_email = st.session_state.get("user_email")
                 from_data = st.session_state.from_addr
                 
-                # Signature Prep
                 sig_path = None; sig_db_value = None
                 is_santa = (tier == "Santa")
                 if not is_santa and st.session_state.get("sig_data") is not None:
@@ -415,7 +374,6 @@ def render_review_page():
                         buf = io.BytesIO(); img.save(buf, format="PNG"); sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
                     except: pass
 
-                # Build Targets
                 targets = []
                 if tier == "Civic" and "civic_targets" in st.session_state:
                     for rep in st.session_state.civic_targets:
@@ -423,7 +381,6 @@ def render_review_page():
                 else:
                     targets.append(st.session_state.to_addr)
 
-                # Loop Send
                 for to_data in targets:
                     t_country = to_data.get('country', 'US')
                     cntry_line = f"\n{COUNTRIES.get(t_country, 'USA')}" if t_country != 'US' else ""
@@ -443,7 +400,6 @@ def render_review_page():
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                 tmp.write(pdf_bytes); tmp_path = tmp.name
                             
-                            # MAP TO POSTGRID KEYS
                             pg_to = {
                                 'name': to_data.get('name'), 'address_line1': to_data.get('street'), 
                                 'address_city': to_data.get('city'), 'address_state': to_data.get('state'), 
@@ -465,6 +421,11 @@ def render_review_page():
                             
                             database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
 
+                            # --- NEW: SEND EMAIL NOTIFICATION FOR MANUAL ORDERS ---
+                            if (tier == "Santa" or tier == "Heirloom") and mailer:
+                                mailer.send_admin_alert(u_email, txt, tier)
+                            # -------------------------------------------------------
+
                 if sig_path and os.path.exists(sig_path): os.remove(sig_path)
                 st.session_state.letter_sent_success = True
                 st.rerun()
@@ -478,8 +439,6 @@ def render_review_page():
 def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
-    
-    # Catch redirect from Stripe but handled in main.py already
     if "session_id" in st.query_params: 
         st.session_state.app_mode = "workspace" 
         st.session_state.payment_complete = True 
