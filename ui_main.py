@@ -134,15 +134,42 @@ def render_legal_page():
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
+    
+    # --- NEW LOGIC: Check for Marketing Link ---
+    # If they came from a link like verbapost.com/?tier=Santa, auto-select it
+    pre_selected_index = 0
+    tier_options_list = ["Standard", "Heirloom", "Civic", "Santa"]
+    
+    if "target_marketing_tier" in st.session_state:
+        target = st.session_state.target_marketing_tier
+        if target in tier_options_list:
+            pre_selected_index = tier_options_list.index(target)
+    # -------------------------------------------
+
     u_email = st.session_state.get("user_email", "")
     
-    admin_target = ""
-    try:
-        if secrets_manager:
-            admin_target = secrets_manager.get_secret("admin.email") or secrets_manager.get_secret("ADMIN_EMAIL")
-        if not admin_target and "admin" in st.secrets:
-            admin_target = st.secrets["admin"].get("email", "")
-    except: pass
+    # ... (Keep existing Admin logic) ...
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        with st.container(border=True):
+            st.subheader("Available Packages")
+            tier_options = {
+                "Standard": "⚡ Standard ($2.99)",
+                "Heirloom": "🏺 Heirloom ($5.99)",
+                "Civic": "🏛️ Civic ($6.99)",
+                "Santa": "🎅 Santa ($9.99)"
+            }
+            
+            # Update the radio button to use the index
+            sel = st.radio(
+                "Select Tier", 
+                tier_options_list, 
+                format_func=lambda x: tier_options[x],
+                index=pre_selected_index # <--- This defaults to the marketing choice
+            )
+            tier_code = sel
+            
 
     if str(u_email).strip().lower() == str(admin_target).strip().lower() and admin_target:
         if st.button("🔐 Open Admin Console", type="secondary"):
