@@ -124,3 +124,23 @@ def fetch_all_drafts():
         return data
     except: return []
     finally: db.close()
+
+def update_draft_data(draft_id, to_addr, from_addr, status=None):
+    """Updates address and status for an existing draft (Admin Fix)."""
+    db = get_session()
+    if not db: return False
+    try:
+        draft = db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
+        if draft:
+            if to_addr: draft.recipient_json = json.dumps(to_addr)
+            if from_addr: draft.sender_json = json.dumps(from_addr)
+            if status: draft.status = status
+            db.commit()
+            return True
+        return False
+    except Exception as e:
+        print(f"Update Error: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
