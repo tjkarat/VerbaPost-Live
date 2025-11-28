@@ -58,7 +58,8 @@ def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=
         return None
 
 def show_admin():
-    st.title("🔐 Admin Console (v2)")
+    # UPDATED TITLE TO V2.1 so you know it's live
+    st.title("🔐 Admin Console (v2.1)")
     
     u_email = st.session_state.get("user_email") or st.session_state.get("user", {}).email
     st.info(f"Logged in as: {u_email}")
@@ -71,7 +72,7 @@ def show_admin():
         ["📦 Standard/Fix", "🎅 Santa", "🏺 Heirloom", "🛠️ Maint", "🎟️ Promo", "⚠️ Danger"]
     )
 
-    # --- TAB 1: STANDARD ORDERS (THE FIX) ---
+    # --- TAB 1: STANDARD ORDERS ---
     with tab_orders:
         st.subheader("Standard & Civic Orders")
         
@@ -89,7 +90,6 @@ def show_admin():
                 st.markdown("### 🔧 Fix & Resubmit")
                 
                 # 2. Select Order to Fix
-                # We show ID and Status in the dropdown
                 order_opts = {d["ID"]: f"ID {d['ID']} ({d['Status']}) - {d['Email']}" for d in std_orders}
                 selected_id = st.selectbox("Select Order to Manage", options=list(order_opts.keys()), format_func=lambda x: order_opts[x])
                 
@@ -199,7 +199,7 @@ def show_admin():
                             st.markdown(href, unsafe_allow_html=True)
                     
                     if st.button("Mark Completed", key="santa_mark"):
-                        database.update_draft_data(s_id, None, None, status="Completed") # Reuse new function
+                        database.update_draft_data(s_id, None, None, status="Completed")
                         st.success("Updated!"); st.rerun()
 
     # --- TAB 3: HEIRLOOM ---
@@ -232,17 +232,26 @@ def show_admin():
     # --- TAB 4: MAINT ---
     with tab_maint:
         st.subheader("System Health")
+        
+        # 1. Database Check
         if database:
             try:
                 database.get_session().execute(text("SELECT 1")).fetchone()
                 st.success("✅ Database Connected")
             except Exception as e: st.error(f"❌ DB Error: {e}")
         
+        # 2. PostGrid Check
         if secrets_manager.get_secret("postgrid.api_key"): st.success("✅ PostGrid Key Found")
         else: st.error("❌ PostGrid Key Missing")
 
+        # 3. Email Check
         if secrets_manager.get_secret("email.password"): st.success("✅ Email Configured")
         else: st.error("❌ Email Password Missing")
+        
+        # 4. Stripe Check (NEW)
+        stripe_k = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
+        if stripe_k: st.success("✅ Stripe Key Found")
+        else: st.error("❌ Stripe Key Missing")
 
     # --- TAB 5: PROMO ---
     with tab_promo:
