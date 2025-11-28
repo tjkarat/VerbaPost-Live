@@ -204,16 +204,8 @@ def render_store_page():
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                        # --- FIXED HTML BLOCK (This was likely the error source) ---
                         if url:
-                            btn_html = f"""
-                            <a href="{url}" target="_blank" style="text-decoration:none;">
-                                <div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">
-                                    👉 Pay Now via Stripe
-                                </div>
-                            </a>
-                            """
-                            st.markdown(btn_html, unsafe_allow_html=True)
+                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
@@ -305,11 +297,28 @@ def render_workspace_page():
                 def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
                 from_name = st.text_input("Name", value=def_n, key="w_from_name")
                 from_street = st.text_input("Street", value=def_s, key="w_from_street")
-                c_a, c_b, c_c = st.columns(3)
-                from_city = c_a.text_input("City", value=def_c, key="w_from_city")
-                from_state = c_b.text_input("State", value=def_st, key="w_from_state")
-                from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
-                from_country = "US"
+                
+                # --- CHECK IF SENDER IS INTERNATIONAL ---
+                # We infer this if the user manually changes the country or we add a toggle.
+                # For better UX, we'll add a sender country selector that defaults to US but allows change.
+                
+                c_scntry, c_scity = st.columns([1, 2])
+                from_country_code = c_scntry.selectbox("From Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_from_country")
+                from_city = c_scity.text_input("City", value=def_c, key="w_from_city")
+
+                c_sstate, c_szip = st.columns(2)
+                
+                # Adjust labels based on selected sender country
+                if from_country_code == "US":
+                    s_state_label = "State"
+                    s_zip_label = "Zip"
+                else:
+                    s_state_label = "State/Prov"
+                    s_zip_label = "Postal Code"
+                    
+                from_state = c_sstate.text_input(s_state_label, value=def_st, key="w_from_state")
+                from_zip = c_szip.text_input(s_zip_label, value=def_z, key="w_from_zip")
+                from_country = from_country_code
 
         # --- SAVE BUTTON ---
         btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
@@ -410,7 +419,11 @@ def render_review_page():
                     to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}{cntry_line}"
                     
                     if tier == "Santa": from_str = "Santa Claus"
-                    else: from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+                    else: 
+                        # Sender Country Label
+                        f_country = from_data.get('country', 'US')
+                        f_cntry_line = f"\n{COUNTRIES.get(f_country, 'USA')}" if f_country != 'US' else ""
+                        from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}{f_cntry_line}"
 
                     if letter_format:
                         pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
@@ -434,7 +447,7 @@ def render_review_page():
                                 'name': from_data.get('name'), 'address_line1': from_data.get('street'), 
                                 'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 
                                 'address_zip': from_data.get('zip'),
-                                'country_code': 'US'
+                                'country_code': from_data.get('country', 'US') # Use dynamic sender country!
                             }
                             
                             print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
