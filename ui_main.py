@@ -117,6 +117,14 @@ def render_store_page():
                 "Civic": "🏛️ Civic ($6.99)",
                 "Santa": "🎅 Santa ($9.99)"
             }
+
+            # --- NEW: DESCRIPTIONS ---
+            tier_descriptions = {
+                "Standard": "Your words professionally printed on standard paper and mailed via USPS First Class.",
+                "Heirloom": "Printed on heavyweight archival stock with a wet-ink style font for a timeless look.",
+                "Civic": "We automatically identify your local representatives and mail physical letters to them.",
+                "Santa": "A magical letter from the North Pole on festive paper, signed by Santa Claus himself."
+            }
             
             pre_selected_index = 0
             if "target_marketing_tier" in st.session_state:
@@ -133,6 +141,9 @@ def render_store_page():
                 key="tier_selection_radio" 
             )
             tier_code = sel
+
+            # --- NEW: DISPLAY DESCRIPTION ---
+            st.info(tier_descriptions[tier_code])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
             price = prices[tier_code]
