@@ -58,7 +58,7 @@ def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=
         return None
 
 def show_admin():
-    st.title("🔐 Admin Console")
+    st.title("🔐 Admin Console (v2)")
     
     u_email = st.session_state.get("user_email") or st.session_state.get("user", {}).email
     st.info(f"Logged in as: {u_email}")
