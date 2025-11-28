@@ -22,4 +22,4 @@ RUN mkdir -p .streamlit && echo "" > .streamlit/secrets.toml
 EXPOSE 8080
 
 # Launch App
-CMD ["streamlit", "run", "main.py", "--server.port=8080", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
+CMD ["streamlit", "run", "main.py", "--server.port=8080", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false", "--server.enableWebsocketCompression=true"]

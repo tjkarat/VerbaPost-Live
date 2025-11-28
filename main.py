@@ -94,13 +94,19 @@ if __name__ == "__main__":
         q_params = st.query_params
         
         # 1. Marketing Links (e.g. ?tier=Santa)
+        # We only treat it as marketing if we are NOT returning from payment
         if "tier" in q_params and "session_id" not in q_params:
             st.session_state.target_marketing_tier = q_params["tier"]
 
-        # 2. Stripe Return (e.g. ?session_id=...&intl=1)
+        # 2. Stripe Return (e.g. ?session_id=...&tier=Civic)
         if "session_id" in q_params:
             st.session_state.app_mode = "workspace"
             st.session_state.payment_complete = True
+            
+            # --- THE FIX: CAPTURE TIER FROM URL ---
+            if "tier" in q_params:
+                st.session_state.locked_tier = q_params["tier"]
+            # --------------------------------------
             
             # RECOVER INTERNATIONAL STATUS
             if "intl" in q_params:
