@@ -21,6 +21,7 @@ def send_letter(pdf_path, to_address, from_address):
         files = {'pdf': open(pdf_path, 'rb')}
         
         # Map fields with International Support
+        # Note: PostGrid expects 'countryCode' (ISO 2-char like 'GB', 'CA')
         data = {
             'description': f"VerbaPost to {to_address.get('name')}",
             'to[firstName]': to_address.get('name'), 

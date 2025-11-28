@@ -40,7 +40,7 @@ except: pass
 
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
-# --- COUNTRY LIST ---
+# --- INTERNATIONAL CONFIG ---
 COUNTRIES = {
     "US": "United States",
     "CA": "Canada",
@@ -51,8 +51,10 @@ COUNTRIES = {
     "ES": "Spain",
     "AU": "Australia",
     "MX": "Mexico",
-    "JP": "Japan"
-    # Add more as needed, PostGrid supports 200+
+    "JP": "Japan",
+    "BR": "Brazil",
+    "IN": "India"
+    # Add more supported by PostGrid as needed
 }
 
 def reset_app():
@@ -68,6 +70,9 @@ def reset_app():
     st.session_state.to_addr = {}
     st.session_state.from_addr = {}
     st.session_state.civic_targets = []
+    # Default to Domestic
+    st.session_state.is_intl = False
+    
     if "letter_sent_success" in st.session_state: del st.session_state.letter_sent_success
     st.query_params.clear()
 
@@ -87,22 +92,45 @@ def show_santa_animation():
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
     with st.container(border=True):
-        st.subheader("Terms of Service")
+        st.subheader("Terms of Service & Privacy Waiver")
         st.markdown("""
         **Last Updated: November 2024**
+
         **1. MANUAL HANDLING DISCLOSURE (NO PRIVACY)**
-        For "Heirloom" and "Santa" Tiers: These require manual printing. VerbaPost staff will view your content. NO PRIVACY EXPECTED.
+        **For "Heirloom" and "Santa" Tiers:**
+        These letters are created using special materials that require **manual printing and packaging**. 
+        By selecting these tiers, you explicitly acknowledge and agree that **VerbaPost staff will view and handle your letter content**. 
+        **THERE IS NO EXPECTATION OF PRIVACY** for Heirloom or Santa letters. Do not include sensitive, financial, medical (HIPAA), or highly confidential information in these specific tiers.
+
         **2. Automated Handling (Standard/Civic)**
-        Standard and Civic letters are processed via API and not read by humans.
-        **3. Delivery**
-        VerbaPost acts as a fulfillment agent. We are not liable for USPS delays.
+        Standard and Civic letters are processed via API (PostGrid/Lob) and are **not** read by humans unless a technical delivery failure requires investigation.
+
+        **3. Prohibited Content**
+        You agree NOT to send letters containing: illegal acts, threats, harassment, or hate speech. VerbaPost reserves the right to refuse fulfillment of any letter without refund if it violates this policy.
+
+        **4. Delivery & Liability**
+        VerbaPost acts as a fulfillment agent. Our responsibility ends when the letter is handed to the USPS. We are not liable for lost, delayed, or damaged mail once in the possession of the carrier.
         """)
+        
         st.divider()
+        
         st.subheader("Privacy Policy")
-        st.write("We retain data for 30 days. Payment is handled by Stripe.")
+        st.markdown("""
+        **1. Data Retention**
+        To ensure delivery and handle support requests, we retain letter content and address data for **30 days** after creation. After this period, data may be permanently deleted.
+        
+        **2. Third-Party Sharing**
+        - **Mailing:** Address and content data is shared with our print partners (PostGrid/Lob) for fulfillment.
+        - **AI Processing:** Audio is processed via OpenAI. We do not opt-in to having your data train their models.
+        - **Payment:** Credit card data is processed exclusively by Stripe. We never see or store your full card number.
+        
+        **3. Your Rights**
+        You may request the immediate deletion of your account and data by emailing **privacy@verbapost.com**.
+        """)
     
     if st.button("← Return to Home", type="primary"):
-        reset_app(); st.rerun()
+        st.session_state.app_mode = "splash"
+        st.rerun()
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
@@ -170,19 +198,29 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
-                st.metric("Total", f"${price}")
-                if st.button(f"Pay ${price} & Start", type="primary", use_container_width=True):
+                st.metric("Total", f"${price:.2f}")
+                if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
                     if database: database.save_draft(u_email, "", tier_code, price)
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
+                        # --- FIXED HTML BLOCK (This was likely the error source) ---
                         if url:
-                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+                            btn_html = f"""
+                            <a href="{url}" target="_blank" style="text-decoration:none;">
+                                <div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">
+                                    👉 Pay Now via Stripe
+                                </div>
+                            </a>
+                            """
+                            st.markdown(btn_html, unsafe_allow_html=True)
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
-    render_hero("Compose Letter", f"{tier} Edition {'(Intl)' if is_intl else ''}")
+    
+    title_suffix = " (International)" if is_intl else ""
+    render_hero("Compose Letter", f"{tier} Edition{title_suffix}")
     
     u_email = st.session_state.get("user_email")
     user_addr = {}
@@ -193,12 +231,11 @@ def render_workspace_page():
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
-        # --- CIVIC LOGIC ---
+        # --- CIVIC LOGIC (US Only) ---
         if tier == "Civic":
-            # (Civic is strictly US only)
             c1, c2 = st.columns(2)
             with c2:
-                st.markdown("**Your Address (Required for Lookup)**")
+                st.markdown("**Your Address (From)**")
                 def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
                 from_name = st.text_input("Name", value=def_n, key="w_from_name")
                 from_street = st.text_input("Street", value=def_s, key="w_from_street")
@@ -215,11 +252,11 @@ def render_workspace_page():
                     for r in st.session_state.civic_targets:
                         st.info(f"🏛️ **{r['title']}** {r['name']}")
                 else:
-                    st.info("Enter your address to find reps.")
+                    st.info("Enter your address on the right to find reps.")
                 
                 to_name="Civic Action"; to_street="Capitol"; to_city="DC"; to_state="DC"; to_zip="20000"; to_country="US"
 
-        # --- SANTA LOGIC ---
+        # --- SANTA LOGIC (US Only usually) ---
         elif tier == "Santa":
             c1, c2 = st.columns(2)
             with c1:
@@ -236,7 +273,7 @@ def render_workspace_page():
                 st.success("🎅 Locked: North Pole")
                 from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"; from_country="NP"
         
-        # --- STANDARD / HEIRLOOM (INTERNATIONAL ENABLED) ---
+        # --- STANDARD / HEIRLOOM (Supports Intl) ---
         else:
             c1, c2 = st.columns(2)
             with c1:
@@ -251,7 +288,8 @@ def render_workspace_page():
                     to_city = c_city.text_input("City", key="w_to_city")
                     
                     c_state, c_zip = st.columns(2)
-                    to_state = c_state.text_input("State/Province", key="w_to_state")
+                    # State/Province text input (no US validation)
+                    to_state = c_state.text_input("State/Prov", key="w_to_state")
                     to_zip = c_zip.text_input("Postal Code", key="w_to_zip")
                     to_country = to_country_code
                 else:
@@ -265,19 +303,17 @@ def render_workspace_page():
             with c2:
                 st.markdown("**From (Sender)**")
                 def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
-                
                 from_name = st.text_input("Name", value=def_n, key="w_from_name")
                 from_street = st.text_input("Street", value=def_s, key="w_from_street")
                 c_a, c_b, c_c = st.columns(3)
                 from_city = c_a.text_input("City", value=def_c, key="w_from_city")
                 from_state = c_b.text_input("State", value=def_st, key="w_from_state")
                 from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
-                from_country = "US" # Sender always US for now unless specified
+                from_country = "US"
 
         # --- SAVE BUTTON ---
         btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
         if st.button(btn_label):
-             # Save Country to Session State
              st.session_state.to_addr = {
                  "name": to_name, "street": to_street, "city": to_city, 
                  "state": to_state, "zip": to_zip, "country": to_country
@@ -287,12 +323,13 @@ def render_workspace_page():
                  "state": from_state, "zip": from_zip, "country": from_country
              }
              
+             # Trigger Civic Lookup
              if tier == "Civic" and civic_engine and from_street and from_zip:
                  with st.spinner("Searching Congressional Database..."):
                      search_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
                      reps = civic_engine.get_reps(search_addr)
                      st.session_state.civic_targets = reps
-                     if not reps: st.error("No reps found. Please verify address is in the US.")
+                     if not reps: st.error("No reps found. Verify US address.")
                      else: st.rerun()
              
              st.toast("Addresses Saved!")
@@ -341,6 +378,7 @@ def render_review_page():
                 u_email = st.session_state.get("user_email")
                 from_data = st.session_state.get("from_addr", {})
                 
+                # Signature
                 sig_path = None; sig_db_value = None
                 is_santa = (tier == "Santa")
                 if not is_santa and st.session_state.get("sig_data") is not None:
@@ -352,19 +390,22 @@ def render_review_page():
                         buf = io.BytesIO(); img.save(buf, format="PNG"); sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
                     except: pass
 
+                # Build Targets List
                 targets = []
                 if tier == "Civic" and "civic_targets" in st.session_state:
                     for rep in st.session_state.civic_targets:
-                        # Force US for civic targets
+                        # Enforce US for civic
                         t = rep['address_obj']
                         t['country'] = 'US'
                         targets.append(t) 
                 else:
                     targets.append(st.session_state.get("to_addr", {}))
 
+                # Loop Send
                 for to_data in targets:
-                    # Format address string including country if International
-                    cntry_line = f"\n{COUNTRIES.get(to_data.get('country', 'US'), 'USA')}" if to_data.get('country') != 'US' else ""
+                    # Country Label for PDF
+                    t_country = to_data.get('country', 'US')
+                    cntry_line = f"\n{COUNTRIES.get(t_country, 'USA')}" if t_country != 'US' else ""
                     
                     to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}{cntry_line}"
                     
@@ -375,24 +416,25 @@ def render_review_page():
                         pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
                         
                         postgrid_success = False
+                        # Standard/Civic use API. Heirloom/Santa are manual.
                         if (tier == "Standard" or tier == "Civic") and mailer:
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                 tmp.write(pdf_bytes); tmp_path = tmp.name
                             
-                            # --- POSTGRID PAYLOAD (Updated for Country) ---
+                            # PostGrid Payload
                             pg_to = {
                                 'name': to_data.get('name'), 
                                 'address_line1': to_data.get('street'), 
                                 'address_city': to_data.get('city'),
                                 'address_state': to_data.get('state'), 
                                 'address_zip': to_data.get('zip'),
-                                'country_code': to_data.get('country', 'US') # Pass the ISO code!
+                                'country_code': to_data.get('country', 'US') # ISO Code
                             }
                             pg_from = {
                                 'name': from_data.get('name'), 'address_line1': from_data.get('street'), 
                                 'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 
                                 'address_zip': from_data.get('zip'),
-                                'country_code': 'US' # Sender is always US for now
+                                'country_code': 'US'
                             }
                             
                             print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
@@ -413,7 +455,9 @@ def render_review_page():
     else:
         show_santa_animation()
         st.success("✅ Letters Queued for Delivery!")
-        if st.button("🏁 Finish & Return Home"): reset_app(); st.rerun()
+        if st.button("🏁 Finish & Return Home"): 
+             reset_app()
+             st.rerun()
 
 def show_main_app():
     if analytics: analytics.inject_ga()
