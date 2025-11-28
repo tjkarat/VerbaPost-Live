@@ -31,10 +31,10 @@ def show_splash():
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2: 
-            # UPDATED: Increased width from 150 to 220
+            # BIGGER LOGO UPDATE (220px)
             st.image("logo.png", width=220)
     
-    # UPDATED: New Tagline
+    # NEW TAGLINE UPDATE
     st.markdown("""
     <div style="text-align: center; padding-bottom: 20px;">
         <h1 style="color: #1e3c72; margin-bottom: 0;">VerbaPost</h1>
@@ -69,8 +69,11 @@ def show_splash():
     c_cta1, c_cta2, c_cta3 = st.columns([1, 2, 1])
     with c_cta2:
         st.info("💡 You must be logged in to create a letter.")
+        
+        # BUTTON ROUTING UPDATE: Goes to Signup Tab
         if st.button("🚀 Create Free Account & Start", type="primary", use_container_width=True, key="top_signup_btn"):
             set_mode("login", view_preference="signup")
+            
         if st.button("Already have an account? Log In", type="secondary", use_container_width=True, key="top_login_btn"):
             set_mode("login", view_preference="login")
 
@@ -82,6 +85,7 @@ def show_splash():
     col_a, col_b = st.columns(2)
     with col_a:
         with st.container(border=True):
+            # SANTA UPDATE
             st.markdown("### 🎅 Letters FROM Santa")
             st.caption("Don't just write *to* him. Send a magical letter **FROM** the North Pole directly to your child.")
     with col_b:
@@ -103,6 +107,7 @@ def show_splash():
     st.markdown("<br>", unsafe_allow_html=True)
     c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
     with c_bot2:
+        # BUTTON ROUTING UPDATE: Goes to Signup Tab
         if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
             set_mode("login", view_preference="signup")
 
