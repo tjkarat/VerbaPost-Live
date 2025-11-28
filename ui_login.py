@@ -98,7 +98,9 @@ def show_forgot_password(send_code_func):
     with c2:
         st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Recovery 🔐</h2>", unsafe_allow_html=True)
         with st.container(border=True):
-            st.info("Enter your email. We will send you a verification token.")
+            # UPDATED VERBIAGE HERE
+            st.info("Enter your email. We will send you a verification token.\n\n⚠️ **Please check your Spam/Junk folder if you do not see it.**")
+            
             email = st.text_input("Email Address", key="reset_email_input")
             
             if st.button("Send Token", type="primary", use_container_width=True):
@@ -124,6 +126,7 @@ def show_reset_verify(verify_func):
         with st.container(border=True):
             email = st.session_state.get("reset_email", "")
             st.success(f"Token sent to: **{email}**")
+            st.caption("Check your Spam folder if it hasn't arrived.")
             
             token = st.text_input("Enter Token (from email)")
             new_pass = st.text_input("New Password", type="password")
