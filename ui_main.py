@@ -134,21 +134,109 @@ def render_legal_page():
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
-    
-    # --- NEW LOGIC: Check for Marketing Link ---
-    # If they came from a link like verbapost.com/?tier=Santa, auto-select it
-    pre_selected_index = 0
-    tier_options_list = ["Standard", "Heirloom", "Civic", "Santa"]
-    
-    if "target_marketing_tier" in st.session_state:
-        target = st.session_state.target_marketing_tier
-        if target in tier_options_list:
-            pre_selected_index = tier_options_list.index(target)
-    # -------------------------------------------
-
     u_email = st.session_state.get("user_email", "")
     
-    # ... (Keep existing Admin logic) ...
+    # --- ROBUST ADMIN CHECK ---
+    is_admin = False
+    try:
+        # 1. Check Secrets Manager (GCP / Env Vars)
+        if secrets_manager:
+            admin_target = secrets_manager.get_secret("admin.email")
+            if admin_target and str(u_email).lower() == str(admin_target).lower():
+                is_admin = True
+        
+        # 2. Check Streamlit Secrets (Local / TOML)
+        # This explicitly handles [admin] email = "..."
+        if not is_admin and "admin" in st.secrets:
+            admin_target = st.secrets["admin"].get("email")
+            if admin_target and str(u_email).lower() == str(admin_target).lower():
+                is_admin = True
+    except Exception as e:
+        print(f"Admin Check Error: {e}")
+
+    # Render Button if Match
+    if is_admin:
+        if st.button("🔐 Open Admin Console", type="secondary"):
+            st.session_state.app_mode = "admin"
+            st.rerun()
+    # --------------------------
+
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        with st.container(border=True):
+            st.subheader("Available Packages")
+            
+            # --- DEFINITIONS ---
+            tier_options_list = ["Standard", "Heirloom", "Civic", "Santa"]
+            tier_labels = {
+                "Standard": "⚡ Standard ($2.99)",
+                "Heirloom": "🏺 Heirloom ($5.99)",
+                "Civic": "🏛️ Civic ($6.99)",
+                "Santa": "🎅 Santa ($9.99)"
+            }
+            
+            # --- AUTO-SELECTION LOGIC ---
+            pre_selected_index = 0 # Default to Standard
+            
+            if "target_marketing_tier" in st.session_state:
+                target = st.session_state.target_marketing_tier
+                if target in tier_options_list:
+                    pre_selected_index = tier_options_list.index(target)
+            
+            sel = st.radio(
+                "Select Tier", 
+                tier_options_list, 
+                format_func=lambda x: tier_labels[x],
+                index=pre_selected_index
+            )
+            tier_code = sel
+            
+            # Default Prices
+            prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
+            price = prices[tier_code]
+
+            # --- INTERNATIONAL PRICING TOGGLE ---
+            if tier_code in ["Standard", "Heirloom"]:
+                is_intl = st.checkbox("Send Internationally? (+$2.00)")
+                if is_intl:
+                    price += 2.00
+                    st.session_state.is_intl = True
+                else:
+                    st.session_state.is_intl = False
+            else:
+                st.session_state.is_intl = False
+
+    with c2:
+        with st.container(border=True):
+            st.subheader("Checkout")
+            discounted = False
+            if promo_engine:
+                code_input = st.text_input("Promo Code", key="promo_box")
+                if code_input:
+                    if promo_engine.validate_code(code_input):
+                        discounted = True
+                        st.success("✅ Code Applied!")
+                    else: st.error("❌ Invalid Code")
+            
+            if discounted:
+                st.metric("Total", "$0.00", delta=f"-${price} off")
+                if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
+                    if promo_engine: promo_engine.log_usage(code_input, u_email)
+                    if database: database.save_draft(u_email, "", tier_code, "0.00")
+                    st.session_state.payment_complete = True
+                    st.session_state.locked_tier = tier_code
+                    st.session_state.app_mode = "workspace"
+                    st.rerun()
+            else:
+                st.metric("Total", f"${price:.2f}")
+                if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
+                    if database: database.save_draft(u_email, "", tier_code, price)
+                    link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                    if payment_engine:
+                        url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
+                        if url:
+                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+                            
 
     c1, c2 = st.columns([2, 1])
     with c1:

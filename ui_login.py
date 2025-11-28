@@ -98,7 +98,6 @@ def show_forgot_password(send_code_func):
     with c2:
         st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Recovery 🔐</h2>", unsafe_allow_html=True)
         with st.container(border=True):
-            # UPDATED VERBIAGE HERE
             st.info("Enter your email. We will send you a verification token.\n\n⚠️ **Please check your Spam/Junk folder if you do not see it.**")
             
             email = st.text_input("Email Address", key="reset_email_input")
@@ -108,7 +107,7 @@ def show_forgot_password(send_code_func):
                     success, msg = send_code_func(email)
                     if success:
                         st.session_state.reset_email = email
-                        st.session_state.app_mode = "reset_verify" # Switch to verify screen
+                        st.session_state.app_mode = "reset_verify" 
                         st.rerun()
                     else:
                         st.error(f"Error: {msg}")
@@ -124,6 +123,19 @@ def show_reset_verify(verify_func):
     with c2:
         st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Set Password 🔑</h2>", unsafe_allow_html=True)
         with st.container(border=True):
+            
+            # --- THE FIX: CHECK SUCCESS STATE FIRST ---
+            if st.session_state.get("reset_success", False):
+                st.success("✅ Password Updated! Please log in.")
+                if st.button("Go to Login", type="primary", use_container_width=True):
+                    # Clear state and redirect
+                    if "reset_success" in st.session_state: del st.session_state.reset_success
+                    if "reset_email" in st.session_state: del st.session_state.reset_email
+                    st.session_state.app_mode = "login"
+                    st.rerun()
+                return # Stop rendering the form below
+            # ------------------------------------------
+
             email = st.session_state.get("reset_email", "")
             st.success(f"Token sent to: **{email}**")
             st.caption("Check your Spam folder if it hasn't arrived.")
@@ -135,10 +147,9 @@ def show_reset_verify(verify_func):
                 if token and new_pass and verify_func:
                     success, msg = verify_func(email, token, new_pass)
                     if success:
-                        st.success("✅ Password Updated! Please log in.")
-                        if st.button("Go to Login"):
-                            st.session_state.app_mode = "login"
-                            st.rerun()
+                        # Set the flag and rerun to trigger the success block above
+                        st.session_state.reset_success = True
+                        st.rerun()
                     else:
                         st.error(f"Failed: {msg}")
                 else:
