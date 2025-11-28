@@ -117,8 +117,8 @@ def render_store_page():
                 "Civic": "🏛️ Civic ($6.99)",
                 "Santa": "🎅 Santa ($9.99)"
             }
-
-            # --- NEW: DESCRIPTIONS ---
+            
+            # --- DESCRIPTIONS ---
             tier_descriptions = {
                 "Standard": "Your words professionally printed on standard paper and mailed via USPS First Class.",
                 "Heirloom": "Printed on heavyweight archival stock with a wet-ink style font for a timeless look.",
@@ -132,7 +132,6 @@ def render_store_page():
                 if target in tier_options_list:
                     pre_selected_index = tier_options_list.index(target)
             
-            # Unique Key prevents Duplicate ID Error
             sel = st.radio(
                 "Select Tier", 
                 tier_options_list, 
@@ -141,8 +140,8 @@ def render_store_page():
                 key="tier_selection_radio" 
             )
             tier_code = sel
-
-            # --- NEW: DISPLAY DESCRIPTION ---
+            
+            # Show Description
             st.info(tier_descriptions[tier_code])
             
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
@@ -225,89 +224,82 @@ def render_workspace_page():
         # SANTA EXCEPTION
         if tier == "Santa":
             st.info("🎅 **From:** Santa Claus, North Pole (Locked)")
-            from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"; from_country="NP"
+            # We don't save these to widgets, just to state later
+            st.session_state.w_santa_mode = True 
         
         # CIVIC EXCEPTION
         elif tier == "Civic":
              st.markdown("**(From) Your Voting Address**")
-             from_name = st.text_input("Name", value=def_n, key="w_from_name")
-             from_street = st.text_input("Street", value=def_s, key="w_from_street")
+             st.text_input("Name", value=def_n, key="w_from_name")
+             st.text_input("Street", value=def_s, key="w_from_street")
              c_a, c_b, c_c = st.columns([2, 1, 1])
-             from_city = c_a.text_input("City", value=def_c, key="w_from_city")
-             from_state = c_b.text_input("State", value=def_st, key="w_from_state")
-             from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
-             from_country = "US"
+             c_a.text_input("City", value=def_c, key="w_from_city")
+             c_b.text_input("State", value=def_st, key="w_from_state")
+             c_c.text_input("Zip", value=def_z, key="w_from_zip")
+             # Hidden country field for Civic (always US)
+             st.session_state.w_from_country = "US"
              st.caption("We use this to find your representatives.")
 
-        # STANDARD/HEIRLOOM (Expandable Logic)
+        # STANDARD/HEIRLOOM
         else:
             with st.expander(f"✉️ From: {def_n} (Click to Edit)", expanded=False):
-                from_name = st.text_input("Sender Name", value=def_n, key="w_from_name")
-                from_street = st.text_input("Sender Street", value=def_s, key="w_from_street")
+                st.text_input("Sender Name", value=def_n, key="w_from_name")
+                st.text_input("Sender Street", value=def_s, key="w_from_street")
                 
                 # Auto-select user's country
                 try: c_idx = list(COUNTRIES.keys()).index(def_cntry)
                 except: c_idx = 0
                 
                 c_scntry, c_scity = st.columns([1, 2])
-                from_country_code = c_scntry.selectbox("From Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=c_idx, key="w_from_country")
-                from_city = c_scity.text_input("Sender City", value=def_c, key="w_from_city")
+                c_scntry.selectbox("From Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=c_idx, key="w_from_country")
+                c_scity.text_input("Sender City", value=def_c, key="w_from_city")
 
                 c_sstate, c_szip = st.columns([1, 1])
-                s_lbl_st = "State" if from_country_code == "US" else "State/Prov"
-                s_lbl_zip = "Zip" if from_country_code == "US" else "Postal Code"
-                
-                from_state = c_sstate.text_input(s_lbl_st, value=def_st, key="w_from_state")
-                from_zip = c_szip.text_input(s_lbl_zip, value=def_z, key="w_from_zip")
-                from_country = from_country_code
+                # Note: We rely on the session state update for labels to shift, might need rerun, but defaults work.
+                c_sstate.text_input("State/Prov", value=def_st, key="w_from_state")
+                c_szip.text_input("Zip/Postal", value=def_z, key="w_from_zip")
 
         # --- 2. RECIPIENT SECTION ---
         if tier != "Civic":
             st.markdown("---")
             st.markdown("**📮 To (Recipient)**")
             
-            to_name = st.text_input("Recipient Name", key="w_to_name")
-            to_street = st.text_input("Recipient Street", key="w_to_street")
+            st.text_input("Recipient Name", key="w_to_name")
+            st.text_input("Recipient Street", key="w_to_street")
             
             if is_intl:
                 c_cntry, c_city = st.columns([1, 2])
-                to_country_code = c_cntry.selectbox("Recipient Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_to_country")
-                to_city = c_city.text_input("Recipient City", key="w_to_city")
-                
+                c_cntry.selectbox("Recipient Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_to_country")
+                c_city.text_input("Recipient City", key="w_to_city")
                 c_state, c_zip = st.columns([1, 1])
-                to_state = c_state.text_input("State/Province", key="w_to_state")
-                to_zip = c_zip.text_input("Postal Code", key="w_to_zip")
-                to_country = to_country_code
+                c_state.text_input("State/Province", key="w_to_state")
+                c_zip.text_input("Postal Code", key="w_to_zip")
             else:
                 c_city, c_state, c_zip = st.columns([2, 1, 1])
-                to_city = c_city.text_input("City", key="w_to_city")
-                to_state = c_state.text_input("State", key="w_to_state")
-                to_zip = c_zip.text_input("Zip", key="w_to_zip")
-                to_country = "US"
-        else:
-             to_name="Civic Action"; to_street="Capitol"; to_city="DC"; to_state="DC"; to_zip="20000"; to_country="US"
+                c_city.text_input("City", key="w_to_city")
+                c_state.text_input("State", key="w_to_state")
+                c_zip.text_input("Zip", key="w_to_zip")
+                # Implicit US
+                st.session_state.w_to_country = "US"
 
         # --- SAVE BUTTON ---
         st.markdown("<br>", unsafe_allow_html=True)
         btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
+        
         if st.button(btn_label, type="primary"):
-             st.session_state.to_addr = {
-                 "name": to_name, "street": to_street, "city": to_city, 
-                 "state": to_state, "zip": to_zip, "country": to_country
-             }
-             st.session_state.from_addr = {
-                 "name": from_name, "street": from_street, "city": from_city, 
-                 "state": from_state, "zip": from_zip, "country": from_country
-             }
+             # EXPLICIT SAVE (Legacy)
+             _save_addresses_from_widgets(tier, is_intl)
              
-             if tier == "Civic" and civic_engine and from_street and from_zip:
+             if tier == "Civic" and civic_engine:
                  with st.spinner("Searching Congressional Database..."):
-                     search_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
+                     # Re-grab from session to be safe
+                     fs = st.session_state.w_from_street; fc = st.session_state.w_from_city
+                     fst = st.session_state.w_from_state; fz = st.session_state.w_from_zip
+                     search_addr = f"{fs}, {fc}, {fst} {fz}"
                      reps = civic_engine.get_reps(search_addr)
                      st.session_state.civic_targets = reps
                      if not reps: st.error("No reps found. Verify US address.")
                      else: st.rerun()
-             
              st.toast("Addresses Saved!")
 
     st.write("---")
@@ -334,12 +326,57 @@ def render_workspace_page():
                     st.session_state.app_mode = "review"
                     st.rerun()
 
+# --- HELPER: AUTO-SAVE LOGIC ---
+def _save_addresses_from_widgets(tier, is_intl):
+    """Pulls data from widgets (w_ prefix) and saves to main state dicts."""
+    
+    # 1. FROM ADDRESS
+    if tier == "Santa":
+        st.session_state.from_addr = {
+            "name": "Santa Claus", "street": "123 Elf Road", 
+            "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"
+        }
+    else:
+        # Standard/Heirloom/Civic use widgets
+        f_cntry = st.session_state.get("w_from_country", "US")
+        st.session_state.from_addr = {
+            "name": st.session_state.get("w_from_name"),
+            "street": st.session_state.get("w_from_street"),
+            "city": st.session_state.get("w_from_city"),
+            "state": st.session_state.get("w_from_state"),
+            "zip": st.session_state.get("w_from_zip"),
+            "country": f_cntry
+        }
+
+    # 2. TO ADDRESS
+    if tier == "Civic":
+        st.session_state.to_addr = {
+            "name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"
+        }
+    else:
+        t_cntry = st.session_state.get("w_to_country", "US")
+        st.session_state.to_addr = {
+            "name": st.session_state.get("w_to_name"),
+            "street": st.session_state.get("w_to_street"),
+            "city": st.session_state.get("w_to_city"),
+            "state": st.session_state.get("w_to_state"),
+            "zip": st.session_state.get("w_to_zip"),
+            "country": t_cntry
+        }
+
 def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
     if "letter_sent_success" not in st.session_state: st.session_state.letter_sent_success = False
     
     tier = st.session_state.get("locked_tier", "Standard")
-    
+    is_intl = st.session_state.get("is_intl", False)
+
+    # --- THE FIX: AUTO-SAVE CHECK ---
+    # If the user skipped the "Save" button, we run the save logic now.
+    if not st.session_state.get("to_addr") or not st.session_state.get("from_addr"):
+        _save_addresses_from_widgets(tier, is_intl)
+    # --------------------------------
+
     if tier == "Civic" and "civic_targets" in st.session_state and st.session_state.civic_targets:
         st.info(f"🏛️ **This letter will be mailed to {len(st.session_state.civic_targets)} representatives:**")
         for r in st.session_state.civic_targets:
@@ -351,9 +388,20 @@ def render_review_page():
     
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
+            
+            # LAST DITCH VALIDATION
+            to_chk = st.session_state.get("to_addr", {})
+            from_chk = st.session_state.get("from_addr", {})
+            if not to_chk.get("street") and tier != "Civic":
+                st.error("⚠️ Recipient Address missing. Please go back and enter details.")
+                return
+            if not from_chk.get("street") and tier != "Santa":
+                st.error("⚠️ Sender Address missing. Please go back and enter details.")
+                return
+
             with st.spinner("Processing & Mailing..."):
                 u_email = st.session_state.get("user_email")
-                from_data = st.session_state.get("from_addr", {})
+                from_data = st.session_state.from_addr
                 
                 # Signature Prep
                 sig_path = None; sig_db_value = None
@@ -373,7 +421,7 @@ def render_review_page():
                     for rep in st.session_state.civic_targets:
                         t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
                 else:
-                    targets.append(st.session_state.get("to_addr", {}))
+                    targets.append(st.session_state.to_addr)
 
                 # Loop Send
                 for to_data in targets:
@@ -395,6 +443,7 @@ def render_review_page():
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                 tmp.write(pdf_bytes); tmp_path = tmp.name
                             
+                            # MAP TO POSTGRID KEYS
                             pg_to = {
                                 'name': to_data.get('name'), 'address_line1': to_data.get('street'), 
                                 'address_city': to_data.get('city'), 'address_state': to_data.get('state'), 
