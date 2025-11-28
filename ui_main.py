@@ -40,6 +40,21 @@ except: pass
 
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
+# --- COUNTRY LIST ---
+COUNTRIES = {
+    "US": "United States",
+    "CA": "Canada",
+    "GB": "United Kingdom",
+    "FR": "France",
+    "DE": "Germany",
+    "IT": "Italy",
+    "ES": "Spain",
+    "AU": "Australia",
+    "MX": "Mexico",
+    "JP": "Japan"
+    # Add more as needed, PostGrid supports 200+
+}
+
 def reset_app():
     if st.session_state.get("user_email"):
         st.session_state.app_mode = "store"
@@ -117,8 +132,21 @@ def render_store_page():
             }
             sel = st.radio("Select Tier", list(tier_options.keys()), format_func=lambda x: tier_options[x])
             tier_code = sel
+            
+            # Default Prices
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
             price = prices[tier_code]
+
+            # --- INTERNATIONAL PRICING TOGGLE ---
+            if tier_code in ["Standard", "Heirloom"]:
+                is_intl = st.checkbox("Send Internationally? (+$2.00)")
+                if is_intl:
+                    price += 2.00
+                    st.session_state.is_intl = True
+                else:
+                    st.session_state.is_intl = False
+            else:
+                st.session_state.is_intl = False
 
     with c2:
         with st.container(border=True):
@@ -153,7 +181,8 @@ def render_store_page():
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
-    render_hero("Compose Letter", f"{tier} Edition")
+    is_intl = st.session_state.get("is_intl", False)
+    render_hero("Compose Letter", f"{tier} Edition {'(Intl)' if is_intl else ''}")
     
     u_email = st.session_state.get("user_email")
     user_addr = {}
@@ -166,6 +195,7 @@ def render_workspace_page():
         
         # --- CIVIC LOGIC ---
         if tier == "Civic":
+            # (Civic is strictly US only)
             c1, c2 = st.columns(2)
             with c2:
                 st.markdown("**Your Address (Required for Lookup)**")
@@ -176,19 +206,20 @@ def render_workspace_page():
                 from_city = c_a.text_input("City", value=def_c, key="w_from_city")
                 from_state = c_b.text_input("State", value=def_st, key="w_from_state")
                 from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
+                from_country = "US"
             
             with c1:
                 st.markdown("**To: Your Representatives**")
-                # Show existing targets if we have them
                 if "civic_targets" in st.session_state and st.session_state.civic_targets:
-                    st.success(f"✅ Found {len(st.session_state.civic_targets)} Reps:")
+                    st.success(f"✅ Found {len(st.session_state.civic_targets)} Reps")
                     for r in st.session_state.civic_targets:
                         st.info(f"🏛️ **{r['title']}** {r['name']}")
                 else:
-                    st.info("Enter your address and click 'Save & Find Reps' to auto-discover your Congress people.")
+                    st.info("Enter your address to find reps.")
                 
-                to_name="Civic Action"; to_street="Capitol"; to_city="DC"; to_state="DC"; to_zip="20000"
+                to_name="Civic Action"; to_street="Capitol"; to_city="DC"; to_state="DC"; to_zip="20000"; to_country="US"
 
+        # --- SANTA LOGIC ---
         elif tier == "Santa":
             c1, c2 = st.columns(2)
             with c1:
@@ -199,44 +230,70 @@ def render_workspace_page():
                 to_city = c_x.text_input("City", key="w_to_city")
                 to_state = c_y.text_input("State", key="w_to_state")
                 to_zip = c_z.text_input("Zip", key="w_to_zip")
+                to_country = "US"
             with c2:
                 st.markdown("**From**")
                 st.success("🎅 Locked: North Pole")
-                from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"
+                from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"; from_country="NP"
+        
+        # --- STANDARD / HEIRLOOM (INTERNATIONAL ENABLED) ---
         else:
             c1, c2 = st.columns(2)
             with c1:
-                st.markdown("**To**")
+                st.markdown("**To (Recipient)**")
                 to_name = st.text_input("Name", key="w_to_name")
                 to_street = st.text_input("Street", key="w_to_street")
-                c_x, c_y, c_z = st.columns(3)
-                to_city = c_x.text_input("City", key="w_to_city")
-                to_state = c_y.text_input("State", key="w_to_state")
-                to_zip = c_z.text_input("Zip", key="w_to_zip")
+                
+                if is_intl:
+                    # International Layout
+                    c_cntry, c_city = st.columns([1, 2])
+                    to_country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
+                    to_city = c_city.text_input("City", key="w_to_city")
+                    
+                    c_state, c_zip = st.columns(2)
+                    to_state = c_state.text_input("State/Province", key="w_to_state")
+                    to_zip = c_zip.text_input("Postal Code", key="w_to_zip")
+                    to_country = to_country_code
+                else:
+                    # US Layout
+                    c_x, c_y, c_z = st.columns(3)
+                    to_city = c_x.text_input("City", key="w_to_city")
+                    to_state = c_y.text_input("State", key="w_to_state")
+                    to_zip = c_z.text_input("Zip", key="w_to_zip")
+                    to_country = "US"
+
             with c2:
-                st.markdown("**From**")
+                st.markdown("**From (Sender)**")
                 def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
+                
                 from_name = st.text_input("Name", value=def_n, key="w_from_name")
                 from_street = st.text_input("Street", value=def_s, key="w_from_street")
                 c_a, c_b, c_c = st.columns(3)
                 from_city = c_a.text_input("City", value=def_c, key="w_from_city")
                 from_state = c_b.text_input("State", value=def_st, key="w_from_state")
                 from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
+                from_country = "US" # Sender always US for now unless specified
 
-        # --- SAVE & LOOKUP BUTTON ---
+        # --- SAVE BUTTON ---
         btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
         if st.button(btn_label):
-             st.session_state.to_addr = {"name": to_name, "street": to_street, "city": to_city, "state": to_state, "zip": to_zip}
-             st.session_state.from_addr = {"name": from_name, "street": from_street, "city": from_city, "state": from_state, "zip": from_zip}
+             # Save Country to Session State
+             st.session_state.to_addr = {
+                 "name": to_name, "street": to_street, "city": to_city, 
+                 "state": to_state, "zip": to_zip, "country": to_country
+             }
+             st.session_state.from_addr = {
+                 "name": from_name, "street": from_street, "city": from_city, 
+                 "state": from_state, "zip": from_zip, "country": from_country
+             }
              
-             # TRIGGER CIVIC LOOKUP HERE
              if tier == "Civic" and civic_engine and from_street and from_zip:
                  with st.spinner("Searching Congressional Database..."):
                      search_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
                      reps = civic_engine.get_reps(search_addr)
                      st.session_state.civic_targets = reps
                      if not reps: st.error("No reps found. Please verify address is in the US.")
-                     else: st.rerun() # Rerun to show the green box above
+                     else: st.rerun()
              
              st.toast("Addresses Saved!")
 
@@ -269,7 +326,6 @@ def render_review_page():
     
     tier = st.session_state.get("locked_tier", "Standard")
     
-    # --- VISIBLE CIVIC CONFIRMATION ---
     if tier == "Civic" and "civic_targets" in st.session_state and st.session_state.civic_targets:
         st.info(f"🏛️ **This letter will be mailed to {len(st.session_state.civic_targets)} representatives:**")
         for r in st.session_state.civic_targets:
@@ -285,7 +341,6 @@ def render_review_page():
                 u_email = st.session_state.get("user_email")
                 from_data = st.session_state.get("from_addr", {})
                 
-                # Signature
                 sig_path = None; sig_db_value = None
                 is_santa = (tier == "Santa")
                 if not is_santa and st.session_state.get("sig_data") is not None:
@@ -297,17 +352,22 @@ def render_review_page():
                         buf = io.BytesIO(); img.save(buf, format="PNG"); sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
                     except: pass
 
-                # Determine Targets
                 targets = []
                 if tier == "Civic" and "civic_targets" in st.session_state:
                     for rep in st.session_state.civic_targets:
-                        targets.append(rep['address_obj']) 
+                        # Force US for civic targets
+                        t = rep['address_obj']
+                        t['country'] = 'US'
+                        targets.append(t) 
                 else:
                     targets.append(st.session_state.get("to_addr", {}))
 
-                # Loop Send
                 for to_data in targets:
-                    to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
+                    # Format address string including country if International
+                    cntry_line = f"\n{COUNTRIES.get(to_data.get('country', 'US'), 'USA')}" if to_data.get('country') != 'US' else ""
+                    
+                    to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}{cntry_line}"
+                    
                     if tier == "Santa": from_str = "Santa Claus"
                     else: from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
 
@@ -319,17 +379,22 @@ def render_review_page():
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                 tmp.write(pdf_bytes); tmp_path = tmp.name
                             
+                            # --- POSTGRID PAYLOAD (Updated for Country) ---
                             pg_to = {
                                 'name': to_data.get('name'), 
                                 'address_line1': to_data.get('street'), 
                                 'address_city': to_data.get('city'),
                                 'address_state': to_data.get('state'), 
-                                'address_zip': to_data.get('zip')
+                                'address_zip': to_data.get('zip'),
+                                'country_code': to_data.get('country', 'US') # Pass the ISO code!
                             }
                             pg_from = {
                                 'name': from_data.get('name'), 'address_line1': from_data.get('street'), 
-                                'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 'address_zip': from_data.get('zip')
+                                'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 
+                                'address_zip': from_data.get('zip'),
+                                'country_code': 'US' # Sender is always US for now
                             }
+                            
                             print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
                             resp = mailer.send_letter(tmp_path, pg_to, pg_from)
                             os.remove(tmp_path)
@@ -339,6 +404,7 @@ def render_review_page():
                             final_status = "Pending Admin"
                             if tier == "Standard" or tier == "Civic":
                                 final_status = "Completed" if postgrid_success else "Pending Admin"
+                            
                             database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
 
                 if sig_path and os.path.exists(sig_path): os.remove(sig_path)

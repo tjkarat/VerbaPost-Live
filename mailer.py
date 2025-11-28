@@ -1,24 +1,14 @@
 import streamlit as st
 import requests
 import resend
-import secrets_manager # <--- New Import
+import secrets_manager
 
+# --- CONFIGURATION ---
 def get_postgrid_key():
-    # Matches [postgrid] api_key
     return secrets_manager.get_secret("postgrid.api_key")
 
 def get_resend_key():
-    # MATCHES YOUR SECRETS: [email] password
     return secrets_manager.get_secret("email.password")
-
-# --- CONFIG ---
-def get_postgrid_key():
-    # Looks for postgrid.api_key OR POSTGRID_API_KEY
-    return secrets_manager.get_secret("postgrid.api_key")
-
-def get_resend_key():
-    # Looks for resend.api_key OR RESEND_API_KEY
-    return secrets_manager.get_secret("resend.api_key")
 
 # --- FUNCTION 1: SEND PHYSICAL MAIL (POSTGRID) ---
 def send_letter(pdf_path, to_address, from_address):
@@ -30,7 +20,7 @@ def send_letter(pdf_path, to_address, from_address):
         headers = {"x-api-key": api_key}
         files = {'pdf': open(pdf_path, 'rb')}
         
-        # Map fields
+        # Map fields with International Support
         data = {
             'description': f"VerbaPost to {to_address.get('name')}",
             'to[firstName]': to_address.get('name'), 
@@ -38,16 +28,17 @@ def send_letter(pdf_path, to_address, from_address):
             'to[city]': to_address.get('address_city'),
             'to[provinceOrState]': to_address.get('address_state'),
             'to[postalOrZip]': to_address.get('address_zip'),
-            'to[countryCode]': 'US',
+            'to[countryCode]': to_address.get('country_code', 'US'), 
             'from[firstName]': from_address.get('name'),
             'from[addressLine1]': from_address.get('address_line1'),
             'from[city]': from_address.get('address_city'),
             'from[provinceOrState]': from_address.get('address_state'),
             'from[postalOrZip]': from_address.get('address_zip'),
-            'from[countryCode]': 'US',
-            'color': 'false', 'express': 'false', 'addressPlacement': 'top_first_page'
+            'from[countryCode]': 'US', # Sender is US
+            'color': 'false', 
+            'express': 'false', 
+            'addressPlacement': 'top_first_page'
         }
-        # In mailer.py, inside send_letter function:
 
         response = requests.post(url, headers=headers, data=data, files=files)
         files['pdf'].close()
@@ -55,13 +46,7 @@ def send_letter(pdf_path, to_address, from_address):
         if response.status_code in [200, 201]:
             # NEW: Log this so you can see it in Cloud Run Logs
             print(f"✅ PostGrid SUCCESS. ID: {response.json().get('id')}")
-            print(f"   Payload sent to: {to_address}")
             return response.json()
-        else:
-            print(f"❌ PostGrid Error: {response.text}")
-            return None
-
-        if response.status_code in [200, 201]: return response.json()
         else:
             print(f"❌ PostGrid Error: {response.text}")
             return None
@@ -71,6 +56,9 @@ def send_letter(pdf_path, to_address, from_address):
 
 # --- FUNCTION 2: SEND ADMIN ALERT (HEIRLOOM) ---
 def send_heirloom_notification(user_email, letter_text):
+    """
+    Sends email alert using the SAFE 'onboarding' address to ensure delivery.
+    """
     key = get_resend_key()
     if not key: 
         print("❌ Resend Key Missing")
@@ -92,6 +80,8 @@ def send_heirloom_notification(user_email, letter_text):
     """
 
     try:
+        # CRITICAL FIX: Use 'onboarding@resend.dev' to guarantee delivery 
+        # until your custom domain is 100% DNS verified.
         r = resend.Emails.send({
             "from": "VerbaPost Admin <onboarding@resend.dev>",
             "to": [admin_email],
@@ -103,3 +93,31 @@ def send_heirloom_notification(user_email, letter_text):
     except Exception as e:
         print(f"❌ Admin Email Failed: {e}")
         return False
+
+# --- FUNCTION 3: SHIPPING CONFIRMATION ---
+def send_shipping_confirmation(user_email, recipient_info):
+    key = get_resend_key()
+    if not key: return False, "Missing Key"
+    resend.api_key = key
+    
+    r_name = recipient_info.get('recipient_name') or "Recipient"
+    
+    html = f"""
+    <div style="font-family: sans-serif; padding: 20px; color: #333;">
+        <h2 style="color: #2a5298;">🚀 Your Letter is on the way!</h2>
+        <p>Your letter to <strong>{r_name}</strong> has been mailed.</p>
+        <p>Thank you for using VerbaPost.</p>
+    </div>
+    """
+
+    try:
+        # Use onboarding address for safety
+        r = resend.Emails.send({
+            "from": "VerbaPost Support <onboarding@resend.dev>",
+            "to": user_email,
+            "subject": "Your letter has been mailed!",
+            "html": html
+        })
+        return True, f"ID: {r.get('id')}"
+    except Exception as e:
+        return False, str(e)
