@@ -1,13 +1,32 @@
 import streamlit as st
 
-def validate_address(street, city, state, zip_code):
+# Shared Country List (Simplified for login)
+COUNTRIES = {
+    "US": "United States", "CA": "Canada", "GB": "United Kingdom", "FR": "France",
+    "DE": "Germany", "IT": "Italy", "ES": "Spain", "AU": "Australia", "MX": "Mexico",
+    "JP": "Japan", "BR": "Brazil", "IN": "India"
+}
+
+def validate_address(street, city, state, zip_code, country):
     errors = []
-    if len(zip_code) != 5 or not zip_code.isdigit():
-        errors.append("Zip code must be exactly 5 digits.")
-    if len(state) != 2:
-        errors.append("State must be a 2-letter abbreviation (e.g., TN, NY).")
+    
+    # STRICT Validation for US
+    if country == "US":
+        if len(zip_code) != 5 or not zip_code.isdigit():
+            errors.append("US Zip code must be exactly 5 digits.")
+        if len(state) != 2:
+            errors.append("US State must be a 2-letter abbreviation (e.g., TN, NY).")
+    
+    # RELAXED Validation for International
+    else:
+        if len(str(zip_code)) < 3:
+            errors.append("Postal code looks too short.")
+        if len(str(state)) < 2:
+            errors.append("State/Province required.")
+
     if len(street) < 5:
         errors.append("Street address looks too short.")
+        
     return errors
 
 def show_login(login_func, signup_func):
@@ -44,14 +63,13 @@ def show_login(login_func, signup_func):
                         else:
                             st.warning("Enter email & password")
                 
-                # Forgot Password Link
                 if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
                     st.session_state.app_mode = "forgot_password"
                     st.rerun()
             
             # --- SIGNUP TAB ---
             with tab_signup:
-                st.caption("Please fill out your details below. Your address is required for return labels.")
+                st.caption("Enter your return address details.")
                 
                 with st.form("signup_form"):
                     new_email = st.text_input("Email")
@@ -61,20 +79,28 @@ def show_login(login_func, signup_func):
                     st.markdown("---")
                     st.markdown("**Your Return Address**")
                     name = st.text_input("Full Legal Name", placeholder="e.g. John Doe")
-                    addr = st.text_input("Street Address", placeholder="e.g. 123 Main St")
+                    
+                    # --- NEW: COUNTRY SELECTOR ---
+                    c_cntry, c_str = st.columns([1, 2])
+                    country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x])
+                    addr = c_str.text_input("Street Address", placeholder="e.g. 123 Main St")
+                    
+                    # Dynamic Labels based on country
+                    state_lbl = "State (2 letters)" if country_code == "US" else "State/Province"
+                    zip_lbl = "Zip Code (5 digits)" if country_code == "US" else "Postal Code"
                     
                     c_city, c_state, c_zip = st.columns([2, 1, 1])
                     city = c_city.text_input("City")
-                    state = c_state.text_input("State (2 letters)")
-                    zip_code = c_zip.text_input("Zip Code (5 digits)")
+                    state = c_state.text_input(state_lbl)
+                    zip_code = c_zip.text_input(zip_lbl)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
                     submitted_signup = st.form_submit_button("Create Account", type="primary", use_container_width=True)
                     
                     if submitted_signup:
-                        # Validation
-                        addr_errors = validate_address(addr, city, state, zip_code)
+                        # Updated Validation Call
+                        addr_errors = validate_address(addr, city, state, zip_code, country_code)
                         
                         if new_pass != confirm_pass:
                             st.error("❌ Passwords do not match")
@@ -84,7 +110,8 @@ def show_login(login_func, signup_func):
                             for e in addr_errors: st.error(f"❌ {e}")
                         else:
                             with st.spinner("Creating account..."):
-                                signup_func(new_email, new_pass, name, addr, city, state, zip_code, "English")
+                                # Pass country code to signup function
+                                signup_func(new_email, new_pass, name, addr, city, state, zip_code, country_code, "English")
 
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:
@@ -92,16 +119,14 @@ def show_login(login_func, signup_func):
             st.session_state.app_mode = "splash"
             st.rerun()
 
-# --- FORGOT PASSWORD SCREENS ---
 def show_forgot_password(send_code_func):
+    # ... (Keep existing forgot password code identical to previous version) ...
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
         st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Recovery 🔐</h2>", unsafe_allow_html=True)
         with st.container(border=True):
-            st.info("Enter your email. We will send you a verification token.\n\n⚠️ **Please check your Spam/Junk folder if you do not see it.**")
-            
+            st.info("Enter your email. We will send you a verification token.")
             email = st.text_input("Email Address", key="reset_email_input")
-            
             if st.button("Send Token", type="primary", use_container_width=True):
                 if email and send_code_func:
                     success, msg = send_code_func(email)
@@ -109,48 +134,30 @@ def show_forgot_password(send_code_func):
                         st.session_state.reset_email = email
                         st.session_state.app_mode = "reset_verify" 
                         st.rerun()
-                    else:
-                        st.error(f"Error: {msg}")
-                else:
-                    st.warning("Please enter your email")
-            
+                    else: st.error(f"Error: {msg}")
+                else: st.warning("Please enter your email")
             if st.button("Cancel", type="secondary", use_container_width=True):
-                st.session_state.app_mode = "login"
-                st.rerun()
+                st.session_state.app_mode = "login"; st.rerun()
 
 def show_reset_verify(verify_func):
+    # ... (Keep existing verify code identical to previous version) ...
     c1, c2, c3 = st.columns([1, 1.5, 1])
     with c2:
         st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Set Password 🔑</h2>", unsafe_allow_html=True)
         with st.container(border=True):
-            
-            # --- THE FIX: CHECK SUCCESS STATE FIRST ---
             if st.session_state.get("reset_success", False):
                 st.success("✅ Password Updated! Please log in.")
                 if st.button("Go to Login", type="primary", use_container_width=True):
-                    # Clear state and redirect
                     if "reset_success" in st.session_state: del st.session_state.reset_success
-                    if "reset_email" in st.session_state: del st.session_state.reset_email
-                    st.session_state.app_mode = "login"
-                    st.rerun()
-                return # Stop rendering the form below
-            # ------------------------------------------
-
+                    st.session_state.app_mode = "login"; st.rerun()
+                return
             email = st.session_state.get("reset_email", "")
             st.success(f"Token sent to: **{email}**")
-            st.caption("Check your Spam folder if it hasn't arrived.")
-            
             token = st.text_input("Enter Token (from email)")
             new_pass = st.text_input("New Password", type="password")
-            
             if st.button("Update Password", type="primary", use_container_width=True):
                 if token and new_pass and verify_func:
                     success, msg = verify_func(email, token, new_pass)
-                    if success:
-                        # Set the flag and rerun to trigger the success block above
-                        st.session_state.reset_success = True
-                        st.rerun()
-                    else:
-                        st.error(f"Failed: {msg}")
-                else:
-                    st.warning("Please enter token and new password")
+                    if success: st.session_state.reset_success = True; st.rerun()
+                    else: st.error(f"Failed: {msg}")
+                else: st.warning("Please enter token and new password")

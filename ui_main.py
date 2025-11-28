@@ -42,18 +42,9 @@ YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
 # --- INTERNATIONAL CONFIG ---
 COUNTRIES = {
-    "US": "United States",
-    "CA": "Canada",
-    "GB": "United Kingdom",
-    "FR": "France",
-    "DE": "Germany",
-    "IT": "Italy",
-    "ES": "Spain",
-    "AU": "Australia",
-    "MX": "Mexico",
-    "JP": "Japan",
-    "BR": "Brazil",
-    "IN": "India"
+    "US": "United States", "CA": "Canada", "GB": "United Kingdom", "FR": "France",
+    "DE": "Germany", "IT": "Italy", "ES": "Spain", "AU": "Australia", "MX": "Mexico",
+    "JP": "Japan", "BR": "Brazil", "IN": "India"
 }
 
 def reset_app():
@@ -99,12 +90,10 @@ def render_store_page():
     # --- ROBUST ADMIN CHECK ---
     is_admin = False
     try:
-        # Check GCP Secrets
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email")
             if admin_target and str(u_email).lower() == str(admin_target).lower():
                 is_admin = True
-        # Check Local Secrets
         if not is_admin and "admin" in st.secrets:
             admin_target = st.secrets["admin"].get("email")
             if admin_target and str(u_email).lower() == str(admin_target).lower():
@@ -129,14 +118,13 @@ def render_store_page():
                 "Santa": "🎅 Santa ($9.99)"
             }
             
-            # Auto-Selection from Marketing Link
             pre_selected_index = 0
             if "target_marketing_tier" in st.session_state:
                 target = st.session_state.target_marketing_tier
                 if target in tier_options_list:
                     pre_selected_index = tier_options_list.index(target)
             
-            # --- KEY FIX: Added unique key to prevent duplicate ID error ---
+            # Unique Key prevents Duplicate ID Error
             sel = st.radio(
                 "Select Tier", 
                 tier_options_list, 
@@ -146,14 +134,12 @@ def render_store_page():
             )
             tier_code = sel
             
-            # Pricing
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
             price = prices[tier_code]
 
             # --- INTERNATIONAL TOGGLE ---
             is_intl = False
             if tier_code in ["Standard", "Heirloom"]:
-                # Added key to prevent UI loss
                 is_intl = st.checkbox("Send Internationally? (+$2.00)", key="intl_toggle_check")
                 if is_intl:
                     price += 2.00
@@ -189,7 +175,6 @@ def render_store_page():
                     
                     # --- STRIPE LINK BUILDER ---
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
-                    # Pass International flag to return URL
                     if is_intl: link += "&intl=1"
                     
                     if payment_engine:
@@ -199,102 +184,65 @@ def render_store_page():
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
-    # Retrieve persisted International status
     is_intl = st.session_state.get("is_intl", False)
     
     title_suffix = " (International)" if is_intl else ""
     render_hero("Compose Letter", f"{tier} Edition{title_suffix}")
     
+    # --- FETCH USER PROFILE FOR DEFAULTS ---
     u_email = st.session_state.get("user_email")
     user_addr = {}
     if database and u_email:
         p = database.get_user_profile(u_email)
-        if p: user_addr = {"name": p.full_name, "street": p.address_line1, "city": p.address_city, "state": p.address_state, "zip": p.address_zip}
+        if p: 
+            user_addr = {
+                "name": p.full_name, "street": p.address_line1, 
+                "city": p.address_city, "state": p.address_state, 
+                "zip": p.address_zip,
+                "country": getattr(p, "country", "US") 
+            }
 
     with st.container(border=True):
         st.subheader("📍 Addressing")
         
-        # --- CIVIC LOGIC (US Only) ---
-        if tier == "Civic":
-            c1, c2 = st.columns(2)
-            with c2:
-                st.markdown("**Your Address (From)**")
-                def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
-                from_name = st.text_input("Name", value=def_n, key="w_from_name")
-                from_street = st.text_input("Street", value=def_s, key="w_from_street")
-                c_a, c_b, c_c = st.columns(3)
-                from_city = c_a.text_input("City", value=def_c, key="w_from_city")
-                from_state = c_b.text_input("State", value=def_st, key="w_from_state")
-                from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
-                from_country = "US"
-            
-            with c1:
-                st.markdown("**To: Your Representatives**")
-                if "civic_targets" in st.session_state and st.session_state.civic_targets:
-                    st.success(f"✅ Found {len(st.session_state.civic_targets)} Reps")
-                    for r in st.session_state.civic_targets:
-                        st.info(f"🏛️ **{r['title']}** {r['name']}")
-                else:
-                    st.info("Enter your address on the right to find reps.")
-                
-                to_name="Civic Action"; to_street="Capitol"; to_city="DC"; to_state="DC"; to_zip="20000"; to_country="US"
-
-        # --- SANTA LOGIC (US Only usually) ---
-        elif tier == "Santa":
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**To (Child)**")
-                to_name = st.text_input("Child's Name", key="w_to_name")
-                to_street = st.text_input("Street", key="w_to_street")
-                c_x, c_y, c_z = st.columns(3)
-                to_city = c_x.text_input("City", key="w_to_city")
-                to_state = c_y.text_input("State", key="w_to_state")
-                to_zip = c_z.text_input("Zip", key="w_to_zip")
-                to_country = "US"
-            with c2:
-                st.markdown("**From**")
-                st.success("🎅 Locked: North Pole")
-                from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"; from_country="NP"
+        # --- 1. SENDER SECTION ---
+        # Defaults
+        def_n=user_addr.get("name",""); def_s=user_addr.get("street","")
+        def_c=user_addr.get("city",""); def_st=user_addr.get("state","")
+        def_z=user_addr.get("zip",""); def_cntry=user_addr.get("country","US")
         
-        # --- STANDARD / HEIRLOOM (Supports Intl) ---
+        # SANTA EXCEPTION
+        if tier == "Santa":
+            st.info("🎅 **From:** Santa Claus, North Pole (Locked)")
+            from_name="Santa Claus"; from_street="123 Elf Road"; from_city="North Pole"; from_state="NP"; from_zip="88888"; from_country="NP"
+        
+        # CIVIC EXCEPTION
+        elif tier == "Civic":
+             st.markdown("**(From) Your Voting Address**")
+             from_name = st.text_input("Name", value=def_n, key="w_from_name")
+             from_street = st.text_input("Street", value=def_s, key="w_from_street")
+             c_a, c_b, c_c = st.columns([2, 1, 1])
+             from_city = c_a.text_input("City", value=def_c, key="w_from_city")
+             from_state = c_b.text_input("State", value=def_st, key="w_from_state")
+             from_zip = c_c.text_input("Zip", value=def_z, key="w_from_zip")
+             from_country = "US"
+             st.caption("We use this to find your representatives.")
+
+        # STANDARD/HEIRLOOM (Expandable Logic)
         else:
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("**To (Recipient)**")
-                to_name = st.text_input("Name", key="w_to_name")
-                to_street = st.text_input("Street", key="w_to_street")
+            with st.expander(f"✉️ From: {def_n} (Click to Edit)", expanded=False):
+                from_name = st.text_input("Sender Name", value=def_n, key="w_from_name")
+                from_street = st.text_input("Sender Street", value=def_s, key="w_from_street")
                 
-                if is_intl:
-                    # INTERNATIONAL RECIPIENT LAYOUT
-                    c_cntry, c_city = st.columns([1, 2])
-                    to_country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_to_country")
-                    to_city = c_city.text_input("City", key="w_to_city")
-                    
-                    c_state, c_zip = st.columns(2)
-                    to_state = c_state.text_input("State/Prov", key="w_to_state")
-                    to_zip = c_zip.text_input("Postal Code", key="w_to_zip")
-                    to_country = to_country_code
-                else:
-                    # DOMESTIC RECIPIENT LAYOUT
-                    c_x, c_y, c_z = st.columns(3)
-                    to_city = c_x.text_input("City", key="w_to_city")
-                    to_state = c_y.text_input("State", key="w_to_state")
-                    to_zip = c_z.text_input("Zip", key="w_to_zip")
-                    to_country = "US"
-
-            with c2:
-                st.markdown("**From (Sender)**")
-                def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
-                from_name = st.text_input("Name", value=def_n, key="w_from_name")
-                from_street = st.text_input("Street", value=def_s, key="w_from_street")
+                # Auto-select user's country
+                try: c_idx = list(COUNTRIES.keys()).index(def_cntry)
+                except: c_idx = 0
                 
-                # --- SENDER LAYOUT (Allows Intl Sender) ---
                 c_scntry, c_scity = st.columns([1, 2])
-                from_country_code = c_scntry.selectbox("From Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_from_country")
-                from_city = c_scity.text_input("City", value=def_c, key="w_from_city")
+                from_country_code = c_scntry.selectbox("From Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=c_idx, key="w_from_country")
+                from_city = c_scity.text_input("Sender City", value=def_c, key="w_from_city")
 
-                c_sstate, c_szip = st.columns(2)
-                # Dynamic labels
+                c_sstate, c_szip = st.columns([1, 1])
                 s_lbl_st = "State" if from_country_code == "US" else "State/Prov"
                 s_lbl_zip = "Zip" if from_country_code == "US" else "Postal Code"
                 
@@ -302,9 +250,36 @@ def render_workspace_page():
                 from_zip = c_szip.text_input(s_lbl_zip, value=def_z, key="w_from_zip")
                 from_country = from_country_code
 
+        # --- 2. RECIPIENT SECTION ---
+        if tier != "Civic":
+            st.markdown("---")
+            st.markdown("**📮 To (Recipient)**")
+            
+            to_name = st.text_input("Recipient Name", key="w_to_name")
+            to_street = st.text_input("Recipient Street", key="w_to_street")
+            
+            if is_intl:
+                c_cntry, c_city = st.columns([1, 2])
+                to_country_code = c_cntry.selectbox("Recipient Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_to_country")
+                to_city = c_city.text_input("Recipient City", key="w_to_city")
+                
+                c_state, c_zip = st.columns([1, 1])
+                to_state = c_state.text_input("State/Province", key="w_to_state")
+                to_zip = c_zip.text_input("Postal Code", key="w_to_zip")
+                to_country = to_country_code
+            else:
+                c_city, c_state, c_zip = st.columns([2, 1, 1])
+                to_city = c_city.text_input("City", key="w_to_city")
+                to_state = c_state.text_input("State", key="w_to_state")
+                to_zip = c_zip.text_input("Zip", key="w_to_zip")
+                to_country = "US"
+        else:
+             to_name="Civic Action"; to_street="Capitol"; to_city="DC"; to_state="DC"; to_zip="20000"; to_country="US"
+
         # --- SAVE BUTTON ---
+        st.markdown("<br>", unsafe_allow_html=True)
         btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
-        if st.button(btn_label):
+        if st.button(btn_label, type="primary"):
              st.session_state.to_addr = {
                  "name": to_name, "street": to_street, "city": to_city, 
                  "state": to_state, "zip": to_zip, "country": to_country
@@ -314,7 +289,6 @@ def render_workspace_page():
                  "state": from_state, "zip": from_zip, "country": from_country
              }
              
-             # Trigger Civic Lookup
              if tier == "Civic" and civic_engine and from_street and from_zip:
                  with st.spinner("Searching Congressional Database..."):
                      search_addr = f"{from_street}, {from_city}, {from_state} {from_zip}"
@@ -392,7 +366,6 @@ def render_review_page():
 
                 # Loop Send
                 for to_data in targets:
-                    # PDF Generation Strings
                     t_country = to_data.get('country', 'US')
                     cntry_line = f"\n{COUNTRIES.get(t_country, 'USA')}" if t_country != 'US' else ""
                     to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}{cntry_line}"
@@ -454,7 +427,12 @@ def show_main_app():
         st.rerun()
 
     if mode == "splash": import ui_splash; ui_splash.show_splash()
-    elif mode == "login": import ui_login; import auth_engine; ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,c,s,z,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,l))
+    elif mode == "login": 
+        import ui_login; import auth_engine
+        ui_login.show_login(
+            lambda e,p: _handle_login(auth_engine, e,p), 
+            lambda e,p,n,a,c,s,z,cntry,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,cntry,l)
+        )
     elif mode == "forgot_password": import ui_login; import auth_engine; ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
     elif mode == "reset_verify": import ui_login; import auth_engine; ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
     elif mode == "store": render_store_page()
@@ -475,7 +453,7 @@ def _handle_login(auth, email, password):
     if res and res.user: st.session_state.user = res.user; st.session_state.user_email = res.user.email; st.session_state.app_mode = "store"; st.rerun()
     else: st.session_state.auth_error = err
 
-def _handle_signup(auth, email, password, name, addr, city, state, zip_c, lang):
-    res, err = auth.sign_up(email, password, name, addr, city, state, zip_c, lang)
+def _handle_signup(auth, email, password, name, addr, city, state, zip_c, country, lang):
+    res, err = auth.sign_up(email, password, name, addr, city, state, zip_c, country, lang)
     if res and res.user: st.success("Account Created! Please log in."); st.session_state.app_mode = "login"
     else: st.session_state.auth_error = err

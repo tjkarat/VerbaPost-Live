@@ -3,7 +3,7 @@ from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import json
-import secrets_manager # <--- The new import
+import secrets_manager
 
 # --- GLOBAL SETUP ---
 Base = declarative_base()
@@ -17,6 +17,7 @@ class UserProfile(Base):
     address_city = Column(String)
     address_state = Column(String)
     address_zip = Column(String)
+    country = Column(String, default="US") # <--- NEW COLUMN
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LetterDraft(Base):
@@ -35,14 +36,10 @@ class LetterDraft(Base):
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
-    # UPDATED: Use secrets_manager
     db_url = secrets_manager.get_secret("DATABASE_URL")
-    
     if db_url:
-        # Fix SQLAlchemy bug with postgres:// -> postgresql://
         db_url = db_url.replace("postgres://", "postgresql://")
     else:
-        # Fallback for local testing if no secret set
         db_url = "sqlite:///local_dev.db"
         
     try:
@@ -91,7 +88,7 @@ def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=
         db.rollback(); return None
     finally: db.close()
 
-def update_user_profile(email, name, street, city, state, zip_code):
+def update_user_profile(email, name, street, city, state, zip_code, country="US"):
     db = get_session()
     if not db: return
     try:
@@ -100,6 +97,7 @@ def update_user_profile(email, name, street, city, state, zip_code):
             user = UserProfile(email=email); db.add(user)
         user.full_name = name; user.address_line1 = street; user.address_city = city
         user.address_state = state; user.address_zip = zip_code
+        user.country = country
         db.commit()
     except: pass
     finally: db.close()
