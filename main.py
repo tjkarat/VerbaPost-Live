@@ -5,7 +5,6 @@ st.set_page_config(
     page_title="VerbaPost | Send Real Mail from Audio",
     page_icon="📮",
     layout="centered",
-    # FIX: "collapsed" ensures the mobile view isn't blocked on load
     initial_sidebar_state="collapsed" 
 )
 
@@ -32,14 +31,12 @@ def inject_global_css():
             color: white !important;
         }
         
-        /* --- BUTTON FIXES --- */
-        
-        /* 1. Default Button Text (Blue) */
+        /* BUTTON FIXES */
         button p {
             color: #2a5298 !important;
         }
         
-        /* 2. Primary Buttons (Gradient + White Text) */
+        /* Primary Buttons (Gradient) */
         button[kind="primary"] {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
             border: none !important;
@@ -48,17 +45,15 @@ def inject_global_css():
             color: white !important;
         }
 
-        /* 3. LOGIN/FORM BUTTONS (SUPER NUCLEAR FIX) */
-        /* Target every layer of the button to force White */
+        /* LOGIN/FORM BUTTONS */
         [data-testid="stFormSubmitButton"] button,
         [data-testid="stFormSubmitButton"] button > div,
         [data-testid="stFormSubmitButton"] button > div > p {
             color: #FFFFFF !important;
-            -webkit-text-fill-color: #FFFFFF !important; /* Critical for Chrome/Safari */
+            -webkit-text-fill-color: #FFFFFF !important;
             font-weight: 600 !important;
         }
         
-        /* Ensure the background stays Blue */
         [data-testid="stFormSubmitButton"] button {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
             border: none !important;
@@ -94,6 +89,31 @@ if __name__ == "__main__":
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
     
+    # --- DEEP LINK & STRIPE RETURN LOGIC ---
+    try:
+        q_params = st.query_params
+        
+        # 1. Marketing Links (e.g. ?tier=Santa)
+        if "tier" in q_params and "session_id" not in q_params:
+            st.session_state.target_marketing_tier = q_params["tier"]
+
+        # 2. Stripe Return (e.g. ?session_id=...&intl=1)
+        if "session_id" in q_params:
+            st.session_state.app_mode = "workspace"
+            st.session_state.payment_complete = True
+            
+            # RECOVER INTERNATIONAL STATUS
+            if "intl" in q_params:
+                st.session_state.is_intl = True
+            
+            # Clear params to prevent reload loops
+            st.query_params.clear()
+            st.rerun()
+            
+    except Exception as e:
+        print(f"Routing Error: {e}")
+
+    # --- LAUNCH UI ---
     try:
         import ui_main
         ui_main.show_main_app()

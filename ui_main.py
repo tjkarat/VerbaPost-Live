@@ -54,7 +54,6 @@ COUNTRIES = {
     "JP": "Japan",
     "BR": "Brazil",
     "IN": "India"
-    # Add more supported by PostGrid as needed
 }
 
 def reset_app():
@@ -70,7 +69,6 @@ def reset_app():
     st.session_state.to_addr = {}
     st.session_state.from_addr = {}
     st.session_state.civic_targets = []
-    # Default to Domestic
     st.session_state.is_intl = False
     
     if "letter_sent_success" in st.session_state: del st.session_state.letter_sent_success
@@ -91,46 +89,8 @@ def show_santa_animation():
 
 def render_legal_page():
     render_hero("Legal Center", "Terms & Privacy")
-    with st.container(border=True):
-        st.subheader("Terms of Service & Privacy Waiver")
-        st.markdown("""
-        **Last Updated: November 2024**
-
-        **1. MANUAL HANDLING DISCLOSURE (NO PRIVACY)**
-        **For "Heirloom" and "Santa" Tiers:**
-        These letters are created using special materials that require **manual printing and packaging**. 
-        By selecting these tiers, you explicitly acknowledge and agree that **VerbaPost staff will view and handle your letter content**. 
-        **THERE IS NO EXPECTATION OF PRIVACY** for Heirloom or Santa letters. Do not include sensitive, financial, medical (HIPAA), or highly confidential information in these specific tiers.
-
-        **2. Automated Handling (Standard/Civic)**
-        Standard and Civic letters are processed via API (PostGrid/Lob) and are **not** read by humans unless a technical delivery failure requires investigation.
-
-        **3. Prohibited Content**
-        You agree NOT to send letters containing: illegal acts, threats, harassment, or hate speech. VerbaPost reserves the right to refuse fulfillment of any letter without refund if it violates this policy.
-
-        **4. Delivery & Liability**
-        VerbaPost acts as a fulfillment agent. Our responsibility ends when the letter is handed to the USPS. We are not liable for lost, delayed, or damaged mail once in the possession of the carrier.
-        """)
-        
-        st.divider()
-        
-        st.subheader("Privacy Policy")
-        st.markdown("""
-        **1. Data Retention**
-        To ensure delivery and handle support requests, we retain letter content and address data for **30 days** after creation. After this period, data may be permanently deleted.
-        
-        **2. Third-Party Sharing**
-        - **Mailing:** Address and content data is shared with our print partners (PostGrid/Lob) for fulfillment.
-        - **AI Processing:** Audio is processed via OpenAI. We do not opt-in to having your data train their models.
-        - **Payment:** Credit card data is processed exclusively by Stripe. We never see or store your full card number.
-        
-        **3. Your Rights**
-        You may request the immediate deletion of your account and data by emailing **privacy@verbapost.com**.
-        """)
-    
-    if st.button("← Return to Home", type="primary"):
-        st.session_state.app_mode = "splash"
-        st.rerun()
+    import ui_legal
+    ui_legal.show_legal()
 
 def render_store_page():
     render_hero("Select Service", "Choose your letter type")
@@ -139,34 +99,28 @@ def render_store_page():
     # --- ROBUST ADMIN CHECK ---
     is_admin = False
     try:
-        # 1. Check Secrets Manager (GCP / Env Vars)
+        # Check GCP Secrets
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email")
             if admin_target and str(u_email).lower() == str(admin_target).lower():
                 is_admin = True
-        
-        # 2. Check Streamlit Secrets (Local / TOML)
-        # This explicitly handles [admin] email = "..."
+        # Check Local Secrets
         if not is_admin and "admin" in st.secrets:
             admin_target = st.secrets["admin"].get("email")
             if admin_target and str(u_email).lower() == str(admin_target).lower():
                 is_admin = True
-    except Exception as e:
-        print(f"Admin Check Error: {e}")
+    except: pass
 
-    # Render Button if Match
     if is_admin:
         if st.button("🔐 Open Admin Console", type="secondary"):
-            st.session_state.app_mode = "admin"
-            st.rerun()
-    # --------------------------
+            st.session_state.app_mode = "admin"; st.rerun()
 
     c1, c2 = st.columns([2, 1])
     with c1:
         with st.container(border=True):
             st.subheader("Available Packages")
             
-            # --- DEFINITIONS ---
+            # --- TIER SETUP ---
             tier_options_list = ["Standard", "Heirloom", "Civic", "Santa"]
             tier_labels = {
                 "Standard": "⚡ Standard ($2.99)",
@@ -175,29 +129,32 @@ def render_store_page():
                 "Santa": "🎅 Santa ($9.99)"
             }
             
-            # --- AUTO-SELECTION LOGIC ---
-            pre_selected_index = 0 # Default to Standard
-            
+            # Auto-Selection from Marketing Link
+            pre_selected_index = 0
             if "target_marketing_tier" in st.session_state:
                 target = st.session_state.target_marketing_tier
                 if target in tier_options_list:
                     pre_selected_index = tier_options_list.index(target)
             
+            # --- KEY FIX: Added unique key to prevent duplicate ID error ---
             sel = st.radio(
                 "Select Tier", 
                 tier_options_list, 
                 format_func=lambda x: tier_labels[x],
-                index=pre_selected_index
+                index=pre_selected_index,
+                key="tier_selection_radio" 
             )
             tier_code = sel
             
-            # Default Prices
+            # Pricing
             prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
             price = prices[tier_code]
 
-            # --- INTERNATIONAL PRICING TOGGLE ---
+            # --- INTERNATIONAL TOGGLE ---
+            is_intl = False
             if tier_code in ["Standard", "Heirloom"]:
-                is_intl = st.checkbox("Send Internationally? (+$2.00)")
+                # Added key to prevent UI loss
+                is_intl = st.checkbox("Send Internationally? (+$2.00)", key="intl_toggle_check")
                 if is_intl:
                     price += 2.00
                     st.session_state.is_intl = True
@@ -212,11 +169,9 @@ def render_store_page():
             discounted = False
             if promo_engine:
                 code_input = st.text_input("Promo Code", key="promo_box")
-                if code_input:
-                    if promo_engine.validate_code(code_input):
-                        discounted = True
-                        st.success("✅ Code Applied!")
-                    else: st.error("❌ Invalid Code")
+                if code_input and promo_engine.validate_code(code_input):
+                    discounted = True
+                    st.success("✅ Code Applied!")
             
             if discounted:
                 st.metric("Total", "$0.00", delta=f"-${price} off")
@@ -231,92 +186,12 @@ def render_store_page():
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
                     if database: database.save_draft(u_email, "", tier_code, price)
+                    
+                    # --- STRIPE LINK BUILDER ---
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
-                    if payment_engine:
-                        url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                        if url:
-                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
-                            
-
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        with st.container(border=True):
-            st.subheader("Available Packages")
-            tier_options = {
-                "Standard": "⚡ Standard ($2.99)",
-                "Heirloom": "🏺 Heirloom ($5.99)",
-                "Civic": "🏛️ Civic ($6.99)",
-                "Santa": "🎅 Santa ($9.99)"
-            }
-            
-            # Update the radio button to use the index
-            sel = st.radio(
-                "Select Tier", 
-                tier_options_list, 
-                format_func=lambda x: tier_options[x],
-                index=pre_selected_index # <--- This defaults to the marketing choice
-            )
-            tier_code = sel
-            
-
-    if str(u_email).strip().lower() == str(admin_target).strip().lower() and admin_target:
-        if st.button("🔐 Open Admin Console", type="secondary"):
-            st.session_state.app_mode = "admin"; st.rerun()
-
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        with st.container(border=True):
-            st.subheader("Available Packages")
-            tier_options = {
-                "Standard": "⚡ Standard ($2.99)",
-                "Heirloom": "🏺 Heirloom ($5.99)",
-                "Civic": "🏛️ Civic ($6.99)",
-                "Santa": "🎅 Santa ($9.99)"
-            }
-            sel = st.radio("Select Tier", list(tier_options.keys()), format_func=lambda x: tier_options[x])
-            tier_code = sel
-            
-            # Default Prices
-            prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-            price = prices[tier_code]
-
-            # --- INTERNATIONAL PRICING TOGGLE ---
-            if tier_code in ["Standard", "Heirloom"]:
-                is_intl = st.checkbox("Send Internationally? (+$2.00)")
-                if is_intl:
-                    price += 2.00
-                    st.session_state.is_intl = True
-                else:
-                    st.session_state.is_intl = False
-            else:
-                st.session_state.is_intl = False
-
-    with c2:
-        with st.container(border=True):
-            st.subheader("Checkout")
-            discounted = False
-            if promo_engine:
-                code_input = st.text_input("Promo Code", key="promo_box")
-                if code_input:
-                    if promo_engine.validate_code(code_input):
-                        discounted = True
-                        st.success("✅ Code Applied!")
-                    else: st.error("❌ Invalid Code")
-            
-            if discounted:
-                st.metric("Total", "$0.00", delta=f"-${price} off")
-                if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
-                    if promo_engine: promo_engine.log_usage(code_input, u_email)
-                    if database: database.save_draft(u_email, "", tier_code, "0.00")
-                    st.session_state.payment_complete = True
-                    st.session_state.locked_tier = tier_code
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
-            else:
-                st.metric("Total", f"${price:.2f}")
-                if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
-                    if database: database.save_draft(u_email, "", tier_code, price)
-                    link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                    # Pass International flag to return URL
+                    if is_intl: link += "&intl=1"
+                    
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
                         if url:
@@ -324,6 +199,7 @@ def render_store_page():
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
+    # Retrieve persisted International status
     is_intl = st.session_state.get("is_intl", False)
     
     title_suffix = " (International)" if is_intl else ""
@@ -389,18 +265,17 @@ def render_workspace_page():
                 to_street = st.text_input("Street", key="w_to_street")
                 
                 if is_intl:
-                    # International Layout
+                    # INTERNATIONAL RECIPIENT LAYOUT
                     c_cntry, c_city = st.columns([1, 2])
-                    to_country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
+                    to_country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_to_country")
                     to_city = c_city.text_input("City", key="w_to_city")
                     
                     c_state, c_zip = st.columns(2)
-                    # State/Province text input (no US validation)
                     to_state = c_state.text_input("State/Prov", key="w_to_state")
                     to_zip = c_zip.text_input("Postal Code", key="w_to_zip")
                     to_country = to_country_code
                 else:
-                    # US Layout
+                    # DOMESTIC RECIPIENT LAYOUT
                     c_x, c_y, c_z = st.columns(3)
                     to_city = c_x.text_input("City", key="w_to_city")
                     to_state = c_y.text_input("State", key="w_to_state")
@@ -413,26 +288,18 @@ def render_workspace_page():
                 from_name = st.text_input("Name", value=def_n, key="w_from_name")
                 from_street = st.text_input("Street", value=def_s, key="w_from_street")
                 
-                # --- CHECK IF SENDER IS INTERNATIONAL ---
-                # We infer this if the user manually changes the country or we add a toggle.
-                # For better UX, we'll add a sender country selector that defaults to US but allows change.
-                
+                # --- SENDER LAYOUT (Allows Intl Sender) ---
                 c_scntry, c_scity = st.columns([1, 2])
                 from_country_code = c_scntry.selectbox("From Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_from_country")
                 from_city = c_scity.text_input("City", value=def_c, key="w_from_city")
 
                 c_sstate, c_szip = st.columns(2)
+                # Dynamic labels
+                s_lbl_st = "State" if from_country_code == "US" else "State/Prov"
+                s_lbl_zip = "Zip" if from_country_code == "US" else "Postal Code"
                 
-                # Adjust labels based on selected sender country
-                if from_country_code == "US":
-                    s_state_label = "State"
-                    s_zip_label = "Zip"
-                else:
-                    s_state_label = "State/Prov"
-                    s_zip_label = "Postal Code"
-                    
-                from_state = c_sstate.text_input(s_state_label, value=def_st, key="w_from_state")
-                from_zip = c_szip.text_input(s_zip_label, value=def_z, key="w_from_zip")
+                from_state = c_sstate.text_input(s_lbl_st, value=def_st, key="w_from_state")
+                from_zip = c_szip.text_input(s_lbl_zip, value=def_z, key="w_from_zip")
                 from_country = from_country_code
 
         # --- SAVE BUTTON ---
@@ -460,6 +327,7 @@ def render_workspace_page():
 
     st.write("---")
     
+    # --- SIGNATURE & DICTATION ---
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
@@ -502,7 +370,7 @@ def render_review_page():
                 u_email = st.session_state.get("user_email")
                 from_data = st.session_state.get("from_addr", {})
                 
-                # Signature
+                # Signature Prep
                 sig_path = None; sig_db_value = None
                 is_santa = (tier == "Santa")
                 if not is_santa and st.session_state.get("sig_data") is not None:
@@ -514,28 +382,23 @@ def render_review_page():
                         buf = io.BytesIO(); img.save(buf, format="PNG"); sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
                     except: pass
 
-                # Build Targets List
+                # Build Targets
                 targets = []
                 if tier == "Civic" and "civic_targets" in st.session_state:
                     for rep in st.session_state.civic_targets:
-                        # Enforce US for civic
-                        t = rep['address_obj']
-                        t['country'] = 'US'
-                        targets.append(t) 
+                        t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
                 else:
                     targets.append(st.session_state.get("to_addr", {}))
 
                 # Loop Send
                 for to_data in targets:
-                    # Country Label for PDF
+                    # PDF Generation Strings
                     t_country = to_data.get('country', 'US')
                     cntry_line = f"\n{COUNTRIES.get(t_country, 'USA')}" if t_country != 'US' else ""
-                    
                     to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}{cntry_line}"
                     
                     if tier == "Santa": from_str = "Santa Claus"
                     else: 
-                        # Sender Country Label
                         f_country = from_data.get('country', 'US')
                         f_cntry_line = f"\n{COUNTRIES.get(f_country, 'USA')}" if f_country != 'US' else ""
                         from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}{f_cntry_line}"
@@ -544,28 +407,20 @@ def render_review_page():
                         pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
                         
                         postgrid_success = False
-                        # Standard/Civic use API. Heirloom/Santa are manual.
                         if (tier == "Standard" or tier == "Civic") and mailer:
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                 tmp.write(pdf_bytes); tmp_path = tmp.name
                             
-                            # PostGrid Payload
                             pg_to = {
-                                'name': to_data.get('name'), 
-                                'address_line1': to_data.get('street'), 
-                                'address_city': to_data.get('city'),
-                                'address_state': to_data.get('state'), 
-                                'address_zip': to_data.get('zip'),
-                                'country_code': to_data.get('country', 'US') # ISO Code
+                                'name': to_data.get('name'), 'address_line1': to_data.get('street'), 
+                                'address_city': to_data.get('city'), 'address_state': to_data.get('state'), 
+                                'address_zip': to_data.get('zip'), 'country_code': to_data.get('country', 'US')
                             }
                             pg_from = {
                                 'name': from_data.get('name'), 'address_line1': from_data.get('street'), 
                                 'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 
-                                'address_zip': from_data.get('zip'),
-                                'country_code': from_data.get('country', 'US') # Use dynamic sender country!
+                                'address_zip': from_data.get('zip'), 'country_code': from_data.get('country', 'US')
                             }
-                            
-                            print(f"DEBUG: Attempting PostGrid Send to {pg_to}")
                             resp = mailer.send_letter(tmp_path, pg_to, pg_from)
                             os.remove(tmp_path)
                             if resp and resp.get("id"): postgrid_success = True
@@ -590,7 +445,13 @@ def render_review_page():
 def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
-    if "session_id" in st.query_params: st.session_state.app_mode = "workspace"; st.session_state.payment_complete = True; st.query_params.clear(); st.rerun()
+    
+    # Catch redirect from Stripe but handled in main.py already
+    if "session_id" in st.query_params: 
+        st.session_state.app_mode = "workspace" 
+        st.session_state.payment_complete = True 
+        st.query_params.clear() 
+        st.rerun()
 
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": import ui_login; import auth_engine; ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,c,s,z,l: _handle_signup(auth_engine, e,p,n,a,c,s,z,l))
