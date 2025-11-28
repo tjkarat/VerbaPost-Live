@@ -5,19 +5,26 @@ from datetime import datetime
 import streamlit as st
 
 # --- CONFIG ---
+# Direct raw link to the font file
 FONT_MAP = {
     "Caveat-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Regular.ttf",
 }
-CJK_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
 
 def ensure_fonts():
+    """Downloads the font to the local container if missing."""
     for filename, url in FONT_MAP.items():
         if not os.path.exists(filename):
             try:
+                print(f"⬇️ Downloading font: {filename}...")
                 r = requests.get(url, allow_redirects=True)
                 if r.status_code == 200:
-                    with open(filename, "wb") as f: f.write(r.content)
-            except: pass
+                    with open(filename, "wb") as f: 
+                        f.write(r.content)
+                    print("✅ Font downloaded.")
+                else:
+                    print(f"❌ Font download failed: {r.status_code}")
+            except Exception as e: 
+                print(f"❌ Font Error: {e}")
 
 def sanitize_text(text):
     """
@@ -37,7 +44,7 @@ def sanitize_text(text):
     for k, v in replacements.items():
         text = text.replace(k, v)
     
-    # Final safety: Encode to latin-1 and ignore anything else
+    # Encode/Decode ensures we strip anything else that might break Latin-1
     return text.encode('latin-1', 'replace').decode('latin-1')
 
 # --- CUSTOM PDF CLASS ---
@@ -86,16 +93,15 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf = LetterPDF(is_santa=is_santa, format='Letter')
         pdf.set_auto_page_break(True, margin=20)
         
-        # Fonts
+        # --- FONT REGISTRATION (THE FIX) ---
         font_map = {}
-        if os.path.exists("Caveat-Regular.ttf"):
-            if os.path.getsize("Caveat-Regular.ttf") > 0:
-                try:
-                    pdf.add_font('Caveat', '', 'Caveat-Regular.ttf', uni=True)
-                    font_map['hand'] = 'Caveat'
-                except: 
-                    font_map['hand'] = 'Helvetica'
-            else:
+        if os.path.exists("Caveat-Regular.ttf") and os.path.getsize("Caveat-Regular.ttf") > 0:
+            try:
+                # REMOVED 'uni=True' (This was crashing fpdf2)
+                pdf.add_font('Caveat', '', 'Caveat-Regular.ttf')
+                font_map['hand'] = 'Caveat'
+            except Exception as e: 
+                print(f"⚠️ Font Load Error: {e}")
                 font_map['hand'] = 'Helvetica'
         else:
             font_map['hand'] = 'Helvetica'
@@ -110,29 +116,22 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         # --- CONTENT PLACEMENT ---
         pdf.set_text_color(0, 0, 0)
         
-        # CRITICAL FIX: Determine "Standard" mode
         is_standard = not (is_heirloom or is_santa)
 
         if is_standard:
-            # --- STANDARD MODE (For PostGrid) ---
-            # We must leave the top ~100mm blank for PostGrid's address overlay.
-            # We do NOT print addresses here. PostGrid adds them.
-            
-            # Start Body much lower to clear the window zone
+            # --- STANDARD MODE (PostGrid overlay space) ---
             pdf.set_xy(20, 100) 
             
-            # Optional: Add Date (High enough to not hit address, or below address)
-            # Let's put date at the very top right, safely out of window zone
+            # Date (Top Right)
             pdf.set_xy(140, 15)
             pdf.set_font('Helvetica', '', 10)
             pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
             
-            # Reset cursor for body
+            # Reset cursor
             pdf.set_xy(20, 100)
 
         else:
             # --- HEIRLOOM / SANTA MODE (Manual Print) ---
-            # We MUST print addresses because a human needs to read them to pack it.
             
             # 1. Date
             date_y = 50 if is_santa else 15
@@ -157,7 +156,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             # Set cursor for body
             pdf.set_xy(20, recip_y + 30)
 
-        # 4. Main Body Content (Common)
+        # 4. Main Body Content
         pdf.set_font(body_font, '', body_size)
         safe_content = sanitize_text(content)
         pdf.multi_cell(170, 8, safe_content)
@@ -166,7 +165,9 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.ln(20) 
         if is_santa:
             pdf.set_x(pdf.l_margin)
-            pdf.set_font(font_map.get('hand', 'Helvetica'), '', 32)
+            # Try to use the hand font for signature, fallback to standard if missing
+            sig_font = font_map.get('hand', 'Helvetica')
+            pdf.set_font(sig_font, '', 32)
             pdf.set_text_color(180, 20, 20) 
             pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
         elif signature_path and os.path.exists(signature_path):
@@ -181,13 +182,8 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.cell(0, 10, footer, 0, 0, 'C')
 
         # --- OUTPUT ---
-        raw_output = pdf.output(dest='S')
-        if isinstance(raw_output, (bytes, bytearray)):
-            return bytes(raw_output)
-        elif isinstance(raw_output, str):
-            return raw_output.encode('latin-1', 'ignore')
-        else:
-            return bytes(raw_output)
+        raw_output = pdf.output(dest='S') # 'S' returns bytes in FPDF2
+        return bytes(raw_output)
 
     except Exception as e:
         st.error(f"INTERNAL PDF ENGINE ERROR: {e}")
