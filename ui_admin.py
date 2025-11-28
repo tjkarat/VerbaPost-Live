@@ -58,8 +58,8 @@ def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=
         return None
 
 def show_admin():
-    # UPDATED TITLE TO V2.1 so you know it's live
-    st.title("🔐 Admin Console (v2.1)")
+    # UPDATED TITLE TO V2.2
+    st.title("🔐 Admin Console (v2.2)")
     
     u_email = st.session_state.get("user_email") or st.session_state.get("user", {}).email
     st.info(f"Logged in as: {u_email}")
@@ -78,25 +78,21 @@ def show_admin():
         
         if database:
             data = database.fetch_all_drafts()
-            # Filter for Standard/Civic
             std_orders = [d for d in data if d.get("Tier") and ("Standard" in d["Tier"] or "Civic" in d["Tier"])]
             
             if std_orders:
-                # 1. Show Table
                 df = pd.DataFrame(std_orders)
                 st.dataframe(df[["ID", "Email", "Status", "Date", "Tier", "Price"]])
                 
                 st.divider()
                 st.markdown("### 🔧 Fix & Resubmit")
                 
-                # 2. Select Order to Fix
                 order_opts = {d["ID"]: f"ID {d['ID']} ({d['Status']}) - {d['Email']}" for d in std_orders}
                 selected_id = st.selectbox("Select Order to Manage", options=list(order_opts.keys()), format_func=lambda x: order_opts[x])
                 
                 if selected_id:
                     order = next((d for d in std_orders if d["ID"] == selected_id), None)
                     
-                    # Parse JSONs safely
                     try: to_j = json.loads(order["Recipient"]) if isinstance(order["Recipient"], str) else order["Recipient"]
                     except: to_j = {}
                     try: from_j = json.loads(order["Sender"]) if isinstance(order["Sender"], str) else order["Sender"]
@@ -130,23 +126,19 @@ def show_admin():
                         submitted = st.form_submit_button("💾 Update & Resend to PostGrid")
                         
                         if submitted:
-                            # 1. Rebuild Objects
                             new_to = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_ctry}
                             new_from = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_ctry}
                             
-                            # 2. Generate PDF
                             pdf_bytes = generate_admin_pdf(
                                 order["Content"], new_to, new_from, 
                                 is_santa=False, is_heirloom=False, 
                                 sig_data_str=order.get("Signature")
                             )
                             
-                            # 3. Send to PostGrid
                             if mailer and pdf_bytes:
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
                                     tmp.write(pdf_bytes); tmp_path = tmp.name
                                 
-                                # Map keys for PostGrid
                                 pg_to = {
                                     'name': new_to['name'], 'address_line1': new_to['street'], 
                                     'address_city': new_to['city'], 'address_state': new_to['state'], 
@@ -163,14 +155,12 @@ def show_admin():
                                 
                                 if resp and resp.get("id"):
                                     st.success(f"✅ Sent! ID: {resp.get('id')}")
-                                    # Update Database
                                     database.update_draft_data(selected_id, new_to, new_from, status="Completed")
                                     st.rerun()
                                 else:
                                     st.error("❌ PostGrid Failed. Check logs.")
                             else:
                                 st.error("Mailer module missing or PDF failed.")
-
             else:
                 st.info("No standard orders found.")
 
@@ -186,12 +176,10 @@ def show_admin():
                 
                 target_letter = next((d for d in santa_orders if d["ID"] == s_id), None)
                 if target_letter:
-                    # Parse JSON for PDF gen
                     try: to_j = json.loads(target_letter["Recipient"]) if isinstance(target_letter["Recipient"], str) else target_letter["Recipient"]
                     except: to_j = {}
                     
                     if st.button("Generate PDF", key="santa_gen"):
-                        # Dummy From Data for Santa
                         pdf_bytes = generate_admin_pdf(target_letter["Content"], to_j, {}, is_santa=True)
                         if pdf_bytes:
                             b64 = base64.b64encode(pdf_bytes).decode()
@@ -202,7 +190,7 @@ def show_admin():
                         database.update_draft_data(s_id, None, None, status="Completed")
                         st.success("Updated!"); st.rerun()
 
-    # --- TAB 3: HEIRLOOM ---
+    # --- TAB 3: HEIRLOOM (UPDATED) ---
     with tab_heirloom:
         st.subheader("🏺 Heirloom Fulfillment")
         if database:
@@ -228,27 +216,28 @@ def show_admin():
                             b64 = base64.b64encode(pdf_bytes).decode()
                             href = f'<a href="data:application/pdf;base64,{b64}" download="Heirloom_Order_{h_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
+                            
+                    # --- ADDED BUTTON FOR HEIRLOOM ---
+                    if st.button("Mark Completed", key="heir_mark"):
+                        database.update_draft_data(h_id, None, None, status="Completed")
+                        st.success("Order marked as Completed!")
+                        st.rerun()
 
     # --- TAB 4: MAINT ---
     with tab_maint:
         st.subheader("System Health")
-        
-        # 1. Database Check
         if database:
             try:
                 database.get_session().execute(text("SELECT 1")).fetchone()
                 st.success("✅ Database Connected")
             except Exception as e: st.error(f"❌ DB Error: {e}")
         
-        # 2. PostGrid Check
         if secrets_manager.get_secret("postgrid.api_key"): st.success("✅ PostGrid Key Found")
         else: st.error("❌ PostGrid Key Missing")
 
-        # 3. Email Check
         if secrets_manager.get_secret("email.password"): st.success("✅ Email Configured")
         else: st.error("❌ Email Password Missing")
         
-        # 4. Stripe Check (NEW)
         stripe_k = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
         if stripe_k: st.success("✅ Stripe Key Found")
         else: st.error("❌ Stripe Key Missing")
