@@ -46,8 +46,6 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
 
-    # (Leaderboard moved from here)
-
     # --- 3. HOW IT WORKS ---
     st.markdown("### 📝 How it Works")
     step1, step2, step3 = st.columns(3)
@@ -121,18 +119,20 @@ def show_splash():
     with st.expander("🎅 How does the Santa letter work?"):
         st.write("You dictate a message to your child. We print it on festive North Pole stationery and mail it with a specialized **North Pole postmark** so it looks like it came directly from Santa's desk.")
 
-    # --- 7. CIVIC LEADERBOARD (Moved Here) ---
+    # --- 7. CIVIC LEADERBOARD (Updated Title/Description) ---
     if database:
         stats = database.get_civic_leaderboard()
         if stats:
             st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("### 🔥 Trending in Civic Action")
+            st.markdown("### 🏛️ Civic Leaderboard: Most Active States")
+            st.caption("Real-time count of letters sent to Congress by state.")
+            
             # Create dynamic columns based on result count (max 5)
             cols = st.columns(len(stats))
             for i, (state, count) in enumerate(stats):
                 with cols[i]:
                     with st.container(border=True):
-                        st.metric(label=state, value=f"{count}", delta="Letters Sent")
+                        st.metric(label=state, value=f"{count}")
 
     # --- 8. BOTTOM CTA ---
     st.markdown("<br>", unsafe_allow_html=True)
