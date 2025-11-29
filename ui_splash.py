@@ -46,20 +46,9 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- 3. CIVIC LEADERBOARD (Live Data) ---
-    if database:
-        stats = database.get_civic_leaderboard()
-        if stats:
-            st.markdown("### 🔥 Trending in Civic Action")
-            # Create dynamic columns based on result count (max 5)
-            cols = st.columns(len(stats))
-            for i, (state, count) in enumerate(stats):
-                with cols[i]:
-                    with st.container(border=True):
-                        st.metric(label=state, value=f"{count}", delta="Letters Sent")
-            st.markdown("---")
+    # (Leaderboard moved from here)
 
-    # --- 4. HOW IT WORKS ---
+    # --- 3. HOW IT WORKS ---
     st.markdown("### 📝 How it Works")
     step1, step2, step3 = st.columns(3)
     
@@ -80,7 +69,7 @@ def show_splash():
 
     st.markdown("---")
 
-    # --- 5. MID-PAGE CTA ---
+    # --- 4. MID-PAGE CTA ---
     c_cta1, c_cta2, c_cta3 = st.columns([1, 2, 1])
     with c_cta2:
         st.info("💡 You must be logged in to create a letter.")
@@ -93,7 +82,7 @@ def show_splash():
 
     st.markdown("---")
 
-    # --- 6. PRODUCT GRID ---
+    # --- 5. PRODUCT GRID ---
     st.subheader("What can you send?")
     
     col_a, col_b = st.columns(2)
@@ -116,7 +105,7 @@ def show_splash():
             st.markdown("### ⚡ Standard")
             st.caption("Quick, printed letters. Easier than a printer.")
 
-    # --- 7. FAQ (SEO CONTENT) ---
+    # --- 6. FAQ (SEO CONTENT) ---
     st.markdown("---")
     st.subheader("Frequently Asked Questions")
     
@@ -131,6 +120,19 @@ def show_splash():
         
     with st.expander("🎅 How does the Santa letter work?"):
         st.write("You dictate a message to your child. We print it on festive North Pole stationery and mail it with a specialized **North Pole postmark** so it looks like it came directly from Santa's desk.")
+
+    # --- 7. CIVIC LEADERBOARD (Moved Here) ---
+    if database:
+        stats = database.get_civic_leaderboard()
+        if stats:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("### 🔥 Trending in Civic Action")
+            # Create dynamic columns based on result count (max 5)
+            cols = st.columns(len(stats))
+            for i, (state, count) in enumerate(stats):
+                with cols[i]:
+                    with st.container(border=True):
+                        st.metric(label=state, value=f"{count}", delta="Letters Sent")
 
     # --- 8. BOTTOM CTA ---
     st.markdown("<br>", unsafe_allow_html=True)
