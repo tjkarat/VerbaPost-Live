@@ -213,14 +213,13 @@ def render_workspace_page():
             st.markdown("---")
             st.markdown("**📮 To (Recipient)**")
             
-            # --- NEW: ADDRESS BOOK SELECTOR ---
+            # --- ADDRESS BOOK SELECTOR ---
             if database:
                 contacts = database.get_contacts(u_email)
                 if contacts:
-                    # Helper to manage auto-fill
                     def _autofill_contact():
                         sel_idx = st.session_state.addr_book_idx
-                        if sel_idx > 0: # 0 is "Select..."
+                        if sel_idx > 0:
                             c = contacts[sel_idx - 1]
                             st.session_state.w_to_name = c.name
                             st.session_state.w_to_street = c.street
@@ -231,7 +230,6 @@ def render_workspace_page():
 
                     contact_opts = ["-- Select from Address Book --"] + [c.name for c in contacts]
                     st.selectbox("📖 Address Book", range(len(contact_opts)), format_func=lambda x: contact_opts[x], key="addr_book_idx", on_change=_autofill_contact)
-            # ----------------------------------
 
             st.text_input("Recipient Name", key="w_to_name")
             st.text_input("Recipient Street", key="w_to_street")
@@ -254,7 +252,6 @@ def render_workspace_page():
         st.markdown("<br>", unsafe_allow_html=True)
         c_save1, c_save2 = st.columns([1, 2])
         
-        # Save Address Button (Required Logic)
         if c_save1.button("Save Addresses", type="primary"):
              _save_addresses_from_widgets(tier, is_intl)
              if tier == "Civic" and civic_engine:
@@ -268,7 +265,6 @@ def render_workspace_page():
                      else: st.rerun()
              st.toast("Addresses Saved!")
 
-        # --- NEW: SAVE TO ADDRESS BOOK BUTTON ---
         if tier != "Civic" and c_save2.button("💾 Save to Address Book"):
             name = st.session_state.get("w_to_name")
             street = st.session_state.get("w_to_street")
@@ -281,13 +277,12 @@ def render_workspace_page():
                     st.session_state.get("w_to_country", "US")
                 )
                 st.success(f"Saved {name}!")
-                st.rerun() # Refresh so it shows in dropdown
+                st.rerun()
             else:
                 st.error("Enter Name & Street first.")
 
     st.write("---")
     
-    # --- SIGNATURE & DICTATION ---
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
@@ -344,6 +339,12 @@ def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
     if "letter_sent_success" not in st.session_state: st.session_state.letter_sent_success = False
     
+    # --- THE FIX: ADDED BACK BUTTON ---
+    if st.button("⬅️ Edit Text or Addresses", type="secondary"):
+        st.session_state.app_mode = "workspace"
+        st.rerun()
+    # ----------------------------------
+    
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
 
@@ -364,12 +365,22 @@ def render_review_page():
             
             to_chk = st.session_state.get("to_addr", {})
             from_chk = st.session_state.get("from_addr", {})
+            
+            # --- THE FIX: SMART ERROR BUTTONS ---
             if not to_chk.get("street") and tier != "Civic":
                 st.error("⚠️ Recipient Address missing.")
+                if st.button("⬅️ Go Back to Fix Recipient"):
+                    st.session_state.app_mode = "workspace"
+                    st.rerun()
                 return
+                
             if not from_chk.get("street") and tier != "Santa":
                 st.error("⚠️ Sender Address missing.")
+                if st.button("⬅️ Go Back to Fix Sender"):
+                    st.session_state.app_mode = "workspace"
+                    st.rerun()
                 return
+            # ------------------------------------
 
             with st.spinner("Processing & Mailing..."):
                 u_email = st.session_state.get("user_email")
