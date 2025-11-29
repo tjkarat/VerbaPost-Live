@@ -1,13 +1,17 @@
 import streamlit as st
 import os
 
+# --- OPTIONAL IMPORT FOR LEADERBOARD ---
+try: import database
+except: database = None
+
 def set_mode(mode, view_preference="login"):
     st.session_state.app_mode = mode
     st.session_state.auth_view = view_preference
     st.rerun()
 
 def show_splash():
-    # --- 1. SEO INJECTION ---
+    # --- 1. SEO INJECTION (JSON-LD) ---
     st.markdown("""
     <script type="application/ld+json">
     {
@@ -31,10 +35,8 @@ def show_splash():
     if os.path.exists("logo.png"):
         c1, c2, c3 = st.columns([1, 1, 1])
         with c2: 
-            # BIGGER LOGO UPDATE (220px)
             st.image("logo.png", width=220)
     
-    # NEW TAGLINE UPDATE
     st.markdown("""
     <div style="text-align: center; padding-bottom: 20px;">
         <h1 style="color: #1e3c72; margin-bottom: 0;">VerbaPost</h1>
@@ -44,7 +46,20 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- 3. HOW IT WORKS ---
+    # --- 3. CIVIC LEADERBOARD (Live Data) ---
+    if database:
+        stats = database.get_civic_leaderboard()
+        if stats:
+            st.markdown("### 🔥 Trending in Civic Action")
+            # Create dynamic columns based on result count (max 5)
+            cols = st.columns(len(stats))
+            for i, (state, count) in enumerate(stats):
+                with cols[i]:
+                    with st.container(border=True):
+                        st.metric(label=state, value=f"{count}", delta="Letters Sent")
+            st.markdown("---")
+
+    # --- 4. HOW IT WORKS ---
     st.markdown("### 📝 How it Works")
     step1, step2, step3 = st.columns(3)
     
@@ -65,12 +80,11 @@ def show_splash():
 
     st.markdown("---")
 
-    # --- 4. MID-PAGE CTA ---
+    # --- 5. MID-PAGE CTA ---
     c_cta1, c_cta2, c_cta3 = st.columns([1, 2, 1])
     with c_cta2:
         st.info("💡 You must be logged in to create a letter.")
         
-        # BUTTON ROUTING UPDATE: Goes to Signup Tab
         if st.button("🚀 Create Free Account & Start", type="primary", use_container_width=True, key="top_signup_btn"):
             set_mode("login", view_preference="signup")
             
@@ -79,13 +93,12 @@ def show_splash():
 
     st.markdown("---")
 
-    # --- 5. PRODUCT GRID ---
+    # --- 6. PRODUCT GRID ---
     st.subheader("What can you send?")
     
     col_a, col_b = st.columns(2)
     with col_a:
         with st.container(border=True):
-            # SANTA UPDATE
             st.markdown("### 🎅 Letters FROM Santa")
             st.caption("Don't just write *to* him. Send a magical letter **FROM** the North Pole directly to your child.")
     with col_b:
@@ -103,14 +116,7 @@ def show_splash():
             st.markdown("### ⚡ Standard")
             st.caption("Quick, printed letters. Easier than a printer.")
 
-    # --- 6. BOTTOM CTA ---
-    st.markdown("<br>", unsafe_allow_html=True)
-    c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
-    with c_bot2:
-        # BUTTON ROUTING UPDATE: Goes to Signup Tab
-        if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
-            set_mode("login", view_preference="signup")
-
+    # --- 7. FAQ (SEO CONTENT) ---
     st.markdown("---")
     st.subheader("Frequently Asked Questions")
     
@@ -125,7 +131,15 @@ def show_splash():
         
     with st.expander("🎅 How does the Santa letter work?"):
         st.write("You dictate a message to your child. We print it on festive North Pole stationery and mail it with a specialized **North Pole postmark** so it looks like it came directly from Santa's desk.")
-    # --- 7. FOOTER ---
+
+    # --- 8. BOTTOM CTA ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
+    with c_bot2:
+        if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
+            set_mode("login", view_preference="signup")
+
+    # --- 9. FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
     f1, f2 = st.columns([4, 1])
     with f2:
