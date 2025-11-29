@@ -48,21 +48,32 @@ COUNTRIES = {
 }
 
 def reset_app():
+    """
+    Resets the state for a new letter BUT keeps the user logged in.
+    """
+    # 1. Determine Destination (Persistence Check)
     if st.session_state.get("user_email"):
-        st.session_state.app_mode = "store"
+        st.session_state.app_mode = "store"  # <--- SENDS LOGGED-IN USERS TO STORE
     else:
         st.session_state.app_mode = "splash"
     
-    st.session_state.audio_path = None
-    st.session_state.transcribed_text = ""
-    st.session_state.payment_complete = False
-    st.session_state.sig_data = None
-    st.session_state.to_addr = {}
-    st.session_state.from_addr = {}
-    st.session_state.civic_targets = []
-    st.session_state.is_intl = False
+    # 2. Clear Transaction Data (Clean Slate for next letter)
+    keys_to_clear = [
+        "audio_path", "transcribed_text", "payment_complete", 
+        "sig_data", "to_addr", "civic_targets", 
+        "is_intl", "letter_sent_success", "locked_tier",
+        # Clear Widget States (Recipient Fields) so next letter is blank
+        "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country"
+    ]
     
-    if "letter_sent_success" in st.session_state: del st.session_state.letter_sent_success
+    for key in keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+            
+    # Re-initialize safely
+    st.session_state.to_addr = {}
+    # We DO NOT clear 'from_addr' so the user doesn't have to re-type their own address
+    
     st.query_params.clear()
 
 def render_hero(title, subtitle):
@@ -334,7 +345,6 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
 
-    # AUTO-SAVE CHECK
     if not st.session_state.get("to_addr") or not st.session_state.get("from_addr"):
         _save_addresses_from_widgets(tier, is_intl)
 
@@ -421,10 +431,8 @@ def render_review_page():
                             
                             database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
 
-                            # --- NEW: SEND EMAIL NOTIFICATION FOR MANUAL ORDERS ---
                             if (tier == "Santa" or tier == "Heirloom") and mailer:
                                 mailer.send_admin_alert(u_email, txt, tier)
-                            # -------------------------------------------------------
 
                 if sig_path and os.path.exists(sig_path): os.remove(sig_path)
                 st.session_state.letter_sent_success = True
@@ -432,7 +440,8 @@ def render_review_page():
     else:
         show_santa_animation()
         st.success("✅ Letters Queued for Delivery!")
-        if st.button("🏁 Finish & Return Home"): 
+        # --- THE FIX: NEW BUTTON ---
+        if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
              reset_app()
              st.rerun()
 
