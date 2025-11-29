@@ -17,7 +17,7 @@ class UserProfile(Base):
     address_city = Column(String)
     address_state = Column(String)
     address_zip = Column(String)
-    country = Column(String, default="US") # <--- NEW COLUMN
+    country = Column(String, default="US") 
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LetterDraft(Base):
@@ -33,6 +33,19 @@ class LetterDraft(Base):
     signature_data = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# --- NEW: ADDRESS BOOK MODEL ---
+class SavedContact(Base):
+    __tablename__ = "saved_contacts"
+    id = Column(Integer, primary_key=True, index=True)
+    user_email = Column(String, index=True) # The user who owns this contact
+    name = Column(String)
+    street = Column(String)
+    city = Column(String)
+    state = Column(String)
+    zip_code = Column(String)
+    country = Column(String, default="US")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
@@ -44,7 +57,7 @@ def get_engine():
         
     try:
         engine = create_engine(db_url, pool_pre_ping=True)
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine) # Creates new tables automatically
         return engine
     except Exception as e:
         print(f"DB Error: {e}")
@@ -126,7 +139,6 @@ def fetch_all_drafts():
     finally: db.close()
 
 def update_draft_data(draft_id, to_addr, from_addr, status=None):
-    """Updates address and status for an existing draft (Admin Fix)."""
     db = get_session()
     if not db: return False
     try:
@@ -140,7 +152,52 @@ def update_draft_data(draft_id, to_addr, from_addr, status=None):
         return False
     except Exception as e:
         print(f"Update Error: {e}")
-        db.rollback()
+        db.rollback(); return False
+    finally: db.close()
+
+# --- ADDRESS BOOK FUNCTIONS ---
+def add_contact(user_email, name, street, city, state, zip_code, country="US"):
+    db = get_session()
+    if not db: return False
+    try:
+        # Check duplicates (simple check by name/street)
+        exists = db.query(SavedContact).filter(
+            SavedContact.user_email == user_email, 
+            SavedContact.name == name
+        ).first()
+        
+        if exists:
+            # Update existing
+            exists.street = street; exists.city = city
+            exists.state = state; exists.zip_code = zip_code; exists.country = country
+        else:
+            # Create new
+            contact = SavedContact(
+                user_email=user_email, name=name, street=street, 
+                city=city, state=state, zip_code=zip_code, country=country
+            )
+            db.add(contact)
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"Contact Save Error: {e}")
         return False
-    finally:
-        db.close()
+    finally: db.close()
+
+def get_contacts(user_email):
+    db = get_session()
+    if not db: return []
+    try:
+        return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
+    except: return []
+    finally: db.close()
+
+def delete_contact(contact_id):
+    db = get_session()
+    if not db: return False
+    try:
+        db.query(SavedContact).filter(SavedContact.id == contact_id).delete()
+        db.commit()
+        return True
+    except: return False
+    finally: db.close()

@@ -48,32 +48,21 @@ COUNTRIES = {
 }
 
 def reset_app():
-    """
-    Resets the state for a new letter BUT keeps the user logged in.
-    """
-    # 1. Determine Destination (Persistence Check)
     if st.session_state.get("user_email"):
-        st.session_state.app_mode = "store"  # <--- SENDS LOGGED-IN USERS TO STORE
+        st.session_state.app_mode = "store"
     else:
         st.session_state.app_mode = "splash"
     
-    # 2. Clear Transaction Data (Clean Slate for next letter)
     keys_to_clear = [
         "audio_path", "transcribed_text", "payment_complete", 
         "sig_data", "to_addr", "civic_targets", 
         "is_intl", "letter_sent_success", "locked_tier",
-        # Clear Widget States (Recipient Fields) so next letter is blank
         "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country"
     ]
-    
     for key in keys_to_clear:
-        if key in st.session_state:
-            del st.session_state[key]
+        if key in st.session_state: del st.session_state[key]
             
-    # Re-initialize safely
     st.session_state.to_addr = {}
-    # We DO NOT clear 'from_addr' so the user doesn't have to re-type their own address
-    
     st.query_params.clear()
 
 def render_hero(title, subtitle):
@@ -102,12 +91,10 @@ def render_store_page():
     try:
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email")
-            if admin_target and str(u_email).lower() == str(admin_target).lower():
-                is_admin = True
+            if admin_target and str(u_email).lower() == str(admin_target).lower(): is_admin = True
         if not is_admin and "admin" in st.secrets:
             admin_target = st.secrets["admin"].get("email")
-            if admin_target and str(u_email).lower() == str(admin_target).lower():
-                is_admin = True
+            if admin_target and str(u_email).lower() == str(admin_target).lower(): is_admin = True
     except: pass
 
     if is_admin:
@@ -118,34 +105,20 @@ def render_store_page():
     with c1:
         with st.container(border=True):
             st.subheader("Available Packages")
-            
             tier_options_list = ["Standard", "Heirloom", "Civic", "Santa"]
-            tier_labels = {
-                "Standard": "⚡ Standard ($2.99)",
-                "Heirloom": "🏺 Heirloom ($5.99)",
-                "Civic": "🏛️ Civic ($6.99)",
-                "Santa": "🎅 Santa ($9.99)"
-            }
+            tier_labels = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
             tier_descriptions = {
                 "Standard": "Your words professionally printed on standard paper and mailed via USPS First Class.",
                 "Heirloom": "Printed on heavyweight archival stock with a wet-ink style font for a timeless look.",
                 "Civic": "We automatically identify your local representatives and mail physical letters to them.",
                 "Santa": "A magical letter from the North Pole on festive paper, signed by Santa Claus himself."
             }
-            
             pre_selected_index = 0
             if "target_marketing_tier" in st.session_state:
                 target = st.session_state.target_marketing_tier
-                if target in tier_options_list:
-                    pre_selected_index = tier_options_list.index(target)
+                if target in tier_options_list: pre_selected_index = tier_options_list.index(target)
             
-            sel = st.radio(
-                "Select Tier", 
-                tier_options_list, 
-                format_func=lambda x: tier_labels[x],
-                index=pre_selected_index,
-                key="tier_selection_radio" 
-            )
+            sel = st.radio("Select Tier", tier_options_list, format_func=lambda x: tier_labels[x], index=pre_selected_index, key="tier_selection_radio")
             tier_code = sel
             st.info(tier_descriptions[tier_code])
             
@@ -155,13 +128,9 @@ def render_store_page():
             is_intl = False
             if tier_code in ["Standard", "Heirloom"]:
                 is_intl = st.checkbox("Send Internationally? (+$2.00)", key="intl_toggle_check")
-                if is_intl:
-                    price += 2.00
-                    st.session_state.is_intl = True
-                else:
-                    st.session_state.is_intl = False
-            else:
-                st.session_state.is_intl = False
+                if is_intl: price += 2.00; st.session_state.is_intl = True
+                else: st.session_state.is_intl = False
+            else: st.session_state.is_intl = False
 
     with c2:
         with st.container(border=True):
@@ -169,19 +138,14 @@ def render_store_page():
             discounted = False
             if promo_engine:
                 code_input = st.text_input("Promo Code", key="promo_box")
-                if code_input and promo_engine.validate_code(code_input):
-                    discounted = True
-                    st.success("✅ Code Applied!")
+                if code_input and promo_engine.validate_code(code_input): discounted = True; st.success("✅ Code Applied!")
             
             if discounted:
                 st.metric("Total", "$0.00", delta=f"-${price} off")
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
                     if database: database.save_draft(u_email, "", tier_code, "0.00")
-                    st.session_state.payment_complete = True
-                    st.session_state.locked_tier = tier_code
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
+                    st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code; st.session_state.app_mode = "workspace"; st.rerun()
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
@@ -190,8 +154,7 @@ def render_store_page():
                     if is_intl: link += "&intl=1"
                     if payment_engine:
                         url, sess_id = payment_engine.create_checkout_session(tier_code, int(price*100), link, YOUR_APP_URL)
-                        if url:
-                            st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+                        if url: st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
@@ -250,6 +213,26 @@ def render_workspace_page():
             st.markdown("---")
             st.markdown("**📮 To (Recipient)**")
             
+            # --- NEW: ADDRESS BOOK SELECTOR ---
+            if database:
+                contacts = database.get_contacts(u_email)
+                if contacts:
+                    # Helper to manage auto-fill
+                    def _autofill_contact():
+                        sel_idx = st.session_state.addr_book_idx
+                        if sel_idx > 0: # 0 is "Select..."
+                            c = contacts[sel_idx - 1]
+                            st.session_state.w_to_name = c.name
+                            st.session_state.w_to_street = c.street
+                            st.session_state.w_to_city = c.city
+                            st.session_state.w_to_state = c.state
+                            st.session_state.w_to_zip = c.zip_code
+                            st.session_state.w_to_country = c.country
+
+                    contact_opts = ["-- Select from Address Book --"] + [c.name for c in contacts]
+                    st.selectbox("📖 Address Book", range(len(contact_opts)), format_func=lambda x: contact_opts[x], key="addr_book_idx", on_change=_autofill_contact)
+            # ----------------------------------
+
             st.text_input("Recipient Name", key="w_to_name")
             st.text_input("Recipient Street", key="w_to_street")
             
@@ -267,10 +250,12 @@ def render_workspace_page():
                 c_zip.text_input("Zip", key="w_to_zip")
                 st.session_state.w_to_country = "US"
 
-        # --- SAVE BUTTON ---
+        # --- SAVE BUTTONS ---
         st.markdown("<br>", unsafe_allow_html=True)
-        btn_label = "Save & Find Reps" if tier == "Civic" else "Save Addresses"
-        if st.button(btn_label, type="primary"):
+        c_save1, c_save2 = st.columns([1, 2])
+        
+        # Save Address Button (Required Logic)
+        if c_save1.button("Save Addresses", type="primary"):
              _save_addresses_from_widgets(tier, is_intl)
              if tier == "Civic" and civic_engine:
                  with st.spinner("Searching Congressional Database..."):
@@ -279,9 +264,26 @@ def render_workspace_page():
                      search_addr = f"{fs}, {fc}, {fst} {fz}"
                      reps = civic_engine.get_reps(search_addr)
                      st.session_state.civic_targets = reps
-                     if not reps: st.error("No reps found. Verify US address.")
+                     if not reps: st.error("No reps found.")
                      else: st.rerun()
              st.toast("Addresses Saved!")
+
+        # --- NEW: SAVE TO ADDRESS BOOK BUTTON ---
+        if tier != "Civic" and c_save2.button("💾 Save to Address Book"):
+            name = st.session_state.get("w_to_name")
+            street = st.session_state.get("w_to_street")
+            if name and street:
+                database.add_contact(
+                    u_email, name, street,
+                    st.session_state.get("w_to_city"),
+                    st.session_state.get("w_to_state"),
+                    st.session_state.get("w_to_zip"),
+                    st.session_state.get("w_to_country", "US")
+                )
+                st.success(f"Saved {name}!")
+                st.rerun() # Refresh so it shows in dropdown
+            else:
+                st.error("Enter Name & Street first.")
 
     st.write("---")
     
@@ -440,7 +442,6 @@ def render_review_page():
     else:
         show_santa_animation()
         st.success("✅ Letters Queued for Delivery!")
-        # --- THE FIX: NEW BUTTON ---
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
              reset_app()
              st.rerun()
