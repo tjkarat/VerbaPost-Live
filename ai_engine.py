@@ -39,3 +39,40 @@ def transcribe_audio(uploaded_file):
     except Exception as e:
         print(f"❌ ERROR: {e}")
         return f"Error: {e}"
+def refine_text(text, style):
+    """
+    Sends text to OpenAI to be rewritten in a specific style.
+    Styles: 'Grammar Fix', 'Professional', 'Warm & Friendly', 'Concise'
+    """
+    import openai
+    import secrets_manager
+    
+    # 1. Get Key
+    api_key = secrets_manager.get_secret("OPENAI_API_KEY")
+    if not api_key: return text # Fail safe
+    
+    client = openai.OpenAI(api_key=api_key)
+    
+    # 2. Define Prompts
+    prompts = {
+        "Fix Grammar": "Fix the grammar and spelling of this text, but keep the tone exactly the same.",
+        "Professional": "Rewrite this text to be more formal and professional.",
+        "Friendly": "Rewrite this text to be warmer, friendlier, and more personal.",
+        "Concise": "Rewrite this text to be more concise and to the point.",
+        "Pirate": "Rewrite this text like a pirate (Arr!)." # Fun easter egg for Santa letters?
+    }
+    
+    system_instruction = prompts.get(style, "Fix grammar.")
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo", # Cheap and fast
+            messages=[
+                {"role": "system", "content": f"You are a helpful editor. {system_instruction}"},
+                {"role": "user", "content": text}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"AI Edit Error: {e}")
+        return text

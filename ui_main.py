@@ -48,11 +48,13 @@ COUNTRIES = {
 }
 
 def reset_app():
+    """Resets transaction state but keeps user logged in."""
     if st.session_state.get("user_email"):
         st.session_state.app_mode = "store"
     else:
         st.session_state.app_mode = "splash"
     
+    # Clear specific session keys to ensure fresh start
     keys_to_clear = [
         "audio_path", "transcribed_text", "payment_complete", 
         "sig_data", "to_addr", "civic_targets", 
@@ -87,6 +89,7 @@ def render_store_page():
     render_hero("Select Service", "Choose your letter type")
     u_email = st.session_state.get("user_email", "")
     
+    # Admin Check
     is_admin = False
     try:
         if secrets_manager:
@@ -105,6 +108,7 @@ def render_store_page():
     with c1:
         with st.container(border=True):
             st.subheader("Available Packages")
+            
             tier_options_list = ["Standard", "Heirloom", "Civic", "Santa"]
             tier_labels = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)"}
             tier_descriptions = {
@@ -113,6 +117,7 @@ def render_store_page():
                 "Civic": "We automatically identify your local representatives and mail physical letters to them.",
                 "Santa": "A magical letter from the North Pole on festive paper, signed by Santa Claus himself."
             }
+            
             pre_selected_index = 0
             if "target_marketing_tier" in st.session_state:
                 target = st.session_state.target_marketing_tier
@@ -213,7 +218,7 @@ def render_workspace_page():
             st.markdown("---")
             st.markdown("**📮 To (Recipient)**")
             
-            # --- ADDRESS BOOK SELECTOR ---
+            # Address Book Selector
             if database:
                 contacts = database.get_contacts(u_email)
                 if contacts:
@@ -256,13 +261,15 @@ def render_workspace_page():
              _save_addresses_from_widgets(tier, is_intl)
              if tier == "Civic" and civic_engine:
                  with st.spinner("Searching Congressional Database..."):
-                     fs = st.session_state.w_from_street; fc = st.session_state.w_from_city
-                     fst = st.session_state.w_from_state; fz = st.session_state.w_from_zip
-                     search_addr = f"{fs}, {fc}, {fst} {fz}"
-                     reps = civic_engine.get_reps(search_addr)
-                     st.session_state.civic_targets = reps
-                     if not reps: st.error("No reps found.")
-                     else: st.rerun()
+                     fs = st.session_state.get("w_from_street"); fc = st.session_state.get("w_from_city")
+                     fst = st.session_state.get("w_from_state"); fz = st.session_state.get("w_from_zip")
+                     if fs and fz:
+                         search_addr = f"{fs}, {fc}, {fst} {fz}"
+                         reps = civic_engine.get_reps(search_addr)
+                         st.session_state.civic_targets = reps
+                         if not reps: st.error("No reps found.")
+                         else: st.rerun()
+                     else: st.error("Enter full sender address.")
              st.toast("Addresses Saved!")
 
         if tier != "Civic" and c_save2.button("💾 Save to Address Book"):
@@ -283,6 +290,7 @@ def render_workspace_page():
 
     st.write("---")
     
+    # --- SIGNATURE & DICTATION ---
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
@@ -339,11 +347,10 @@ def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
     if "letter_sent_success" not in st.session_state: st.session_state.letter_sent_success = False
     
-    # --- THE FIX: ADDED BACK BUTTON ---
+    # --- GLOBAL BACK BUTTON ---
     if st.button("⬅️ Edit Text or Addresses", type="secondary"):
         st.session_state.app_mode = "workspace"
         st.rerun()
-    # ----------------------------------
     
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -352,10 +359,23 @@ def render_review_page():
         _save_addresses_from_widgets(tier, is_intl)
 
     if tier == "Civic" and "civic_targets" in st.session_state and st.session_state.civic_targets:
-        st.info(f"🏛️ **This letter will be mailed to {len(st.session_state.civic_targets)} representatives:**")
-        for r in st.session_state.civic_targets:
-            st.markdown(f"- **{r['title']} {r['name']}**")
-        st.write("---")
+        st.info(f"🏛️ **Mailing to {len(st.session_state.civic_targets)} representatives**")
+
+    # --- AI EDITOR TOOLBAR ---
+    st.write("✨ **AI Magic Editor**")
+    c_edit1, c_edit2, c_edit3, c_edit4 = st.columns(4)
+    def run_edit(style):
+        curr_text = st.session_state.get("transcribed_text", "")
+        if curr_text and ai_engine:
+            with st.spinner(f"✨ Rewriting as {style}..."):
+                new_text = ai_engine.refine_text(curr_text, style)
+                st.session_state.transcribed_text = new_text
+                st.rerun()
+
+    if c_edit1.button("✅ Fix Grammar", use_container_width=True): run_edit("Grammar")
+    if c_edit2.button("👔 Professional", use_container_width=True): run_edit("Professional")
+    if c_edit3.button("🤗 Friendly", use_container_width=True): run_edit("Friendly")
+    if c_edit4.button("✂️ Concise", use_container_width=True): run_edit("Concise")
 
     txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300, disabled=st.session_state.letter_sent_success)
     st.session_state.transcribed_text = txt 
@@ -365,22 +385,16 @@ def render_review_page():
             
             to_chk = st.session_state.get("to_addr", {})
             from_chk = st.session_state.get("from_addr", {})
-            
-            # --- THE FIX: SMART ERROR BUTTONS ---
             if not to_chk.get("street") and tier != "Civic":
                 st.error("⚠️ Recipient Address missing.")
                 if st.button("⬅️ Go Back to Fix Recipient"):
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
+                    st.session_state.app_mode = "workspace"; st.rerun()
                 return
-                
             if not from_chk.get("street") and tier != "Santa":
                 st.error("⚠️ Sender Address missing.")
                 if st.button("⬅️ Go Back to Fix Sender"):
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
+                    st.session_state.app_mode = "workspace"; st.rerun()
                 return
-            # ------------------------------------
 
             with st.spinner("Processing & Mailing..."):
                 u_email = st.session_state.get("user_email")
@@ -399,8 +413,7 @@ def render_review_page():
 
                 targets = []
                 if tier == "Civic" and "civic_targets" in st.session_state:
-                    for rep in st.session_state.civic_targets:
-                        t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
+                    for rep in st.session_state.civic_targets: t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
                 else:
                     targets.append(st.session_state.to_addr)
 
