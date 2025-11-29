@@ -11,3 +11,4 @@ resend
 pandas
 fpdf2
 python-dotenv
+openai
