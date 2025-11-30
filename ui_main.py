@@ -60,8 +60,7 @@ def reset_app():
         "audio_path", "transcribed_text", "payment_complete", 
         "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty",
         "is_intl", "letter_sent_success", "locked_tier",
-        "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country",
-        "addr_book_idx"
+        "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country"
     ]
     for key in keys_to_clear:
         if key in st.session_state: del st.session_state[key]
@@ -124,7 +123,7 @@ def render_store_page():
                 "Heirloom": "Printed on heavyweight archival stock with a wet-ink style font for a timeless look.",
                 "Civic": "We automatically identify your local representatives and mail physical letters to them.",
                 "Santa": "A magical letter from the North Pole on festive paper, signed by Santa Claus himself.",
-                "Campaign": "Upload a CSV of constituents or customers. We mail everyone at once. ($1.99/ea)"
+                "Campaign": "Upload a CSV of constituents or customers. We mail everyone at once."
             }
             
             pre_selected_index = 0
@@ -136,12 +135,19 @@ def render_store_page():
             tier_code = sel
             st.info(tier_descriptions[tier_code])
             
+            # --- PRICING LOGIC ---
             qty = 1
             if tier_code == "Campaign":
-                unit_price = 1.99
+                # Updated Pricing: First letter $2.99, subsequent $1.99
+                base_price = 2.99
+                bulk_rate = 1.99
+                
                 qty = st.number_input("Number of Recipients", min_value=10, max_value=5000, value=50, step=10)
-                price = unit_price * qty
-                st.caption(f"Bulk Rate: ${unit_price}/letter x {qty} recipients")
+                
+                # Formula: $2.99 + ((N-1) * $1.99)
+                price = base_price + ((qty - 1) * bulk_rate)
+                
+                st.caption(f"Pricing: First letter ${base_price}, then ${bulk_rate}/ea")
             else:
                 prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
                 price = prices[tier_code]
@@ -210,7 +216,7 @@ def render_workspace_page():
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             
-            # --- ADDED: FORMATTING GUIDE ---
+            # Formatting Guide
             st.info("""
             **CSV Format Requirements:**
             Your file must have these 5 columns (headers are case-insensitive):
@@ -225,7 +231,6 @@ def render_workspace_page():
                 st.code("""Name,Street,City,State,Zip
 John Smith,100 Main St,Nashville,TN,37203
 Jane Doe,500 5th Ave,New York,NY,10018""", language="csv")
-            # -------------------------------
 
             uploaded_file = st.file_uploader("Upload CSV File", type=['csv'])
             if uploaded_file:
