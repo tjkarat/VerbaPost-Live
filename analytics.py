@@ -3,15 +3,16 @@ import streamlit.components.v1 as components
 import secrets_manager
 
 def inject_ga():
-    # 1. Try to find the ID
+    # 1. Get Dynamic ID
     ga_id = secrets_manager.get_secret("GA_ID")
     
-    # 2. If no ID (like in QA/Streamlit Cloud), STOP.
+    # 2. Safety Check
     if not ga_id:
-        print("ℹ️ Analytics: No ID found. Tracking disabled for this environment.")
+        print("ℹ️ Analytics: No GA_ID found. Tracking skipped.")
         return
 
-    # 3. If ID exists (Production), inject it.
+    # 3. The Fix: Double Curly Braces for JS, Single for Python variables
+    # We use f-string but double {{ }} for JS syntax so Python ignores them.
     js_breakout = f"""
     <script>
         if (!window.parent.document.getElementById('google-analytics')) {{
@@ -38,4 +39,5 @@ def inject_ga():
         }}
     </script>
     """
+    
     components.html(js_breakout, height=0, width=0)

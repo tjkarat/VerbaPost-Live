@@ -364,27 +364,48 @@ def render_review_page():
     # --- AI EDITOR TOOLBAR ---
     st.write("✨ **AI Magic Editor**")
     c_edit1, c_edit2, c_edit3, c_edit4 = st.columns(4)
+    
     def run_edit(style):
+        # 1. Check if we have text to edit
         curr_text = st.session_state.get("transcribed_text", "")
-        if curr_text and ai_engine:
+        if not curr_text:
+            st.error("No text to edit!")
+            return
+
+        if ai_engine:
             with st.spinner(f"✨ Rewriting as {style}..."):
+                # 2. Call Engine
                 new_text = ai_engine.refine_text(curr_text, style)
-                st.session_state.transcribed_text = new_text
-                st.rerun()
+                
+                # 3. Check for "Silent Failure" (Text didn't change)
+                if new_text == curr_text:
+                    st.warning("⚠️ AI made no changes. Check your OpenAI API Key.")
+                else:
+                    st.session_state.transcribed_text = new_text
+                    st.success(f"Updated to {style}!")
+                    st.rerun()
 
     if c_edit1.button("✅ Fix Grammar", use_container_width=True): run_edit("Grammar")
     if c_edit2.button("👔 Professional", use_container_width=True): run_edit("Professional")
     if c_edit3.button("🤗 Friendly", use_container_width=True): run_edit("Friendly")
     if c_edit4.button("✂️ Concise", use_container_width=True): run_edit("Concise")
 
-    txt = st.text_area("Body Content", st.session_state.get("transcribed_text", ""), height=300, disabled=st.session_state.letter_sent_success)
-    st.session_state.transcribed_text = txt 
+    # --- THE FIX: DIRECT STATE BINDING ---
+    # We use key="transcribed_text" so it syncs automatically with the buttons above.
+    # We removed 'value=' because the key handles it.
+    txt = st.text_area(
+        "Body Content", 
+        key="transcribed_text", 
+        height=300, 
+        disabled=st.session_state.letter_sent_success
+    )
     
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             
             to_chk = st.session_state.get("to_addr", {})
             from_chk = st.session_state.get("from_addr", {})
+            
             if not to_chk.get("street") and tier != "Civic":
                 st.error("⚠️ Recipient Address missing.")
                 if st.button("⬅️ Go Back to Fix Recipient"):
