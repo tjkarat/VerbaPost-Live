@@ -1,33 +1,26 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import secrets_manager # <--- Import your secrets manager
+import secrets_manager
 
 def inject_ga():
-    # --- 1. GET DYNAMIC ID ---
-    # Instead of hardcoding, we ask the environment for the ID.
-    # On GCP, this looks at your Environment Variables.
-    # On Streamlit Cloud, this looks at your Secrets.
+    # 1. Try to find the ID
     ga_id = secrets_manager.get_secret("GA_ID")
     
-    # Safety Check: If we forgot to set the ID, don't crash, just skip.
+    # 2. If no ID (like in QA/Streamlit Cloud), STOP.
     if not ga_id:
-        print("⚠️ Analytics: No GA_ID found in secrets. Skipping injection.")
+        print("ℹ️ Analytics: No ID found. Tracking disabled for this environment.")
         return
 
-    # --- 2. YOUR WORKING LOGIC (Preserved) ---
-    # I have not touched the JS logic below, only replaced the hardcoded string with {ga_id}
+    # 3. If ID exists (Production), inject it.
     js_breakout = f"""
     <script>
-        // Check if GA is already loaded to prevent duplicates
         if (!window.parent.document.getElementById('google-analytics')) {{
-            // 1. Load the GTag Script
             var script = window.parent.document.createElement('script');
             script.src = "https://www.googletagmanager.com/gtag/js?id={ga_id}";
             script.async = true;
             script.id = 'google-analytics';
             window.parent.document.head.appendChild(script);
 
-            // 2. Initialize GTag
             script.onload = function() {{
                 var script2 = window.parent.document.createElement('script');
                 script2.innerHTML = `
@@ -40,11 +33,9 @@ def inject_ga():
                     }});
                 `;
                 window.parent.document.head.appendChild(script2);
-                console.log("VerbaPost Analytics Injected Successfully: {ga_id}");
+                console.log("VerbaPost Analytics Active: {ga_id}");
             }};
         }}
     </script>
     """
-    
-    # Inject invisibly
     components.html(js_breakout, height=0, width=0)
