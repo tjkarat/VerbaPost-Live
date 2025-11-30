@@ -11,7 +11,8 @@ def set_mode(mode, view_preference="login"):
     st.rerun()
 
 def show_splash():
-    # --- 1. SEO INJECTION (JSON-LD) ---
+    # --- 1. SEO INJECTION (JSON-LD ENHANCED) ---
+    # Added specific keywords like "Online Post Office" and "Snail Mail App"
     st.markdown("""
     <script type="application/ld+json">
     {
@@ -25,21 +26,17 @@ def show_splash():
         "price": "2.99",
         "priceCurrency": "USD"
       },
-      "description": "The easiest way to send real physical mail online. Dictate letters to Santa, Congress, or family members and we print, stamp, and mail them via USPS.",
-      "featureList": "Voice-to-Text Dictation, USPS Mail Delivery, Santa Letters, Civic Engagement Tools"
+      "description": "The easiest way to send real physical mail online. Turn voice dictation or text into USPS First Class letters. Features include Santa Letters, writing to Congress, bulk campaign mailing, and archival heirloom letters. No printer or stamps required.",
+      "featureList": "Voice-to-Text Dictation, USPS Mail Delivery, Santa Letters, Civic Engagement Tools, Bulk Mailing, Address Book"
     }
     </script>
     """, unsafe_allow_html=True)
 
-    # --- 2. HERO SECTION ---
-    if os.path.exists("logo.png"):
-        c1, c2, c3 = st.columns([1, 1, 1])
-        with c2: 
-            st.image("logo.png", width=220)
-    
+    # --- 2. HERO SECTION (Logo Removed for Speed) ---
+    # The Title and Tagline now appear instantly at the very top
     st.markdown("""
-    <div style="text-align: center; padding-bottom: 20px;">
-        <h1 style="color: #1e3c72; margin-bottom: 0;">VerbaPost</h1>
+    <div style="text-align: center; padding-bottom: 20px; padding-top: 10px;">
+        <h1 style="color: #1e3c72; margin-bottom: 0; font-size: 3.5rem;">VerbaPost</h1>
         <p style="font-size: 1.5rem; color: #555; margin-top: 5px; font-weight: 500;">
             Texts are trivial, emails ignored, <b>REAL MAIL gets READ.</b>
         </p>
@@ -119,7 +116,7 @@ def show_splash():
     with st.expander("🎅 How does the Santa letter work?"):
         st.write("You dictate a message to your child. We print it on festive North Pole stationery and mail it with a specialized **North Pole postmark** so it looks like it came directly from Santa's desk.")
 
-    # --- 7. CIVIC LEADERBOARD (Updated Title/Description) ---
+    # --- 7. CIVIC LEADERBOARD (Bottom) ---
     if database:
         stats = database.get_civic_leaderboard()
         if stats:
@@ -127,7 +124,6 @@ def show_splash():
             st.markdown("### 🏛️ Civic Leaderboard: Most Active States")
             st.caption("Real-time count of letters sent to Congress by state.")
             
-            # Create dynamic columns based on result count (max 5)
             cols = st.columns(len(stats))
             for i, (state, count) in enumerate(stats):
                 with cols[i]:
