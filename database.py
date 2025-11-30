@@ -33,6 +33,7 @@ class LetterDraft(Base):
     signature_data = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# --- NEW: ADDRESS BOOK MODEL ---
 class SavedContact(Base):
     __tablename__ = "saved_contacts"
     id = Column(Integer, primary_key=True, index=True)
@@ -198,7 +199,7 @@ def delete_contact(contact_id):
     except: return False
     finally: db.close()
 
-# --- CIVIC LEADERBOARD (Restored) ---
+# --- CIVIC LEADERBOARD ---
 def get_civic_leaderboard():
     db = get_session()
     if not db: return []
