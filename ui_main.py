@@ -27,7 +27,7 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import civic_engine
 except ImportError: civic_engine = None
-try: import bulk_engine # <--- NEW IMPORT
+try: import bulk_engine # Required for Campaign Tier
 except ImportError: bulk_engine = None
 
 # --- CONFIG ---
@@ -58,7 +58,7 @@ def reset_app():
     
     keys_to_clear = [
         "audio_path", "transcribed_text", "payment_complete", 
-        "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_qty",
+        "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty",
         "is_intl", "letter_sent_success", "locked_tier",
         "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country"
     ]
@@ -111,6 +111,7 @@ def render_store_page():
             
             # --- TIER SETUP ---
             tier_options_list = ["Standard", "Heirloom", "Civic", "Santa", "Campaign"]
+            
             tier_labels = {
                 "Standard": "⚡ Standard ($2.99)", 
                 "Heirloom": "🏺 Heirloom ($5.99)", 
@@ -176,15 +177,11 @@ def render_store_page():
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
                     if database: database.save_draft(u_email, "", tier_code, price)
                     
-                    # Store link logic
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if is_intl: link += "&intl=1"
-                    
-                    # Pass the BULK QTY to the return URL so we remember it
                     if tier_code == "Campaign": link += f"&qty={qty}"
 
                     if payment_engine:
-                        # PASSING TOTAL AMOUNT (price * 100)
                         final_cents = int(price * 100)
                         url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", final_cents, link, YOUR_APP_URL)
                         if url: st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
@@ -192,7 +189,6 @@ def render_store_page():
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
-    
     title_suffix = " (International)" if is_intl else ""
     render_hero("Compose Letter", f"{tier} Edition{title_suffix}")
     
@@ -210,7 +206,7 @@ def render_workspace_page():
 
     with st.container(border=True):
         
-        # --- CAMPAIGN SPECIAL LOGIC (CSV UPLOAD) ---
+        # --- CAMPAIGN LOGIC (Upload) ---
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
@@ -222,22 +218,17 @@ def render_workspace_page():
                     st.error(error)
                 else:
                     st.success(f"✅ Loaded {len(contacts)} recipients.")
-                    st.dataframe(contacts[:5]) # Preview
-                    
-                    paid_qty = st.session_state.get("bulk_paid_qty", 1000) # Default high if missing
-                    # Note: We grabbed 'qty' from URL param in main.py, stored in state
-                    
+                    st.dataframe(contacts[:5])
+                    paid_qty = st.session_state.get("bulk_paid_qty", 1000)
                     if len(contacts) > paid_qty:
                         st.warning(f"⚠️ You uploaded {len(contacts)} but paid for {paid_qty}. Only the first {paid_qty} will be sent.")
-                    
                     if st.button("Confirm List"):
                         st.session_state.bulk_targets = contacts
                         st.toast("List Saved!")
         
         else:
             st.subheader("📍 Addressing")
-            # --- STANDARD ADDRESSING LOGIC (Keep existing) ---
-            # ... (Existing Sender Logic) ...
+            # --- STANDARD ADDRESSING ---
             def_n=user_addr.get("name",""); def_s=user_addr.get("street","")
             def_c=user_addr.get("city",""); def_st=user_addr.get("state","")
             def_z=user_addr.get("zip",""); def_cntry=user_addr.get("country","US")
@@ -339,7 +330,7 @@ def render_workspace_page():
 
     st.write("---")
     
-    # --- SIGNATURE & DICTATION ---
+    # --- SIGNATURE & DICTATION (Common to all) ---
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
@@ -399,7 +390,7 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
 
-    # If Not Campaign, auto-save widgets. Campaign handles its own list.
+    # Auto-save if missing (Non-Campaign)
     if tier != "Campaign" and (not st.session_state.get("to_addr") or not st.session_state.get("from_addr")):
         _save_addresses_from_widgets(tier, is_intl)
 
@@ -409,6 +400,7 @@ def render_review_page():
     if tier == "Campaign" and "bulk_targets" in st.session_state:
         st.info(f"📢 **Campaign Mode:** Mailing to {len(st.session_state.bulk_targets)} recipients.")
 
+    # AI EDITOR
     st.write("✨ **AI Magic Editor**")
     c_edit1, c_edit2, c_edit3, c_edit4 = st.columns(4)
     def run_edit(style):
@@ -429,21 +421,17 @@ def render_review_page():
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             
-            # --- VALIDATION ---
+            # Validation
             if tier != "Campaign":
                 to_chk = st.session_state.get("to_addr", {})
                 from_chk = st.session_state.get("from_addr", {})
-                if not to_chk.get("street") and tier != "Civic":
-                    st.error("⚠️ Recipient Address missing."); return
-                if not from_chk.get("street") and tier != "Santa":
-                    st.error("⚠️ Sender Address missing."); return
+                if not to_chk.get("street") and tier != "Civic": st.error("⚠️ Recipient Address missing."); return
+                if not from_chk.get("street") and tier != "Santa": st.error("⚠️ Sender Address missing."); return
             else:
-                if not st.session_state.get("bulk_targets"):
-                    st.error("⚠️ No CSV loaded."); return
+                if not st.session_state.get("bulk_targets"): st.error("⚠️ No CSV loaded."); return
 
             with st.spinner("Processing & Mailing..."):
                 u_email = st.session_state.get("user_email")
-                # For campaign, we might default sender to user profile if not in widget
                 from_data = st.session_state.get("from_addr", {})
                 
                 sig_path = None; sig_db_value = None
@@ -458,14 +446,11 @@ def render_review_page():
                     except: pass
 
                 targets = []
-                if tier == "Campaign":
-                    targets = st.session_state.bulk_targets
+                if tier == "Campaign": targets = st.session_state.bulk_targets
                 elif tier == "Civic" and "civic_targets" in st.session_state:
                     for rep in st.session_state.civic_targets: t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
-                else:
-                    targets.append(st.session_state.to_addr)
+                else: targets.append(st.session_state.to_addr)
 
-                # PROGRESS BAR FOR BULK
                 prog_bar = st.progress(0)
                 
                 for i, to_data in enumerate(targets):
@@ -481,47 +466,36 @@ def render_review_page():
 
                     if letter_format:
                         pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
-                        
                         postgrid_success = False
                         if (tier == "Standard" or tier == "Civic" or tier == "Campaign") and mailer:
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                                tmp.write(pdf_bytes); tmp_path = tmp.name
-                            
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp.write(pdf_bytes); tmp_path = tmp.name
                             pg_to = {'name': to_data.get('name'), 'address_line1': to_data.get('street'), 'address_city': to_data.get('city'), 'address_state': to_data.get('state'), 'address_zip': to_data.get('zip'), 'country_code': to_data.get('country', 'US')}
                             pg_from = {'name': from_data.get('name'), 'address_line1': from_data.get('street'), 'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 'address_zip': from_data.get('zip'), 'country_code': from_data.get('country', 'US')}
-                            
                             resp = mailer.send_letter(tmp_path, pg_to, pg_from)
                             os.remove(tmp_path)
                             if resp and resp.get("id"): postgrid_success = True
 
                         if database:
                             final_status = "Pending Admin"
-                            if tier in ["Standard", "Civic", "Campaign"]:
-                                final_status = "Completed" if postgrid_success else "Pending Admin"
-                            
+                            if tier in ["Standard", "Civic", "Campaign"]: final_status = "Completed" if postgrid_success else "Pending Admin"
                             database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
+                            if (tier == "Santa" or tier == "Heirloom") and mailer: mailer.send_admin_alert(u_email, txt, tier)
 
-                    # Update Progress
                     prog_bar.progress((i + 1) / len(targets))
 
                 if sig_path and os.path.exists(sig_path): os.remove(sig_path)
-                st.session_state.letter_sent_success = True
-                st.rerun()
+                st.session_state.letter_sent_success = True; st.rerun()
     else:
         show_santa_animation()
         st.success("✅ Letters Queued for Delivery!")
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
-             reset_app()
-             st.rerun()
+             reset_app(); st.rerun()
 
 def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
     if "session_id" in st.query_params: 
-        # Capture Quantity from URL for Campaign
-        if "qty" in st.query_params:
-            st.session_state.bulk_paid_qty = int(st.query_params["qty"])
-        
+        if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
         st.session_state.app_mode = "workspace" 
         st.session_state.payment_complete = True 
         st.query_params.clear() 
