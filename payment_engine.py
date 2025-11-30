@@ -15,6 +15,9 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url)
 
         session = stripe.checkout.Session.create(
             payment_method_types=['card'],
+            # --- NEW: ENABLE AUTOMATIC TAX ---
+            automatic_tax={'enabled': True},
+            # ---------------------------------
             line_items=[{
                 'price_data': {
                     'currency': 'usd',
@@ -22,12 +25,16 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url)
                         'name': product_name,
                     },
                     'unit_amount': amount_cents,
+                    # OPTIONAL: Set tax behavior (e.g., 'exclusive' adds tax on top, 'inclusive' absorbs it)
+                    'tax_behavior': 'exclusive', 
                 },
                 'quantity': 1,
             }],
             mode='payment',
             success_url=success_url,
             cancel_url=cancel_url,
+            # We need to collect the customer's address to know their tax rate
+            billing_address_collection='required',
         )
         return session.url, session.id
         
