@@ -61,7 +61,7 @@ def reset_app():
         "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty",
         "is_intl", "letter_sent_success", "locked_tier",
         "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country",
-        "addr_book_idx" # Reset dropdown
+        "addr_book_idx"
     ]
     for key in keys_to_clear:
         if key in st.session_state: del st.session_state[key]
@@ -205,12 +205,29 @@ def render_workspace_page():
 
     with st.container(border=True):
         
-        # --- CAMPAIGN LOGIC ---
+        # --- CAMPAIGN LOGIC (CSV UPLOAD) ---
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             
-            uploaded_file = st.file_uploader("Upload CSV (Required: name, street, city, state, zip)", type=['csv'])
+            # --- ADDED: FORMATTING GUIDE ---
+            st.info("""
+            **CSV Format Requirements:**
+            Your file must have these 5 columns (headers are case-insensitive):
+            - **Name** (or Full Name)
+            - **Street** (or Address)
+            - **City**
+            - **State**
+            - **Zip** (or Postal Code)
+            """)
+            
+            with st.expander("👀 View Example CSV Format"):
+                st.code("""Name,Street,City,State,Zip
+John Smith,100 Main St,Nashville,TN,37203
+Jane Doe,500 5th Ave,New York,NY,10018""", language="csv")
+            # -------------------------------
+
+            uploaded_file = st.file_uploader("Upload CSV File", type=['csv'])
             if uploaded_file:
                 contacts, error = bulk_engine.parse_csv(uploaded_file)
                 if error:
@@ -260,7 +277,6 @@ def render_workspace_page():
             st.markdown("---")
             st.markdown("**📮 To (Recipient)**")
             
-            # --- NEW: ADDRESS BOOK SELECTOR ---
             if database and tier != "Civic":
                 contacts = database.get_contacts(u_email)
                 if contacts:
@@ -274,7 +290,6 @@ def render_workspace_page():
                             st.session_state.w_to_state = c.state
                             st.session_state.w_to_zip = c.zip_code
                             st.session_state.w_to_country = c.country
-                    
                     contact_opts = ["-- Select from Address Book --"] + [c.name for c in contacts]
                     st.selectbox("📖 Address Book", range(len(contact_opts)), format_func=lambda x: contact_opts[x], key="addr_book_idx", on_change=_autofill_contact)
 
@@ -314,7 +329,6 @@ def render_workspace_page():
                          else: st.error("Enter full sender address.")
                  st.toast("Addresses Saved!")
 
-            # --- NEW: SAVE TO ADDRESS BOOK BUTTON ---
             if tier != "Civic" and c_save2.button("💾 Save to Address Book"):
                 name = st.session_state.get("w_to_name")
                 street = st.session_state.get("w_to_street")
