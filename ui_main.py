@@ -61,7 +61,7 @@ def reset_app():
         "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty",
         "is_intl", "is_certified", "letter_sent_success", "locked_tier",
         "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country",
-        "addr_book_idx"
+        "addr_book_idx", "last_tracking_num" # <--- Added tracking num cleanup
     ]
     for key in keys_to_clear:
         if key in st.session_state: del st.session_state[key]
@@ -136,19 +136,16 @@ def render_store_page():
             tier_code = sel
             st.info(tier_descriptions[tier_code])
             
-            # --- PRICING LOGIC ---
             qty = 1
             if tier_code == "Campaign":
-                base_price = 2.99
-                bulk_rate = 1.99
+                unit_price = 1.99
                 qty = st.number_input("Number of Recipients", min_value=10, max_value=5000, value=50, step=10)
-                price = base_price + ((qty - 1) * bulk_rate)
-                st.caption(f"Pricing: First letter ${base_price}, then ${bulk_rate}/ea")
+                price = unit_price * qty
+                st.caption(f"Bulk Rate: ${unit_price}/letter x {qty} recipients")
             else:
                 prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
                 price = prices[tier_code]
 
-            # --- INTERNATIONAL & CERTIFIED TOGGLES ---
             is_intl = False
             is_certified = False
             
@@ -219,15 +216,11 @@ def render_workspace_page():
 
     with st.container(border=True):
         
-        # --- CAMPAIGN LOGIC ---
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             
             st.info("""**CSV Format:** Name, Street, City, State, Zip""")
-            with st.expander("👀 View Example"):
-                st.code("Name,Street,City,State,Zip\nJohn Doe,123 Main St,New York,NY,10001", language="csv")
-
             uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
             if uploaded_file:
                 contacts, error = bulk_engine.parse_csv(uploaded_file)
@@ -243,7 +236,6 @@ def render_workspace_page():
         
         else:
             st.subheader("📍 Addressing")
-            # --- STANDARD ADDRESSING ---
             def_n=user_addr.get("name",""); def_s=user_addr.get("street","")
             def_c=user_addr.get("city",""); def_st=user_addr.get("state","")
             def_z=user_addr.get("zip",""); def_cntry=user_addr.get("country","US")
@@ -319,13 +311,7 @@ def render_workspace_page():
                 name = st.session_state.get("w_to_name")
                 street = st.session_state.get("w_to_street")
                 if name and street:
-                    database.add_contact(
-                        u_email, name, street,
-                        st.session_state.get("w_to_city"),
-                        st.session_state.get("w_to_state"),
-                        st.session_state.get("w_to_zip"),
-                        st.session_state.get("w_to_country", "US")
-                    )
+                    database.add_contact(u_email, name, street, st.session_state.get("w_to_city"), st.session_state.get("w_to_state"), st.session_state.get("w_to_zip"), st.session_state.get("w_to_country", "US"))
                     st.success(f"Saved {name}!")
                     st.rerun()
                 else: st.error("Enter Name & Street first.")
@@ -421,7 +407,6 @@ def render_review_page():
     
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
-            
             if tier != "Campaign":
                 to_chk = st.session_state.get("to_addr", {})
                 from_chk = st.session_state.get("from_addr", {})
@@ -466,7 +451,6 @@ def render_review_page():
 
                     if letter_format:
                         pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
-                        
                         postgrid_success = False
                         if (tier == "Standard" or tier == "Civic" or tier == "Campaign") and mailer:
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp.write(pdf_bytes); tmp_path = tmp.name
@@ -477,6 +461,10 @@ def render_review_page():
                             resp = mailer.send_letter(tmp_path, pg_to, pg_from, certified=is_certified)
                             os.remove(tmp_path)
                             if resp and resp.get("id"): postgrid_success = True
+                            
+                            # CAPTURE TRACKING
+                            if postgrid_success and is_certified and resp.get('trackingNumber'):
+                                st.session_state.last_tracking_num = resp.get('trackingNumber')
 
                         if database:
                             final_status = "Pending Admin"
@@ -491,6 +479,9 @@ def render_review_page():
     else:
         show_santa_animation()
         st.success("✅ Letters Queued for Delivery!")
+        if st.session_state.get("last_tracking_num"):
+            st.info(f"📜 **Certified Mail Tracking:** {st.session_state.last_tracking_num}")
+            st.caption("You will also receive this via email.")
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
              reset_app(); st.rerun()
 
