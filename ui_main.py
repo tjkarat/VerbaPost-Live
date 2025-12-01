@@ -50,6 +50,7 @@ COUNTRIES = {
 }
 
 def reset_app():
+    """Resets transaction state but keeps user logged in."""
     if st.session_state.get("user_email"):
         st.session_state.app_mode = "store"
     else:
@@ -59,7 +60,8 @@ def reset_app():
         "audio_path", "transcribed_text", "payment_complete", 
         "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty",
         "is_intl", "is_certified", "letter_sent_success", "locked_tier",
-        "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country"
+        "w_to_name", "w_to_street", "w_to_city", "w_to_state", "w_to_zip", "w_to_country",
+        "addr_book_idx"
     ]
     for key in keys_to_clear:
         if key in st.session_state: del st.session_state[key]
@@ -134,28 +136,28 @@ def render_store_page():
             tier_code = sel
             st.info(tier_descriptions[tier_code])
             
+            # --- PRICING LOGIC ---
             qty = 1
             if tier_code == "Campaign":
-                unit_price = 1.99
+                base_price = 2.99
+                bulk_rate = 1.99
                 qty = st.number_input("Number of Recipients", min_value=10, max_value=5000, value=50, step=10)
-                price = unit_price * qty
-                st.caption(f"Bulk Rate: ${unit_price}/letter x {qty} recipients")
+                price = base_price + ((qty - 1) * bulk_rate)
+                st.caption(f"Pricing: First letter ${base_price}, then ${bulk_rate}/ea")
             else:
                 prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
                 price = prices[tier_code]
 
-            # --- INTERNATIONAL & CERTIFIED ---
+            # --- INTERNATIONAL & CERTIFIED TOGGLES ---
             is_intl = False
             is_certified = False
             
             if tier_code in ["Standard", "Heirloom"]:
                 c_opt1, c_opt2 = st.columns(2)
-                # Option 1: International
                 if c_opt1.checkbox("Send Internationally? (+$2.00)", key="intl_toggle_check"):
                     price += 2.00
                     is_intl = True
                 
-                # Option 2: Certified
                 if c_opt2.checkbox("📜 Certified Mail (+$12.00)"):
                     price += 12.00
                     is_certified = True
@@ -189,7 +191,7 @@ def render_store_page():
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if is_intl: link += "&intl=1"
-                    if is_certified: link += "&certified=1" # Pass to Stripe return URL
+                    if is_certified: link += "&certified=1"
                     if tier_code == "Campaign": link += f"&qty={qty}"
 
                     if payment_engine:
@@ -223,6 +225,9 @@ def render_workspace_page():
             if not bulk_engine: st.error("Bulk Engine Missing")
             
             st.info("""**CSV Format:** Name, Street, City, State, Zip""")
+            with st.expander("👀 View Example"):
+                st.code("Name,Street,City,State,Zip\nJohn Doe,123 Main St,New York,NY,10001", language="csv")
+
             uploaded_file = st.file_uploader("Upload CSV", type=['csv'])
             if uploaded_file:
                 contacts, error = bulk_engine.parse_csv(uploaded_file)
@@ -314,7 +319,13 @@ def render_workspace_page():
                 name = st.session_state.get("w_to_name")
                 street = st.session_state.get("w_to_street")
                 if name and street:
-                    database.add_contact(u_email, name, street, st.session_state.get("w_to_city"), st.session_state.get("w_to_state"), st.session_state.get("w_to_zip"), st.session_state.get("w_to_country", "US"))
+                    database.add_contact(
+                        u_email, name, street,
+                        st.session_state.get("w_to_city"),
+                        st.session_state.get("w_to_state"),
+                        st.session_state.get("w_to_zip"),
+                        st.session_state.get("w_to_country", "US")
+                    )
                     st.success(f"Saved {name}!")
                     st.rerun()
                 else: st.error("Enter Name & Street first.")
@@ -354,7 +365,6 @@ def _save_addresses_from_widgets(tier, is_intl):
             "state": st.session_state.get("w_from_state"),
             "zip": st.session_state.get("w_from_zip"),
             "country": f_cntry,
-            # Pass email for tracking receipt
             "email": st.session_state.get("user_email")
         }
     if tier == "Civic":
@@ -411,6 +421,7 @@ def render_review_page():
     
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
+            
             if tier != "Campaign":
                 to_chk = st.session_state.get("to_addr", {})
                 from_chk = st.session_state.get("from_addr", {})
@@ -455,14 +466,14 @@ def render_review_page():
 
                     if letter_format:
                         pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
+                        
                         postgrid_success = False
                         if (tier == "Standard" or tier == "Civic" or tier == "Campaign") and mailer:
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp.write(pdf_bytes); tmp_path = tmp.name
                             
                             pg_to = {'name': to_data.get('name'), 'address_line1': to_data.get('street'), 'address_city': to_data.get('city'), 'address_state': to_data.get('state'), 'address_zip': to_data.get('zip'), 'country_code': to_data.get('country', 'US')}
-                            pg_from = {'name': from_data.get('name'), 'address_line1': from_data.get('street'), 'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 'address_zip': from_data.get('zip'), 'country_code': from_data.get('country', 'US')}
+                            pg_from = {'name': from_data.get('name'), 'address_line1': from_data.get('street'), 'address_city': from_data.get('city'), 'address_state': from_data.get('state'), 'address_zip': from_data.get('zip'), 'country_code': from_data.get('country', 'US'), 'email': u_email}
                             
-                            # PASS CERTIFIED FLAG
                             resp = mailer.send_letter(tmp_path, pg_to, pg_from, certified=is_certified)
                             os.remove(tmp_path)
                             if resp and resp.get("id"): postgrid_success = True
@@ -488,7 +499,7 @@ def show_main_app():
     mode = st.session_state.get("app_mode", "splash")
     if "session_id" in st.query_params: 
         if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
-        if "certified" in st.query_params: st.session_state.is_certified = True # Restore flag
+        if "certified" in st.query_params: st.session_state.is_certified = True
         st.session_state.app_mode = "workspace" 
         st.session_state.payment_complete = True 
         st.query_params.clear() 
