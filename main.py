@@ -42,15 +42,14 @@ if __name__ == "__main__":
         if "tier" in q_params and "session_id" not in q_params:
             st.session_state.target_marketing_tier = q_params["tier"]
 
-        # 2. Stripe Return (The Fix)
+        # 2. Stripe Return (Logic Updated)
         if "session_id" in q_params:
             st.session_state.app_mode = "workspace"
             st.session_state.payment_complete = True
             
             if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
             if "intl" in q_params: st.session_state.is_intl = True
-            
-            # CAPTURE CAMPAIGN QUANTITY
+            if "certified" in q_params: st.session_state.is_certified = True
             if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
             
             st.query_params.clear()
