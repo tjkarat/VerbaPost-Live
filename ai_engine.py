@@ -44,13 +44,18 @@ def refine_text(text, style):
     Sends text to OpenAI to be rewritten in a specific style.
     Styles: 'Grammar Fix', 'Professional', 'Warm & Friendly', 'Concise'
     """
+    import os  # <--- CHANGED: Import os instead of secrets_manager
     import openai
-    import secrets_manager
     
-    # 1. Get Key
-    api_key = secrets_manager.get_secret("OPENAI_API_KEY")
-    if not api_key: return text # Fail safe
+    # 1. Get Key from Environment Variable
+    # Cloud Run automatically injects the secret here if you "mounted" it
+    api_key = os.getenv("OPENAI_API_KEY") 
     
+    if not api_key:
+        print("Error: OPENAI_API_KEY not found in environment variables.")
+        return text # Fail safe: return original text if key is missing
+    
+    # 2. Initialize Client
     client = openai.OpenAI(api_key=api_key)
     
     # 2. Define Prompts
