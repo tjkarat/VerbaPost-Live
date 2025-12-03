@@ -15,8 +15,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy App Code
 COPY . .
 
-# --- THE FIX: Create a dummy secrets file to silence Streamlit error ---
+# Create a dummy secrets file to silence Streamlit warning
 RUN mkdir -p .streamlit && echo "" > .streamlit/secrets.toml
+
+# --- THE FIX: RUN SEO INJECTOR ---
+# This modifies the core Streamlit HTML files to include your keywords
+RUN python seo_injector.py
 
 # Expose Port 8080
 EXPOSE 8080
