@@ -74,11 +74,12 @@ def show_admin():
 
     # --- TAB 1: STANDARD ORDERS ---
     with tab_orders:
-        st.subheader("Standard & Civic Orders")
+        st.subheader("Standard, Civic & Campaign Orders")
         
         if database:
             data = database.fetch_all_drafts()
-            std_orders = [d for d in data if d.get("Tier") and ("Standard" in d["Tier"] or "Civic" in d["Tier"])]
+            # FIX: Added "Campaign" to the filter list
+            std_orders = [d for d in data if d.get("Tier") and d["Tier"] in ["Standard", "Civic", "Campaign"]]
             
             if std_orders:
                 df = pd.DataFrame(std_orders)
