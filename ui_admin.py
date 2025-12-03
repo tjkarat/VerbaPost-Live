@@ -58,8 +58,8 @@ def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=
         return None
 
 def show_admin():
-    # TITLE UPDATE: v2.3
-    st.title("🔐 Admin Console (v2.3)")
+    # TITLE UPDATE: v2.4 (Tuple Fix)
+    st.title("🔐 Admin Console (v2.4)")
     
     u_email = st.session_state.get("user_email") or st.session_state.get("user", {}).email
     st.info(f"Logged in as: {u_email}")
@@ -140,7 +140,6 @@ def show_admin():
                             
                             if missing:
                                 st.error(f"⚠️ MISSING DATA: {', '.join(missing)}")
-                                st.warning("💡 Tip: If you used browser autofill, click inside each white box to ensure the system 'sees' the text before saving.")
                             else:
                                 # Data is good, proceed
                                 new_to = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_ctry}
@@ -167,15 +166,16 @@ def show_admin():
                                         'address_zip': new_from['zip'], 'country_code': new_from['country']
                                     }
                                     
-                                    resp = mailer.send_letter(tmp_path, pg_to, pg_from)
+                                    # --- THE FIX: UNPACK TUPLE ---
+                                    success, resp_data = mailer.send_letter(tmp_path, pg_to, pg_from)
                                     os.remove(tmp_path)
                                     
-                                    if resp and resp.get("id"):
-                                        st.success(f"✅ Sent! ID: {resp.get('id')}")
+                                    if success and resp_data.get("id"):
+                                        st.success(f"✅ Sent! ID: {resp_data.get('id')}")
                                         database.update_draft_data(selected_id, new_to, new_from, status="Completed")
                                         st.rerun()
                                     else:
-                                        st.error("❌ PostGrid Failed. Check logs.")
+                                        st.error(f"❌ PostGrid Failed: {resp_data}")
                                 else:
                                     st.error("Mailer module missing or PDF failed.")
             else:
