@@ -5,7 +5,6 @@ from datetime import datetime
 import json
 import secrets_manager
 
-# --- GLOBAL SETUP ---
 Base = declarative_base()
 
 class UserProfile(Base):
@@ -14,10 +13,11 @@ class UserProfile(Base):
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     address_line1 = Column(String)
+    address_line2 = Column(String, nullable=True) # <--- NEW
     address_city = Column(String)
     address_state = Column(String)
     address_zip = Column(String)
-    country = Column(String, default="US") 
+    country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LetterDraft(Base):
@@ -33,13 +33,13 @@ class LetterDraft(Base):
     signature_data = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# --- NEW: ADDRESS BOOK MODEL ---
 class SavedContact(Base):
     __tablename__ = "saved_contacts"
     id = Column(Integer, primary_key=True, index=True)
     user_email = Column(String, index=True) 
     name = Column(String)
     street = Column(String)
+    street2 = Column(String, nullable=True) # <--- NEW
     city = Column(String)
     state = Column(String)
     zip_code = Column(String)
@@ -101,14 +101,17 @@ def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=
         db.rollback(); return None
     finally: db.close()
 
-def update_user_profile(email, name, street, city, state, zip_code, country="US"):
+def update_user_profile(email, name, street, street2, city, state, zip_code, country="US"):
     db = get_session()
     if not db: return
     try:
         user = db.query(UserProfile).filter(UserProfile.email == email).first()
         if not user:
             user = UserProfile(email=email); db.add(user)
-        user.full_name = name; user.address_line1 = street; user.address_city = city
+        user.full_name = name
+        user.address_line1 = street
+        user.address_line2 = street2 # <--- Save it
+        user.address_city = city
         user.address_state = state; user.address_zip = zip_code
         user.country = country
         db.commit()
@@ -139,7 +142,6 @@ def fetch_all_drafts():
     finally: db.close()
 
 def update_draft_data(draft_id, to_addr, from_addr, status=None):
-    """Admin Tool: Fix addresses"""
     db = get_session()
     if not db: return False
     try:
@@ -157,7 +159,7 @@ def update_draft_data(draft_id, to_addr, from_addr, status=None):
     finally: db.close()
 
 # --- ADDRESS BOOK FUNCTIONS ---
-def add_contact(user_email, name, street, city, state, zip_code, country="US"):
+def add_contact(user_email, name, street, street2, city, state, zip_code, country="US"):
     db = get_session()
     if not db: return False
     try:
@@ -166,11 +168,12 @@ def add_contact(user_email, name, street, city, state, zip_code, country="US"):
             SavedContact.name == name
         ).first()
         if exists:
-            exists.street = street; exists.city = city
-            exists.state = state; exists.zip_code = zip_code; exists.country = country
+            exists.street = street; exists.street2 = street2 # <--- Update
+            exists.city = city; exists.state = state
+            exists.zip_code = zip_code; exists.country = country
         else:
             contact = SavedContact(
-                user_email=user_email, name=name, street=street, 
+                user_email=user_email, name=name, street=street, street2=street2, # <--- Insert
                 city=city, state=state, zip_code=zip_code, country=country
             )
             db.add(contact)
@@ -199,7 +202,6 @@ def delete_contact(contact_id):
     except: return False
     finally: db.close()
 
-# --- CIVIC LEADERBOARD ---
 def get_civic_leaderboard():
     db = get_session()
     if not db: return []
@@ -222,7 +224,6 @@ def get_civic_leaderboard():
         sorted_stats = sorted(state_counts.items(), key=lambda item: item[1], reverse=True)
         return sorted_stats[:5]
     except Exception as e:
-        print(f"Leaderboard Error: {e}")
         return []
     finally:
         db.close()

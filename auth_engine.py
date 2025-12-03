@@ -14,8 +14,6 @@ def get_client():
     except Exception as e:
         return None, f"Connection Error: {e}"
 
-# --- AUTH FUNCTIONS ---
-
 def sign_in(email, password):
     client, err = get_client()
     if err: return None, err
@@ -25,29 +23,29 @@ def sign_in(email, password):
     except Exception as e:
         return None, f"Login Failed: {e}"
 
-def sign_up(email, password, name, street, city, state, zip_code, country, language):
+# --- UPDATED SIGNUP ---
+def sign_up(email, password, name, street, street2, city, state, zip_code, country, language):
     client, err = get_client()
     if err: return None, err
     try:
-        # 1. Create Auth User
         res = client.auth.sign_up({
             "email": email, 
             "password": password,
             "options": {"data": {"full_name": name}}
         })
         
-        # 2. Save Profile Data Immediately
         if res.user:
             try:
                 profile_data = {
                     "id": res.user.id, 
                     "email": email, 
                     "full_name": name,
-                    "address_line1": street, 
+                    "address_line1": street,
+                    "address_line2": street2, # <--- New Field
                     "address_city": city,
                     "address_state": state, 
                     "address_zip": zip_code,
-                    "country": country,  # <--- NEW FIELD
+                    "country": country,
                     "language_preference": language
                 }
                 client.table("user_profiles").upsert(profile_data).execute()
