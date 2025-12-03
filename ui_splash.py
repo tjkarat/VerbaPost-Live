@@ -18,31 +18,30 @@ def show_splash():
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
       "name": "VerbaPost",
-      "applicationCategory": "CommunicationApplication",
       "operatingSystem": "Web",
+      "applicationCategory": "CommunicationApplication",
       "offers": {
         "@type": "Offer",
         "price": "2.99",
         "priceCurrency": "USD"
       },
-      "description": "VerbaPost is the easiest way to send physical mail online. We convert voice dictation into USPS letters, printed and mailed automatically. Features include bulk campaign mailing, letters to Congress, and Santa letters.",
-      "featureList": "Voice-to-Mail, USPS Delivery, Bulk Campaign Tools, Address Book"
+      "description": "The easiest way to send real physical mail online. Turn voice dictation or text into USPS First Class letters. Features include Santa Letters, writing to Congress, bulk campaign mailing, and archival heirloom letters.",
+      "featureList": "Voice-to-Text Dictation, USPS Mail Delivery, Santa Letters, Civic Engagement Tools, Bulk Mailing, Address Book"
     }
     </script>
     """, unsafe_allow_html=True)
 
-    # --- 2. HERO SECTION (Text Only - Fast Load) ---
+    # --- 2. SEMANTIC HEADER (Replaces Logo) ---
     st.markdown("""
-    <div style="text-align: center; padding-top: 20px; padding-bottom: 20px;">
-        <h1 style="color: #1e3c72; font-size: 3.5rem; margin-bottom: 10px;">VerbaPost</h1>
-        <p style="font-size: 1.6rem; color: #444; font-weight: 500; margin-top: 0;">
+    <header style="text-align: center; padding-top: 20px; padding-bottom: 30px;">
+        <h1 style="font-size: 3.5rem; font-weight: 700; color: #1e3c72; margin-bottom: 0.5rem;">
+            VerbaPost
+        </h1>
+        <h2 style="font-size: 1.5rem; font-weight: 500; color: #555; margin-top: 0;">
             Texts are trivial. Emails are ignored.<br>
             <span style="color: #d93025; font-weight: 700;">REAL MAIL GETS READ.</span>
-        </p>
-        <p style="font-size: 1.1rem; color: #666; margin-top: 15px;">
-            The first <b>Voice-to-Mail</b> platform. Speak your letter, and we print, stamp, and mail it for you.
-        </p>
-    </div>
+        </h2>
+    </header>
     """, unsafe_allow_html=True)
 
     # --- 3. CALL TO ACTION ---
@@ -52,27 +51,26 @@ def show_splash():
             set_mode("login", view_preference="signup")
         
         st.markdown("""
-        <div style="text-align: center; margin-top: 10px;">
+        <div style="text-align: center; margin-top: 10px; color: #666;">
             <small>No printer. No stamps. No post office lines.</small>
         </div>
         """, unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # --- 4. MISSION & ABOUT (New SEO Content) ---
-    # This section specifically addresses Grok's feedback about "Insufficient Content"
+    # --- 4. MISSION & ABOUT (SEO Content) ---
     st.subheader("Why VerbaPost?")
     
     col_mission, col_features = st.columns([3, 2])
     
     with col_mission:
         st.markdown("""
-        **Our Mission: Reconnecting the Physical World**
-        
-        In a world drowning in digital noise, physical mail has become a superpower. It implies effort, care, and importance. But the process of sending mail—finding paper, envelopes, stamps, and walking to a mailbox—is stuck in the past.
-        
-        **VerbaPost bridges the gap.** We use advanced AI (OpenAI Whisper) to capture your authentic voice and convert it into a professional physical document. Whether you are a constituent demanding action from Congress, a grandparent sharing a story, or a campaign manager reaching 500 voters, VerbaPost handles the logistics so you can focus on the message.
-        """)
+        <div style="font-size: 1.1rem; line-height: 1.6;">
+        <p><strong>Our Mission: Reconnecting the Physical World</strong></p>
+        <p>In a world drowning in digital noise, physical mail has become a superpower. It implies effort, care, and importance. But the process of sending mail—finding paper, envelopes, stamps, and walking to a mailbox—is stuck in the past.</p>
+        <p><strong>VerbaPost bridges the gap.</strong> We use advanced AI to capture your authentic voice and convert it into a professional physical document. Whether you are a constituent demanding action from Congress, a grandparent sharing a story, or a campaign manager reaching 500 voters, VerbaPost handles the logistics so you can focus on the message.</p>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col_features:
         with st.container(border=True):
@@ -80,9 +78,9 @@ def show_splash():
             **Key Features:**
             * 🎙️ **Voice Dictation:** Just speak. We type.
             * ✨ **AI Editor:** Polish grammar instantly.
-            * 📮 **USPS Fulfillment:** Printed & mailed in 24hrs.
-            * 📂 **Bulk Campaigns:** CSV upload for mass mail.
-            * 📜 **Certified Mail:** Tracking included.
+            * 📮 **USPS Fulfillment:** Mailed in 24hrs.
+            * 📂 **Bulk Campaigns:** CSV upload supported.
+            * 📜 **Certified Mail:** Tracking available.
             """)
 
     st.markdown("---")
@@ -140,7 +138,8 @@ def show_splash():
             cols = st.columns(len(stats))
             for i, (state, count) in enumerate(stats):
                 with cols[i]:
-                    st.metric(label=state, value=str(count))
+                    with st.container(border=True):
+                        st.metric(label=state, value=str(count))
 
     # --- 8. FAQ ---
     st.markdown("---")
@@ -153,11 +152,3 @@ def show_splash():
         st.write("Yes. Standard and Civic letters are processed automatically via API. Humans do not read them. Heirloom/Santa letters are manually quality-checked.")
         
     with st.expander("🌍 Can I mail internationally?"):
-        st.write("Yes! We support mailing to over 180 countries including the UK, Canada, and Australia.")
-
-    # --- 9. FOOTER ---
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    f1, f2 = st.columns([4, 1])
-    with f2:
-        if st.button("Legal / Terms", key="footer_legal"):
-            set_mode("legal")
