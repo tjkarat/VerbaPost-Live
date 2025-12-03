@@ -1,11 +1,38 @@
 import streamlit as st
 
-def validate_address(street, city, state, zip_code):
+# --- COUNTRY LIST (Expanded) ---
+COUNTRIES = {
+    "US": "United States",
+    "CA": "Canada",
+    "GB": "United Kingdom",
+    "FR": "France",
+    "DE": "Germany",
+    "IT": "Italy",
+    "ES": "Spain",
+    "AU": "Australia",
+    "MX": "Mexico",
+    "JP": "Japan",
+    "BR": "Brazil",
+    "IN": "India"  # <--- Added India
+}
+
+def validate_address(street, city, state, zip_code, country_code):
     errors = []
-    if len(zip_code) != 5 or not zip_code.isdigit():
-        errors.append("Zip code must be exactly 5 digits.")
-    if len(state) != 2:
-        errors.append("State must be a 2-letter abbreviation (e.g., TN, NY).")
+    
+    # US-Specific Validation (Strict)
+    if country_code == "US":
+        if len(zip_code) != 5 or not zip_code.isdigit():
+            errors.append("US Zip code must be exactly 5 digits.")
+        if len(state) != 2:
+            errors.append("US State must be a 2-letter abbreviation (e.g., TN, NY).")
+            
+    # International Validation (Relaxed)
+    else:
+        if len(str(zip_code)) < 3:
+            errors.append("Postal code looks too short.")
+        if len(str(state)) < 2:
+            errors.append("State/Province required.")
+
     if len(street) < 5:
         errors.append("Street address looks too short.")
     return errors
@@ -28,31 +55,34 @@ def show_login(login_func, signup_func):
                 st.error(st.session_state.auth_error)
                 del st.session_state.auth_error
             
-            tab_login, tab_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
+            # Smart Tab Selection based on Splash Page
+            active_tab = st.session_state.get("auth_view", "login")
+            
+            if active_tab == "signup":
+                t_signup, t_login = st.tabs(["📝 Create Account", "🔑 Log In"])
+            else:
+                t_login, t_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
             
             # --- LOGIN TAB ---
-            with tab_login:
+            with t_login:
                 with st.form("login_form"):
                     email = st.text_input("Email Address", key="login_email")
                     password = st.text_input("Password", type="password", key="login_pass")
                     st.markdown("<br>", unsafe_allow_html=True)
                     
-                    submitted = st.form_submit_button("Log In", type="primary", use_container_width=True)
-                    
-                    if submitted:
+                    if st.form_submit_button("Log In", type="primary", use_container_width=True):
                         if email and password:
                             with st.spinner("Verifying..."):
                                 login_func(email, password)
                         else:
                             st.warning("Enter email & password")
                 
-                # Forgot Password Link
                 if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
                     st.session_state.app_mode = "forgot_password"
                     st.rerun()
             
-            # --- SIGNUP TAB ---
-            with tab_signup:
+            # --- SIGNUP TAB (With Country Selector) ---
+            with t_signup:
                 st.caption("Please fill out your details below. Your address is required for return labels.")
                 
                 with st.form("signup_form"):
@@ -63,20 +93,26 @@ def show_login(login_func, signup_func):
                     st.markdown("---")
                     st.markdown("**Your Return Address**")
                     name = st.text_input("Full Legal Name", placeholder="e.g. John Doe")
-                    addr = st.text_input("Street Address", placeholder="e.g. 123 Main St")
+                    
+                    # COUNTRY SELECTION
+                    c_cntry, c_str = st.columns([1, 2])
+                    country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0) # Default US
+                    addr = c_str.text_input("Street Address", placeholder="e.g. 123 Main St")
+                    
+                    # Dynamic Labels based on country
+                    s_lbl_st = "State (2 letters)" if country_code == "US" else "State/Province"
+                    s_lbl_zip = "Zip Code" if country_code == "US" else "Postal Code"
                     
                     c_city, c_state, c_zip = st.columns([2, 1, 1])
                     city = c_city.text_input("City")
-                    state = c_state.text_input("State (2 letters)")
-                    zip_code = c_zip.text_input("Zip Code (5 digits)")
+                    state = c_state.text_input(s_lbl_st)
+                    zip_code = c_zip.text_input(s_lbl_zip)
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     
-                    submitted_signup = st.form_submit_button("Create Account", type="primary", use_container_width=True)
-                    
-                    if submitted_signup:
-                        # Validation
-                        addr_errors = validate_address(addr, city, state, zip_code)
+                    if st.form_submit_button("Create Account", type="primary", use_container_width=True):
+                        # 1. Validate Address (Pass country code)
+                        addr_errors = validate_address(addr, city, state, zip_code, country_code)
                         
                         if new_pass != confirm_pass:
                             st.error("❌ Passwords do not match")
@@ -86,7 +122,8 @@ def show_login(login_func, signup_func):
                             for e in addr_errors: st.error(f"❌ {e}")
                         else:
                             with st.spinner("Creating account..."):
-                                signup_func(new_email, new_pass, name, addr, city, state, zip_code, "English")
+                                # 2. Pass country code to signup function
+                                signup_func(new_email, new_pass, name, addr, city, state, zip_code, country_code, "English")
 
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:
@@ -94,14 +131,15 @@ def show_login(login_func, signup_func):
             st.session_state.app_mode = "splash"
             st.rerun()
 
-# ... (Rest of file remains unchanged) ...
+# --- RECOVERY SCREENS ---
 def show_forgot_password(send_code_func):
-    c1, c2, c3 = st.columns([1, 1.5, 1]) # Keep this one narrow for password reset
+    c1, c2, c3 = st.columns([1, 1.5, 1]) # Keep narrow for password reset
     with c2:
         st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Recovery 🔐</h2>", unsafe_allow_html=True)
         with st.container(border=True):
             st.info("Enter your email. We will send you a verification token.")
             email = st.text_input("Email Address", key="reset_email_input")
+            
             if st.button("Send Token", type="primary", use_container_width=True):
                 if email and send_code_func:
                     success, msg = send_code_func(email)
@@ -111,8 +149,10 @@ def show_forgot_password(send_code_func):
                         st.rerun()
                     else: st.error(f"Error: {msg}")
                 else: st.warning("Please enter your email")
+            
             if st.button("Cancel", type="secondary", use_container_width=True):
-                st.session_state.app_mode = "login"; st.rerun()
+                st.session_state.app_mode = "login"
+                st.rerun()
 
 def show_reset_verify(verify_func):
     c1, c2, c3 = st.columns([1, 1.5, 1])
@@ -123,6 +163,7 @@ def show_reset_verify(verify_func):
             st.success(f"Token sent to: **{email}**")
             token = st.text_input("Enter Token (from email)")
             new_pass = st.text_input("New Password", type="password")
+            
             if st.button("Update Password", type="primary", use_container_width=True):
                 if token and new_pass and verify_func:
                     success, msg = verify_func(email, token, new_pass)
