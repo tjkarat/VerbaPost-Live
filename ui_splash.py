@@ -31,7 +31,7 @@ def show_splash():
     </script>
     """, unsafe_allow_html=True)
 
-    # --- 2. SEMANTIC HEADER (Replaces Logo) ---
+    # --- 2. HERO SECTION (Text Only) ---
     st.markdown("""
     <header style="text-align: center; padding-top: 20px; padding-bottom: 30px;">
         <h1 style="font-size: 3.5rem; font-weight: 700; color: #1e3c72; margin-bottom: 0.5rem;">
@@ -58,7 +58,7 @@ def show_splash():
 
     st.markdown("---")
 
-    # --- 4. MISSION & ABOUT (SEO Content) ---
+    # --- 4. MISSION & ABOUT ---
     st.subheader("Why VerbaPost?")
     
     col_mission, col_features = st.columns([3, 2])
@@ -130,16 +130,17 @@ def show_splash():
 
     # --- 7. CIVIC LEADERBOARD ---
     if database:
+        # Ensure this block is indented correctly
         stats = database.get_civic_leaderboard()
         if stats:
             st.markdown("---")
             st.subheader("🏛️ Civic Leaderboard")
             st.caption("Most active states writing to Congress via VerbaPost.")
+            
             cols = st.columns(len(stats))
             for i, (state, count) in enumerate(stats):
                 with cols[i]:
-                    with st.container(border=True):
-                        st.metric(label=state, value=str(count))
+                    st.metric(label=state, value=str(count))
 
     # --- 8. FAQ ---
     st.markdown("---")
@@ -152,3 +153,17 @@ def show_splash():
         st.write("Yes. Standard and Civic letters are processed automatically via API. Humans do not read them. Heirloom/Santa letters are manually quality-checked.")
         
     with st.expander("🌍 Can I mail internationally?"):
+        # This is the line that was causing the error. It must be indented.
+        st.write("Yes! We support mailing to over 180 countries including the UK, Canada, and Australia.")
+
+    # --- 9. BOTTOM CTA & FOOTER ---
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
+    with c_bot2:
+        if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
+            set_mode("login", view_preference="signup")
+
+    f1, f2 = st.columns([4, 1])
+    with f2:
+        if st.button("Legal / Terms", key="footer_legal"):
+            set_mode("legal")
