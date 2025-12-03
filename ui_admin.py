@@ -58,8 +58,8 @@ def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=
         return None
 
 def show_admin():
-    # UPDATED TITLE TO V2.2
-    st.title("🔐 Admin Console (v2.2)")
+    # TITLE UPDATE: v2.3
+    st.title("🔐 Admin Console (v2.3)")
     
     u_email = st.session_state.get("user_email") or st.session_state.get("user", {}).email
     st.info(f"Logged in as: {u_email}")
@@ -126,41 +126,57 @@ def show_admin():
                         submitted = st.form_submit_button("💾 Update & Resend to PostGrid")
                         
                         if submitted:
-                            new_to = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_ctry}
-                            new_from = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_ctry}
+                            # --- VALIDATION CHECK ---
+                            missing = []
+                            if not r_name: missing.append("To Name")
+                            if not r_str: missing.append("To Street")
+                            if not r_city: missing.append("To City")
+                            if not r_state: missing.append("To State")
+                            if not r_zip: missing.append("To Zip")
                             
-                            pdf_bytes = generate_admin_pdf(
-                                order["Content"], new_to, new_from, 
-                                is_santa=False, is_heirloom=False, 
-                                sig_data_str=order.get("Signature")
-                            )
+                            if not s_name: missing.append("From Name")
+                            if not s_str: missing.append("From Street")
                             
-                            if mailer and pdf_bytes:
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                                    tmp.write(pdf_bytes); tmp_path = tmp.name
-                                
-                                pg_to = {
-                                    'name': new_to['name'], 'address_line1': new_to['street'], 
-                                    'address_city': new_to['city'], 'address_state': new_to['state'], 
-                                    'address_zip': new_to['zip'], 'country_code': new_to['country']
-                                }
-                                pg_from = {
-                                    'name': new_from['name'], 'address_line1': new_from['street'], 
-                                    'address_city': new_from['city'], 'address_state': new_from['state'], 
-                                    'address_zip': new_from['zip'], 'country_code': new_from['country']
-                                }
-                                
-                                resp = mailer.send_letter(tmp_path, pg_to, pg_from)
-                                os.remove(tmp_path)
-                                
-                                if resp and resp.get("id"):
-                                    st.success(f"✅ Sent! ID: {resp.get('id')}")
-                                    database.update_draft_data(selected_id, new_to, new_from, status="Completed")
-                                    st.rerun()
-                                else:
-                                    st.error("❌ PostGrid Failed. Check logs.")
+                            if missing:
+                                st.error(f"⚠️ MISSING DATA: {', '.join(missing)}")
+                                st.warning("💡 Tip: If you used browser autofill, click inside each white box to ensure the system 'sees' the text before saving.")
                             else:
-                                st.error("Mailer module missing or PDF failed.")
+                                # Data is good, proceed
+                                new_to = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_ctry}
+                                new_from = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_ctry}
+                                
+                                pdf_bytes = generate_admin_pdf(
+                                    order["Content"], new_to, new_from, 
+                                    is_santa=False, is_heirloom=False, 
+                                    sig_data_str=order.get("Signature")
+                                )
+                                
+                                if mailer and pdf_bytes:
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+                                        tmp.write(pdf_bytes); tmp_path = tmp.name
+                                    
+                                    pg_to = {
+                                        'name': new_to['name'], 'address_line1': new_to['street'], 
+                                        'address_city': new_to['city'], 'address_state': new_to['state'], 
+                                        'address_zip': new_to['zip'], 'country_code': new_to['country']
+                                    }
+                                    pg_from = {
+                                        'name': new_from['name'], 'address_line1': new_from['street'], 
+                                        'address_city': new_from['city'], 'address_state': new_from['state'], 
+                                        'address_zip': new_from['zip'], 'country_code': new_from['country']
+                                    }
+                                    
+                                    resp = mailer.send_letter(tmp_path, pg_to, pg_from)
+                                    os.remove(tmp_path)
+                                    
+                                    if resp and resp.get("id"):
+                                        st.success(f"✅ Sent! ID: {resp.get('id')}")
+                                        database.update_draft_data(selected_id, new_to, new_from, status="Completed")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ PostGrid Failed. Check logs.")
+                                else:
+                                    st.error("Mailer module missing or PDF failed.")
             else:
                 st.info("No standard orders found.")
 
@@ -190,7 +206,7 @@ def show_admin():
                         database.update_draft_data(s_id, None, None, status="Completed")
                         st.success("Updated!"); st.rerun()
 
-    # --- TAB 3: HEIRLOOM (UPDATED) ---
+    # --- TAB 3: HEIRLOOM ---
     with tab_heirloom:
         st.subheader("🏺 Heirloom Fulfillment")
         if database:
@@ -216,8 +232,7 @@ def show_admin():
                             b64 = base64.b64encode(pdf_bytes).decode()
                             href = f'<a href="data:application/pdf;base64,{b64}" download="Heirloom_Order_{h_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
-                            
-                    # --- ADDED BUTTON FOR HEIRLOOM ---
+
                     if st.button("Mark Completed", key="heir_mark"):
                         database.update_draft_data(h_id, None, None, status="Completed")
                         st.success("Order marked as Completed!")
@@ -261,6 +276,4 @@ def show_admin():
     # --- TAB 6: DANGER ---
     with tab_danger:
         if st.button("TRUNCATE ALL DATA"):
-             # CAUTION: Ensure you really want this
-             # database.clear_all_drafts() 
              st.warning("Feature disabled for safety.")
