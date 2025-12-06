@@ -31,7 +31,10 @@ def show_splash():
             border: 1px solid #4a90e2;
             text-align: center;
             transition: transform 0.2s;
-            height: 100%;
+            height: 100%; /* Keeps boxes uniform height */
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
             color: white !important; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
@@ -67,7 +70,7 @@ def show_splash():
         st.markdown("**Useful Links**")
         st.markdown("📧 [Contact Support](mailto:support@verbapost.com)")
         st.markdown("🌐 [VerbaPost.com](https://verbapost.com)")
-        st.caption("v2.5.3 Production")
+        st.caption("v2.5.4 Production")
 
     # --- 3. HERO SECTION ---
     st.markdown("""
@@ -87,18 +90,18 @@ def show_splash():
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" # <--- TARGETS NEW USER TAB
             st.rerun()
-        st.markdown("<div style='text-align: center; color: #888; font-size: 0.8rem;'>No account required to browse. Sign up to send.</div>", unsafe_allow_html=True)
+        st.markdown("<div style='text-align: center; color: #888; font-size: 0.8rem;'>Sign up to send.</div>", unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # --- 5. VISUAL FEATURE CARDS ---
+    # --- 5. VISUAL FEATURE CARDS (Balanced Text Lengths) ---
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("""
         <div class="price-card" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
             <div style="font-size: 3rem;">🗣️</div>
             <div class="price-title">Dictate</div>
-            <p class="price-desc">Just speak naturally. Our AI transcribes and formats your words. <b>You can review and edit everything</b> before sending.</p>
+            <p class="price-desc">Just speak naturally. Our AI transcribes and formats your words into a professional layout automatically.</p>
         </div>
         """, unsafe_allow_html=True)
     with c2:
@@ -106,7 +109,7 @@ def show_splash():
         <div class="price-card" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
             <div style="font-size: 3rem;">✍️</div>
             <div class="price-title">Refine</div>
-            <p class="price-desc">Choose a style: 'Professional', 'Friendly', or 'Witty'. We polish the grammar instantly.</p>
+            <p class="price-desc">Optionally use AI to polish grammar. You maintain full control to manually edit your letter before sending.</p>
         </div>
         """, unsafe_allow_html=True)
     with c3:
@@ -114,7 +117,7 @@ def show_splash():
         <div class="price-card" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
             <div style="font-size: 3rem;">📮</div>
             <div class="price-title">Mail</div>
-            <p class="price-desc">We print, stamp, envelope, and mail it via USPS First Class or Certified Mail.</p>
+            <p class="price-desc">We print and mail via USPS. Heirloom letters are hand-addressed and include a real physical stamp.</p>
         </div>
         """, unsafe_allow_html=True)
 
