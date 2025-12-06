@@ -114,6 +114,16 @@ if __name__ == "__main__":
                 st.session_state.app_mode = "workspace"
                 st.session_state.payment_complete = True
                 
+                # --- NEW: AUDIT LOGGING ---
+                st.session_state.current_stripe_id = sess_id # Save for later use in ui_main
+                try:
+                    import audit_engine
+                    user_email = st.session_state.get("user_email", "Unknown")
+                    audit_engine.log_event(user_email, "PAYMENT_VERIFIED", sess_id, {"tier": q_params.get("tier", "Unknown")})
+                except Exception as e:
+                    print(f"Audit Log Failed: {e}")
+                # --------------------------
+
                 # Restore session flags from URL
                 if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                 if "intl" in q_params: st.session_state.is_intl = True
