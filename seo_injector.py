@@ -1,11 +1,13 @@
 import os
 import streamlit as st
+import shutil
 
 def inject_seo():
-    # 1. Locate Streamlit's static index.html
+    # 1. Locate Streamlit's static directory
     # Streamlit installs into site-packages, so we find it relative to the module
     st_dir = os.path.dirname(st.__file__)
-    index_path = os.path.join(st_dir, "static", "index.html")
+    static_dir = os.path.join(st_dir, "static")
+    index_path = os.path.join(static_dir, "index.html")
     
     if not os.path.exists(index_path):
         print(f"❌ Error: Could not find index.html at {index_path}")
@@ -13,10 +15,21 @@ def inject_seo():
 
     print(f"✅ Found Streamlit index at: {index_path}")
 
-    # 2. Define the "No-Script" Content (What Google Sees)
+    # 2. INJECT SITEMAP & ROBOTS (New)
+    # This copies your XML/TXT files from the project root into Streamlit's hidden static folder
+    # so they can be accessed via verbapost.com/static/sitemap.xml
+    for file in ["sitemap.xml", "robots.txt"]:
+        if os.path.exists(file):
+            dest = os.path.join(static_dir, file)
+            shutil.copy(file, dest)
+            print(f"✅ Copied {file} to {dest}")
+        else:
+            print(f"⚠️ Warning: {file} not found in source dir.")
+
+    # 3. DEFINE SEO CONTENT (NoScript)
     # This mimics your Splash Page text so crawlers can read it.
     seo_html_content = """
-    <div id="seo-content" style="padding: 20px; font-family: sans-serif; color: #333;">
+    <div id="seo-content" style="display:none;">
         <header>
             <h1>VerbaPost: Send Real Mail from Audio</h1>
             <h2>Texts are trivial. Emails are ignored. REAL MAIL GETS READ.</h2>
@@ -39,12 +52,13 @@ def inject_seo():
             <p><strong>Civic ($6.99):</strong> Write to Congress automatically.</p>
             <p><strong>Campaign ($1.99):</strong> Bulk mailing for activists.</p>
             
-            <a href="/login">Login to VerbaPost</a>
+            <a href="/?view=login">Login to VerbaPost</a>
+            <a href="/?view=legal">Legal & Privacy</a>
         </main>
     </div>
     """
 
-    # 3. Read & Replace
+    # 4. READ & REPLACE INDEX.HTML
     with open(index_path, "r", encoding="utf-8") as f:
         html = f.read()
 
@@ -57,9 +71,13 @@ def inject_seo():
         new_html = html[:start] + seo_html_content + html[end:]
     else:
         # Fallback: Insert at end of body if noscript is missing (rare)
-        new_html = html.replace("</body>", f"<noscript>{seo_html_content}</noscript></body>")
+        # Check if we already injected it to avoid duplicates
+        if "id=\"seo-content\"" not in html:
+            new_html = html.replace("</body>", f"<noscript>{seo_html_content}</noscript></body>")
+        else:
+            new_html = html
 
-    # 4. Inject Meta Tags (Social Previews)
+    # 5. INJECT META TAGS (Social Previews)
     # This ensures links look good on iMessage/Twitter
     meta_tags = """
     <meta property="og:title" content="VerbaPost: The Voice-to-Mail Platform" />
@@ -67,9 +85,11 @@ def inject_seo():
     <meta property="og:image" content="https://verbapost.com/static/preview_card.png" />
     <meta name="description" content="Send physical USPS mail from your phone. Voice dictation, bulk campaigns, and Santa letters." />
     """
-    new_html = new_html.replace("<head>", f"<head>{meta_tags}")
+    
+    if "<meta property=\"og:title\"" not in new_html:
+        new_html = new_html.replace("<head>", f"<head>{meta_tags}")
 
-    # 5. Save
+    # 6. SAVE
     with open(index_path, "w", encoding="utf-8") as f:
         f.write(new_html)
     

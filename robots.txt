@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Point to the sitemap location (Streamlit serves static files at /static/)
+Sitemap: https://www.verbapost.com/static/sitemap.xml

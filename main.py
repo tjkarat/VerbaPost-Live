@@ -92,12 +92,20 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # 1. Marketing Links (e.g. ?tier=Santa)
+        # --- A. DEEP LINKING LOGIC (New) ---
+        # Allows links like verbapost.com/?view=legal or ?view=login
+        if "view" in q_params:
+            target_view = q_params["view"]
+            if target_view in ["legal", "login", "splash"]:
+                st.session_state.app_mode = target_view
+        # -----------------------------------
+
+        # --- B. MARKETING LINKS ---
         # Only activate if NOT returning from a payment flow
         if "tier" in q_params and "session_id" not in q_params:
             st.session_state.target_marketing_tier = q_params["tier"]
 
-        # 2. SECURE STRIPE RETURN LOGIC
+        # --- C. SECURE STRIPE RETURN LOGIC ---
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
