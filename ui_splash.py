@@ -26,7 +26,7 @@ def show_splash():
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
             background: #1e3c72; /* Fallback */
-            padding: 20px;
+            padding: 15px; /* Slightly tighter padding for 4 columns */
             border-radius: 10px;
             border: 1px solid #4a90e2;
             text-align: center;
@@ -41,13 +41,13 @@ def show_splash():
         .price-card:hover { transform: scale(1.03); border-color: #ffffff; }
         
         /* TEXT INSIDE CARDS */
-        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.2rem; margin-bottom: 10px; }
-        .price-tag { font-size: 2rem; font-weight: 800; color: #ffeb3b !important; margin: 10px 0; }
-        .price-desc { color: #e0e0e0 !important; font-size: 0.9rem; line-height: 1.4; }
+        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
+        .price-tag { font-size: 1.8rem; font-weight: 800; color: #ffeb3b !important; margin: 5px 0; }
+        .price-desc { color: #e0e0e0 !important; font-size: 0.85rem; line-height: 1.4; }
         
         /* List items inside cards */
-        .price-card ul { list-style: none; padding: 0; }
-        .price-card li { color: #e0e0e0 !important; font-size: 0.9rem; margin-bottom: 5px; }
+        .price-card ul { list-style: none; padding: 0; margin-top: 10px; }
+        .price-card li { color: #e0e0e0 !important; font-size: 0.85rem; margin-bottom: 4px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -70,7 +70,7 @@ def show_splash():
         st.markdown("**Useful Links**")
         st.markdown("📧 [Contact Support](mailto:support@verbapost.com)")
         st.markdown("🌐 [VerbaPost.com](https://verbapost.com)")
-        st.caption("v2.5.4 Production")
+        st.caption("v2.5.5 Production")
 
     # --- 3. HERO SECTION ---
     st.markdown("""
@@ -88,13 +88,13 @@ def show_splash():
     with c_btn:
         if st.button("🚀 Start Writing Your Letter", type="primary", use_container_width=True):
             st.session_state.app_mode = "login"
-            st.session_state.auth_view = "signup" # <--- TARGETS NEW USER TAB
+            st.session_state.auth_view = "signup" 
             st.rerun()
         st.markdown("<div style='text-align: center; color: #888; font-size: 0.8rem;'>Sign up to send.</div>", unsafe_allow_html=True)
 
     st.markdown("---")
 
-    # --- 5. VISUAL FEATURE CARDS (Balanced Text Lengths) ---
+    # --- 5. VISUAL FEATURE CARDS ---
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("""
@@ -123,9 +123,8 @@ def show_splash():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 6. PRICING TIERS ---
-    st.subheader("📦 Simple Pricing")
-    p1, p2, p3 = st.columns(3)
+    # --- 6. PRICING TIERS (Heirloom Added, Header Removed) ---
+    p1, p2, p3, p4 = st.columns(4)
     
     with p1:
         st.markdown("""
@@ -133,33 +132,46 @@ def show_splash():
             <div class="price-title">Standard</div>
             <div class="price-tag">$2.99</div>
             <ul>
-                <li>🇺🇸 Mailed via USPS</li>
+                <li>🇺🇸 USPS First Class</li>
                 <li>📄 Standard Paper</li>
                 <li>🤖 AI Transcription</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
-        
+
     with p2:
+        st.markdown("""
+        <div class="price-card" style="background: linear-gradient(135deg, #614385 0%, #516395 100%); border: 2px solid #a6a6a6;">
+            <div class="price-title">🏺 Heirloom</div>
+            <div class="price-tag">$5.99</div>
+            <ul>
+                <li>🖋️ Wet-Ink Style</li>
+                <li>📜 Archival Stock</li>
+                <li>👋 Hand-Addressed</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with p3:
         st.markdown("""
         <div class="price-card" style="background: linear-gradient(135deg, #D4AF37 0%, #8a7329 100%); border: 2px solid gold;">
             <div class="price-title">🏛️ Civic</div>
             <div class="price-tag">$6.99</div>
             <ul>
-                <li>🏛️ Write to Congress</li>
+                <li>🏛️ Write Congress</li>
                 <li>📍 Auto-Rep Lookup</li>
                 <li>📜 Formal Layout</li>
             </ul>
         </div>
         """, unsafe_allow_html=True)
 
-    with p3:
+    with p4:
         st.markdown("""
         <div class="price-card" style="background: linear-gradient(135deg, #cb2d3e 0%, #ef473a 100%); border: 2px solid #ff9999;">
             <div class="price-title">🎅 Santa</div>
             <div class="price-tag">$9.99</div>
             <ul>
-                <li>❄️ North Pole Postmark</li>
+                <li>❄️ North Pole Mark</li>
                 <li>📜 Festive Paper</li>
                 <li>✍️ Signed by Santa</li>
             </ul>
