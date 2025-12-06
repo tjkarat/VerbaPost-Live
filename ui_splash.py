@@ -21,9 +21,16 @@ def show_splash():
         .hero-title { font-size: 3.5rem; font-weight: 700; margin: 0; color: white !important; }
         .hero-subtitle { font-size: 1.5rem; opacity: 0.9; margin-top: 10px; color: white !important; }
         
-        /* FIX: FORCE BOLD TEXT TO WHITE IN HERO */
-        .hero-container b, .hero-container strong {
+        /* SUBTEXT FIX: Force White & Specific Styling */
+        .hero-subtext {
+            margin-top: 20px; 
+            font-size: 1.1rem; 
+            opacity: 0.95; 
             color: #ffffff !important;
+        }
+        .hero-subtext b, .hero-subtext strong {
+            color: #ffffff !important;
+            font-weight: 800;
         }
         
         /* CARDS (Features & Pricing) - DARK THEME WITH WHITE TEXT */
@@ -74,15 +81,15 @@ def show_splash():
         st.markdown("**Useful Links**")
         st.markdown("📧 [Contact Support](mailto:support@verbapost.com)")
         st.markdown("🌐 [VerbaPost.com](https://verbapost.com)")
-        st.caption("v2.5.6 Production")
+        st.caption("v2.5.7 Production")
 
     # --- 3. HERO SECTION ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
         <div class="hero-subtitle">Real Physical Mail. Dictated by You. Sent by AI.</div>
-        <div style="margin-top: 20px; font-size: 1.1rem; opacity: 0.9; color: white !important;">
-            Texts are forgotten. Emails are ignored. <b>Real letters get read.</b>
+        <div class="hero-subtext">
+            Texts are forgotten. Emails are ignored. <b>REAL MAIL GETS READ.</b>
         </div>
     </div>
     """, unsafe_allow_html=True)
