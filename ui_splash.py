@@ -1,169 +1,189 @@
 import streamlit as st
-import os
 
-# --- OPTIONAL IMPORT FOR LEADERBOARD ---
+# Attempt to import database, fail gracefully
 try: import database
-except: database = None
-
-def set_mode(mode, view_preference="login"):
-    st.session_state.app_mode = mode
-    st.session_state.auth_view = view_preference
-    st.rerun()
+except ImportError: database = None
 
 def show_splash():
-    # --- 1. SEO INJECTION (JSON-LD) ---
+    # --- 1. RESTORED CSS & ANIMATIONS ---
     st.markdown("""
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "VerbaPost",
-      "operatingSystem": "Web",
-      "applicationCategory": "CommunicationApplication",
-      "offers": {
-        "@type": "Offer",
-        "price": "2.99",
-        "priceCurrency": "USD"
-      },
-      "description": "The easiest way to send real physical mail online. Turn voice dictation or text into USPS First Class letters. Features include Santa Letters, writing to Congress, bulk campaign mailing, and archival heirloom letters.",
-      "featureList": "Voice-to-Text Dictation, USPS Mail Delivery, Santa Letters, Civic Engagement Tools, Bulk Mailing, Address Book"
-    }
-    </script>
-    """, unsafe_allow_html=True)
-
-    # --- 2. HERO SECTION (Text Only) ---
-    st.markdown("""
-    <header style="text-align: center; padding-top: 20px; padding-bottom: 30px;">
-        <h1 style="font-size: 3.5rem; font-weight: 700; color: #1e3c72; margin-bottom: 0.5rem;">
-            VerbaPost
-        </h1>
-        <h2 style="font-size: 1.5rem; font-weight: 500; color: #555; margin-top: 0;">
-            Texts are trivial. Emails are ignored.<br>
-            <span style="color: #d93025; font-weight: 700;">REAL MAIL GETS READ.</span>
-        </h2>
-    </header>
-    """, unsafe_allow_html=True)
-
-    # --- 3. CALL TO ACTION ---
-    c_cta1, c_cta2, c_cta3 = st.columns([1, 2, 1])
-    with c_cta2:
-        if st.button("🚀 Start Sending Mail", type="primary", use_container_width=True, key="hero_signup_btn"):
-            set_mode("login", view_preference="signup")
+    <style>
+        /* HERO GRADIENT */
+        .hero-container {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            padding: 60px 20px;
+            border-radius: 15px;
+            color: white;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        .hero-title { font-size: 3.5rem; font-weight: 700; margin: 0; }
+        .hero-subtitle { font-size: 1.5rem; opacity: 0.9; margin-top: 10px; }
         
-        st.markdown("""
-        <div style="text-align: center; margin-top: 10px; color: #666;">
-            <small>No printer. No stamps. No post office lines.</small>
-        </div>
-        """, unsafe_allow_html=True)
+        /* PRICING CARDS */
+        .price-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            border: 1px solid #e0e0e0;
+            text-align: center;
+            transition: transform 0.2s;
+            height: 100%;
+        }
+        .price-card:hover { transform: scale(1.03); border-color: #2a5298; }
+        .price-title { color: #2a5298; font-weight: bold; font-size: 1.2rem; }
+        .price-tag { font-size: 2rem; font-weight: 800; color: #333; margin: 10px 0; }
+        
+        /* SANTA ANIMATION */
+        @keyframes flyAcross {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(120vw); }
+        }
+        .santa-sled {
+            position: fixed; top: 15%; left: 0; font-size: 60px; z-index: 99;
+            animation: flyAcross 20s linear infinite; pointer-events: none; opacity: 0.8;
+        }
+    </style>
+    
+    <div class="santa-sled">🎅🛷</div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("---")
-
-    # --- 4. MISSION & ABOUT ---
-    st.subheader("Why VerbaPost?")
-    
-    col_mission, col_features = st.columns([3, 2])
-    
-    with col_mission:
-        st.markdown("""
-        <div style="font-size: 1.1rem; line-height: 1.6;">
-        <p><strong>Our Mission: Reconnecting the Physical World</strong></p>
-        <p>In a world drowning in digital noise, physical mail has become a superpower. It implies effort, care, and importance. But the process of sending mail—finding paper, envelopes, stamps, and walking to a mailbox—is stuck in the past.</p>
-        <p><strong>VerbaPost bridges the gap.</strong> We use advanced AI to capture your authentic voice and convert it into a professional physical document. Whether you are a constituent demanding action from Congress, a grandparent sharing a story, or a campaign manager reaching 500 voters, VerbaPost handles the logistics so you can focus on the message.</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col_features:
-        with st.container(border=True):
-            st.markdown("""
-            **Key Features:**
-            * 🎙️ **Voice Dictation:** Just speak. We type.
-            * ✨ **AI Editor:** Polish grammar instantly.
-            * 📮 **USPS Fulfillment:** Mailed in 24hrs.
-            * 📂 **Bulk Campaigns:** CSV upload supported.
-            * 📜 **Certified Mail:** Tracking available.
-            """)
-
-    st.markdown("---")
-
-    # --- 5. HOW IT WORKS ---
-    st.subheader("How It Works")
-    step1, step2, step3 = st.columns(3)
-    
-    with step1:
-        with st.container(border=True):
-            st.markdown("#### 1. Dictate")
-            st.caption("Record your message directly in the browser. Our AI transcribes it with near-perfect accuracy.")
-    
-    with step2:
-        with st.container(border=True):
-            st.markdown("#### 2. Address")
-            st.caption("Enter the recipient or choose from your Address Book. We verify the address automatically.")
+    # --- 2. NEW SIDEBAR (Requested) ---
+    with st.sidebar:
+        st.header("VerbaPost 📮")
+        st.markdown("---")
+        
+        if st.button("🔑 Member Login", use_container_width=True):
+            st.session_state.app_mode = "login"
+            st.rerun()
             
-    with step3:
-        with st.container(border=True):
-            st.markdown("#### 3. We Mail")
-            st.caption("We print on premium paper, envelope, stamp, and hand it to the USPS.")
+        if st.button("⚖️ Legal & Privacy", use_container_width=True):
+            st.session_state.app_mode = "legal"
+            st.rerun()
+            
+        st.markdown("---")
+        st.markdown("**Useful Links**")
+        st.markdown("📧 [Contact Support](mailto:support@verbapost.com)")
+        st.markdown("🌐 [VerbaPost.com](https://verbapost.com)")
+        st.caption("v2.5.0 Production")
 
-    # --- 6. SERVICES GRID ---
+    # --- 3. RICH HERO SECTION ---
+    st.markdown("""
+    <div class="hero-container">
+        <div class="hero-title">VerbaPost 📮</div>
+        <div class="hero-subtitle">Real Physical Mail. Dictated by You. Sent by AI.</div>
+        <div style="margin-top: 20px; font-size: 1.1rem; opacity: 0.8;">
+            Texts are forgotten. Emails are ignored. <b>Real letters get read.</b>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- 4. CONSOLIDATED CTA ---
+    c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
+    with c_btn:
+        # Using a primary button for the main action
+        if st.button("🚀 Start Writing Your Letter", type="primary", use_container_width=True):
+            st.session_state.app_mode = "login"
+            st.rerun()
+        st.markdown("<div style='text-align: center; color: #888; font-size: 0.8rem;'>No account required to browse. Sign up to send.</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # --- 5. VISUAL FEATURE CARDS ---
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown("""
+        <div class="price-card">
+            <div style="font-size: 3rem;">🗣️</div>
+            <div class="price-title">Dictate</div>
+            <p style="color: #666; font-size: 0.9rem;">Just speak naturally. Our AI transcribes and formats your words into a professional layout.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with c2:
+        st.markdown("""
+        <div class="price-card">
+            <div style="font-size: 3rem;">✍️</div>
+            <div class="price-title">Refine</div>
+            <p style="color: #666; font-size: 0.9rem;">Choose a style: 'Professional', 'Friendly', or 'Witty'. We polish the grammar instantly.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with c3:
+        st.markdown("""
+        <div class="price-card">
+            <div style="font-size: 3rem;">📮</div>
+            <div class="price-title">Mail</div>
+            <p style="color: #666; font-size: 0.9rem;">We print, stamp, envelope, and mail it via USPS First Class or Certified Mail.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
     st.markdown("<br>", unsafe_allow_html=True)
-    st.subheader("Services & Pricing")
+
+    # --- 6. PRICING TIERS (HTML) ---
+    st.subheader("📦 Simple Pricing")
+    p1, p2, p3 = st.columns(3)
     
-    col_a, col_b = st.columns(2)
-    with col_a:
-        with st.container(border=True):
-            st.markdown("### 🎅 Santa Letters ($9.99)")
-            st.caption("The ultimate holiday magic. A letter FROM Santa, on festive stationery, with a **North Pole postmark**.")
-    with col_b:
-        with st.container(border=True):
-            st.markdown("### 📢 Campaign / Bulk ($1.99)")
-            st.caption("For activists and organizers. Upload a CSV and mail hundreds of constituents instantly.")
+    with p1:
+        st.markdown("""
+        <div class="price-card">
+            <div class="price-title">Standard</div>
+            <div class="price-tag">$2.99</div>
+            <ul style="text-align: left; font-size: 0.85rem; color: #555;">
+                <li>🇺🇸 Mailed via USPS</li>
+                <li>📄 Standard Paper</li>
+                <li>🤖 AI Transcription</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with p2:
+        st.markdown("""
+        <div class="price-card" style="border: 2px solid #d4af37;">
+            <div class="price-title">🏛️ Civic</div>
+            <div class="price-tag">$6.99</div>
+            <ul style="text-align: left; font-size: 0.85rem; color: #555;">
+                <li>🏛️ Write to Congress</li>
+                <li>📍 Auto-Rep Lookup</li>
+                <li>📜 Formal Layout</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
-    col_c, col_d = st.columns(2)
-    with col_c:
-        with st.container(border=True):
-            st.markdown("### 🏺 Heirloom ($5.99)")
-            st.caption("For memories that last. Printed on archival heavyweight paper with handwriting-style fonts.")
-    with col_d:
-        with st.container(border=True):
-            st.markdown("### ⚡ Standard ($2.99)")
-            st.caption("For everyday correspondence. Fast, professional, and cheaper than your time.")
+    with p3:
+        st.markdown("""
+        <div class="price-card" style="border: 2px solid #b41414;">
+            <div class="price-title">🎅 Santa</div>
+            <div class="price-tag">$9.99</div>
+            <ul style="text-align: left; font-size: 0.85rem; color: #555;">
+                <li>❄️ North Pole Postmark</li>
+                <li>📜 Festive Paper</li>
+                <li>✍️ Signed by Santa</li>
+            </ul>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # --- 7. CIVIC LEADERBOARD ---
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- 7. LEADERBOARD ---
     if database:
-        # Ensure this block is indented correctly
         stats = database.get_civic_leaderboard()
         if stats:
-            st.markdown("---")
-            st.subheader("🏛️ Civic Leaderboard")
-            st.caption("Most active states writing to Congress via VerbaPost.")
-            
-            cols = st.columns(len(stats))
-            for i, (state, count) in enumerate(stats):
-                with cols[i]:
-                    st.metric(label=state, value=str(count))
+            with st.container(border=True):
+                st.subheader("📢 Civic Leaderboard")
+                st.caption("Top states making their voices heard this week")
+                for state, count in stats:
+                    st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
 
-    # --- 8. FAQ ---
+    # --- 8. MISSION (Moved Bottom) ---
     st.markdown("---")
-    st.subheader("Frequently Asked Questions")
-    
-    with st.expander("📮 How long does delivery take?"):
-        st.write("We mail all letters via **USPS First Class Mail** within 24 hours. Domestic delivery typically takes 4-6 business days.")
-        
-    with st.expander("🔒 Is my data private?"):
-        st.write("Yes. Standard and Civic letters are processed automatically via API. Humans do not read them. Heirloom/Santa letters are manually quality-checked.")
-        
-    with st.expander("🌍 Can I mail internationally?"):
-        # This is the line that was causing the error. It must be indented.
-        st.write("Yes! We support mailing to over 180 countries including the UK, Canada, and Australia.")
-
-    # --- 9. BOTTOM CTA & FOOTER ---
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    c_bot1, c_bot2, c_bot3 = st.columns([1, 2, 1])
-    with c_bot2:
-        if st.button("✨ Create New Account", type="primary", use_container_width=True, key="bottom_signup_btn"):
-            set_mode("login", view_preference="signup")
-
-    f1, f2 = st.columns([4, 1])
-    with f2:
-        if st.button("Legal / Terms", key="footer_legal"):
-            set_mode("legal")
+    st.markdown("""
+    <div style="text-align: center; color: #888; padding: 40px 20px;">
+        <h4 style="color: #555;">Our Mission</h4>
+        <p style="font-size: 0.95rem; max-width: 700px; margin: 0 auto; line-height: 1.6;">
+            In a world drowning in digital noise, physical mail has become a superpower. 
+            VerbaPost bridges the gap, allowing you to use modern voice technology to create 
+            timeless physical correspondence. Whether it's a letter to Congress, a note to Grandma, 
+            or a memory for your children, we make it real.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
