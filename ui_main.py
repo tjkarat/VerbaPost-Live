@@ -48,6 +48,8 @@ COUNTRIES = {
 }
 
 def reset_app():
+    # Default logic: if logged in -> store, else -> splash.
+    # We will override this explicitly in the Success button for safety.
     if st.session_state.get("user_email"): st.session_state.app_mode = "store"
     else: st.session_state.app_mode = "splash"
     
@@ -481,8 +483,11 @@ def render_review_page():
             st.info(f"📜 **Certified Mail Tracking:** {st.session_state.last_tracking_num}")
             st.caption("You will also receive this via email.")
         
+        # --- THE FIX IS HERE ---
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
-             reset_app(); st.rerun()
+             reset_app()
+             st.session_state.app_mode = "store" # Explicitly force "store" to bypass any reset issues
+             st.rerun()
 
 def show_main_app():
     if analytics: analytics.inject_ga()
@@ -500,7 +505,6 @@ def show_main_app():
         import ui_login; import auth_engine
         ui_login.show_login(
             lambda e,p: _handle_login(auth_engine, e,p), 
-            # FIXED: Updated lambda to accept 10 arguments (addr2 and lang added)
             lambda e,p,n,a,a2,c,s,z,cntry,lang: _handle_signup(auth_engine, e,p,n,a,a2,c,s,z,cntry,lang)
         )
     elif mode == "forgot_password": import ui_login; import auth_engine; ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
@@ -523,7 +527,6 @@ def _handle_login(auth, email, password):
     if res and res.user: st.session_state.user = res.user; st.session_state.user_email = res.user.email; st.session_state.app_mode = "store"; st.rerun()
     else: st.session_state.auth_error = err
 
-# FIXED: Updated to accept and pass the 10th argument (lang) and return results
 def _handle_signup(auth, email, password, name, addr, addr2, city, state, zip_c, country, lang):
     res, err = auth.sign_up(email, password, name, addr, addr2, city, state, zip_c, country, lang)
     if res and res.user: 
@@ -531,5 +534,4 @@ def _handle_signup(auth, email, password, name, addr, addr2, city, state, zip_c,
         st.session_state.app_mode = "login"
     else: 
         st.session_state.auth_error = err
-    # Return the results so ui_login.py can react if needed
     return res, err
