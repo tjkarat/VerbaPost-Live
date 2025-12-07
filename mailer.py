@@ -2,8 +2,8 @@ import streamlit as st
 import requests
 import resend
 import secrets_manager
-import hashlib # <--- NEW IMPORT
-import json    # <--- NEW IMPORT
+import hashlib # <--- NEW
+import json    # <--- NEW
 
 def get_postgrid_key(): return secrets_manager.get_secret("postgrid.api_key")
 def get_resend_key(): return secrets_manager.get_secret("email.password")
@@ -15,7 +15,7 @@ def send_letter(pdf_path, to_address, from_address, certified=False):
     try:
         url = "https://api.postgrid.com/print-mail/v1/letters"
         
-        # --- 1. PREPARE DATA PAYLOAD ---
+        # --- 1. DATA PAYLOAD ---
         data = {
             'description': f"VerbaPost to {to_address.get('name')}",
             'to[firstName]': to_address.get('name'), 
@@ -44,31 +44,26 @@ def send_letter(pdf_path, to_address, from_address, certified=False):
         else:
             data['express'] = 'false'
 
-        # --- 2. GENERATE IDEMPOTENCY KEY (THE FIX) ---
-        # We hash the Data Dict + The PDF Bytes to create a unique fingerprint.
-        # If the address OR the file content changes, it's a new letter.
-        # If nothing changes, it's a retry, and PostGrid will deduplicate it.
+        # --- 2. IDEMPOTENCY KEY GENERATION ---
         try:
             with open(pdf_path, 'rb') as f:
                 pdf_bytes = f.read()
             
-            # Combine Data string + PDF content
+            # Create a unique fingerprint based on Content + Metadata
             fingerprint_source = json.dumps(data, sort_keys=True).encode() + pdf_bytes
             idempotency_key = hashlib.sha256(fingerprint_source).hexdigest()
             
-            # Add to Headers
             headers = {
                 "x-api-key": api_key,
                 "Idempotency-Key": idempotency_key 
             }
         except Exception as e:
             print(f"⚠️ Idempotency Gen Failed: {e}")
-            headers = {"x-api-key": api_key} # Fallback if hashing fails
-            pdf_bytes = None # Reset to ensure we re-open file below
+            headers = {"x-api-key": api_key} # Fallback
+            pdf_bytes = None
 
-        # --- 3. SEND REQUEST ---
-        # Re-open file for the actual request (cursor is at end from reading bytes above)
-        files = {'pdf': open(pdf_path, 'rb')}
+        # --- 3. SEND ---
+        files = {'pdf': open(pdf_path, 'rb')} # Re-open file
         
         response = requests.post(url, headers=headers, data=data, files=files)
         files['pdf'].close()

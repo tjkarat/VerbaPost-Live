@@ -20,6 +20,30 @@ def validate_address(street, city, state, zip_code, country_code):
     return errors
 
 def show_login(login_func, signup_func):
+    # --- CSS: INPUT FIELD STYLING ---
+    st.markdown("""
+    <style>
+        /* Clean Input Borders & Focus Highlight */
+        div[data-testid="stForm"] input, div[data-testid="stForm"] select {
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px;
+            transition: all 0.2s ease;
+        }
+        div[data-testid="stForm"] input:focus {
+            border-color: #2a5298 !important;
+            box-shadow: 0 0 0 3px rgba(42, 82, 152, 0.15) !important;
+            outline: none;
+        }
+        /* Info Box Styling */
+        .stAlert {
+            background-color: #f0f9ff;
+            border: 1px solid #bae6fd;
+            color: #0c4a6e;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     c1, c2, c3 = st.columns([1, 3, 1])
     
     with c2:
@@ -59,21 +83,23 @@ def show_login(login_func, signup_func):
                     new_email = st.text_input("Email")
                     new_pass = st.text_input("Password", type="password")
                     confirm_pass = st.text_input("Confirm Password", type="password")
+                    
                     st.markdown("---")
-                    st.markdown("**Your Return Address**")
+                    st.markdown("### 🏠 Your Return Address")
+                    st.info("ℹ️ **Note:** This address will be printed on your envelopes so mail can be returned to you if undeliverable.")
+                    
                     name = st.text_input("Full Legal Name")
                     
-                    c_cntry, c_str = st.columns([1, 2])
-                    country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
-                    addr = c_str.text_input("Street Address")
-                    
-                    # Address Line 2
+                    # UPDATED LAYOUT: De-cramped
+                    country_code = st.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
+                    addr = st.text_input("Street Address")
                     addr2 = st.text_input("Apt / Suite / Unit (Optional)")
                     
                     s_lbl_st = "State (2 letters)" if country_code == "US" else "State/Province"
                     s_lbl_zip = "Zip Code" if country_code == "US" else "Postal Code"
                     
-                    c_city, c_state, c_zip = st.columns([2, 1, 1])
+                    # Columns for City/State/Zip only
+                    c_city, c_state, c_zip = st.columns([2, 1, 1.2])
                     city = c_city.text_input("City")
                     state = c_state.text_input(s_lbl_st)
                     zip_code = c_zip.text_input(s_lbl_zip)
@@ -87,14 +113,12 @@ def show_login(login_func, signup_func):
                             for e in addr_errors: st.error(f"❌ {e}")
                         else:
                             with st.spinner("Creating account..."):
-                                # Pass addr2 (street2) and capture the result (res) and error (err)
                                 res, err = signup_func(new_email, new_pass, name, addr, addr2, city, state, zip_code, country_code, "English")
-                                
                                 if res:
                                     st.success("✅ Account created! Please check your email or log in.")
                                 elif err:
                                     st.error(f"❌ Signup Failed: {err}")
-
+                                    
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:
         if st.button("← Back to Home", type="secondary", use_container_width=True):
