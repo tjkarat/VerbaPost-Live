@@ -1,4 +1,17 @@
-venv/
-verbapost.db
-*.wav
+# Secrets (CRITICAL)
 .streamlit/secrets.toml
+.env
+keys.json
+secrets_manager.py   # Only add this if you hardcoded keys inside it!
+
+# Databases (Privacy Risk)
+*.db
+*.sqlite3
+local_audit.db
+
+# Garbage/Cache (Clutter)
+__pycache__/
+*.pyc
+.DS_Store
+venv/
+.venv/
