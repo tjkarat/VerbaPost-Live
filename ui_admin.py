@@ -21,13 +21,27 @@ except: promo_engine = None
 # --- HELPER: GENERATE PDF BYTES ---
 def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=False, sig_data_str=None):
     try:
-        to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
+        # Construct To String with Line 2
+        t_street = to_data.get('street', '')
+        t_line2 = to_data.get('address_line2') or to_data.get('street2') or ''
+        
+        if t_line2:
+            to_str = f"{to_data.get('name','')}\n{t_street}\n{t_line2}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
+        else:
+            to_str = f"{to_data.get('name','')}\n{t_street}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}"
         
         # Handle Santa Sender
         if is_santa:
             from_str = "Santa Claus"
         else:
-            from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+            # Construct From String with Line 2
+            f_street = from_data.get('street', '')
+            f_line2 = from_data.get('address_line2') or from_data.get('street2') or ''
+            
+            if f_line2:
+                from_str = f"{from_data.get('name','')}\n{f_street}\n{f_line2}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
+            else:
+                from_str = f"{from_data.get('name','')}\n{f_street}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}"
 
         # Signature Decoding
         sig_path = None
@@ -58,8 +72,8 @@ def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=
         return None
 
 def show_admin():
-    # TITLE UPDATE: v2.6 (Email Triggers Added)
-    st.title("🔐 Admin Console (v2.6)")
+    # TITLE UPDATE: v2.8 (Full Release)
+    st.title("🔐 Admin Console (v2.8)")
     
     u_email = st.session_state.get("user_email") or st.session_state.get("user", {}).email
     st.info(f"Logged in as: {u_email}")
@@ -78,7 +92,6 @@ def show_admin():
         
         if database:
             data = database.fetch_all_drafts()
-            # Filter for automated tiers
             std_orders = [d for d in data if d.get("Tier") and d["Tier"] in ["Standard", "Civic", "Campaign"]]
             
             if std_orders:
@@ -107,6 +120,7 @@ def show_admin():
                             st.markdown("RECIPIENT")
                             r_name = st.text_input("To Name", to_j.get("name",""))
                             r_str = st.text_input("To Street", to_j.get("street",""))
+                            r_line2 = st.text_input("To Apt/Suite", to_j.get("address_line2") or to_j.get("street2") or "")
                             r_city = st.text_input("To City", to_j.get("city",""))
                             r_state = st.text_input("To State", to_j.get("state",""))
                             r_zip = st.text_input("To Zip", to_j.get("zip",""))
@@ -116,6 +130,7 @@ def show_admin():
                             st.markdown("SENDER")
                             s_name = st.text_input("From Name", from_j.get("name",""))
                             s_str = st.text_input("From Street", from_j.get("street",""))
+                            s_line2 = st.text_input("From Apt/Suite", from_j.get("address_line2") or from_j.get("street2") or "")
                             s_city = st.text_input("From City", from_j.get("city",""))
                             s_state = st.text_input("From State", from_j.get("state",""))
                             s_zip = st.text_input("From Zip", from_j.get("zip",""))
@@ -127,23 +142,26 @@ def show_admin():
                         submitted = st.form_submit_button("💾 Update & Resend to PostGrid")
                         
                         if submitted:
-                            # --- VALIDATION CHECK ---
                             missing = []
                             if not r_name: missing.append("To Name")
                             if not r_str: missing.append("To Street")
                             if not r_city: missing.append("To City")
                             if not r_state: missing.append("To State")
                             if not r_zip: missing.append("To Zip")
-                            
                             if not s_name: missing.append("From Name")
                             if not s_str: missing.append("From Street")
                             
                             if missing:
                                 st.error(f"⚠️ MISSING DATA: {', '.join(missing)}")
                             else:
-                                # Data is good, proceed
-                                new_to = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_ctry}
-                                new_from = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_ctry}
+                                new_to = {
+                                    "name": r_name, "street": r_str, "address_line2": r_line2, 
+                                    "city": r_city, "state": r_state, "zip": r_zip, "country": r_ctry
+                                }
+                                new_from = {
+                                    "name": s_name, "street": s_str, "address_line2": s_line2,
+                                    "city": s_city, "state": s_state, "zip": s_zip, "country": s_ctry
+                                }
                                 
                                 pdf_bytes = generate_admin_pdf(
                                     order["Content"], new_to, new_from, 
@@ -157,16 +175,17 @@ def show_admin():
                                     
                                     pg_to = {
                                         'name': new_to['name'], 'address_line1': new_to['street'], 
+                                        'address_line2': new_to['address_line2'],
                                         'address_city': new_to['city'], 'address_state': new_to['state'], 
                                         'address_zip': new_to['zip'], 'country_code': new_to['country']
                                     }
                                     pg_from = {
                                         'name': new_from['name'], 'address_line1': new_from['street'], 
+                                        'address_line2': new_from['address_line2'],
                                         'address_city': new_from['city'], 'address_state': new_from['state'], 
                                         'address_zip': new_from['zip'], 'country_code': new_from['country']
                                     }
                                     
-                                    # --- UNPACK TUPLE (Success, Data) ---
                                     success, resp_data = mailer.send_letter(tmp_path, pg_to, pg_from)
                                     os.remove(tmp_path)
                                     
@@ -203,7 +222,6 @@ def show_admin():
                             href = f'<a href="data:application/pdf;base64,{b64}" download="Santa_Order_{s_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
                     
-                    # --- UPDATED MARK COMPLETED (Sends Email) ---
                     if st.button("Mark Completed", key="santa_mark"):
                         database.update_draft_data(s_id, None, None, status="Completed")
                         
@@ -241,7 +259,6 @@ def show_admin():
                             href = f'<a href="data:application/pdf;base64,{b64}" download="Heirloom_Order_{h_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
 
-                    # --- UPDATED MARK COMPLETED (Sends Email) ---
                     if st.button("Mark Completed", key="heir_mark"):
                         database.update_draft_data(h_id, None, None, status="Completed")
                         

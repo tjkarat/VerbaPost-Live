@@ -13,7 +13,7 @@ class UserProfile(Base):
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     address_line1 = Column(String)
-    address_line2 = Column(String, nullable=True) # <--- NEW
+    address_line2 = Column(String, nullable=True) 
     address_city = Column(String)
     address_state = Column(String)
     address_zip = Column(String)
@@ -39,7 +39,7 @@ class SavedContact(Base):
     user_email = Column(String, index=True) 
     name = Column(String)
     street = Column(String)
-    street2 = Column(String, nullable=True) # <--- NEW
+    street2 = Column(String, nullable=True) 
     city = Column(String)
     state = Column(String)
     zip_code = Column(String)
@@ -110,7 +110,7 @@ def update_user_profile(email, name, street, street2, city, state, zip_code, cou
             user = UserProfile(email=email); db.add(user)
         user.full_name = name
         user.address_line1 = street
-        user.address_line2 = street2 # <--- Save it
+        user.address_line2 = street2
         user.address_city = city
         user.address_state = state; user.address_zip = zip_code
         user.country = country
@@ -141,7 +141,8 @@ def fetch_all_drafts():
     except: return []
     finally: db.close()
 
-def update_draft_data(draft_id, to_addr, from_addr, status=None):
+# --- THE FIX: ADD 'CONTENT' ARGUMENT ---
+def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, status=None):
     db = get_session()
     if not db: return False
     try:
@@ -149,6 +150,7 @@ def update_draft_data(draft_id, to_addr, from_addr, status=None):
         if draft:
             if to_addr: draft.recipient_json = json.dumps(to_addr)
             if from_addr: draft.sender_json = json.dumps(from_addr)
+            if content: draft.transcription = content # <--- NOW SAVING CONTENT
             if status: draft.status = status
             db.commit()
             return True
@@ -168,12 +170,12 @@ def add_contact(user_email, name, street, street2, city, state, zip_code, countr
             SavedContact.name == name
         ).first()
         if exists:
-            exists.street = street; exists.street2 = street2 # <--- Update
+            exists.street = street; exists.street2 = street2 
             exists.city = city; exists.state = state
             exists.zip_code = zip_code; exists.country = country
         else:
             contact = SavedContact(
-                user_email=user_email, name=name, street=street, street2=street2, # <--- Insert
+                user_email=user_email, name=name, street=street, street2=street2,
                 city=city, state=state, zip_code=zip_code, country=country
             )
             db.add(contact)

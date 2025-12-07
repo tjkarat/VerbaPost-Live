@@ -133,7 +133,6 @@ def render_store_page():
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
                     
-                    # --- FIX 1: CAPTURE DRAFT ID ---
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, "0.00")
                         st.session_state.current_draft_id = d_id
@@ -145,7 +144,6 @@ def render_store_page():
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
                     
-                    # --- FIX 1: CAPTURE DRAFT ID ---
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, price)
                         st.session_state.current_draft_id = d_id
@@ -259,11 +257,10 @@ def render_workspace_page():
             st.markdown("<br>", unsafe_allow_html=True)
             c_save1, c_save2 = st.columns([1, 2])
             
-            # --- FIX 2: SAVE ADDRESSES TO DB IMMEDIATELY ---
             if c_save1.button("Save Addresses", type="primary"):
                  _save_addresses_from_widgets(tier, is_intl)
                  
-                 # Force DB update so Admin sees the data
+                 # Force DB update for address
                  d_id = st.session_state.get("current_draft_id")
                  if d_id and database:
                      database.update_draft_data(
@@ -365,13 +362,15 @@ def render_review_page():
     c_edit1, c_edit2, c_edit3, c_edit4 = st.columns(4)
     def run_edit(style):
         curr_text = st.session_state.get("transcribed_text", "")
-        if curr_text and ai_engine:
+        if not curr_text: st.error("⚠️ No text to edit!"); return
+
+        if ai_engine:
             with st.spinner(f"✨ Rewriting..."):
                 new_text = ai_engine.refine_text(curr_text, style)
                 if new_text and len(new_text.strip()) > 5:
                     st.session_state.transcribed_text = new_text; st.rerun()
                 else:
-                    st.error("⚠️ AI Error: Could not rewrite text. Please try again.")
+                    st.error("⚠️ AI Error: Returned empty text. Original text preserved.")
 
     if c_edit1.button("✅ Fix Grammar", use_container_width=True): run_edit("Grammar")
     if c_edit2.button("👔 Professional", use_container_width=True): run_edit("Professional")
@@ -380,14 +379,14 @@ def render_review_page():
 
     txt = st.text_area("Body Content", key="transcribed_text", height=300, disabled=st.session_state.letter_sent_success)
     
-    # --- FIX 3: LIVE PREVIEW ---
+    # --- PREVIEW BUTTON ---
     if st.button("👁️ Preview PDF Proof", type="secondary", use_container_width=True):
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
         else:
             with st.spinner("Generating Proof..."):
-                to_p = st.session_state.get("to_addr") or {"name": "Preview Recipient", "street": "123 Main St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
-                from_p = st.session_state.get("from_addr") or {"name": "Preview Sender", "street": "456 Return Ln", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
+                to_p = st.session_state.get("to_addr") or {"name": "Preview", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
+                from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
                 
                 to_str = f"{to_p.get('name','')}\n{to_p.get('street','')}\n{to_p.get('city','')}, {to_p.get('state','')} {to_p.get('zip','')}"
                 from_str = f"{from_p.get('name','')}\n{from_p.get('street','')}\n{from_p.get('city','')}, {from_p.get('state','')} {from_p.get('zip','')}"
@@ -401,24 +400,16 @@ def render_review_page():
                      except: pass
 
                 if letter_format:
-                    pdf_bytes = letter_format.create_pdf(
-                        txt, to_str, from_str, 
-                        is_heirloom=("Heirloom" in tier), 
-                        is_santa=("Santa" in tier), 
-                        signature_path=sig_path
-                    )
+                    pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=("Santa" in tier), signature_path=sig_path)
                     if pdf_bytes:
                         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                        pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
-                        st.markdown(pdf_display, unsafe_allow_html=True)
-                    else:
-                        st.error("❌ PDF Generation Failed.")
+                        st.markdown(f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
                 if sig_path: os.remove(sig_path)
 
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             
-            # --- FIX 4: HARD BLOCK FOR EMPTY LETTERS ---
+            # --- SAFETY CHECK: EMPTY CONTENT ---
             if not txt or len(txt.strip()) < 10:
                 st.error("⚠️ **Letter is too short or empty!** Please write more content.")
                 return
@@ -431,7 +422,6 @@ def render_review_page():
             else:
                 if not st.session_state.get("bulk_targets"): st.error("⚠️ No CSV loaded."); return
 
-            # --- START AUDIT & SEND BLOCK ---
             current_stripe_id = st.session_state.get("current_stripe_id")
             u_email = st.session_state.get("user_email")
             d_id = st.session_state.get("current_draft_id")
@@ -477,7 +467,6 @@ def render_review_page():
                         if letter_format:
                             pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
                             
-                            # SEND
                             if (tier == "Standard" or tier == "Civic" or tier == "Campaign") and mailer:
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp.write(pdf_bytes); tmp_path = tmp.name
                                 
@@ -507,11 +496,9 @@ def render_review_page():
                                 if success:
                                     postgrid_success = True
                                     if is_certified and resp.get('trackingNumber'): st.session_state.last_tracking_num = resp.get('trackingNumber')
-                                    # LOG SUCCESS
                                     if audit_engine: audit_engine.log_event(u_email, "MAIL_SENT_SUCCESS", current_stripe_id, {"provider_id": resp.get('id')})
                                 else:
                                     errors.append(f"{to_data.get('name')}: {resp}")
-                                    # LOG API ERROR
                                     if audit_engine: audit_engine.log_event(u_email, "MAIL_API_FAILURE", current_stripe_id, {"error": str(resp)})
 
                             if database:
@@ -519,10 +506,9 @@ def render_review_page():
                                 if tier in ["Standard", "Civic", "Campaign"]: final_status = "Completed" if postgrid_success and not errors else "Pending Admin"
                                 
                                 if d_id:
-                                    # Update the existing draft we created at checkout
-                                    database.update_draft_data(d_id, to_data, from_data, status=final_status)
+                                    # --- UPDATE CONTENT IN DB ---
+                                    database.update_draft_data(d_id, to_data, from_data, content=txt, status=final_status)
                                 else:
-                                    # Fallback
                                     database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
                                 
                                 if (tier == "Santa" or tier == "Heirloom") and mailer: mailer.send_admin_alert(u_email, txt, tier)
