@@ -36,7 +36,7 @@ def send_manual_completion_email(user_email, tier, recipient_name):
     resend.api_key = key
     
     if "Santa" in tier:
-        subject = "🎅 A Letter form the North Pole has Sent!"
+        subject = "🎅 A Letter from the North Pole has Sent!"
         html = f"""
         <div style="font-family: sans-serif; color: #333;">
             <h2>Ho Ho Ho! 🎅</h2>
@@ -83,6 +83,10 @@ def send_letter(pdf_path, to_address, from_address, certified=False):
             'from[postalOrZip]': from_address.get('address_zip'),
             'from[countryCode]': from_address.get('country_code', 'US'), 
             
+            # --- THE FIX: RELAXED STRICTNESS ---
+            # This allows addresses that are valid but not yet in the PostGrid DB (e.g. new builds)
+            'addressStrictness': 'strict-but-accept-unknown',
+            
             'color': 'false', 
             'addressPlacement': 'top_first_page'
         }
@@ -124,7 +128,7 @@ def send_letter(pdf_path, to_address, from_address, certified=False):
                 send_tracking_email(user_email, tracking_num, recip_name)
                 res_json['trackingNumber'] = tracking_num
             
-            # 2. Standard Success Email (New Request)
+            # 2. Standard Success Email
             send_confirmation_email(user_email, "Standard", recip_name)
             
             return True, res_json
