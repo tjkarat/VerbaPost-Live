@@ -29,7 +29,7 @@ try: import civic_engine
 except ImportError: civic_engine = None
 try: import bulk_engine
 except ImportError: bulk_engine = None
-try: import audit_engine # <--- NEW IMPORT
+try: import audit_engine 
 except ImportError: audit_engine = None
 
 DEFAULT_URL = "https://verbapost.streamlit.app/"
@@ -500,7 +500,8 @@ def show_main_app():
         import ui_login; import auth_engine
         ui_login.show_login(
             lambda e,p: _handle_login(auth_engine, e,p), 
-            lambda e,p,n,a,c,s,z,l,l2: _handle_signup(auth_engine, e,p,n,a,l,c,s,z,l2)
+            # FIXED: Updated lambda to accept 10 arguments (addr2 and lang added)
+            lambda e,p,n,a,a2,c,s,z,cntry,lang: _handle_signup(auth_engine, e,p,n,a,a2,c,s,z,cntry,lang)
         )
     elif mode == "forgot_password": import ui_login; import auth_engine; ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
     elif mode == "reset_verify": import ui_login; import auth_engine; ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
@@ -522,7 +523,13 @@ def _handle_login(auth, email, password):
     if res and res.user: st.session_state.user = res.user; st.session_state.user_email = res.user.email; st.session_state.app_mode = "store"; st.rerun()
     else: st.session_state.auth_error = err
 
+# FIXED: Updated to accept and pass the 10th argument (lang) and return results
 def _handle_signup(auth, email, password, name, addr, addr2, city, state, zip_c, country, lang):
     res, err = auth.sign_up(email, password, name, addr, addr2, city, state, zip_c, country, lang)
-    if res and res.user: st.success("Account Created! Please log in."); st.session_state.app_mode = "login"
-    else: st.session_state.auth_error = err
+    if res and res.user: 
+        st.success("Account Created! Please log in.")
+        st.session_state.app_mode = "login"
+    else: 
+        st.session_state.auth_error = err
+    # Return the results so ui_login.py can react if needed
+    return res, err

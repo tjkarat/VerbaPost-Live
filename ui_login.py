@@ -39,6 +39,7 @@ def show_login(login_func, signup_func):
             if active_tab == "signup": t_signup, t_login = st.tabs(["📝 Create Account", "🔑 Log In"])
             else: t_login, t_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
             
+            # --- LOGIN TAB ---
             with t_login:
                 with st.form("login_form"):
                     email = st.text_input("Email Address", key="login_email")
@@ -51,6 +52,7 @@ def show_login(login_func, signup_func):
                 if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
                     st.session_state.app_mode = "forgot_password"; st.rerun()
             
+            # --- SIGNUP TAB ---
             with t_signup:
                 st.caption("Please fill out your details below.")
                 with st.form("signup_form"):
@@ -65,7 +67,7 @@ def show_login(login_func, signup_func):
                     country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
                     addr = c_str.text_input("Street Address")
                     
-                    # --- NEW: Address Line 2 ---
+                    # Address Line 2
                     addr2 = st.text_input("Apt / Suite / Unit (Optional)")
                     
                     s_lbl_st = "State (2 letters)" if country_code == "US" else "State/Province"
@@ -85,8 +87,13 @@ def show_login(login_func, signup_func):
                             for e in addr_errors: st.error(f"❌ {e}")
                         else:
                             with st.spinner("Creating account..."):
-                                # Pass addr2 (street2)
-                                signup_func(new_email, new_pass, name, addr, addr2, city, state, zip_code, country_code, "English")
+                                # Pass addr2 (street2) and capture the result (res) and error (err)
+                                res, err = signup_func(new_email, new_pass, name, addr, addr2, city, state, zip_code, country_code, "English")
+                                
+                                if res:
+                                    st.success("✅ Account created! Please check your email or log in.")
+                                elif err:
+                                    st.error(f"❌ Signup Failed: {err}")
 
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:
