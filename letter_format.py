@@ -180,7 +180,14 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         # Body
         pdf.set_font(body_font, '', body_size)
         safe_content = sanitize_text(content, is_cjk)
+        
+        # --- SAFETY FIX ---
+        if not safe_content or len(safe_content.strip()) == 0:
+            safe_content = "[ERROR: No Content Provided. Please return to editor.]"
+            pdf.set_text_color(255, 0, 0) # Red text warning
+            
         pdf.multi_cell(170, 8, safe_content)
+        pdf.set_text_color(0, 0, 0)
 
         # Signature
         pdf.ln(20) 
