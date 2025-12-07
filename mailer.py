@@ -2,11 +2,60 @@ import streamlit as st
 import requests
 import resend
 import secrets_manager
-import hashlib # <--- NEW
-import json    # <--- NEW
+import hashlib
+import json
 
 def get_postgrid_key(): return secrets_manager.get_secret("postgrid.api_key")
 def get_resend_key(): return secrets_manager.get_secret("email.password")
+
+# --- NEW: GENERIC CONFIRMATION EMAIL ---
+def send_confirmation_email(user_email, tier, recipient_name):
+    """Sends immediate confirmation for Standard/Civic orders."""
+    key = get_resend_key()
+    if not key or not user_email: return
+    resend.api_key = key
+    
+    subject = f"📮 Letter Mailed: {tier} Edition"
+    html = f"""
+    <div style="font-family: sans-serif; color: #333;">
+        <h2>Letter Sent! ✈️</h2>
+        <p>Your <strong>{tier}</strong> letter to <strong>{recipient_name}</strong> has been processed and is on its way.</p>
+        <p>Thank you for using VerbaPost.</p>
+        <hr>
+        <p style="font-size: 12px; color: #888;">If you need help, reply to this email.</p>
+    </div>
+    """
+    try: resend.Emails.send({"from": "VerbaPost <updates@resend.dev>", "to": user_email, "subject": subject, "html": html})
+    except: pass
+
+# --- NEW: MANUAL FULFILLMENT EMAIL (Santa/Heirloom) ---
+def send_manual_completion_email(user_email, tier, recipient_name):
+    """Called by Admin Console when marking special orders as Complete."""
+    key = get_resend_key()
+    if not key or not user_email: return
+    resend.api_key = key
+    
+    if "Santa" in tier:
+        subject = "🎅 A Letter form the North Pole has Sent!"
+        html = f"""
+        <div style="font-family: sans-serif; color: #333;">
+            <h2>Ho Ho Ho! 🎅</h2>
+            <p>The letter to <strong>{recipient_name}</strong> has just left the North Pole via Reindeer Express.</p>
+            <p>Keep an eye on the chimney (or mailbox)!</p>
+        </div>
+        """
+    else:
+        subject = f"🏺 Heirloom Letter Mailed"
+        html = f"""
+        <div style="font-family: sans-serif; color: #333;">
+            <h2>Hand-Crafted & Mailed 🏺</h2>
+            <p>Your Heirloom letter to <strong>{recipient_name}</strong> has been printed on archival stock, hand-addressed, and mailed.</p>
+        </div>
+        """
+    
+    try: resend.Emails.send({"from": "VerbaPost <updates@resend.dev>", "to": user_email, "subject": subject, "html": html})
+    except: pass
+
 
 def send_letter(pdf_path, to_address, from_address, certified=False):
     api_key = get_postgrid_key()
@@ -44,27 +93,19 @@ def send_letter(pdf_path, to_address, from_address, certified=False):
         else:
             data['express'] = 'false'
 
-        # --- 2. IDEMPOTENCY KEY GENERATION ---
+        # --- 2. IDEMPOTENCY KEY ---
         try:
             with open(pdf_path, 'rb') as f:
                 pdf_bytes = f.read()
-            
-            # Create a unique fingerprint based on Content + Metadata
             fingerprint_source = json.dumps(data, sort_keys=True).encode() + pdf_bytes
             idempotency_key = hashlib.sha256(fingerprint_source).hexdigest()
-            
-            headers = {
-                "x-api-key": api_key,
-                "Idempotency-Key": idempotency_key 
-            }
-        except Exception as e:
-            print(f"⚠️ Idempotency Gen Failed: {e}")
-            headers = {"x-api-key": api_key} # Fallback
+            headers = { "x-api-key": api_key, "Idempotency-Key": idempotency_key }
+        except:
+            headers = {"x-api-key": api_key}
             pdf_bytes = None
 
         # --- 3. SEND ---
-        files = {'pdf': open(pdf_path, 'rb')} # Re-open file
-        
+        files = {'pdf': open(pdf_path, 'rb')}
         response = requests.post(url, headers=headers, data=data, files=files)
         files['pdf'].close()
 
@@ -72,13 +113,19 @@ def send_letter(pdf_path, to_address, from_address, certified=False):
             res_json = response.json()
             print(f"✅ PostGrid SUCCESS. ID: {res_json.get('id')}")
             
+            # --- EMAIL TRIGGERS ---
+            recip_name = to_address.get('name')
+            user_email = from_address.get('email')
+            
+            # 1. Certified Tracking Email
             tracking_num = res_json.get('trackingNumber')
-            if certified and not tracking_num and "test" in api_key:
-                 tracking_num = "TEST_TRACKING_12345"
-
+            if certified and not tracking_num and "test" in api_key: tracking_num = "TEST_TRACKING_12345"
             if certified and tracking_num:
-                send_tracking_email(from_address.get('email'), tracking_num, to_address.get('name'))
+                send_tracking_email(user_email, tracking_num, recip_name)
                 res_json['trackingNumber'] = tracking_num
+            
+            # 2. Standard Success Email (New Request)
+            send_confirmation_email(user_email, "Standard", recip_name)
             
             return True, res_json
         else:

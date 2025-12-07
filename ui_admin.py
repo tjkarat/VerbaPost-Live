@@ -58,8 +58,8 @@ def generate_admin_pdf(content, to_data, from_data, is_santa=False, is_heirloom=
         return None
 
 def show_admin():
-    # TITLE UPDATE: v2.4 (Tuple Fix)
-    st.title("🔐 Admin Console (v2.4)")
+    # TITLE UPDATE: v2.6 (Email Triggers Added)
+    st.title("🔐 Admin Console (v2.6)")
     
     u_email = st.session_state.get("user_email") or st.session_state.get("user", {}).email
     st.info(f"Logged in as: {u_email}")
@@ -78,7 +78,7 @@ def show_admin():
         
         if database:
             data = database.fetch_all_drafts()
-            # FIX: Added "Campaign" to the filter list
+            # Filter for automated tiers
             std_orders = [d for d in data if d.get("Tier") and d["Tier"] in ["Standard", "Civic", "Campaign"]]
             
             if std_orders:
@@ -166,7 +166,7 @@ def show_admin():
                                         'address_zip': new_from['zip'], 'country_code': new_from['country']
                                     }
                                     
-                                    # --- THE FIX: UNPACK TUPLE ---
+                                    # --- UNPACK TUPLE (Success, Data) ---
                                     success, resp_data = mailer.send_letter(tmp_path, pg_to, pg_from)
                                     os.remove(tmp_path)
                                     
@@ -203,8 +203,15 @@ def show_admin():
                             href = f'<a href="data:application/pdf;base64,{b64}" download="Santa_Order_{s_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
                     
+                    # --- UPDATED MARK COMPLETED (Sends Email) ---
                     if st.button("Mark Completed", key="santa_mark"):
                         database.update_draft_data(s_id, None, None, status="Completed")
+                        
+                        if mailer:
+                            r_name = to_j.get("name", "Believer")
+                            mailer.send_manual_completion_email(target_letter["Email"], "Santa", r_name)
+                            st.toast("📧 Santa Confirmation Email Sent!")
+                            
                         st.success("Updated!"); st.rerun()
 
     # --- TAB 3: HEIRLOOM ---
@@ -234,8 +241,15 @@ def show_admin():
                             href = f'<a href="data:application/pdf;base64,{b64}" download="Heirloom_Order_{h_id}.pdf">⬇️ Download PDF</a>'
                             st.markdown(href, unsafe_allow_html=True)
 
+                    # --- UPDATED MARK COMPLETED (Sends Email) ---
                     if st.button("Mark Completed", key="heir_mark"):
                         database.update_draft_data(h_id, None, None, status="Completed")
+                        
+                        if mailer:
+                            r_name = to_j.get("name", "Recipient")
+                            mailer.send_manual_completion_email(target_h["Email"], "Heirloom", r_name)
+                            st.toast("📧 Heirloom Confirmation Email Sent!")
+
                         st.success("Order marked as Completed!")
                         st.rerun()
 
