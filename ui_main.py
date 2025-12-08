@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 import io
 
+# --- IMPORTS ---
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -30,7 +31,6 @@ try: import bulk_engine
 except ImportError: bulk_engine = None
 try: import audit_engine 
 except ImportError: audit_engine = None
-# FIX: Import StandardAddress
 from address_standard import StandardAddress
 
 DEFAULT_URL = "https://verbapost.streamlit.app/"
@@ -65,7 +65,8 @@ def reset_app():
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);"><h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1><div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div></div>""", unsafe_allow_html=True)
 
-def show_santa_animation(): st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)
+# [REMOVED] show_santa_animation() - Deleted for performance.
+
 def render_legal_page(): import ui_legal; ui_legal.show_legal()
 
 def render_store_page():
@@ -207,10 +208,16 @@ def render_workspace_page():
                 contacts, error = bulk_engine.parse_csv(uploaded_file)
                 if error: st.error(error)
                 else:
-                    st.success(f"✅ Loaded {len(contacts)} recipients.")
-                    st.dataframe(contacts[:5])
                     paid_qty = st.session_state.get("bulk_paid_qty", 1000)
-                    if len(contacts) > paid_qty: st.warning(f"⚠️ Limit: {paid_qty}")
+                    
+                    # --- FIX: STRICT PRICING ENFORCEMENT ---
+                    if len(contacts) > paid_qty:
+                        st.warning(f"⚠️ Limit Exceeded: You paid for {paid_qty} recipients but uploaded {len(contacts)}. The list has been truncated.")
+                        contacts = contacts[:paid_qty] # Strict cut
+                    else:
+                        st.success(f"✅ Loaded {len(contacts)} recipients.")
+                        
+                    st.dataframe(contacts[:5])
                     if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("List Saved!")
         
         else:
@@ -337,6 +344,7 @@ def render_workspace_page():
                         st.session_state.app_mode = "review"
                         st.rerun()
 
+        # --- SAFE FILE UPLOAD LOGIC ---
         with t_up:
             st.caption("Max 25MB. Supported: wav, mp3, m4a, mp4.")
             uploaded_file = st.file_uploader("Select Audio File", type=['wav', 'mp3', 'm4a', 'mp4', 'webm'])
@@ -440,7 +448,6 @@ def render_review_page():
             from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
             
             with st.spinner("Generating Proof..."):
-                # FIX: Use StandardAddress for robust preview
                 to_std = StandardAddress.from_dict(to_p)
                 to_str = to_std.to_pdf_string()
                 from_std = StandardAddress.from_dict(from_p)
@@ -459,7 +466,7 @@ def render_review_page():
                     if pdf_bytes:
                         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                         st.markdown(f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
-                # FIX: Robust temp cleanup
+                
                 if sig_path:
                     try: os.remove(sig_path)
                     except: pass
@@ -475,7 +482,6 @@ def render_review_page():
                 if not targets: st.error("⚠️ No mailing list found. Please upload a CSV first."); st.stop()
             elif tier == "Civic" and "civic_targets" in st.session_state:
                 for rep in st.session_state.civic_targets: 
-                    # FIX: Civic Null Check
                     t = rep.get('address_obj')
                     if t: t['country'] = 'US'; targets.append(t) 
             else:
@@ -507,7 +513,6 @@ def render_review_page():
                     prog_bar = st.progress(0); errors = []; successful_count = 0
                     
                     for i, to_data in enumerate(targets):
-                        # FIX: Use StandardAddress
                         to_std = StandardAddress.from_dict(to_data)
                         to_str = to_std.to_pdf_string()
                         if tier == "Santa": from_str = "Santa Claus"
@@ -522,10 +527,8 @@ def render_review_page():
                             if (tier == "Standard" or tier == "Civic" or tier == "Campaign") and mailer:
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp.write(pdf_bytes); tmp_path = tmp.name
                                 
-                                # Send raw dicts, mailer handles StandardAddress conversion
                                 success, resp = mailer.send_letter(tmp_path, to_data, from_data, certified=is_certified)
                                 
-                                # FIX: Robust Temp Cleanup
                                 try:
                                     if os.path.exists(tmp_path): os.remove(tmp_path)
                                 except: pass
@@ -567,7 +570,7 @@ def render_review_page():
                 if audit_engine: audit_engine.log_event(u_email, "APP_CRASH_DURING_SEND", current_stripe_id, {"trace": str(e)})
 
     else:
-        show_santa_animation()
+        # SANTA ANIMATION REMOVED
         if st.session_state.get("campaign_errors"):
             st.error(f"⚠️ {len(st.session_state.campaign_errors)} failed.")
             with st.expander("View Errors"):
