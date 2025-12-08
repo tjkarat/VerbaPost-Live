@@ -6,6 +6,11 @@ COUNTRIES = {
     "JP": "Japan", "BR": "Brazil", "IN": "India"
 }
 
+LANGUAGES = [
+    "English", "Spanish", "French", "German", "Italian", 
+    "Japanese", "Korean", "Chinese", "Portuguese"
+]
+
 def validate_address(street, city, state, zip_code, country_code):
     errors = []
     if country_code == "US":
@@ -90,8 +95,11 @@ def show_login(login_func, signup_func):
                     
                     name = st.text_input("Full Legal Name")
                     
-                    # UPDATED LAYOUT: De-cramped
-                    country_code = st.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
+                    # --- NEW: LANGUAGE SELECTOR ---
+                    c_cntry, c_lang = st.columns([1, 1])
+                    country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
+                    language = c_lang.selectbox("Preferred Language", LANGUAGES, index=0)
+                    
                     addr = st.text_input("Street Address")
                     addr2 = st.text_input("Apt / Suite / Unit (Optional)")
                     
@@ -108,8 +116,6 @@ def show_login(login_func, signup_func):
                     if st.form_submit_button("Create Account", type="primary", use_container_width=True):
                         
                         # --- FIX: AUTOFILL DETECTION ---
-                        # If a user uses browser autofill, sometimes Streamlit doesn't register the value until a click event.
-                        # We verify that crucial fields are not empty strings.
                         if not name or not addr or not city or not state or not zip_code:
                              st.error("⚠️ **Missing Info:** Some fields appear empty. If you used autofill, please click inside the boxes to ensure they are saved.")
                         else:
@@ -120,8 +126,12 @@ def show_login(login_func, signup_func):
                                 for e in addr_errors: st.error(f"❌ {e}")
                             else:
                                 with st.spinner("Creating account..."):
-                                    # Pass result back to handle navigation
-                                    res, err = signup_func(new_email, new_pass, name, addr, addr2, city, state, zip_code, country_code, "English")
+                                    # --- PASS SELECTED LANGUAGE ---
+                                    res, err = signup_func(
+                                        new_email, new_pass, name, 
+                                        addr, addr2, city, state, zip_code, country_code, 
+                                        language  # <--- No longer hardcoded "English"
+                                    )
                                     
                                     if res:
                                         st.success("✅ Account created! Please check your email or log in.")
