@@ -593,8 +593,14 @@ def show_main_app():
     if "session_id" in st.query_params: 
         if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
         if "certified" in st.query_params: st.session_state.is_certified = True
-        st.session_state.app_mode = "workspace"; st.session_state.payment_complete = True; st.rerun()
-
+        
+        st.session_state.app_mode = "workspace"
+        st.session_state.payment_complete = True
+        
+        # --- FIX: CLEAR PARAMS TO BREAK LOOP ---
+        # We must remove session_id from the URL or we loop forever
+        st.query_params.clear() 
+        st.rerun()
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": 
         import ui_login; import auth_engine
