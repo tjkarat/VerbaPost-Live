@@ -106,19 +106,28 @@ def show_login(login_func, signup_func):
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.form_submit_button("Create Account", type="primary", use_container_width=True):
-                        addr_errors = validate_address(addr, city, state, zip_code, country_code)
-                        if new_pass != confirm_pass: st.error("❌ Passwords do not match")
-                        elif not new_email or not name: st.error("❌ Name and Email are required.")
-                        elif addr_errors: 
-                            for e in addr_errors: st.error(f"❌ {e}")
+                        
+                        # --- FIX: AUTOFILL DETECTION ---
+                        # If a user uses browser autofill, sometimes Streamlit doesn't register the value until a click event.
+                        # We verify that crucial fields are not empty strings.
+                        if not name or not addr or not city or not state or not zip_code:
+                             st.error("⚠️ **Missing Info:** Some fields appear empty. If you used autofill, please click inside the boxes to ensure they are saved.")
                         else:
-                            with st.spinner("Creating account..."):
-                                res, err = signup_func(new_email, new_pass, name, addr, addr2, city, state, zip_code, country_code, "English")
-                                if res:
-                                    st.success("✅ Account created! Please check your email or log in.")
-                                elif err:
-                                    st.error(f"❌ Signup Failed: {err}")
+                            addr_errors = validate_address(addr, city, state, zip_code, country_code)
+                            if new_pass != confirm_pass: st.error("❌ Passwords do not match")
+                            elif not new_email: st.error("❌ Email is required.")
+                            elif addr_errors: 
+                                for e in addr_errors: st.error(f"❌ {e}")
+                            else:
+                                with st.spinner("Creating account..."):
+                                    # Pass result back to handle navigation
+                                    res, err = signup_func(new_email, new_pass, name, addr, addr2, city, state, zip_code, country_code, "English")
                                     
+                                    if res:
+                                        st.success("✅ Account created! Please check your email or log in.")
+                                    elif err:
+                                        st.error(f"❌ Signup Failed: {err}")
+
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:
         if st.button("← Back to Home", type="secondary", use_container_width=True):

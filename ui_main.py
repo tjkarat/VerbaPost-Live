@@ -132,7 +132,6 @@ def render_store_page():
                 st.metric("Total", "$0.00", delta=f"-${price:.2f} off")
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
-                    
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, "0.00")
                         st.session_state.current_draft_id = d_id
@@ -143,7 +142,6 @@ def render_store_page():
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
-                    
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, price)
                         st.session_state.current_draft_id = d_id
@@ -258,17 +256,19 @@ def render_workspace_page():
             c_save1, c_save2 = st.columns([1, 2])
             
             if c_save1.button("Save Addresses", type="primary"):
-                 _save_addresses_from_widgets(tier, is_intl)
-                 
-                 # Force DB update for address
-                 d_id = st.session_state.get("current_draft_id")
-                 if d_id and database:
-                     database.update_draft_data(
-                         d_id, 
-                         st.session_state.get("to_addr"), 
-                         st.session_state.get("from_addr")
-                     )
-                 st.toast("Addresses Saved to Database!")
+                 # --- AUTOFILL VALIDATION FIX ---
+                 # Check if crucial fields are empty in session state, which happens if autofill was used 
+                 # but user didn't click/tab out of the field.
+                 check_name = st.session_state.get("w_to_name", "")
+                 check_street = st.session_state.get("w_to_street", "")
+                 if not check_name or not check_street:
+                     st.error("⚠️ **Autofill Detected but not Saved:** Please click inside the Name and Street boxes to ensure the browser saves them.")
+                 else:
+                     _save_addresses_from_widgets(tier, is_intl)
+                     d_id = st.session_state.get("current_draft_id")
+                     if d_id and database:
+                         database.update_draft_data(d_id, st.session_state.get("to_addr"), st.session_state.get("from_addr"))
+                     st.toast("Addresses Saved to Database!")
 
             if tier != "Civic" and c_save2.button("💾 Save to Address Book"):
                 name = st.session_state.get("w_to_name")
@@ -377,9 +377,10 @@ def render_review_page():
     if c_edit3.button("🤗 Friendly", use_container_width=True): run_edit("Friendly")
     if c_edit4.button("✂️ Concise", use_container_width=True): run_edit("Concise")
 
+    # --- UI FIX: MANUAL EDIT INSTRUCTION ---
+    st.info("📝 **Note:** You can edit the text below directly. The AI buttons above are optional.")
     txt = st.text_area("Body Content", key="transcribed_text", height=300, disabled=st.session_state.letter_sent_success)
     
-    # --- PREVIEW BUTTON ---
     if st.button("👁️ Preview PDF Proof", type="secondary", use_container_width=True):
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
@@ -409,7 +410,6 @@ def render_review_page():
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
             
-            # --- SAFETY CHECK: EMPTY CONTENT ---
             if not txt or len(txt.strip()) < 10:
                 st.error("⚠️ **Letter is too short or empty!** Please write more content.")
                 return
@@ -449,7 +449,11 @@ def render_review_page():
 
                     prog_bar = st.progress(0)
                     errors = []
-                    postgrid_success = False
+                    
+                    # --- FALSE SUCCESS FIX START ---
+                    # Logic changed: we now track IF at least one letter failed strictly.
+                    # For single letters, failure = Stop. For bulk, we log errors.
+                    at_least_one_success = False
 
                     for i, to_data in enumerate(targets):
                         t_country = to_data.get('country', 'US')
@@ -467,6 +471,7 @@ def render_review_page():
                         if letter_format:
                             pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
                             
+                            is_pg_ok = False
                             if (tier == "Standard" or tier == "Civic" or tier == "Campaign") and mailer:
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp.write(pdf_bytes); tmp_path = tmp.name
                                 
@@ -494,19 +499,24 @@ def render_review_page():
                                 os.remove(tmp_path)
                                 
                                 if success:
-                                    postgrid_success = True
+                                    is_pg_ok = True
+                                    at_least_one_success = True
                                     if is_certified and resp.get('trackingNumber'): st.session_state.last_tracking_num = resp.get('trackingNumber')
                                     if audit_engine: audit_engine.log_event(u_email, "MAIL_SENT_SUCCESS", current_stripe_id, {"provider_id": resp.get('id')})
                                 else:
+                                    # PostGrid Rejected It
+                                    is_pg_ok = False
                                     errors.append(f"{to_data.get('name')}: {resp}")
                                     if audit_engine: audit_engine.log_event(u_email, "MAIL_API_FAILURE", current_stripe_id, {"error": str(resp)})
 
+                            # Update DB logic
                             if database:
                                 final_status = "Pending Admin"
-                                if tier in ["Standard", "Civic", "Campaign"]: final_status = "Completed" if postgrid_success and not errors else "Pending Admin"
+                                # Only mark completed if PG actually accepted it
+                                if tier in ["Standard", "Civic", "Campaign"]: 
+                                    final_status = "Completed" if is_pg_ok else "Failed/Retry"
                                 
                                 if d_id:
-                                    # --- UPDATE CONTENT IN DB ---
                                     database.update_draft_data(d_id, to_data, from_data, content=txt, status=final_status)
                                 else:
                                     database.save_draft(u_email, txt, tier, "0.00", to_addr=to_data, from_addr=from_data, status=final_status, sig_data=sig_db_value)
@@ -516,8 +526,23 @@ def render_review_page():
                         prog_bar.progress((i + 1) / len(targets))
 
                     if sig_path and os.path.exists(sig_path): os.remove(sig_path)
-                    if errors: st.session_state.campaign_errors = errors
-                    st.session_state.letter_sent_success = True; st.rerun()
+                    
+                    if errors: 
+                        st.session_state.campaign_errors = errors
+                    
+                    # --- FALSE SUCCESS FIX: Only show success screen if we actually succeeded ---
+                    # For single letter tiers, if we have 1 error, it's a total failure.
+                    if tier != "Campaign":
+                        if errors:
+                            st.error("❌ Delivery Failed. See details below.")
+                            return # Stay on review page
+                        else:
+                            st.session_state.letter_sent_success = True
+                            st.rerun()
+                    else:
+                        # For Campaign/Bulk, we might have partial success
+                        st.session_state.letter_sent_success = True
+                        st.rerun()
 
             except Exception as e:
                 st.error(f"Critical Error: {e}")
