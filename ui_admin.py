@@ -289,22 +289,29 @@ def show_admin():
         if stripe_k: st.success("✅ Stripe Key Found")
         else: st.error("❌ Stripe Key Missing")
 
-    # --- TAB 5: PROMO ---
+  # --- TAB 5: PROMO ---
     with tab_promo:
         st.subheader("Promo Codes")
         if promo_engine:
             c1, c2 = st.columns(2)
             with c1:
-                new_code = st.text_input("New Code")
-                if st.button("Create Code"):
-                    success, msg = promo_engine.create_code(new_code)
-                    if success: st.success(msg)
-                    else: st.error(msg)
+                with st.form("create_promo"):
+                    new_code = st.text_input("New Code Name (e.g. SUMMER25)")
+                    # --- NEW: LIMIT INPUT ---
+                    usage_limit = st.number_input("Max Uses", min_value=1, value=10, step=1)
+                    
+                    if st.form_submit_button("Create Code"):
+                        success, msg = promo_engine.create_code(new_code, usage_limit)
+                        if success: st.success(msg)
+                        else: st.error(msg)
+                        
             with c2:
-                st.write("Usage Stats")
+                st.write("Active Codes & Usage")
                 stats = promo_engine.get_all_codes_with_usage()
-                if stats: st.dataframe(stats)
-
+                if stats: 
+                    st.dataframe(stats)
+                else:
+                    st.info("No active codes.")
     # --- TAB 6: DANGER ---
     with tab_danger:
         if st.button("TRUNCATE ALL DATA"):

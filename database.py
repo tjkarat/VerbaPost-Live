@@ -7,12 +7,10 @@ import secrets_manager
 
 Base = declarative_base()
 
+# --- EXISTING MODELS ---
 class UserProfile(Base):
     __tablename__ = "user_profiles"
-    
-    # --- FIX: CHANGED TO STRING TO ACCEPT UUIDs ---
-    id = Column(String, primary_key=True, index=True) 
-    
+    id = Column(String, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     address_line1 = Column(String)
@@ -22,6 +20,7 @@ class UserProfile(Base):
     address_zip = Column(String)
     country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.utcnow)
+    language_preference = Column(String, default="English")
 
 class LetterDraft(Base):
     __tablename__ = "letter_drafts"
@@ -49,6 +48,14 @@ class SavedContact(Base):
     country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# --- NEW: PROMO CODE TABLE ---
+class PromoCode(Base):
+    __tablename__ = "promo_codes"
+    code = Column(String, primary_key=True, index=True)
+    max_uses = Column(Integer, default=1)
+    current_uses = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
@@ -72,7 +79,6 @@ def get_session():
     return sessionmaker(autocommit=False, autoflush=False, bind=engine)()
 
 # --- CORE FUNCTIONS ---
-
 def get_user_profile(email):
     db = get_session()
     if not db: return None
@@ -88,63 +94,14 @@ def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=
         s_json = json.dumps(from_addr) if from_addr else "{}"
         
         draft = LetterDraft(
-            user_email=email, 
-            transcription=text, 
-            tier=tier, 
-            price=str(price), 
-            status=status,
-            recipient_json=r_json,
-            sender_json=s_json,
-            signature_data=str(sig_data) if sig_data else None
+            user_email=email, transcription=text, tier=tier, price=str(price), status=status,
+            recipient_json=r_json, sender_json=s_json, signature_data=str(sig_data) if sig_data else None
         )
         db.add(draft); db.commit(); db.refresh(draft)
         return draft.id
     except Exception as e:
         print(f"Save Error: {e}")
         db.rollback(); return None
-    finally: db.close()
-
-def update_user_profile(email, name, street, street2, city, state, zip_code, country="US"):
-    db = get_session()
-    if not db: return
-    try:
-        user = db.query(UserProfile).filter(UserProfile.email == email).first()
-        if not user:
-            # Note: If creating here manually, we might lack the UUID ID from Auth.
-            # Usually this function updates existing users.
-            pass 
-        else:
-            user.full_name = name
-            user.address_line1 = street
-            user.address_line2 = street2
-            user.address_city = city
-            user.address_state = state; user.address_zip = zip_code
-            user.country = country
-            db.commit()
-    except: pass
-    finally: db.close()
-
-def fetch_all_drafts():
-    db = get_session()
-    if not db: return []
-    try:
-        results = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
-        data = []
-        for r in results:
-            data.append({
-                "ID": r.id,
-                "Email": r.user_email,
-                "Tier": r.tier,
-                "Status": r.status,
-                "Date": r.created_at,
-                "Price": r.price,
-                "Content": r.transcription,
-                "Recipient": r.recipient_json,
-                "Sender": r.sender_json,
-                "Signature": r.signature_data
-            })
-        return data
-    except: return []
     finally: db.close()
 
 def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, status=None):
@@ -165,19 +122,44 @@ def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, stat
         db.rollback(); return False
     finally: db.close()
 
-# --- ADDRESS BOOK FUNCTIONS ---
+def update_user_profile(email, name, street, street2, city, state, zip_code, country="US"):
+    db = get_session()
+    if not db: return
+    try:
+        user = db.query(UserProfile).filter(UserProfile.email == email).first()
+        if user:
+            user.full_name = name; user.address_line1 = street; user.address_line2 = street2
+            user.address_city = city; user.address_state = state; user.address_zip = zip_code
+            user.country = country
+            db.commit()
+    except: pass
+    finally: db.close()
+
+def fetch_all_drafts():
+    db = get_session()
+    if not db: return []
+    try:
+        results = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
+        data = []
+        for r in results:
+            data.append({
+                "ID": r.id, "Email": r.user_email, "Tier": r.tier, "Status": r.status,
+                "Date": r.created_at, "Price": r.price, "Content": r.transcription,
+                "Recipient": r.recipient_json, "Sender": r.sender_json, "Signature": r.signature_data
+            })
+        return data
+    except: return []
+    finally: db.close()
+
+# --- ADDRESS BOOK ---
 def add_contact(user_email, name, street, street2, city, state, zip_code, country="US"):
     db = get_session()
     if not db: return False
     try:
-        exists = db.query(SavedContact).filter(
-            SavedContact.user_email == user_email, 
-            SavedContact.name == name
-        ).first()
+        exists = db.query(SavedContact).filter(SavedContact.user_email == user_email, SavedContact.name == name).first()
         if exists:
-            exists.street = street; exists.street2 = street2 
-            exists.city = city; exists.state = state
-            exists.zip_code = zip_code; exists.country = country
+            exists.street = street; exists.street2 = street2; exists.city = city
+            exists.state = state; exists.zip_code = zip_code; exists.country = country
         else:
             contact = SavedContact(
                 user_email=user_email, name=name, street=street, street2=street2,
@@ -186,16 +168,13 @@ def add_contact(user_email, name, street, street2, city, state, zip_code, countr
             db.add(contact)
         db.commit()
         return True
-    except Exception as e:
-        print(f"Contact Save Error: {e}")
-        return False
+    except Exception as e: return False
     finally: db.close()
 
 def get_contacts(user_email):
     db = get_session()
     if not db: return []
-    try:
-        return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
+    try: return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
     except: return []
     finally: db.close()
 
@@ -208,29 +187,3 @@ def delete_contact(contact_id):
         return True
     except: return False
     finally: db.close()
-
-def get_civic_leaderboard():
-    db = get_session()
-    if not db: return []
-    try:
-        results = db.query(LetterDraft).filter(
-            LetterDraft.tier == 'Civic',
-            LetterDraft.status.in_(['Completed', 'Pending Admin'])
-        ).order_by(LetterDraft.created_at.desc()).limit(500).all()
-        
-        state_counts = {}
-        for r in results:
-            try:
-                if r.recipient_json:
-                    data = json.loads(r.recipient_json)
-                    state = data.get('state', '').upper()
-                    if state and len(state) == 2:
-                        state_counts[state] = state_counts.get(state, 0) + 1
-            except: continue
-                
-        sorted_stats = sorted(state_counts.items(), key=lambda item: item[1], reverse=True)
-        return sorted_stats[:5]
-    except Exception as e:
-        return []
-    finally:
-        db.close()
