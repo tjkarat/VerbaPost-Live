@@ -1,4 +1,6 @@
 import streamlit as st
+try: import mailer
+except ImportError: mailer = None
 
 COUNTRIES = {
     "US": "United States", "CA": "Canada", "GB": "United Kingdom", "FR": "France",
@@ -28,7 +30,6 @@ def show_login(login_func, signup_func):
     # --- CSS: INPUT FIELD STYLING ---
     st.markdown("""
     <style>
-        /* Clean Input Borders & Focus Highlight */
         div[data-testid="stForm"] input, div[data-testid="stForm"] select {
             border: 1px solid #e2e8f0;
             border-radius: 8px;
@@ -40,7 +41,6 @@ def show_login(login_func, signup_func):
             box-shadow: 0 0 0 3px rgba(42, 82, 152, 0.15) !important;
             outline: none;
         }
-        /* Info Box Styling */
         .stAlert {
             background-color: #f0f9ff;
             border: 1px solid #bae6fd;
@@ -91,52 +91,65 @@ def show_login(login_func, signup_func):
                     
                     st.markdown("---")
                     st.markdown("### 🏠 Your Return Address")
-                    st.info("ℹ️ **Note:** This address will be printed on your envelopes so mail can be returned to you if undeliverable.")
+                    st.info("ℹ️ We verify addresses to ensure deliverability.")
                     
                     name = st.text_input("Full Legal Name")
                     
-                    # --- NEW: LANGUAGE SELECTOR ---
                     c_cntry, c_lang = st.columns([1, 1])
-                    country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0)
+                    country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), index=0)
                     language = c_lang.selectbox("Preferred Language", LANGUAGES, index=0)
                     
                     addr = st.text_input("Street Address")
                     addr2 = st.text_input("Apt / Suite / Unit (Optional)")
                     
-                    s_lbl_st = "State (2 letters)" if country_code == "US" else "State/Province"
-                    s_lbl_zip = "Zip Code" if country_code == "US" else "Postal Code"
-                    
-                    # Columns for City/State/Zip only
                     c_city, c_state, c_zip = st.columns([2, 1, 1.2])
                     city = c_city.text_input("City")
-                    state = c_state.text_input(s_lbl_st)
-                    zip_code = c_zip.text_input(s_lbl_zip)
+                    state = c_state.text_input("State")
+                    zip_code = c_zip.text_input("Zip Code")
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.form_submit_button("Create Account", type="primary", use_container_width=True):
                         
-                        # --- FIX: AUTOFILL DETECTION ---
+                        # 1. Autofill Validation Check
                         if not name or not addr or not city or not state or not zip_code:
                              st.error("⚠️ **Missing Info:** Some fields appear empty. If you used autofill, please click inside the boxes to ensure they are saved.")
+                        elif new_pass != confirm_pass: 
+                             st.error("❌ Passwords do not match")
                         else:
-                            addr_errors = validate_address(addr, city, state, zip_code, country_code)
-                            if new_pass != confirm_pass: st.error("❌ Passwords do not match")
-                            elif not new_email: st.error("❌ Email is required.")
-                            elif addr_errors: 
-                                for e in addr_errors: st.error(f"❌ {e}")
-                            else:
-                                with st.spinner("Creating account..."):
-                                    # --- PASS SELECTED LANGUAGE ---
-                                    res, err = signup_func(
-                                        new_email, new_pass, name, 
-                                        addr, addr2, city, state, zip_code, country_code, 
-                                        language  # <--- No longer hardcoded "English"
-                                    )
+                            # 2. Address Verification Logic
+                            clean_addr, clean_addr2 = addr, addr2
+                            clean_city, clean_state, clean_zip = city, state, zip_code
+                            
+                            # Only verify US addresses if mailer is available
+                            if mailer and country_code == "US":
+                                with st.spinner("Verifying Address..."):
+                                    is_valid, data = mailer.verify_address_data(addr, addr2, city, state, zip_code, country_code)
                                     
-                                    if res:
-                                        st.success("✅ Account created! Please check your email or log in.")
-                                    elif err:
-                                        st.error(f"❌ Signup Failed: {err}")
+                                    if not is_valid:
+                                        st.error(f"❌ {data}")
+                                        st.stop()
+                                    elif data:
+                                        # Use Cleaned Data
+                                        clean_addr = data['line1']
+                                        clean_addr2 = data['line2']
+                                        clean_city = data['city']
+                                        clean_state = data['state']
+                                        clean_zip = data['zip']
+                                        if clean_addr.lower() != addr.lower():
+                                            st.toast(f"✨ Address standardized to: {clean_addr}")
+
+                            # 3. Create Account
+                            with st.spinner("Creating account..."):
+                                res, err = signup_func(
+                                    new_email, new_pass, name, 
+                                    clean_addr, clean_addr2, clean_city, clean_state, clean_zip, country_code, 
+                                    language
+                                )
+                                
+                                if res:
+                                    st.success("✅ Account created! Please check your email or log in.")
+                                elif err:
+                                    st.error(f"❌ Signup Failed: {err}")
 
     f1, f2, f3 = st.columns([1, 2, 1])
     with f2:

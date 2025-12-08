@@ -8,135 +8,74 @@ import json
 def get_postgrid_key(): return secrets_manager.get_secret("postgrid.api_key")
 def get_resend_key(): return secrets_manager.get_secret("email.password")
 
-# --- NEW: GENERIC CONFIRMATION EMAIL ---
-def send_confirmation_email(user_email, tier, recipient_name):
-    """Sends immediate confirmation for Standard/Civic orders."""
-    key = get_resend_key()
-    if not key or not user_email: return
-    resend.api_key = key
-    
-    subject = f"📮 Letter Mailed: {tier} Edition"
-    html = f"""
-    <div style="font-family: sans-serif; color: #333;">
-        <h2>Letter Sent! ✈️</h2>
-        <p>Your <strong>{tier}</strong> letter to <strong>{recipient_name}</strong> has been processed and is on its way.</p>
-        <p>Thank you for using VerbaPost.</p>
-        <hr>
-        <p style="font-size: 12px; color: #888;">If you need help, reply to this email.</p>
-    </div>
+# --- ADDRESS VERIFICATION (NEW) ---
+def verify_address_data(line1, line2, city, state, zip_code, country_code):
     """
-    try: resend.Emails.send({"from": "VerbaPost <updates@resend.dev>", "to": user_email, "subject": subject, "html": html})
-    except: pass
-
-# --- NEW: MANUAL FULFILLMENT EMAIL (Santa/Heirloom) ---
-def send_manual_completion_email(user_email, tier, recipient_name):
-    """Called by Admin Console when marking special orders as Complete."""
-    key = get_resend_key()
-    if not key or not user_email: return
-    resend.api_key = key
-    
-    if "Santa" in tier:
-        subject = "🎅 A Letter from the North Pole has Sent!"
-        html = f"""
-        <div style="font-family: sans-serif; color: #333;">
-            <h2>Ho Ho Ho! 🎅</h2>
-            <p>The letter to <strong>{recipient_name}</strong> has just left the North Pole via Reindeer Express.</p>
-            <p>Keep an eye on the chimney (or mailbox)!</p>
-        </div>
-        """
-    else:
-        subject = f"🏺 Heirloom Letter Mailed"
-        html = f"""
-        <div style="font-family: sans-serif; color: #333;">
-            <h2>Hand-Crafted & Mailed 🏺</h2>
-            <p>Your Heirloom letter to <strong>{recipient_name}</strong> has been printed on archival stock, hand-addressed, and mailed.</p>
-        </div>
-        """
-    
-    try: resend.Emails.send({"from": "VerbaPost <updates@resend.dev>", "to": user_email, "subject": subject, "html": html})
-    except: pass
-
-
-def send_letter(pdf_path, to_address, from_address, certified=False):
+    Calls PostGrid Address Verification API to standardize and validate input.
+    Returns: (bool is_valid, dict data_or_error)
+    """
     api_key = get_postgrid_key()
-    if not api_key: return False, "Missing PostGrid API Key"
+    if not api_key: return True, None # Skip if no key (Dev mode)
 
+    url = "https://api.postgrid.com/v1/addver/verifications"
+    
+    payload = {
+        "line1": line1,
+        "line2": line2,
+        "city": city,
+        "provinceOrState": state,
+        "postalOrZip": zip_code,
+        "country": country_code
+    }
+    
     try:
-        url = "https://api.postgrid.com/print-mail/v1/letters"
+        r = requests.post(url, headers={"x-api-key": api_key}, data=payload)
         
-        # --- 1. DATA PAYLOAD ---
-        data = {
-            'description': f"VerbaPost to {to_address.get('name')}",
-            'to[firstName]': to_address.get('name'), 
-            'to[addressLine1]': to_address.get('address_line1'),
-            'to[addressLine2]': to_address.get('address_line2', ''),
-            'to[city]': to_address.get('address_city'),
-            'to[provinceOrState]': to_address.get('address_state'),
-            'to[postalOrZip]': to_address.get('address_zip'),
-            'to[countryCode]': to_address.get('country_code', 'US'), 
+        if r.status_code == 200:
+            res = r.json()
             
-            'from[firstName]': from_address.get('name'),
-            'from[addressLine1]': from_address.get('address_line1'),
-            'from[addressLine2]': from_address.get('address_line2', ''),
-            'from[city]': from_address.get('address_city'),
-            'from[provinceOrState]': from_address.get('address_state'),
-            'from[postalOrZip]': from_address.get('address_zip'),
-            'from[countryCode]': from_address.get('country_code', 'US'), 
-            
-            # --- THE FIX: RELAXED STRICTNESS ---
-            # This allows addresses that are valid but not yet in the PostGrid DB (e.g. new builds)
-            'addressStrictness': 'strict-but-accept-unknown',
-            
-            'color': 'false', 
-            'addressPlacement': 'top_first_page'
-        }
-
-        if certified:
-            data['express'] = 'true'
-            data['extraService'] = 'certified'
+            # Case A: Success (Verified or Corrected)
+            if res.get('status') in ['verified', 'corrected']:
+                return True, {
+                    "line1": res.get('line1'),
+                    "line2": res.get('line2') or "",
+                    "city": res.get('city'),
+                    "state": res.get('provinceOrState'),
+                    "zip": res.get('postalOrZip'),
+                    "country": res.get('country')
+                }
+            # Case B: Failure (Invalid Address)
+            else:
+                errors = res.get('errors', {})
+                msg = f"Address Invalid: {errors}" 
+                return False, msg
         else:
-            data['express'] = 'false'
-
-        # --- 2. IDEMPOTENCY KEY ---
-        try:
-            with open(pdf_path, 'rb') as f:
-                pdf_bytes = f.read()
-            fingerprint_source = json.dumps(data, sort_keys=True).encode() + pdf_bytes
-            idempotency_key = hashlib.sha256(fingerprint_source).hexdigest()
-            headers = { "x-api-key": api_key, "Idempotency-Key": idempotency_key }
-        except:
-            headers = {"x-api-key": api_key}
-            pdf_bytes = None
-
-        # --- 3. SEND ---
-        files = {'pdf': open(pdf_path, 'rb')}
-        response = requests.post(url, headers=headers, data=data, files=files)
-        files['pdf'].close()
-
-        if response.status_code in [200, 201]:
-            res_json = response.json()
-            print(f"✅ PostGrid SUCCESS. ID: {res_json.get('id')}")
-            
-            # --- EMAIL TRIGGERS ---
-            recip_name = to_address.get('name')
-            user_email = from_address.get('email')
-            
-            # 1. Certified Tracking Email
-            tracking_num = res_json.get('trackingNumber')
-            if certified and not tracking_num and "test" in api_key: tracking_num = "TEST_TRACKING_12345"
-            if certified and tracking_num:
-                send_tracking_email(user_email, tracking_num, recip_name)
-                res_json['trackingNumber'] = tracking_num
-            
-            # 2. Standard Success Email
-            send_confirmation_email(user_email, "Standard", recip_name)
-            
-            return True, res_json
-        else:
-            return False, f"PostGrid Error {response.status_code}: {response.text}"
+            # API Error (Fail open so we don't block signups)
+            print(f"PostGrid Verif Error: {r.text}")
+            return True, None 
 
     except Exception as e:
-        return False, f"Connection Error: {str(e)}"
+        print(f"Verif Exception: {e}")
+        return True, None
+
+# --- NOTIFICATIONS ---
+def send_confirmation_email(user_email, tier, recipient_name):
+    key = get_resend_key()
+    if not key or not user_email: return
+    resend.api_key = key
+    subject = f"📮 Letter Mailed: {tier} Edition"
+    html = f"""<div style="font-family: sans-serif;"><h2>Letter Sent! ✈️</h2><p>Your <strong>{tier}</strong> letter to <strong>{recipient_name}</strong> has been processed.</p></div>"""
+    try: resend.Emails.send({"from": "VerbaPost <updates@resend.dev>", "to": user_email, "subject": subject, "html": html})
+    except: pass
+
+def send_manual_completion_email(user_email, tier, recipient_name):
+    key = get_resend_key()
+    if not key or not user_email: return
+    resend.api_key = key
+    subject = f"📮 {tier} Letter Mailed"
+    html = f"""<div style="font-family: sans-serif;"><h2>{tier} Letter Sent!</h2><p>Your letter to {recipient_name} has been mailed.</p></div>"""
+    try: resend.Emails.send({"from": "VerbaPost <updates@resend.dev>", "to": user_email, "subject": subject, "html": html})
+    except: pass
 
 def send_tracking_email(user_email, tracking_num, recipient_name):
     key = get_resend_key()
@@ -155,3 +94,61 @@ def send_admin_alert(user_email, letter_text, tier):
     html = f"<div><h2>New Order</h2><p>User: {user_email}</p><pre>{letter_text}</pre></div>"
     try: resend.Emails.send({"from": "VerbaPost <onboarding@resend.dev>", "to": [admin_email], "subject": subject, "html": html})
     except: return False
+
+# --- CORE SENDING FUNCTION ---
+def send_letter(pdf_path, to_address, from_address, certified=False):
+    api_key = get_postgrid_key()
+    if not api_key: return False, "Missing PostGrid API Key"
+
+    try:
+        url = "https://api.postgrid.com/print-mail/v1/letters"
+        
+        data = {
+            'description': f"VerbaPost to {to_address.get('name')}",
+            'to[firstName]': to_address.get('name'), 
+            'to[addressLine1]': to_address.get('address_line1'),
+            'to[addressLine2]': to_address.get('address_line2', ''),
+            'to[city]': to_address.get('address_city'),
+            'to[provinceOrState]': to_address.get('address_state'),
+            'to[postalOrZip]': to_address.get('address_zip'),
+            'to[countryCode]': to_address.get('country_code', 'US'), 
+            'from[firstName]': from_address.get('name'),
+            'from[addressLine1]': from_address.get('address_line1'),
+            'from[addressLine2]': from_address.get('address_line2', ''),
+            'from[city]': from_address.get('address_city'),
+            'from[provinceOrState]': from_address.get('address_state'),
+            'from[postalOrZip]': from_address.get('address_zip'),
+            'from[countryCode]': from_address.get('country_code', 'US'), 
+            
+            'addressStrictness': 'relaxed', 
+            'color': 'false', 
+            'addressPlacement': 'top_first_page'
+        }
+
+        if certified:
+            data['express'] = 'true'; data['extraService'] = 'certified'
+        else:
+            data['express'] = 'false'
+
+        # Idempotency Key Generation
+        try:
+            with open(pdf_path, 'rb') as f: pdf_bytes = f.read()
+            fingerprint = json.dumps(data, sort_keys=True).encode() + pdf_bytes
+            headers = { "x-api-key": api_key, "Idempotency-Key": hashlib.sha256(fingerprint).hexdigest() }
+        except: headers = {"x-api-key": api_key}
+
+        files = {'pdf': open(pdf_path, 'rb')}
+        response = requests.post(url, headers=headers, data=data, files=files)
+        files['pdf'].close()
+
+        if response.status_code in [200, 201]:
+            res = response.json()
+            if certified and res.get('trackingNumber'): 
+                send_tracking_email(from_address.get('email'), res.get('trackingNumber'), to_address.get('name'))
+            
+            send_confirmation_email(from_address.get('email'), "Standard", to_address.get('name'))
+            return True, res
+        else:
+            return False, f"PostGrid Error {response.status_code}: {response.text}"
+
+    except Exception as e: return False, f"Connection Error: {str(e)}"
