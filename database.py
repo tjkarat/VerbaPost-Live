@@ -9,7 +9,10 @@ Base = declarative_base()
 
 class UserProfile(Base):
     __tablename__ = "user_profiles"
-    id = Column(Integer, primary_key=True, index=True)
+    
+    # --- FIX: CHANGED TO STRING TO ACCEPT UUIDs ---
+    id = Column(String, primary_key=True, index=True) 
+    
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     address_line1 = Column(String)
@@ -107,14 +110,17 @@ def update_user_profile(email, name, street, street2, city, state, zip_code, cou
     try:
         user = db.query(UserProfile).filter(UserProfile.email == email).first()
         if not user:
-            user = UserProfile(email=email); db.add(user)
-        user.full_name = name
-        user.address_line1 = street
-        user.address_line2 = street2
-        user.address_city = city
-        user.address_state = state; user.address_zip = zip_code
-        user.country = country
-        db.commit()
+            # Note: If creating here manually, we might lack the UUID ID from Auth.
+            # Usually this function updates existing users.
+            pass 
+        else:
+            user.full_name = name
+            user.address_line1 = street
+            user.address_line2 = street2
+            user.address_city = city
+            user.address_state = state; user.address_zip = zip_code
+            user.country = country
+            db.commit()
     except: pass
     finally: db.close()
 
@@ -141,7 +147,6 @@ def fetch_all_drafts():
     except: return []
     finally: db.close()
 
-# --- THE FIX: ADD 'CONTENT' ARGUMENT ---
 def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, status=None):
     db = get_session()
     if not db: return False
@@ -150,7 +155,7 @@ def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, stat
         if draft:
             if to_addr: draft.recipient_json = json.dumps(to_addr)
             if from_addr: draft.sender_json = json.dumps(from_addr)
-            if content: draft.transcription = content # <--- NOW SAVING CONTENT
+            if content: draft.transcription = content
             if status: draft.status = status
             db.commit()
             return True
