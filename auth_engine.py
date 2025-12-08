@@ -12,7 +12,7 @@ def get_client():
         
         return create_client(url, key), None
     except Exception as e:
-        return None, f"Connection Error: {e}"
+        return None, "Database Connection Error"
 
 def sign_in(email, password):
     client, err = get_client()
@@ -20,16 +20,15 @@ def sign_in(email, password):
     try:
         res = client.auth.sign_in_with_password({"email": email, "password": password})
         return res, None
-    except Exception as e:
-        return None, f"Login Failed: {e}"
+    except Exception:
+        # Generic error to prevent user enumeration or info leakage
+        return None, "Login Failed. Please check your email and password."
 
 def sign_up(email, password, name, street, street2, city, state, zip_code, country, language):
     client, err = get_client()
     if err: return None, err
     
-    # 1. Prepare Profile Data Template
-    # We define this dictionary once so we can use it in both the 
-    # standard signup flow AND the auto-healing flow below.
+    # Define profile data once for reuse
     profile_data_template = {
         "email": email, 
         "full_name": name,
@@ -43,51 +42,43 @@ def sign_up(email, password, name, street, street2, city, state, zip_code, count
     }
 
     try:
-        # 2. Try Standard Signup via Supabase Auth
+        # 1. Try Standard Signup
         res = client.auth.sign_up({
             "email": email, 
             "password": password,
             "options": {"data": {"full_name": name}}
         })
         
-        # 3. If Auth was successful, insert the Profile into the database
+        # 2. Insert Profile if successful
         if res.user:
             try:
-                # Add the specific User ID returned by Supabase
                 profile_data_template["id"] = res.user.id
-                
-                # Upsert = Update if exists, Insert if new
                 client.table("user_profiles").upsert(profile_data_template).execute()
-                
             except Exception as e:
-                # This catches DB errors specifically (like missing columns)
-                return None, f"Auth Success, but DB Error: {e}"
+                return None, f"Auth Success, but Profile Error: {e}"
         
         return res, None
 
     except Exception as e:
         error_msg = str(e)
         
-        # --- 4. AUTO-HEALING LOGIC ---
-        # This fixes the "Zombie User" loop.
-        # If Supabase says "User already registered", we try to log them in automatically.
+        # --- 3. AUTO-HEALING LOGIC (Restored) ---
+        # If user exists, try to log in and force-create the profile
         if "User already registered" in error_msg:
             print("⚠️ User exists. Attempting to repair profile...")
             try:
-                # Attempt to log in with the password provided to verify ownership
+                # Verify ownership via login
                 login_res = client.auth.sign_in_with_password({"email": email, "password": password})
                 
                 if login_res.user:
-                    # Login worked! This proves they own the account.
-                    # Now we FORCE the profile creation to fix the missing row.
+                    # Login worked! Force-create the missing profile row.
                     profile_data_template["id"] = login_res.user.id
                     client.table("user_profiles").upsert(profile_data_template).execute()
                     
                     st.toast("🔄 Account recovered and profile updated!")
-                    return login_res, None # Return success as if signup worked
-            except Exception as login_e:
-                # Password was wrong, so we can't auto-heal.
-                return None, "Account exists, but password incorrect. Please log in."
+                    return login_res, None 
+            except Exception:
+                return None, "Account exists, but password incorrect."
         
         return None, f"Signup Failed: {error_msg}"
 
@@ -97,18 +88,25 @@ def send_password_reset(email):
     try:
         client.auth.reset_password_email(email)
         return True, None
-    except Exception as e:
-        return False, str(e)
+    except Exception:
+        return False, "Error sending reset email."
 
 def reset_password_with_token(email, token, new_password):
     client, err = get_client()
     if err: return False, err
     try:
+        # Verify OTP
         res = client.auth.verify_otp({"email": email, "token": token, "type": "recovery"})
-        if res.user:
+        
+        # --- SECURITY FIX: Check for active session ---
+        if res.user and res.session:
+            # Set the session explicitly
+            client.auth.set_session(res.session.access_token, res.session.refresh_token)
+            
+            # Now safe to update password
             client.auth.update_user({"password": new_password})
             return True, None
         else:
-            return False, "Invalid Token"
+            return False, "Session invalid or token expired."
     except Exception as e:
         return False, str(e)
