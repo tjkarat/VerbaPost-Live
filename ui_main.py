@@ -63,26 +63,7 @@ def reset_app():
     else: st.session_state.app_mode = "splash"
 
 def render_hero(title, subtitle):
-    st.markdown(f"""
-    <style>
-        /* Force text color to white for this specific container */
-        .custom-hero h1, .custom-hero div {{
-            color: #ffffff !important;
-            text-shadow: 0px 1px 3px rgba(0,0,0,0.3); /* Adds readability */
-        }}
-    </style>
-    <div class="custom-hero" style="
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        padding: 40px;
-        border-radius: 15px;
-        text-align: center;
-        margin-bottom: 30px;
-        box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
-    </div>
-    """, unsafe_allow_html=True)
-# [REMOVED] show_santa_animation() - Deleted for performance.
+    st.markdown(f"""<div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);"><h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1><div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div></div>""", unsafe_allow_html=True)
 
 def render_legal_page(): import ui_legal; ui_legal.show_legal()
 
@@ -226,14 +207,11 @@ def render_workspace_page():
                 if error: st.error(error)
                 else:
                     paid_qty = st.session_state.get("bulk_paid_qty", 1000)
-                    
-                    # --- FIX: STRICT PRICING ENFORCEMENT ---
                     if len(contacts) > paid_qty:
                         st.warning(f"⚠️ Limit Exceeded: You paid for {paid_qty} recipients but uploaded {len(contacts)}. The list has been truncated.")
-                        contacts = contacts[:paid_qty] # Strict cut
+                        contacts = contacts[:paid_qty] 
                     else:
                         st.success(f"✅ Loaded {len(contacts)} recipients.")
-                        
                     st.dataframe(contacts[:5])
                     if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("List Saved!")
         
@@ -246,16 +224,47 @@ def render_workspace_page():
             if tier == "Santa":
                 st.info("🎅 **From:** Santa Claus, North Pole (Locked)")
             elif tier == "Civic":
+                 # --- FIX: CIVIC LOOKUP UI ---
                  st.markdown("**(From) Your Voting Address**")
-                 st.text_input("Name", value=def_n, key="w_from_name")
-                 st.text_input("Street", value=def_s, key="w_from_street")
-                 st.text_input("Apt/Suite", value=def_s2, key="w_from_street2")
-                 c_a, c_b, c_c = st.columns([2, 1, 1])
-                 c_a.text_input("City", value=def_c, key="w_from_city")
-                 c_b.text_input("State", value=def_st, key="w_from_state")
-                 c_c.text_input("Zip", value=def_z, key="w_from_zip")
+                 st.caption("We use this to find your specific elected officials.")
+                 
+                 c_f1, c_f2 = st.columns([1, 1])
+                 with c_f1:
+                     f_name = st.text_input("Your Name", value=def_n, key="w_from_name")
+                     f_street = st.text_input("Street Address", value=def_s, key="w_from_street")
+                     f_street2 = st.text_input("Apt/Suite", value=def_s2, key="w_from_street2")
+                 with c_f2:
+                     f_city = st.text_input("City", value=def_c, key="w_from_city")
+                     f_state = st.text_input("State", value=def_st, key="w_from_state")
+                     f_zip = st.text_input("Zip", value=def_z, key="w_from_zip")
                  st.session_state.w_from_country = "US"
+
+                 if st.button("🔍 Find My Representatives", type="primary"):
+                     if civic_engine:
+                         # Construct full address for Geocodio
+                         full_addr = f"{f_street}, {f_city}, {f_state} {f_zip}"
+                         if f_street:
+                             with st.spinner("Locating officials..."):
+                                 reps = civic_engine.get_reps(full_addr)
+                                 if reps:
+                                     st.session_state.civic_targets = reps
+                                     st.success(f"✅ Found {len(reps)} representatives!")
+                                 else:
+                                     st.error("No representatives found for this address.")
+                         else:
+                             st.error("Please enter a street address first.")
+                     else:
+                         st.error("Civic Engine missing.")
+
+                 # Show who we found
+                 if "civic_targets" in st.session_state:
+                     st.write("---")
+                     st.markdown("🎯 **Recipients (Auto-Selected):**")
+                     for r in st.session_state.civic_targets:
+                         st.info(f"🏛️ **{r['title']} {r['name']}**")
+
             else:
+                # Standard / Heirloom "From" inputs
                 with st.expander(f"✉️ From: {def_n} (Click to Edit)", expanded=False):
                     st.text_input("Sender Name", value=def_n, key="w_from_name")
                     st.text_input("Sender Street", value=def_s, key="w_from_street")
@@ -269,74 +278,76 @@ def render_workspace_page():
                     c_sstate.text_input("State/Prov", value=def_st, key="w_from_state")
                     c_szip.text_input("Zip/Postal", value=def_z, key="w_from_zip")
 
-            st.markdown("---")
-            st.markdown("**📮 To (Recipient)**")
-            
-            if database and tier != "Civic":
-                contacts = database.get_contacts(u_email)
-                if contacts:
-                    def _autofill_contact():
-                        sel_idx = st.session_state.addr_book_idx
-                        if sel_idx > 0:
-                            c = contacts[sel_idx - 1]
-                            st.session_state.w_to_name = c.name
-                            st.session_state.w_to_street = c.street
-                            st.session_state.w_to_street2 = getattr(c, 'street2', '') or getattr(c, 'address_line2', '')
-                            st.session_state.w_to_city = c.city
-                            st.session_state.w_to_state = c.state
-                            st.session_state.w_to_zip = c.zip_code
-                            st.session_state.w_to_country = c.country
-                    contact_opts = ["-- Select from Address Book --"] + [c.name for c in contacts]
-                    st.selectbox("📖 Address Book", range(len(contact_opts)), format_func=lambda x: contact_opts[x], key="addr_book_idx", on_change=_autofill_contact)
+            # --- FIX: HIDE RECIPIENT INPUTS FOR CIVIC ---
+            if tier != "Civic":
+                st.markdown("---")
+                st.markdown("**📮 To (Recipient)**")
+                
+                if database:
+                    contacts = database.get_contacts(u_email)
+                    if contacts:
+                        def _autofill_contact():
+                            sel_idx = st.session_state.addr_book_idx
+                            if sel_idx > 0:
+                                c = contacts[sel_idx - 1]
+                                st.session_state.w_to_name = c.name
+                                st.session_state.w_to_street = c.street
+                                st.session_state.w_to_street2 = getattr(c, 'street2', '') or getattr(c, 'address_line2', '')
+                                st.session_state.w_to_city = c.city
+                                st.session_state.w_to_state = c.state
+                                st.session_state.w_to_zip = c.zip_code
+                                st.session_state.w_to_country = c.country
+                        contact_opts = ["-- Select from Address Book --"] + [c.name for c in contacts]
+                        st.selectbox("📖 Address Book", range(len(contact_opts)), format_func=lambda x: contact_opts[x], key="addr_book_idx", on_change=_autofill_contact)
 
-            st.text_input("Recipient Name", key="w_to_name")
-            st.text_input("Recipient Street", key="w_to_street")
-            st.text_input("Recipient Apt/Suite (Optional)", key="w_to_street2")
-            
-            if is_intl:
-                c_cntry, c_city = st.columns([1, 2])
-                c_cntry.selectbox("Recipient Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_to_country")
-                c_city.text_input("Recipient City", key="w_to_city")
-                c_state, c_zip = st.columns([1, 1])
-                c_state.text_input("State/Province", key="w_to_state")
-                c_zip.text_input("Postal Code", key="w_to_zip")
-            else:
-                c_city, c_state, c_zip = st.columns([2, 1, 1])
-                c_city.text_input("City", key="w_to_city")
-                c_state.text_input("State", key="w_to_state")
-                c_zip.text_input("Zip", key="w_to_zip")
-                st.session_state.w_to_country = "US"
+                st.text_input("Recipient Name", key="w_to_name")
+                st.text_input("Recipient Street", key="w_to_street")
+                st.text_input("Recipient Apt/Suite (Optional)", key="w_to_street2")
+                
+                if is_intl:
+                    c_cntry, c_city = st.columns([1, 2])
+                    c_cntry.selectbox("Recipient Country", list(COUNTRIES.keys()), format_func=lambda x: COUNTRIES[x], index=0, key="w_to_country")
+                    c_city.text_input("Recipient City", key="w_to_city")
+                    c_state, c_zip = st.columns([1, 1])
+                    c_state.text_input("State/Province", key="w_to_state")
+                    c_zip.text_input("Postal Code", key="w_to_zip")
+                else:
+                    c_city, c_state, c_zip = st.columns([2, 1, 1])
+                    c_city.text_input("City", key="w_to_city")
+                    c_state.text_input("State", key="w_to_state")
+                    c_zip.text_input("Zip", key="w_to_zip")
+                    st.session_state.w_to_country = "US"
 
-            st.markdown("<br>", unsafe_allow_html=True)
-            c_save1, c_save2 = st.columns([1, 2])
-            
-            if c_save1.button("Save Addresses", type="primary"):
-                 check_name = st.session_state.get("w_to_name", "")
-                 check_street = st.session_state.get("w_to_street", "")
-                 if not check_name or not check_street:
-                     st.error("⚠️ **Autofill Detected but not Saved:** Please click inside the Name and Street boxes to ensure the browser saves them.")
-                 else:
-                     _save_addresses_from_widgets(tier, is_intl)
-                     d_id = st.session_state.get("current_draft_id")
-                     if d_id and database:
-                         database.update_draft_data(d_id, st.session_state.get("to_addr"), st.session_state.get("from_addr"))
-                     st.toast("Addresses Saved to Database!")
+                st.markdown("<br>", unsafe_allow_html=True)
+                c_save1, c_save2 = st.columns([1, 2])
+                
+                if c_save1.button("Save Addresses", type="primary"):
+                     check_name = st.session_state.get("w_to_name", "")
+                     check_street = st.session_state.get("w_to_street", "")
+                     if not check_name or not check_street:
+                         st.error("⚠️ **Autofill Detected but not Saved:** Please click inside the Name and Street boxes to ensure the browser saves them.")
+                     else:
+                         _save_addresses_from_widgets(tier, is_intl)
+                         d_id = st.session_state.get("current_draft_id")
+                         if d_id and database:
+                             database.update_draft_data(d_id, st.session_state.get("to_addr"), st.session_state.get("from_addr"))
+                         st.toast("Addresses Saved to Database!")
 
-            if tier != "Civic" and c_save2.button("💾 Save to Address Book"):
-                name = st.session_state.get("w_to_name")
-                street = st.session_state.get("w_to_street")
-                if name and street:
-                    database.add_contact(
-                        u_email, name, street, 
-                        st.session_state.get("w_to_street2", ""),
-                        st.session_state.get("w_to_city"),
-                        st.session_state.get("w_to_state"),
-                        st.session_state.get("w_to_zip"),
-                        st.session_state.get("w_to_country", "US")
-                    )
-                    st.success(f"Saved {name}!")
-                    st.rerun()
-                else: st.error("Enter Name & Street first.")
+                if c_save2.button("💾 Save to Address Book"):
+                    name = st.session_state.get("w_to_name")
+                    street = st.session_state.get("w_to_street")
+                    if name and street:
+                        database.add_contact(
+                            u_email, name, street, 
+                            st.session_state.get("w_to_street2", ""),
+                            st.session_state.get("w_to_city"),
+                            st.session_state.get("w_to_state"),
+                            st.session_state.get("w_to_zip"),
+                            st.session_state.get("w_to_country", "US")
+                        )
+                        st.success(f"Saved {name}!")
+                        st.rerun()
+                    else: st.error("Enter Name & Street first.")
 
     st.write("---")
     c_sig, c_mic = st.columns(2)
@@ -361,7 +372,6 @@ def render_workspace_page():
                         st.session_state.app_mode = "review"
                         st.rerun()
 
-        # --- SAFE FILE UPLOAD LOGIC ---
         with t_up:
             st.caption("Max 25MB. Supported: wav, mp3, m4a, mp4.")
             uploaded_file = st.file_uploader("Select Audio File", type=['wav', 'mp3', 'm4a', 'mp4', 'webm'])
@@ -460,7 +470,6 @@ def render_review_page():
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
         else:
-            # Safe defaults
             to_p = st.session_state.get("to_addr") or {"name": "Preview", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
             from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
             
@@ -587,7 +596,6 @@ def render_review_page():
                 if audit_engine: audit_engine.log_event(u_email, "APP_CRASH_DURING_SEND", current_stripe_id, {"trace": str(e)})
 
     else:
-        # SANTA ANIMATION REMOVED
         if st.session_state.get("campaign_errors"):
             st.error(f"⚠️ {len(st.session_state.campaign_errors)} failed.")
             with st.expander("View Errors"):
@@ -610,14 +618,8 @@ def show_main_app():
     if "session_id" in st.query_params: 
         if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
         if "certified" in st.query_params: st.session_state.is_certified = True
-        
-        st.session_state.app_mode = "workspace"
-        st.session_state.payment_complete = True
-        
-        # --- FIX: CLEAR PARAMS TO BREAK LOOP ---
-        # We must remove session_id from the URL or we loop forever
-        st.query_params.clear() 
-        st.rerun()
+        st.session_state.app_mode = "workspace"; st.session_state.payment_complete = True; st.rerun()
+
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": 
         import ui_login; import auth_engine
