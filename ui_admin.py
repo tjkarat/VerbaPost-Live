@@ -17,6 +17,8 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import mailer
 except ImportError: mailer = None
+# FIX: Import StandardAddress for consistent PDF generation
+from address_standard import StandardAddress
 
 def check_password():
     if st.session_state.get("admin_logged_in"): return True
@@ -64,9 +66,8 @@ def check_service_health():
         else: health["Email (Resend)"] = False
     except: health["Email (Resend)"] = False
 
-    # 5. Civic API (Geocodio) - NEW
+    # 5. Civic API (Geocodio)
     try:
-        # Check specifically for the key used in civic_engine.py
         key = secrets_manager.get_secret("geocodio.api_key")
         if key: health["Civic (Geocodio)"] = True
         else: health["Civic (Geocodio)"] = False
@@ -182,21 +183,12 @@ def show_admin():
                                 to_data = json.loads(row['Recipient']) if row['Recipient'] else {}
                                 from_data = json.loads(row['Sender']) if row['Sender'] else {}
                                 
-                                # Address Construction
-                                lines = [to_data.get('name', '')]
-                                lines.append(to_data.get('street', '') or to_data.get('address_line1', ''))
-                                line2 = to_data.get('address_line2') or to_data.get('street2')
-                                if line2: lines.append(line2)
-                                lines.append(f"{to_data.get('city', '')}, {to_data.get('state', '')} {to_data.get('zip', '')}")
-                                if to_data.get('country', 'US') != 'US': lines.append(to_data.get('country'))
-                                to_str = "\n".join(filter(None, lines))
-
-                                f_lines = [from_data.get('name', '')]
-                                f_lines.append(from_data.get('street', '') or from_data.get('address_line1', ''))
-                                f_line2 = from_data.get('address_line2') or from_data.get('street2')
-                                if f_line2: f_lines.append(f_line2)
-                                f_lines.append(f"{from_data.get('city', '')}, {from_data.get('state', '')} {from_data.get('zip', '')}")
-                                from_str = "\n".join(filter(None, f_lines))
+                                # FIX: Use StandardAddress for consistent formatting
+                                to_std = StandardAddress.from_dict(to_data)
+                                to_str = to_std.to_pdf_string()
+                                
+                                from_std = StandardAddress.from_dict(from_data)
+                                from_str = from_std.to_pdf_string()
                                 
                                 if letter_format:
                                     pdf_bytes = letter_format.create_pdf(
