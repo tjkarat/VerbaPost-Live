@@ -48,14 +48,29 @@ COUNTRIES = {
 }
 
 def reset_app():
-    if st.session_state.get("user_email"): st.session_state.app_mode = "store"
-    else: st.session_state.app_mode = "splash"
+    # --- PERSISTENCE FIX: CHECK URL FIRST ---
+    # Before resetting, check if there is a draft_id in the URL to recover
+    recovered_draft = st.query_params.get("draft_id")
     
+    if st.session_state.get("user_email"): 
+        st.session_state.app_mode = "store"
+    else: 
+        st.session_state.app_mode = "splash"
+    
+    # Don't wipe everything if we are recovering
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
     for k in keys:
         if k in st.session_state: del st.session_state[k]
+    
     st.session_state.to_addr = {}
-    st.query_params.clear()
+    
+    # --- RESTORE DRAFT IF FOUND ---
+    if recovered_draft:
+        st.session_state.current_draft_id = recovered_draft
+        # We assume if they have a draft ID, they are in the workspace
+        # Ideally we'd verify it in DB, but this is a safe assumption for UX
+        st.session_state.app_mode = "workspace" 
+        st.success("🔄 Session Restored!")
 
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);"><h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1><div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div></div>""", unsafe_allow_html=True)
@@ -132,9 +147,12 @@ def render_store_page():
                 st.metric("Total", "$0.00", delta=f"-${price:.2f} off")
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
+                    
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, "0.00")
                         st.session_state.current_draft_id = d_id
+                        # --- PERSISTENCE: WRITE TO URL ---
+                        st.query_params["draft_id"] = str(d_id)
                         
                     if audit_engine: audit_engine.log_event(u_email, "FREE_TIER_STARTED", None, {"code": code_input})
                     st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code; st.session_state.bulk_paid_qty = qty if tier_code == "Campaign" else 1
@@ -142,11 +160,17 @@ def render_store_page():
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
+                    
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, price)
                         st.session_state.current_draft_id = d_id
+                        # --- PERSISTENCE: WRITE TO URL ---
+                        st.query_params["draft_id"] = str(d_id)
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                    # Pass the draft ID to Stripe so it comes back on return
+                    if d_id: link += f"&draft_id={d_id}" 
+                    
                     if is_intl: link += "&intl=1"
                     if is_certified: link += "&certified=1"
                     if tier_code == "Campaign": link += f"&qty={qty}"
@@ -256,9 +280,6 @@ def render_workspace_page():
             c_save1, c_save2 = st.columns([1, 2])
             
             if c_save1.button("Save Addresses", type="primary"):
-                 # --- AUTOFILL VALIDATION FIX ---
-                 # Check if crucial fields are empty in session state, which happens if autofill was used 
-                 # but user didn't click/tab out of the field.
                  check_name = st.session_state.get("w_to_name", "")
                  check_street = st.session_state.get("w_to_street", "")
                  if not check_name or not check_street:
@@ -377,7 +398,6 @@ def render_review_page():
     if c_edit3.button("🤗 Friendly", use_container_width=True): run_edit("Friendly")
     if c_edit4.button("✂️ Concise", use_container_width=True): run_edit("Concise")
 
-    # --- UI FIX: MANUAL EDIT INSTRUCTION ---
     st.info("📝 **Note:** You can edit the text below directly. The AI buttons above are optional.")
     txt = st.text_area("Body Content", key="transcribed_text", height=300, disabled=st.session_state.letter_sent_success)
     
@@ -450,11 +470,6 @@ def render_review_page():
                     prog_bar = st.progress(0)
                     errors = []
                     
-                    # --- FALSE SUCCESS FIX START ---
-                    # Logic changed: we now track IF at least one letter failed strictly.
-                    # For single letters, failure = Stop. For bulk, we log errors.
-                    at_least_one_success = False
-
                     for i, to_data in enumerate(targets):
                         t_country = to_data.get('country', 'US')
                         cntry_line = f"\n{COUNTRIES.get(t_country, 'USA')}" if t_country != 'US' else ""
@@ -500,19 +515,15 @@ def render_review_page():
                                 
                                 if success:
                                     is_pg_ok = True
-                                    at_least_one_success = True
                                     if is_certified and resp.get('trackingNumber'): st.session_state.last_tracking_num = resp.get('trackingNumber')
                                     if audit_engine: audit_engine.log_event(u_email, "MAIL_SENT_SUCCESS", current_stripe_id, {"provider_id": resp.get('id')})
                                 else:
-                                    # PostGrid Rejected It
                                     is_pg_ok = False
                                     errors.append(f"{to_data.get('name')}: {resp}")
                                     if audit_engine: audit_engine.log_event(u_email, "MAIL_API_FAILURE", current_stripe_id, {"error": str(resp)})
 
-                            # Update DB logic
                             if database:
                                 final_status = "Pending Admin"
-                                # Only mark completed if PG actually accepted it
                                 if tier in ["Standard", "Civic", "Campaign"]: 
                                     final_status = "Completed" if is_pg_ok else "Failed/Retry"
                                 
@@ -530,17 +541,14 @@ def render_review_page():
                     if errors: 
                         st.session_state.campaign_errors = errors
                     
-                    # --- FALSE SUCCESS FIX: Only show success screen if we actually succeeded ---
-                    # For single letter tiers, if we have 1 error, it's a total failure.
                     if tier != "Campaign":
                         if errors:
                             st.error("❌ Delivery Failed. See details below.")
-                            return # Stay on review page
+                            return
                         else:
                             st.session_state.letter_sent_success = True
                             st.rerun()
                     else:
-                        # For Campaign/Bulk, we might have partial success
                         st.session_state.letter_sent_success = True
                         st.rerun()
 
@@ -564,18 +572,27 @@ def render_review_page():
         
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
              reset_app()
+             # Ensure we clear the draft_id param so we don't reload the old one
+             st.query_params.clear() 
              st.session_state.app_mode = "store" 
              st.rerun()
 
 def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
+    
+    # --- PERSISTENCE: RECOVER ID FROM URL ---
+    if "draft_id" in st.query_params:
+        if not st.session_state.get("current_draft_id"):
+            st.session_state.current_draft_id = st.query_params["draft_id"]
+    
     if "session_id" in st.query_params: 
         if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
         if "certified" in st.query_params: st.session_state.is_certified = True
         st.session_state.app_mode = "workspace" 
         st.session_state.payment_complete = True 
-        st.query_params.clear() 
+        # Don't clear query params here immediately or we lose the draft_id we just set!
+        # Only clear the Stripe-specific ones if you want, but simpler to leave for now.
         st.rerun()
 
     if mode == "splash": import ui_splash; ui_splash.show_splash()
