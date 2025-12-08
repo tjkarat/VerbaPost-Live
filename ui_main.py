@@ -48,27 +48,17 @@ COUNTRIES = {
 }
 
 def reset_app():
-    # --- PERSISTENCE FIX: CHECK URL FIRST ---
-    # Before resetting, check if there is a draft_id in the URL to recover
     recovered_draft = st.query_params.get("draft_id")
+    if st.session_state.get("user_email"): st.session_state.app_mode = "store"
+    else: st.session_state.app_mode = "splash"
     
-    if st.session_state.get("user_email"): 
-        st.session_state.app_mode = "store"
-    else: 
-        st.session_state.app_mode = "splash"
-    
-    # Don't wipe everything if we are recovering
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
     for k in keys:
         if k in st.session_state: del st.session_state[k]
-    
     st.session_state.to_addr = {}
     
-    # --- RESTORE DRAFT IF FOUND ---
     if recovered_draft:
         st.session_state.current_draft_id = recovered_draft
-        # We assume if they have a draft ID, they are in the workspace
-        # Ideally we'd verify it in DB, but this is a safe assumption for UX
         st.session_state.app_mode = "workspace" 
         st.success("🔄 Session Restored!")
 
@@ -147,11 +137,9 @@ def render_store_page():
                 st.metric("Total", "$0.00", delta=f"-${price:.2f} off")
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
-                    
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, "0.00")
                         st.session_state.current_draft_id = d_id
-                        # --- PERSISTENCE: WRITE TO URL ---
                         st.query_params["draft_id"] = str(d_id)
                         
                     if audit_engine: audit_engine.log_event(u_email, "FREE_TIER_STARTED", None, {"code": code_input})
@@ -160,17 +148,13 @@ def render_store_page():
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
-                    
                     if database: 
                         d_id = database.save_draft(u_email, "", tier_code, price)
                         st.session_state.current_draft_id = d_id
-                        # --- PERSISTENCE: WRITE TO URL ---
                         st.query_params["draft_id"] = str(d_id)
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
-                    # Pass the draft ID to Stripe so it comes back on return
                     if d_id: link += f"&draft_id={d_id}" 
-                    
                     if is_intl: link += "&intl=1"
                     if is_certified: link += "&certified=1"
                     if tier_code == "Campaign": link += f"&qty={qty}"
@@ -193,6 +177,7 @@ def render_workspace_page():
 
     with st.container(border=True):
         if tier == "Campaign":
+            # (Bulk logic unchanged)
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             st.info("""**CSV Format:** Name, Street, City, State, Zip""")
@@ -208,6 +193,7 @@ def render_workspace_page():
                     if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("List Saved!")
         
         else:
+            # (Address logic unchanged)
             st.subheader("📍 Addressing")
             def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_s2=user_addr.get("street2","")
             def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip",""); def_cntry=user_addr.get("country","US")
@@ -315,16 +301,37 @@ def render_workspace_page():
         else:
              canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
              if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
+    
+    # --- NEW: TABBED INPUT (RECORD VS UPLOAD) ---
     with c_mic:
-        st.write("🎤 **Dictation**")
-        audio = st.audio_input("Record")
-        if audio:
-            if ai_engine:
-                with st.spinner("Transcribing..."):
-                    text = ai_engine.transcribe_audio(audio)
-                    st.session_state.transcribed_text = text
-                    st.session_state.app_mode = "review"
-                    st.rerun()
+        st.write("🎤 **Input Source**")
+        t_rec, t_up = st.tabs(["🔴 Record", "📂 Upload File"])
+        
+        with t_rec:
+            audio = st.audio_input("Record Voice Note")
+            if audio:
+                if ai_engine:
+                    with st.spinner("Transcribing..."):
+                        text = ai_engine.transcribe_audio(audio)
+                        st.session_state.transcribed_text = text
+                        st.session_state.app_mode = "review"
+                        st.rerun()
+
+        with t_up:
+            st.caption("Max 25MB. Supported: wav, mp3, m4a.")
+            uploaded_file = st.file_uploader("Select Audio File", type=['wav', 'mp3', 'm4a', 'mp4', 'webm'])
+            if uploaded_file is not None:
+                if st.button("Transcribe File", type="primary"):
+                    if ai_engine:
+                        # Validate size roughly (25MB = 25 * 1024 * 1024 bytes)
+                        if uploaded_file.size > 26214400:
+                            st.error("⚠️ File too large (>25MB). Please compress it.")
+                        else:
+                            with st.spinner("Uploading & Transcribing..."):
+                                text = ai_engine.transcribe_audio(uploaded_file)
+                                st.session_state.transcribed_text = text
+                                st.session_state.app_mode = "review"
+                                st.rerun()
 
 def _save_addresses_from_widgets(tier, is_intl):
     if tier == "Santa":
@@ -361,6 +368,7 @@ def _save_addresses_from_widgets(tier, is_intl):
         }
 
 def render_review_page():
+    # (Same as previous versions, no changes needed here)
     render_hero("Review Letter", "Finalize and Send")
     if "letter_sent_success" not in st.session_state: st.session_state.letter_sent_success = False
     
@@ -572,7 +580,6 @@ def render_review_page():
         
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
              reset_app()
-             # Ensure we clear the draft_id param so we don't reload the old one
              st.query_params.clear() 
              st.session_state.app_mode = "store" 
              st.rerun()
@@ -581,7 +588,6 @@ def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
     
-    # --- PERSISTENCE: RECOVER ID FROM URL ---
     if "draft_id" in st.query_params:
         if not st.session_state.get("current_draft_id"):
             st.session_state.current_draft_id = st.query_params["draft_id"]
@@ -591,8 +597,6 @@ def show_main_app():
         if "certified" in st.query_params: st.session_state.is_certified = True
         st.session_state.app_mode = "workspace" 
         st.session_state.payment_complete = True 
-        # Don't clear query params here immediately or we lose the draft_id we just set!
-        # Only clear the Stripe-specific ones if you want, but simpler to leave for now.
         st.rerun()
 
     if mode == "splash": import ui_splash; ui_splash.show_splash()
