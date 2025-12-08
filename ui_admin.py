@@ -34,6 +34,8 @@ def check_password():
 
 def check_service_health():
     health = {}
+    
+    # 1. Database
     try:
         if database and database.get_session():
             with database.get_engine().connect() as conn: conn.execute(text("SELECT 1"))
@@ -41,23 +43,35 @@ def check_service_health():
         else: health["Database"] = False
     except: health["Database"] = False
 
+    # 2. AI Engine (OpenAI)
     try:
         key = secrets_manager.get_secret("OPENAI_API_KEY")
         if key and key.startswith("sk-"): health["AI Engine"] = True
         else: health["AI Engine"] = False
     except: health["AI Engine"] = False
 
+    # 3. Stripe
     try:
         key = secrets_manager.get_secret("STRIPE_SECRET_KEY")
         if key and key.startswith("sk_"): health["Stripe"] = True
         else: health["Stripe"] = False
     except: health["Stripe"] = False
 
+    # 4. Email (Resend)
     try:
         key = secrets_manager.get_secret("email.password")
         if key and key.startswith("re_"): health["Email (Resend)"] = True
         else: health["Email (Resend)"] = False
     except: health["Email (Resend)"] = False
+
+    # 5. Civic API (Geocodio) - NEW
+    try:
+        # Check specifically for the key used in civic_engine.py
+        key = secrets_manager.get_secret("geocodio.api_key")
+        if key: health["Civic (Geocodio)"] = True
+        else: health["Civic (Geocodio)"] = False
+    except: health["Civic (Geocodio)"] = False
+
     return health
 
 def show_admin():
@@ -93,18 +107,23 @@ def show_admin():
                     else: st.info("No data yet.")
                 except Exception as e: st.error(f"DB Error: {e}")
 
+        st.divider()
+        st.subheader("Recent Activity Log")
+        if database:
+            drafts = database.fetch_all_drafts()
+            df = pd.DataFrame(drafts)
+            if not df.empty:
+                st.dataframe(df.head(15), use_container_width=True)
+
     # --- TAB 2: DRAFTS & FIXES ---
     with tab_drafts:
         st.subheader("Manage All Orders")
         if database:
             drafts = database.fetch_all_drafts()
             if drafts:
-                # --- FIX 1: Show ALL orders, not just pending ---
-                # We sort by ID descending so newest are top
                 drafts.sort(key=lambda x: x['ID'], reverse=True)
                 
                 for row in drafts:
-                    # status_color = "red" if row['Status'] == 'Draft' else "green"
                     label = f"#{row['ID']} | {row['Date']} | {row['Email']} | {row['Status']}"
                     
                     with st.expander(label):
@@ -116,7 +135,6 @@ def show_admin():
                             st.write("**Current Data:**")
                             st.json(to_data)
                             if st.button(f"🗑️ Delete #{row['ID']}", key=f"del_{row['ID']}"):
-                                # Add delete logic if needed, or just hide
                                 st.warning("Delete not implemented safely yet.")
                             
                         with c2:
@@ -144,14 +162,12 @@ def show_admin():
         
         if database:
             all_drafts = database.fetch_all_drafts()
-            # Show completed ones too if needed, but primarily pending
             manual_queue = [d for d in all_drafts if d['Tier'] in ['Heirloom', 'Santa']]
             
             if not manual_queue:
                 st.info("No Heirloom or Santa orders found.")
             
             for row in manual_queue:
-                # Visual distinction for done vs pending
                 status_icon = "✅" if row['Status'] == 'Completed' else "⏳"
                 
                 with st.container(border=True):
@@ -183,9 +199,6 @@ def show_admin():
                                 from_str = "\n".join(filter(None, f_lines))
                                 
                                 if letter_format:
-                                    # --- FIX 2: REMOVED 'is_santa_sig' ARGUMENT ---
-                                    # This caused the crash because letter_format.py doesn't accept it yet.
-                                    # We rely on 'is_santa' which handles the signature logic internally.
                                     pdf_bytes = letter_format.create_pdf(
                                         row['Content'], 
                                         to_str, 
