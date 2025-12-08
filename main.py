@@ -15,8 +15,20 @@ st.set_page_config(
 # --- GLOBAL STYLES ---
 st.markdown("""
     <style>
+        /* Make buttons nice */
         .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
-        .stTextInput>div>div>input { border-radius: 8px; }
+        
+        /* Make input boxes nicer */
+        .stTextInput>div>div>input { 
+            border-radius: 8px; 
+            font-family: 'Source Sans Pro', sans-serif; /* Forces the nice font */
+        }
+        .stTextArea>div>div>textarea {
+            border-radius: 8px;
+            font-family: 'Source Sans Pro', sans-serif;
+        }
+        
+        /* Fix Sidebar background */
         [data-testid="stSidebar"] { background-color: #f8f9fa; }
     </style>
 """, unsafe_allow_html=True)

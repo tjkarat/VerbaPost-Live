@@ -63,8 +63,25 @@ def reset_app():
     else: st.session_state.app_mode = "splash"
 
 def render_hero(title, subtitle):
-    st.markdown(f"""<div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);"><h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1><div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div></div>""", unsafe_allow_html=True)
-
+    st.markdown(f"""
+    <style>
+        /* Force text color to white for this specific container */
+        .custom-hero h1, .custom-hero div {{
+            color: #ffffff !important;
+            text-shadow: 0px 1px 3px rgba(0,0,0,0.3); /* Adds readability */
+        }}
+    </style>
+    <div class="custom-hero" style="
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        padding: 40px;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 30px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px;">{subtitle}</div>
+    </div>
+    """, unsafe_allow_html=True)
 # [REMOVED] show_santa_animation() - Deleted for performance.
 
 def render_legal_page(): import ui_legal; ui_legal.show_legal()
