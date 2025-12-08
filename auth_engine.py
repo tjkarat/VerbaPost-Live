@@ -26,42 +26,61 @@ def sign_in(email, password):
 def sign_up(email, password, name, street, street2, city, state, zip_code, country, language):
     client, err = get_client()
     if err: return None, err
+    
+    # 1. Prepare Profile Data
+    # We define this early so we can use it in both standard flow and recovery flow
+    profile_data_template = {
+        "email": email, 
+        "full_name": name,
+        "address_line1": street,
+        "address_line2": street2,
+        "address_city": city,
+        "address_state": state, 
+        "address_zip": zip_code,
+        "country": country,
+        "language_preference": language
+    }
+
     try:
-        # 1. Create Auth User
+        # 2. Try Standard Signup
         res = client.auth.sign_up({
             "email": email, 
             "password": password,
             "options": {"data": {"full_name": name}}
         })
         
-        # 2. If successful, create Profile
+        # If successful, insert profile
         if res.user:
             try:
-                profile_data = {
-                    "id": res.user.id, 
-                    "email": email, 
-                    "full_name": name,
-                    "address_line1": street,
-                    "address_line2": street2,
-                    "address_city": city,
-                    "address_state": state, 
-                    "address_zip": zip_code,
-                    "country": country
-                }
-                
-                # Execute the insert
-                data = client.table("user_profiles").upsert(profile_data).execute()
-                
+                profile_data_template["id"] = res.user.id
+                client.table("user_profiles").upsert(profile_data_template).execute()
             except Exception as e:
-                # --- SHOW THE ERROR ---
-                error_msg = f"DB Profile Error: {str(e)}"
-                print(error_msg)
-                st.error(error_msg) # Show in UI
-                return None, error_msg # Fail the signup so user knows
+                return None, f"Auth Success, but DB Error: {e}"
         
         return res, None
+
     except Exception as e:
-        return None, f"Signup Failed: {e}"
+        error_msg = str(e)
+        
+        # --- 3. AUTO-HEALING LOGIC ---
+        # If user exists, try to Sign In and fix the missing profile
+        if "User already registered" in error_msg:
+            print("⚠️ User exists. Attempting to repair profile...")
+            try:
+                # Try logging in to prove ownership
+                login_res = client.auth.sign_in_with_password({"email": email, "password": password})
+                
+                if login_res.user:
+                    # Login worked! Now force-create the missing profile
+                    profile_data_template["id"] = login_res.user.id
+                    client.table("user_profiles").upsert(profile_data_template).execute()
+                    
+                    st.toast("🔄 Account recovered and profile updated!")
+                    return login_res, None # Return success as if signup worked
+            except Exception as login_e:
+                return None, "Account exists, but password incorrect. Please log in."
+        
+        return None, f"Signup Failed: {error_msg}"
 
 def send_password_reset(email):
     client, err = get_client()
