@@ -59,6 +59,9 @@ def show_login(login_func, signup_func):
         </div>
         """, unsafe_allow_html=True)
 
+        # --- SYSTEM RESET NOTICE (NEW) ---
+        st.warning("⚠️ **System Notice:** All user accounts were reset during our latest update. If you had an account previously, please **Create a New Account** below.")
+
         with st.container(border=True):
             if "auth_error" in st.session_state:
                 st.error(st.session_state.auth_error)
@@ -110,17 +113,14 @@ def show_login(login_func, signup_func):
                     st.markdown("<br>", unsafe_allow_html=True)
                     if st.form_submit_button("Create Account", type="primary", use_container_width=True):
                         
-                        # 1. Autofill Validation Check
                         if not name or not addr or not city or not state or not zip_code:
                              st.error("⚠️ **Missing Info:** Some fields appear empty. If you used autofill, please click inside the boxes to ensure they are saved.")
                         elif new_pass != confirm_pass: 
                              st.error("❌ Passwords do not match")
                         else:
-                            # 2. Address Verification Logic
                             clean_addr, clean_addr2 = addr, addr2
                             clean_city, clean_state, clean_zip = city, state, zip_code
                             
-                            # Only verify US addresses if mailer is available
                             if mailer and country_code == "US":
                                 with st.spinner("Verifying Address..."):
                                     is_valid, data = mailer.verify_address_data(addr, addr2, city, state, zip_code, country_code)
@@ -129,7 +129,6 @@ def show_login(login_func, signup_func):
                                         st.error(f"❌ {data}")
                                         st.stop()
                                     elif data:
-                                        # Use Cleaned Data
                                         clean_addr = data['line1']
                                         clean_addr2 = data['line2']
                                         clean_city = data['city']
@@ -138,7 +137,6 @@ def show_login(login_func, signup_func):
                                         if clean_addr.lower() != addr.lower():
                                             st.toast(f"✨ Address standardized to: {clean_addr}")
 
-                            # 3. Create Account
                             with st.spinner("Creating account..."):
                                 res, err = signup_func(
                                     new_email, new_pass, name, 
