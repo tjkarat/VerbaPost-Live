@@ -613,17 +613,40 @@ def render_review_page():
 def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
+    
+    # Handle Draft ID
     if "draft_id" in st.query_params:
-        if not st.session_state.get("current_draft_id"): st.session_state.current_draft_id = st.query_params["draft_id"]
+        if not st.session_state.get("current_draft_id"):
+            st.session_state.current_draft_id = st.query_params["draft_id"]
+    
+    # Handle Stripe Return
     if "session_id" in st.query_params: 
-        if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
-        if "certified" in st.query_params: st.session_state.is_certified = True
-        st.session_state.app_mode = "workspace"; st.session_state.payment_complete = True; st.rerun()
+        # 1. Capture Tier (THIS WAS MISSING)
+        if "tier" in st.query_params:
+            st.session_state.locked_tier = st.query_params["tier"]
+            
+        # 2. Capture Other Params
+        if "qty" in st.query_params: 
+            st.session_state.bulk_paid_qty = int(st.query_params["qty"])
+        if "certified" in st.query_params: 
+            st.session_state.is_certified = True
+            
+        # 3. Set State & Rerun
+        st.session_state.app_mode = "workspace"
+        st.session_state.payment_complete = True
+        
+        # Clear params to prevent infinite loop, but allow one run to set state
+        # (Optional: st.query_params.clear())
+        st.rerun()
 
+    # Routing
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": 
         import ui_login; import auth_engine
-        ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,a2,c,s,z,cntry,lang: _handle_signup(auth_engine, e,p,n,a,a2,c,s,z,cntry,lang))
+        ui_login.show_login(
+            lambda e,p: _handle_login(auth_engine, e,p), 
+            lambda e,p,n,a,a2,c,s,z,cntry,lang: _handle_signup(auth_engine, e,p,n,a,a2,c,s,z,cntry,lang)
+        )
     elif mode == "forgot_password": import ui_login; import auth_engine; ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
     elif mode == "reset_verify": import ui_login; import auth_engine; ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
     elif mode == "store": render_store_page()
