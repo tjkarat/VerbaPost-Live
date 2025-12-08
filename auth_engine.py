@@ -23,17 +23,18 @@ def sign_in(email, password):
     except Exception as e:
         return None, f"Login Failed: {e}"
 
-# --- UPDATED SIGNUP ---
 def sign_up(email, password, name, street, street2, city, state, zip_code, country, language):
     client, err = get_client()
     if err: return None, err
     try:
+        # 1. Create Auth User
         res = client.auth.sign_up({
             "email": email, 
             "password": password,
             "options": {"data": {"full_name": name}}
         })
         
+        # 2. If successful, create Profile
         if res.user:
             try:
                 profile_data = {
@@ -41,16 +42,22 @@ def sign_up(email, password, name, street, street2, city, state, zip_code, count
                     "email": email, 
                     "full_name": name,
                     "address_line1": street,
-                    "address_line2": street2, # <--- New Field
+                    "address_line2": street2,
                     "address_city": city,
                     "address_state": state, 
                     "address_zip": zip_code,
-                    "country": country,
-                    "language_preference": language
+                    "country": country
                 }
-                client.table("user_profiles").upsert(profile_data).execute()
+                
+                # Execute the insert
+                data = client.table("user_profiles").upsert(profile_data).execute()
+                
             except Exception as e:
-                print(f"Profile Save Error: {e}")
+                # --- SHOW THE ERROR ---
+                error_msg = f"DB Profile Error: {str(e)}"
+                print(error_msg)
+                st.error(error_msg) # Show in UI
+                return None, error_msg # Fail the signup so user knows
         
         return res, None
     except Exception as e:
