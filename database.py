@@ -103,7 +103,7 @@ def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=
         db.rollback(); return None
     finally: db.close()
 
-def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, status=None):
+def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, status=None, tier=None, price=None):
     db = get_session()
     if not db: return False
     try:
@@ -113,6 +113,10 @@ def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, stat
             if from_addr: draft.sender_json = json.dumps(from_addr)
             if content: draft.transcription = content
             if status: draft.status = status
+            # --- FIX: Update Financials ---
+            if tier: draft.tier = tier
+            if price: draft.price = str(price)
+            
             db.commit()
             return True
         return False

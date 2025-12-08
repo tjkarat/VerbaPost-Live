@@ -155,7 +155,7 @@ def render_store_page():
                     # --- LOGIC FIX: GHOST DRAFT PREVENTION ---
                     if st.session_state.get("current_draft_id"):
                         d_id = st.session_state.current_draft_id
-                        if database: database.update_draft_data(d_id, status="Draft", content="")
+                        if database: database.update_draft_data(d_id, status="Draft", content="", tier=tier_code, price="0.00")
                     else:
                         if database: 
                             d_id = database.save_draft(u_email, "", tier_code, "0.00")
@@ -170,10 +170,11 @@ def render_store_page():
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
                     
                     d_id = None
-                    # --- LOGIC FIX: GHOST DRAFT PREVENTION (PAID) ---
+                    # --- LOGIC FIX: GHOST DRAFT & PRICE UPDATE ---
                     if st.session_state.get("current_draft_id"):
                         d_id = st.session_state.current_draft_id
-                        if database: database.update_draft_data(d_id, status="Draft")
+                        # Update Price & Tier in case user switched selection
+                        if database: database.update_draft_data(d_id, status="Draft", tier=tier_code, price=price)
                     else:
                         if database: 
                             d_id = database.save_draft(u_email, "", tier_code, price)
@@ -457,18 +458,13 @@ def render_review_page():
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
         else:
-            # --- BUG FIX: DEFINE VARIABLES BEFORE USE ---
-            # Ensure to_data and from_data are always defined before the preview block uses them.
-            # Using defaults prevents 'local variable referenced before assignment' error.
-            
+            # --- FIX: DEFINE VARS BEFORE USE ---
             to_p = st.session_state.get("to_addr") or {"name": "Preview", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
             from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
             
             with st.spinner("Generating Proof..."):
-                # Construct address block for preview
                 lines = [to_p.get('name', '')]
                 lines.append(to_p.get('street', ''))
-                # Handle inconsistent keys safely for preview
                 lines.append(to_p.get('address_line2', '') or to_p.get('street2', ''))
                 lines.append(f"{to_p.get('city', '')}, {to_p.get('state', '')} {to_p.get('zip', '')}")
                 if to_p.get('country') != 'US': lines.append(COUNTRIES.get(to_p.get('country'), ''))
@@ -503,13 +499,23 @@ def render_review_page():
                 st.error("⚠️ **Letter is too short or empty!** Please write more content.")
                 return
 
-            if tier != "Campaign":
-                to_chk = st.session_state.get("to_addr", {})
-                from_chk = st.session_state.get("from_addr", {})
-                if not to_chk.get("street") and tier != "Civic": st.error("⚠️ Recipient Address missing."); return
-                if not from_chk.get("street") and tier != "Santa": st.error("⚠️ Sender Address missing."); return
+            # --- FIX: CAMPAIGN CRASH PREVENTION ---
+            targets = []
+            if tier == "Campaign": 
+                targets = st.session_state.get("bulk_targets", [])
+                if not targets:
+                    st.error("⚠️ No mailing list found. Please upload a CSV first.")
+                    st.stop()
+            elif tier == "Civic" and "civic_targets" in st.session_state:
+                for rep in st.session_state.civic_targets: t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
             else:
-                if not st.session_state.get("bulk_targets"): st.error("⚠️ No CSV loaded."); return
+                if not st.session_state.get("to_addr"):
+                    st.error("⚠️ Recipient Address missing."); return
+                targets.append(st.session_state.to_addr)
+
+            if tier != "Campaign":
+                if not st.session_state.get("from_addr") and tier != "Santa":
+                    st.error("⚠️ Sender Address missing."); return
 
             current_stripe_id = st.session_state.get("current_stripe_id")
             u_email = st.session_state.get("user_email")
@@ -530,20 +536,21 @@ def render_review_page():
                             buf = io.BytesIO(); img.save(buf, format="PNG"); sig_db_value = base64.b64encode(buf.getvalue()).decode("utf-8")
                         except: pass
 
-                    targets = []
-                    if tier == "Campaign": targets = st.session_state.bulk_targets
-                    elif tier == "Civic" and "civic_targets" in st.session_state:
-                        for rep in st.session_state.civic_targets: t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
-                    else: targets.append(st.session_state.to_addr)
-
                     prog_bar = st.progress(0)
                     errors = []
                     successful_count = 0
                     
                     for i, to_data in enumerate(targets):
-                        # Construct strings for PDF
+                        # --- FIX: ROBUST ADDRESS CONSTRUCTION ---
                         lines = [to_data.get('name', '')]
-                        lines.append(to_data.get('street', ''))
+                        
+                        # Fallback for Civic/API addresses that use 'line1' or 'address'
+                        street = (to_data.get('street', '') or 
+                                  to_data.get('line1', '') or 
+                                  to_data.get('address_line1', '') or 
+                                  to_data.get('address', ''))
+                        lines.append(street)
+                        
                         lines.append(to_data.get('address_line2', '') or to_data.get('street2', ''))
                         lines.append(f"{to_data.get('city', '')}, {to_data.get('state', '')} {to_data.get('zip', '')}")
                         if to_data.get('country') != 'US': lines.append(COUNTRIES.get(to_data.get('country'), ''))
@@ -568,7 +575,7 @@ def render_review_page():
                                 # Prep Payload (Robust Key Access)
                                 pg_to = {
                                     'name': to_data.get('name'), 
-                                    'address_line1': to_data.get('street'), 
+                                    'address_line1': street, # Use the computed street
                                     'address_line2': to_data.get('address_line2', '') or to_data.get('street2', ''),
                                     'address_city': to_data.get('city'), 
                                     'address_state': to_data.get('state'), 
@@ -648,7 +655,6 @@ def render_review_page():
             st.info(f"📜 **Certified Mail Tracking:** {st.session_state.last_tracking_num}")
             st.caption("You will also receive this via email.")
         
-        # --- FIX: SUCCESS BUTTON RESETS CLEANLY ---
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
              st.query_params.clear() 
              reset_app()
