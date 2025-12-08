@@ -42,8 +42,6 @@ def detect_language(text):
         return ('NotoSansKR', 'NotoSansKR-Regular.ttf')
         
     # 3. Check for Chinese (Hanzi)
-    # Note: Japanese uses Kanji (Hanzi), so we check Kana first. 
-    # If we see CJK Unified Ideographs but no Kana, assume Chinese.
     if re.search(r'[\u4e00-\u9fff]', text):
         return ('NotoSansSC', 'NotoSansSC-Regular.ttf')
         
@@ -105,6 +103,19 @@ class LetterPDF(FPDF):
                 self.set_text_color(0, 0, 0)
             
             self.set_auto_page_break(True, margin=20)
+
+    # --- FIX: FOOTER ON EVERY PAGE ---
+    def footer(self):
+        # Position 1.5 cm from bottom
+        self.set_y(-15)
+        self.set_font('Helvetica', 'I', 8)
+        self.set_text_color(100, 100, 100)
+        
+        # Determine text
+        text = 'Official North Pole Mail' if self.is_santa else 'Dictated & Mailed via VerbaPost.com'
+        
+        # Print centered
+        self.cell(0, 10, text, 0, 0, 'C')
 
 def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language="English", signature_path=None, is_santa=False):
     try:
@@ -181,19 +192,18 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.set_font(body_font, '', body_size)
         safe_content = sanitize_text(content, is_cjk)
         
-        # --- SAFETY FIX ---
+        # --- SAFETY PATCH ---
         if not safe_content or len(safe_content.strip()) == 0:
             safe_content = "[ERROR: No Content Provided. Please return to editor.]"
             pdf.set_text_color(255, 0, 0) # Red text warning
             
         pdf.multi_cell(170, 8, safe_content)
-        pdf.set_text_color(0, 0, 0)
+        pdf.set_text_color(0, 0, 0) # Reset to black
 
         # Signature
         pdf.ln(20) 
         if is_santa:
             pdf.set_x(pdf.l_margin)
-            # Use Western handwriting for "Santa" sig or Helvetica if missing
             sig_font = 'Caveat' if not is_cjk else 'Helvetica' 
             pdf.set_font(sig_font, '', 32)
             pdf.set_text_color(180, 20, 20) 
@@ -202,12 +212,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             try: pdf.image(signature_path, x=20, w=40)
             except: pass
         
-        # Footer
-        pdf.set_y(-20)
-        pdf.set_font('Helvetica', 'I', 8)
-        pdf.set_text_color(100, 100, 100)
-        footer = 'Official North Pole Mail' if is_santa else 'Dictated & Mailed via VerbaPost.com'
-        pdf.cell(0, 10, footer, 0, 0, 'C')
+        # Note: Footer is now handled automatically by the class method
 
         # --- OUTPUT ---
         raw_output = pdf.output(dest='S')

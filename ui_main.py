@@ -48,7 +48,9 @@ COUNTRIES = {
 }
 
 def reset_app():
+    # Only recover if NOT explicitly clearing (handled in success button)
     recovered_draft = st.query_params.get("draft_id")
+    
     if st.session_state.get("user_email"): st.session_state.app_mode = "store"
     else: st.session_state.app_mode = "splash"
     
@@ -57,6 +59,7 @@ def reset_app():
         if k in st.session_state: del st.session_state[k]
     st.session_state.to_addr = {}
     
+    # Restore ONLY if we found a draft ID
     if recovered_draft:
         st.session_state.current_draft_id = recovered_draft
         st.session_state.app_mode = "workspace" 
@@ -177,7 +180,6 @@ def render_workspace_page():
 
     with st.container(border=True):
         if tier == "Campaign":
-            # (Bulk logic unchanged)
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             st.info("""**CSV Format:** Name, Street, City, State, Zip""")
@@ -193,7 +195,6 @@ def render_workspace_page():
                     if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("List Saved!")
         
         else:
-            # (Address logic unchanged)
             st.subheader("📍 Addressing")
             def_n=user_addr.get("name",""); def_s=user_addr.get("street",""); def_s2=user_addr.get("street2","")
             def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip",""); def_cntry=user_addr.get("country","US")
@@ -302,7 +303,6 @@ def render_workspace_page():
              canvas = st_canvas(stroke_width=2, stroke_color="#000", background_color="#fff", height=150, width=400, key="canvas")
              if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     
-    # --- NEW: TABBED INPUT (RECORD VS UPLOAD) ---
     with c_mic:
         st.write("🎤 **Input Source**")
         t_rec, t_up = st.tabs(["🔴 Record", "📂 Upload File"])
@@ -320,34 +320,25 @@ def render_workspace_page():
         with t_up:
             st.caption("Max 25MB. Supported: wav, mp3, m4a, mp4.")
             uploaded_file = st.file_uploader("Select Audio File", type=['wav', 'mp3', 'm4a', 'mp4', 'webm'])
-            
             if uploaded_file is not None:
                 if st.button("Transcribe File", type="primary"):
                     if ai_engine:
-                        # 1. Size Validation (25MB Limit)
                         if uploaded_file.size > 25 * 1024 * 1024:
                             st.error("⚠️ File too large (>25MB). Please compress it.")
                         else:
                             with st.spinner("Uploading & Transcribing..."):
-                                # 2. SAFE SAVE: Preserve the extension (.mp3, .wav)
-                                # This ensures the AI knows exactly what format the audio is in.
                                 file_ext = uploaded_file.name.split('.')[-1]
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp:
                                     tmp.write(uploaded_file.getvalue())
                                     tmp_path = tmp.name
-                                
                                 try:
-                                    # 3. Transcribe using the temporary file path
                                     text = ai_engine.transcribe_audio(tmp_path)
                                     st.session_state.transcribed_text = text
                                     st.session_state.app_mode = "review"
                                     st.rerun()
-                                except Exception as e:
-                                    st.error(f"Transcription Failed: {e}")
+                                except Exception as e: st.error(f"Transcription Failed: {e}")
                                 finally:
-                                    # 4. Cleanup: Delete the temp file
-                                    if os.path.exists(tmp_path):
-                                        os.remove(tmp_path)
+                                    if os.path.exists(tmp_path): os.remove(tmp_path)
 
 def _save_addresses_from_widgets(tier, is_intl):
     if tier == "Santa":
@@ -384,7 +375,6 @@ def _save_addresses_from_widgets(tier, is_intl):
         }
 
 def render_review_page():
-    # (Same as previous versions, no changes needed here)
     render_hero("Review Letter", "Finalize and Send")
     if "letter_sent_success" not in st.session_state: st.session_state.letter_sent_success = False
     
@@ -433,8 +423,26 @@ def render_review_page():
                 to_p = st.session_state.get("to_addr") or {"name": "Preview", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
                 from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
                 
-                to_str = f"{to_p.get('name','')}\n{to_p.get('street','')}\n{to_p.get('city','')}, {to_p.get('state','')} {to_p.get('zip','')}"
-                from_str = f"{from_p.get('name','')}\n{from_p.get('street','')}\n{from_p.get('city','')}, {from_p.get('state','')} {from_p.get('zip','')}"
+                # --- FIX 2: ADDRESS LINE 2 LOGIC ---
+                # Construct address block as a list, then join. This is safer than .replace()
+                lines = [to_p.get('name', '')]
+                lines.append(to_p.get('street', ''))
+                # Explicitly add Line 2 if it exists
+                if to_p.get('address_line2'): lines.append(to_p.get('address_line2'))
+                elif to_p.get('street2'): lines.append(to_p.get('street2')) # Fallback key
+                
+                lines.append(f"{to_p.get('city', '')}, {to_p.get('state', '')} {to_p.get('zip', '')}")
+                if to_p.get('country') != 'US': lines.append(COUNTRIES.get(to_p.get('country'), ''))
+                
+                to_str = "\n".join(filter(None, lines)) # Join non-empty lines
+                
+                # Same logic for sender
+                f_lines = [from_p.get('name', '')]
+                f_lines.append(from_p.get('street', ''))
+                if from_p.get('address_line2'): f_lines.append(from_p.get('address_line2'))
+                f_lines.append(f"{from_p.get('city', '')}, {from_p.get('state', '')} {from_p.get('zip', '')}")
+                if from_p.get('country') != 'US': f_lines.append(COUNTRIES.get(from_p.get('country'), ''))
+                from_str = "\n".join(filter(None, f_lines))
                 
                 sig_path = None
                 if st.session_state.get("sig_data") is not None:
@@ -495,17 +503,24 @@ def render_review_page():
                     errors = []
                     
                     for i, to_data in enumerate(targets):
-                        t_country = to_data.get('country', 'US')
-                        cntry_line = f"\n{COUNTRIES.get(t_country, 'USA')}" if t_country != 'US' else ""
-                        to_str = f"{to_data.get('name','')}\n{to_data.get('street','')}\n{to_data.get('city','')}, {to_data.get('state','')} {to_data.get('zip','')}{cntry_line}"
-                        if to_data.get('address_line2'): to_str = to_str.replace(to_data.get('street'), f"{to_data.get('street')}\n{to_data.get('address_line2')}")
+                        # --- FIX: USE NEW ADDRESS CONSTRUCTION LOGIC ---
+                        # (Duplicated from preview logic for consistency)
+                        lines = [to_data.get('name', '')]
+                        lines.append(to_data.get('street', ''))
+                        if to_data.get('address_line2'): lines.append(to_data.get('address_line2'))
+                        elif to_data.get('street2'): lines.append(to_data.get('street2'))
+                        lines.append(f"{to_data.get('city', '')}, {to_data.get('state', '')} {to_data.get('zip', '')}")
+                        if to_data.get('country') != 'US': lines.append(COUNTRIES.get(to_data.get('country'), ''))
+                        to_str = "\n".join(filter(None, lines))
 
                         if tier == "Santa": from_str = "Santa Claus"
                         else: 
-                            f_country = from_data.get('country', 'US')
-                            f_cntry_line = f"\n{COUNTRIES.get(f_country, 'USA')}" if f_country != 'US' else ""
-                            from_str = f"{from_data.get('name','')}\n{from_data.get('street','')}\n{from_data.get('city','')}, {from_data.get('state','')} {from_data.get('zip','')}{f_cntry_line}"
-                            if from_data.get('address_line2'): from_str = from_str.replace(from_data.get('street'), f"{from_data.get('street')}\n{from_data.get('address_line2')}")
+                            f_lines = [from_data.get('name', '')]
+                            f_lines.append(from_data.get('street', ''))
+                            if from_data.get('address_line2'): f_lines.append(from_data.get('address_line2'))
+                            f_lines.append(f"{from_data.get('city', '')}, {from_data.get('state', '')} {from_data.get('zip', '')}")
+                            if from_data.get('country') != 'US': f_lines.append(COUNTRIES.get(from_data.get('country'), ''))
+                            from_str = "\n".join(filter(None, f_lines))
 
                         if letter_format:
                             pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=is_santa, signature_path=sig_path)
@@ -594,9 +609,13 @@ def render_review_page():
             st.info(f"📜 **Certified Mail Tracking:** {st.session_state.last_tracking_num}")
             st.caption("You will also receive this via email.")
         
+        # --- FIX 1: SUCCESS BUTTON ---
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
-             reset_app()
+             # 1. Clear URL params so reset_app doesn't restore the old session
              st.query_params.clear() 
+             # 2. Manual Reset
+             reset_app()
+             # 3. Force Store Mode
              st.session_state.app_mode = "store" 
              st.rerun()
 
