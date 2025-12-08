@@ -463,7 +463,7 @@ def render_review_page():
                 
                 # Construct address block for preview
                 lines = [to_p.get('name', '')]
-                lines.append(to_p.get('street', ''))
+                lines.append(to_data.get('street', '') or to_data.get('address_line1', '') or to_data.get('line1', ''))
                 # Handle inconsistent keys safely for preview
                 lines.append(to_p.get('address_line2', '') or to_p.get('street2', ''))
                 lines.append(f"{to_p.get('city', '')}, {to_p.get('state', '')} {to_p.get('zip', '')}")
