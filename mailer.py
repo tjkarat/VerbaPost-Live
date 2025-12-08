@@ -5,57 +5,42 @@ import secrets_manager
 import hashlib
 import json
 import time
+import logging
+from address_standard import StandardAddress
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def get_postgrid_key(): return secrets_manager.get_secret("postgrid.api_key")
 def get_resend_key(): return secrets_manager.get_secret("email.password")
 
-# --- ADDRESS VERIFICATION ---
 def verify_address_data(line1, line2, city, state, zip_code, country_code):
-    """
-    Calls PostGrid Address Verification API to standardize and validate input.
-    Returns: (bool is_valid, dict data_or_error)
-    """
     api_key = get_postgrid_key()
-    if not api_key: return True, None # Skip if no key (Dev mode)
+    if not api_key: return True, None 
 
     url = "https://api.postgrid.com/v1/addver/verifications"
-    
     payload = {
-        "line1": line1,
-        "line2": line2,
-        "city": city,
-        "provinceOrState": state,
-        "postalOrZip": zip_code,
-        "country": country_code
+        "line1": line1, "line2": line2, "city": city,
+        "provinceOrState": state, "postalOrZip": zip_code, "country": country_code
     }
     
     try:
         r = requests.post(url, headers={"x-api-key": api_key}, data=payload)
-        
         if r.status_code == 200:
             res = r.json()
             if res.get('status') in ['verified', 'corrected']:
                 return True, {
-                    "line1": res.get('line1'),
-                    "line2": res.get('line2') or "",
-                    "city": res.get('city'),
-                    "state": res.get('provinceOrState'),
-                    "zip": res.get('postalOrZip'),
-                    "country": res.get('country')
+                    "line1": res.get('line1'), "line2": res.get('line2') or "",
+                    "city": res.get('city'), "state": res.get('provinceOrState'),
+                    "zip": res.get('postalOrZip'), "country": res.get('country')
                 }
-            else:
-                errors = res.get('errors', {})
-                msg = f"Address Invalid: {errors}" 
-                return False, msg
-        else:
-            print(f"PostGrid Verif Error: {r.text}")
-            return True, None 
-
+            else: return False, f"Address Invalid: {res.get('errors', {})}"
+        else: return True, None 
     except Exception as e:
-        print(f"Verif Exception: {e}")
+        logger.error(f"Verif Exception: {e}")
         return True, None
 
-# --- NOTIFICATIONS ---
 def send_confirmation_email(user_email, tier, recipient_name):
     key = get_resend_key()
     if not key or not user_email: return
@@ -83,36 +68,42 @@ def send_admin_alert(user_email, letter_text, tier):
     try: resend.Emails.send({"from": "VerbaPost Ops <support@verbapost.com>", "to": [admin_email], "subject": subject, "html": html})
     except: return False
 
-# --- CORE SENDING FUNCTION ---
 def send_letter(pdf_path, to_address, from_address, certified=False):
     api_key = get_postgrid_key()
-    if not api_key: return False, "Missing PostGrid API Key"
+    if not api_key: 
+        logger.error("Missing PostGrid API Key")
+        return False, "Missing PostGrid API Key"
 
     try:
         url = "https://api.postgrid.com/print-mail/v1/letters"
         
-        # Consolidate Data Payload
-        # We explicitly map 'address_line2' to 'addressLine2' here
+        # FIX: Robust parsing via StandardAddress
+        to_std = StandardAddress.from_dict(to_address)
+        from_std = StandardAddress.from_dict(from_address)
+        
+        to_p = to_std.to_postgrid_payload()
+        from_p = from_std.to_postgrid_payload()
+        
         data = {
-            'description': f"VerbaPost to {to_address.get('name')}",
-            'to[firstName]': to_address.get('name'), 
-            'to[addressLine1]': to_address.get('address_line1') or to_address.get('street'),
-            'to[addressLine2]': to_address.get('address_line2', '') or to_address.get('street2', ''),
-            'to[city]': to_address.get('address_city') or to_address.get('city'),
-            'to[provinceOrState]': to_address.get('address_state') or to_address.get('state'),
-            'to[postalOrZip]': to_address.get('address_zip') or to_address.get('zip'),
-            'to[countryCode]': to_address.get('country_code') or to_address.get('country', 'US'), 
+            'description': f"VerbaPost to {to_std.name}",
+            'to[firstName]': to_p['name'],
+            'to[addressLine1]': to_p['address_line1'],
+            'to[addressLine2]': to_p['address_line2'],
+            'to[city]': to_p['address_city'],
+            'to[provinceOrState]': to_p['address_state'],
+            'to[postalOrZip]': to_p['address_zip'],
+            'to[countryCode]': to_p['country_code'],
             
-            'from[firstName]': from_address.get('name'),
-            'from[addressLine1]': from_address.get('address_line1') or from_address.get('street'),
-            'from[addressLine2]': from_address.get('address_line2', '') or from_address.get('street2', ''),
-            'from[city]': from_address.get('address_city') or from_address.get('city'),
-            'from[provinceOrState]': from_address.get('address_state') or from_address.get('state'),
-            'from[postalOrZip]': from_address.get('address_zip') or from_address.get('zip'),
-            'from[countryCode]': from_address.get('country_code') or from_address.get('country', 'US'), 
+            'from[firstName]': from_p['name'],
+            'from[addressLine1]': from_p['address_line1'],
+            'from[addressLine2]': from_p['address_line2'],
+            'from[city]': from_p['address_city'],
+            'from[provinceOrState]': from_p['address_state'],
+            'from[postalOrZip]': from_p['address_zip'],
+            'from[countryCode]': from_p['country_code'],
             
             'addressStrictness': 'relaxed', 
-            'color': 'false', 
+            'color': 'false',
             'addressPlacement': 'top_first_page'
         }
 
@@ -121,32 +112,30 @@ def send_letter(pdf_path, to_address, from_address, certified=False):
         else:
             data['express'] = 'false'
 
-        # --- IDEMPOTENCY FIX: Use Time Salt ---
+        # Idempotency with Time Salt
         try:
             with open(pdf_path, 'rb') as f: pdf_bytes = f.read()
-            # We add a timestamp salt so two identical letters sent 1 min apart are unique
             salt = str(time.time()).encode()
             fingerprint = json.dumps(data, sort_keys=True).encode() + pdf_bytes + salt
-            
-            headers = { 
-                "x-api-key": api_key, 
-                "Idempotency-Key": hashlib.sha256(fingerprint).hexdigest() 
-            }
-        except: 
-            headers = {"x-api-key": api_key}
+            headers = { "x-api-key": api_key, "Idempotency-Key": hashlib.sha256(fingerprint).hexdigest() }
+        except: headers = {"x-api-key": api_key}
 
-        files = {'pdf': open(pdf_path, 'rb')}
-        response = requests.post(url, headers=headers, data=data, files=files)
-        files['pdf'].close()
+        # FIX: Safe file handling
+        with open(pdf_path, 'rb') as f_pdf:
+            files = {'pdf': f_pdf}
+            response = requests.post(url, headers=headers, data=data, files=files)
 
         if response.status_code in [200, 201]:
             res = response.json()
             if certified and res.get('trackingNumber'): 
-                send_tracking_email(from_address.get('email'), res.get('trackingNumber'), to_address.get('name'))
+                send_tracking_email(from_std.name, res.get('trackingNumber'), to_std.name)
             
-            send_confirmation_email(from_address.get('email'), "Standard", to_address.get('name'))
+            send_confirmation_email(from_address.get('email'), "Standard", to_std.name)
             return True, res
         else:
+            logger.error(f"PostGrid Error: {response.text}")
             return False, f"PostGrid Error {response.status_code}: {response.text}"
 
-    except Exception as e: return False, f"Connection Error: {str(e)}"
+    except Exception as e:
+        logger.exception("Mailer Exception")
+        return False, f"Connection Error: {str(e)}"
