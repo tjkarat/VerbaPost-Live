@@ -457,13 +457,17 @@ def render_review_page():
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
         else:
+            # --- BUG FIX: DEFINE VARIABLES BEFORE USE ---
+            # Ensure to_data and from_data are always defined before the preview block uses them.
+            # Using defaults prevents 'local variable referenced before assignment' error.
+            
+            to_p = st.session_state.get("to_addr") or {"name": "Preview", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
+            from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
+            
             with st.spinner("Generating Proof..."):
-                to_p = st.session_state.get("to_addr") or {"name": "Preview", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
-                from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
-                
                 # Construct address block for preview
                 lines = [to_p.get('name', '')]
-                lines.append(to_data.get('street', '') or to_data.get('address_line1', '') or to_data.get('line1', ''))
+                lines.append(to_p.get('street', ''))
                 # Handle inconsistent keys safely for preview
                 lines.append(to_p.get('address_line2', '') or to_p.get('street2', ''))
                 lines.append(f"{to_p.get('city', '')}, {to_p.get('state', '')} {to_p.get('zip', '')}")
