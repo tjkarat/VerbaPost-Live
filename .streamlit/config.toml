@@ -7,5 +7,5 @@ textColor="#2d3748"
 font="sans serif"
 [server]
 enableCORS = false
-enableXsrProtection = false
+enableXsrfProtection = false
 enableStaticServing = true
