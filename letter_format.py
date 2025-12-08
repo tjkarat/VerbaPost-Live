@@ -50,8 +50,9 @@ def detect_language(text):
 
 def sanitize_text(text, is_cjk=False):
     """
-    Cleans text. If CJK, we DO NOT strip unicode.
-    If Western, we replace smart quotes to prevent Latin-1 errors.
+    Cleans text. 
+    - If CJK: Return raw Unicode (font handles it).
+    - If Western: Replace smart quotes AND strip emojis to prevent FPDF crash.
     """
     if not isinstance(text, str): return str(text)
     
@@ -65,10 +66,15 @@ def sanitize_text(text, is_cjk=False):
         text = text.replace(k, v)
     
     if is_cjk:
-        return text # Return raw Unicode for CJK fonts
+        return text 
     else:
-        # For Helvetica, force Latin-1 compatible
-        return text.encode('latin-1', 'replace').decode('latin-1')
+        # --- LOGIC FIX #2: EMOJI STRIPPING ---
+        # Encode to Latin-1, dropping anything that doesn't fit (emojis).
+        # We use 'ignore' to drop them silently. 'replace' would insert '?' chars.
+        try:
+            return text.encode('latin-1', 'ignore').decode('latin-1')
+        except:
+            return text
 
 # --- CUSTOM PDF CLASS ---
 class LetterPDF(FPDF):
@@ -104,7 +110,7 @@ class LetterPDF(FPDF):
             
             self.set_auto_page_break(True, margin=20)
 
-    # --- FIX: FOOTER ON EVERY PAGE ---
+    # --- LOGIC FIX: FOOTER ON EVERY PAGE ---
     def footer(self):
         # Position 1.5 cm from bottom
         self.set_y(-15)
@@ -125,30 +131,22 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.set_auto_page_break(True, margin=20)
         
         # --- FONT LOGIC ---
-        # 1. Register Handwriting Font (Caveat) - Western Only
         if os.path.exists("Caveat-Regular.ttf"):
             pdf.add_font('Caveat', '', 'Caveat-Regular.ttf')
         
-        # 2. Detect Language from Content
         target_font_name, target_font_file = detect_language(content)
         is_cjk = target_font_name.startswith("Noto")
         
-        # 3. Register CJK Font if needed
         if is_cjk and target_font_file:
             if os.path.exists(target_font_file):
                 pdf.add_font(target_font_name, '', target_font_file)
             else:
-                # Fallback if download failed
                 target_font_name = 'Helvetica'
                 is_cjk = False
 
-        # 4. Select Body Font
-        if is_cjk:
-            body_font = target_font_name
-        elif is_heirloom or is_santa:
-            body_font = 'Caveat'
-        else:
-            body_font = 'Helvetica'
+        if is_cjk: body_font = target_font_name
+        elif is_heirloom or is_santa: body_font = 'Caveat'
+        else: body_font = 'Helvetica'
             
         body_size = 14 if is_cjk else (18 if is_santa else 12)
         
@@ -159,20 +157,17 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         is_standard = not (is_heirloom or is_santa)
 
         if is_standard:
-            # Standard Mode (PostGrid)
             pdf.set_xy(20, 100)
             pdf.set_xy(140, 15)
             pdf.set_font('Helvetica', '', 10)
             pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
             pdf.set_xy(20, 100)
         else:
-            # Heirloom/Santa (Manual)
             date_y = 50 if is_santa else 15
             pdf.set_xy(140, date_y)
             pdf.set_font('Helvetica', '', 10)
             pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
             
-            # Return Address
             if is_santa:
                 pdf.set_x(140) 
                 pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
@@ -180,7 +175,6 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
                 pdf.set_xy(15, 15)
                 pdf.multi_cell(0, 5, sanitize_text(return_addr, is_cjk))
 
-            # Recipient Address
             recip_y = 80 if is_santa else 45
             pdf.set_xy(20, recip_y)
             pdf.set_font('Helvetica', 'B', 12)
@@ -192,13 +186,12 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.set_font(body_font, '', body_size)
         safe_content = sanitize_text(content, is_cjk)
         
-        # --- SAFETY PATCH ---
         if not safe_content or len(safe_content.strip()) == 0:
             safe_content = "[ERROR: No Content Provided. Please return to editor.]"
-            pdf.set_text_color(255, 0, 0) # Red text warning
+            pdf.set_text_color(255, 0, 0) 
             
         pdf.multi_cell(170, 8, safe_content)
-        pdf.set_text_color(0, 0, 0) # Reset to black
+        pdf.set_text_color(0, 0, 0)
 
         # Signature
         pdf.ln(20) 
@@ -212,9 +205,8 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             try: pdf.image(signature_path, x=20, w=40)
             except: pass
         
-        # Note: Footer is now handled automatically by the class method
+        # Note: Footer is now handled automatically by the footer() class method
 
-        # --- OUTPUT ---
         raw_output = pdf.output(dest='S')
         if isinstance(raw_output, (bytes, bytearray)):
             return bytes(raw_output)

@@ -72,8 +72,17 @@ def show_santa_animation(): st.markdown("""<div class="santa-sled">🎅🛷</div
 def render_legal_page(): import ui_legal; ui_legal.show_legal()
 
 def render_store_page():
-    render_hero("Select Service", "Choose your letter type")
     u_email = st.session_state.get("user_email", "")
+    
+    # --- LOGIC FIX #3: UNAUTHENTICATED GUARD ---
+    if not u_email:
+        st.warning("⚠️ Session Expired. Please log in to continue.")
+        if st.button("Go to Login"):
+            st.session_state.app_mode = "login"
+            st.rerun()
+        return
+
+    render_hero("Select Service", "Choose your letter type")
     
     is_admin = False
     try:
@@ -140,10 +149,17 @@ def render_store_page():
                 st.metric("Total", "$0.00", delta=f"-${price:.2f} off")
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
-                    if database: 
-                        d_id = database.save_draft(u_email, "", tier_code, "0.00")
-                        st.session_state.current_draft_id = d_id
-                        st.query_params["draft_id"] = str(d_id)
+                    
+                    # --- LOGIC FIX #1: GHOST DRAFT PREVENTION (FREE) ---
+                    if st.session_state.get("current_draft_id"):
+                        d_id = st.session_state.current_draft_id
+                        # Update status/tier just in case they switched back and forth
+                        if database: database.update_draft_data(d_id, status="Draft", content="")
+                    else:
+                        if database: 
+                            d_id = database.save_draft(u_email, "", tier_code, "0.00")
+                            st.session_state.current_draft_id = d_id
+                            st.query_params["draft_id"] = str(d_id)
                         
                     if audit_engine: audit_engine.log_event(u_email, "FREE_TIER_STARTED", None, {"code": code_input})
                     st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code; st.session_state.bulk_paid_qty = qty if tier_code == "Campaign" else 1
@@ -151,10 +167,18 @@ def render_store_page():
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
-                    if database: 
-                        d_id = database.save_draft(u_email, "", tier_code, price)
-                        st.session_state.current_draft_id = d_id
-                        st.query_params["draft_id"] = str(d_id)
+                    
+                    d_id = None
+                    # --- LOGIC FIX #1: GHOST DRAFT PREVENTION (PAID) ---
+                    if st.session_state.get("current_draft_id"):
+                        d_id = st.session_state.current_draft_id
+                        # Update price in case tier changed
+                        if database: database.update_draft_data(d_id, status="Draft") 
+                    else:
+                        if database: 
+                            d_id = database.save_draft(u_email, "", tier_code, price)
+                            st.session_state.current_draft_id = d_id
+                            st.query_params["draft_id"] = str(d_id)
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if d_id: link += f"&draft_id={d_id}" 
@@ -423,20 +447,17 @@ def render_review_page():
                 to_p = st.session_state.get("to_addr") or {"name": "Preview", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
                 from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
                 
-                # --- FIX 2: ADDRESS LINE 2 LOGIC ---
-                # Construct address block as a list, then join. This is safer than .replace()
+                # Construct address block as a list
                 lines = [to_p.get('name', '')]
                 lines.append(to_p.get('street', ''))
-                # Explicitly add Line 2 if it exists
                 if to_p.get('address_line2'): lines.append(to_p.get('address_line2'))
-                elif to_p.get('street2'): lines.append(to_p.get('street2')) # Fallback key
+                elif to_p.get('street2'): lines.append(to_p.get('street2')) 
                 
                 lines.append(f"{to_p.get('city', '')}, {to_p.get('state', '')} {to_p.get('zip', '')}")
                 if to_p.get('country') != 'US': lines.append(COUNTRIES.get(to_p.get('country'), ''))
                 
-                to_str = "\n".join(filter(None, lines)) # Join non-empty lines
+                to_str = "\n".join(filter(None, lines)) 
                 
-                # Same logic for sender
                 f_lines = [from_p.get('name', '')]
                 f_lines.append(from_p.get('street', ''))
                 if from_p.get('address_line2'): f_lines.append(from_p.get('address_line2'))
@@ -503,8 +524,6 @@ def render_review_page():
                     errors = []
                     
                     for i, to_data in enumerate(targets):
-                        # --- FIX: USE NEW ADDRESS CONSTRUCTION LOGIC ---
-                        # (Duplicated from preview logic for consistency)
                         lines = [to_data.get('name', '')]
                         lines.append(to_data.get('street', ''))
                         if to_data.get('address_line2'): lines.append(to_data.get('address_line2'))
@@ -609,13 +628,9 @@ def render_review_page():
             st.info(f"📜 **Certified Mail Tracking:** {st.session_state.last_tracking_num}")
             st.caption("You will also receive this via email.")
         
-        # --- FIX 1: SUCCESS BUTTON ---
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
-             # 1. Clear URL params so reset_app doesn't restore the old session
              st.query_params.clear() 
-             # 2. Manual Reset
              reset_app()
-             # 3. Force Store Mode
              st.session_state.app_mode = "store" 
              st.rerun()
 
