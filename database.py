@@ -1,5 +1,5 @@
 import streamlit as st
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, func
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import json
@@ -7,7 +7,7 @@ import secrets_manager
 
 Base = declarative_base()
 
-# --- EXISTING MODELS ---
+# --- MODELS ---
 class UserProfile(Base):
     __tablename__ = "user_profiles"
     id = Column(String, primary_key=True, index=True)
@@ -48,7 +48,6 @@ class SavedContact(Base):
     country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# --- NEW: PROMO CODE TABLE ---
 class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True, index=True)
@@ -187,3 +186,35 @@ def delete_contact(contact_id):
         return True
     except: return False
     finally: db.close()
+
+# --- RESTORED: GAMIFICATION ---
+def get_civic_leaderboard():
+    """Returns top 5 states by volume of Civic letters sent."""
+    db = get_session()
+    if not db: return []
+    try:
+        # Fetch all civic letters that are paid/sent
+        results = db.query(LetterDraft).filter(
+            LetterDraft.tier == 'Civic',
+            LetterDraft.status.in_(['Completed', 'Pending Admin'])
+        ).order_by(LetterDraft.created_at.desc()).limit(500).all()
+        
+        state_counts = {}
+        for r in results:
+            try:
+                if r.recipient_json:
+                    data = json.loads(r.recipient_json)
+                    state = data.get('state', '').upper()
+                    # Basic validation for US state codes
+                    if state and len(state) == 2:
+                        state_counts[state] = state_counts.get(state, 0) + 1
+            except: continue
+                
+        # Sort by count desc
+        sorted_stats = sorted(state_counts.items(), key=lambda item: item[1], reverse=True)
+        return sorted_stats[:5]
+    except Exception as e:
+        print(f"Leaderboard Error: {e}")
+        return []
+    finally:
+        db.close()
