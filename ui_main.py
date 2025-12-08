@@ -318,20 +318,36 @@ def render_workspace_page():
                         st.rerun()
 
         with t_up:
-            st.caption("Max 25MB. Supported: wav, mp3, m4a.")
+            st.caption("Max 25MB. Supported: wav, mp3, m4a, mp4.")
             uploaded_file = st.file_uploader("Select Audio File", type=['wav', 'mp3', 'm4a', 'mp4', 'webm'])
+            
             if uploaded_file is not None:
                 if st.button("Transcribe File", type="primary"):
                     if ai_engine:
-                        # Validate size roughly (25MB = 25 * 1024 * 1024 bytes)
-                        if uploaded_file.size > 26214400:
+                        # 1. Size Validation (25MB Limit)
+                        if uploaded_file.size > 25 * 1024 * 1024:
                             st.error("⚠️ File too large (>25MB). Please compress it.")
                         else:
                             with st.spinner("Uploading & Transcribing..."):
-                                text = ai_engine.transcribe_audio(uploaded_file)
-                                st.session_state.transcribed_text = text
-                                st.session_state.app_mode = "review"
-                                st.rerun()
+                                # 2. SAFE SAVE: Preserve the extension (.mp3, .wav)
+                                # This ensures the AI knows exactly what format the audio is in.
+                                file_ext = uploaded_file.name.split('.')[-1]
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_ext}") as tmp:
+                                    tmp.write(uploaded_file.getvalue())
+                                    tmp_path = tmp.name
+                                
+                                try:
+                                    # 3. Transcribe using the temporary file path
+                                    text = ai_engine.transcribe_audio(tmp_path)
+                                    st.session_state.transcribed_text = text
+                                    st.session_state.app_mode = "review"
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Transcription Failed: {e}")
+                                finally:
+                                    # 4. Cleanup: Delete the temp file
+                                    if os.path.exists(tmp_path):
+                                        os.remove(tmp_path)
 
 def _save_addresses_from_widgets(tier, is_intl):
     if tier == "Santa":
