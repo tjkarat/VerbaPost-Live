@@ -119,7 +119,7 @@ def show_splash():
         <div class="price-card" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);">
             <div style="font-size: 3rem;">🗣️</div>
             <div class="price-title">Dictate or Upload</div>
-            <p class="price-desc">Just speak naturally or upload a file. Our AI transcribes your words into text automatically.</p>
+            <p class="price-desc">Just speak naturally or upload a file. AI transcribes your words to text automatically.</p>
         </div>
         """, unsafe_allow_html=True)
     with c2:
