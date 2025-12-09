@@ -134,15 +134,18 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 6. LEADERBOARD ---
+    # --- 6. LEADERBOARD (GAMIFICATION RESTORED) ---
     if database:
         try:
+            # Safely fetch stats; if DB fails, section simply doesn't show
             stats = database.get_civic_leaderboard()
             if stats:
                 st.markdown("<br>", unsafe_allow_html=True)
                 with st.container(border=True):
                     st.subheader("📢 Civic Leaderboard")
+                    st.caption("Top states sending civic letters this month.")
                     for state, count in stats:
+                        # Visualization
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
         except Exception:
             pass
