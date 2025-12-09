@@ -38,8 +38,6 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # Note: Sidebar is now handled globally in ui_main.py to prevent duplicate ID errors.
-
     # --- 2. HERO ---
     st.markdown("""
     <div class="hero-container">

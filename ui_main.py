@@ -1,5 +1,4 @@
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
 import json
@@ -47,6 +46,14 @@ try: import auth_engine
 except ImportError: auth_engine = None
 try: import pricing_engine 
 except ImportError: pricing_engine = None
+
+# --- FIX: Safe Import for Address Standard ---
+try: from address_standard import StandardAddress
+except ImportError: StandardAddress = None
+
+# --- FIX: Safe Import for Canvas (Prevents white screen of death) ---
+try: from streamlit_drawable_canvas import st_canvas
+except ImportError: st_canvas = None
 
 # --- 3. CONFIGURATION ---
 logging.basicConfig(level=logging.INFO)
@@ -147,10 +154,11 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0 Production")
+        st.caption("v3.0.1 Production")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
+    # --- AUTH CHECK BEFORE RENDERING ---
     u_email = st.session_state.get("user_email", "")
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
@@ -350,19 +358,25 @@ def render_workspace_page():
     with c_sig:
         st.write("✍️ **Signature**")
         if tier == "Santa": st.info("Signed by Santa")
-        else: 
+        elif st_canvas: 
             canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
+        else:
+            st.warning("Signature pad unavailable (Missing dependency).")
     
     with c_mic:
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
-            audio = st.audio_input("Record")
-            if audio and ai_engine:
-                with st.spinner("Thinking..."): 
-                    st.session_state.transcribed_text = ai_engine.transcribe_audio(audio)
-                    st.session_state.app_mode = "review"; st.rerun()
+            try:
+                audio = st.audio_input("Record")
+                if audio and ai_engine:
+                    with st.spinner("Thinking..."): 
+                        st.session_state.transcribed_text = ai_engine.transcribe_audio(audio)
+                        st.session_state.app_mode = "review"; st.rerun()
+            except AttributeError:
+                st.info("Your Streamlit version doesn't support built-in recording yet. Please use Upload.")
+
         with t2:
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
             if up and st.button("Transcribe"):
@@ -388,6 +402,7 @@ def _save_addrs(tier):
             "address_line2": st.session_state.get("w_from_street2"), "city": st.session_state.get("w_from_city"),
             "state": st.session_state.get("w_from_state"), "zip": st.session_state.get("w_from_zip"), "country": "US", "email": u
         }
+    
     if tier == "Civic":
         st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
     else:
@@ -408,6 +423,7 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     if tier != "Campaign" and not st.session_state.get("to_addr"): _save_addrs(tier)
 
+    # AI Tools
     c1, c2, c3, c4 = st.columns(4)
     txt = st.session_state.get("transcribed_text", "")
     
@@ -424,10 +440,10 @@ def render_review_page():
     st.text_area("Body", key="transcribed_text", height=300)
     
     if st.button("👁️ Preview PDF"):
-        def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
+        def _fmt_prev(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
         
-        to_s = _fmt(st.session_state.get("to_addr", {}))
-        from_s = _fmt(st.session_state.get("from_addr", {}))
+        to_s = _fmt_prev(st.session_state.get("to_addr", {}))
+        from_s = _fmt_prev(st.session_state.get("from_addr", {}))
         
         sig_path = None
         if st.session_state.get("sig_data") is not None:
@@ -458,6 +474,19 @@ def render_review_page():
         with st.spinner("Sending..."):
             errs = []
             for tgt in targets:
+                # --- CRITICAL FIX: HANDLE STANDARDADDRESS OBJECTS ---
+                if StandardAddress and isinstance(tgt, StandardAddress):
+                    # Normalize Object to Dict for helper functions
+                    tgt = {
+                        "name": tgt.name,
+                        "street": tgt.street,
+                        "address_line2": tgt.address_line2,
+                        "city": tgt.city,
+                        "state": tgt.state,
+                        "zip": tgt.zip_code,
+                        "country": tgt.country
+                    }
+
                 def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
                 to_s = _fmt(tgt); from_s = _fmt(st.session_state.from_addr)
                 
@@ -515,6 +544,7 @@ def render_review_page():
             else:
                 st.error("Errors occurred"); st.write(errs)
 
+# --- 8. MAIN ROUTER ---
 def show_main_app():
     if analytics: analytics.inject_ga()
     render_sidebar()
@@ -547,11 +577,6 @@ def _h_login(auth, e, p):
     else: st.error(err)
 
 def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
-    # CRITICAL FIX: Return the result so ui_login can unpack it!
     res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
-    if res and res.user: 
-        st.success("Created! Please Log In.")
-        st.session_state.app_mode = "login"
-    else: 
-        st.error(err)
-    return res, err
+    if res and res.user: st.success("Created! Please Log In."); st.session_state.app_mode = "login"
+    else: st.error(err)
