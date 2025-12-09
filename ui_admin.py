@@ -24,6 +24,7 @@ except ImportError: civic_engine = None
 try:
     from address_standard import StandardAddress
 except ImportError:
+    # Fallback to prevent admin crash
     from dataclasses import dataclass
     from typing import Optional, Dict, Any
     @dataclass
@@ -61,9 +62,12 @@ def check_password():
     return False
 
 def show_admin():
+    # 1. Gatekeeper
     if not check_password(): return
 
     st.title("🔐 Admin Console")
+    
+    # 2. Header / Actions
     c_top, c_logout = st.columns([4, 1])
     with c_logout:
         if st.button("Log Out"):
@@ -71,16 +75,65 @@ def show_admin():
             st.session_state.app_mode = "store"
             st.rerun()
 
+    # 3. Dashboard Tabs
     tab_overview, tab_manage, tab_promo = st.tabs(["📊 Live Feed", "🛠️ Order Management", "🎟️ Promo Codes"])
 
-    # --- TAB: LIVE FEED (No Limits) ---
+    # --- TAB: LIVE FEED (With Health Checks) ---
     with tab_overview:
+        # --- SYSTEM HEALTH DASHBOARD ---
+        st.subheader("System Health")
+        c1, c2, c3, c4, c5 = st.columns(5)
+        
+        with c1:
+            if database: st.success("✅ Database") 
+            else: st.error("❌ DB Missing")
+        
+        with c2:
+            # Check Stripe
+            has_stripe = False
+            if secrets_manager:
+                if secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY"):
+                    has_stripe = True
+            if has_stripe: st.success("✅ Stripe")
+            else: st.warning("⚠️ Stripe Key")
+
+        with c3:
+            # Check PostGrid
+            has_pg = False
+            if secrets_manager:
+                if secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY"):
+                    has_pg = True
+            if has_pg: st.success("✅ PostGrid")
+            else: st.warning("⚠️ PostGrid Key")
+
+        with c4:
+            # Check OpenAI
+            has_ai = False
+            if secrets_manager:
+                if secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY"):
+                    has_ai = True
+            if has_ai: st.success("✅ OpenAI")
+            else: st.warning("⚠️ OpenAI Key")
+
+        with c5:
+            # Check Geocodio
+            has_geo = False
+            if secrets_manager:
+                if secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCODIO_API_KEY"):
+                    has_geo = True
+            if has_geo: st.success("✅ Geocodio")
+            else: st.warning("⚠️ Geo Key")
+
+        st.divider()
+
+        # --- RECENT ORDERS ---
         st.subheader("All Orders (Newest First)")
         if database:
             try:
                 drafts = database.fetch_all_drafts() # Fetch ALL
                 if drafts:
                     df = pd.DataFrame(drafts)
+                    # Show useful columns first
                     cols = ["ID", "Date", "Status", "Tier", "Email", "Price"]
                     existing_cols = [c for c in cols if c in df.columns]
                     st.dataframe(df[existing_cols], use_container_width=True, height=500)
@@ -92,6 +145,7 @@ def show_admin():
     # --- TAB: ORDER MANAGEMENT (Fix Failed Orders) ---
     with tab_manage:
         st.subheader("🛠️ Fix & Fulfill")
+        
         filter_opt = st.radio("Show Orders:", ["Failed / Errors Only", "Manual Queue (Santa/Heirloom)", "All Orders"], horizontal=True)
         
         if database:
@@ -102,8 +156,10 @@ def show_admin():
                 if filter_opt == "Failed / Errors Only":
                     queue = [d for d in all_drafts if d.get('Status') in ['Failed', 'Error', 'Payment Failed']]
                     if not queue: st.success("✅ No failed orders found!")
+                    
                 elif filter_opt == "Manual Queue (Santa/Heirloom)":
                     queue = [d for d in all_drafts if d.get('Tier') in ['Heirloom', 'Santa']]
+                    
                 else: # All
                     queue = all_drafts[:50] # Limit to 50 for performance
                     st.caption("Showing last 50 orders for performance.")
@@ -120,6 +176,8 @@ def show_admin():
                         
                         with c2:
                             st.write("**Actions:**")
+                            
+                            # 1. Regenerate PDF
                             if st.button("📄 View PDF", key=f"pdf_{row['ID']}"):
                                 try:
                                     to_d = json.loads(row['Recipient']) if row['Recipient'] else {}
@@ -140,6 +198,7 @@ def show_admin():
                                 except Exception as e:
                                     st.error(f"PDF Error: {e}")
 
+                            # 2. Force Status Update
                             new_stat = st.selectbox("Set Status", ["Completed", "Failed", "Refunded"], key=f"stat_{row['ID']}")
                             if st.button("Update Status", key=f"upd_{row['ID']}"):
                                 database.update_draft_data(row['ID'], status=new_stat)
@@ -160,6 +219,8 @@ def show_admin():
                     ok, msg = promo_engine.create_code(new_code, limit)
                     if ok: st.success(msg)
                     else: st.error(msg)
+            
+            # Show existing codes
             try:
                 stats = promo_engine.get_all_codes_with_usage()
                 if stats: st.dataframe(stats)
