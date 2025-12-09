@@ -1,4 +1,5 @@
 import streamlit as st
+from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
 import json
@@ -50,10 +51,6 @@ except ImportError: pricing_engine = None
 # --- FIX: Safe Import for Address Standard ---
 try: from address_standard import StandardAddress
 except ImportError: StandardAddress = None
-
-# --- FIX: Safe Import for Canvas (Prevents white screen of death) ---
-try: from streamlit_drawable_canvas import st_canvas
-except ImportError: st_canvas = None
 
 # --- 3. CONFIGURATION ---
 logging.basicConfig(level=logging.INFO)
@@ -358,11 +355,12 @@ def render_workspace_page():
     with c_sig:
         st.write("✍️ **Signature**")
         if tier == "Santa": st.info("Signed by Santa")
-        elif st_canvas: 
-            canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig")
-            if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
-        else:
-            st.warning("Signature pad unavailable (Missing dependency).")
+        else: 
+            try:
+                canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig")
+                if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
+            except Exception:
+                 st.warning("Signature Pad Loading...")
     
     with c_mic:
         st.write("🎤 **Input**")
@@ -474,9 +472,8 @@ def render_review_page():
         with st.spinner("Sending..."):
             errs = []
             for tgt in targets:
-                # --- CRITICAL FIX: HANDLE STANDARDADDRESS OBJECTS ---
+                # --- HANDLE STANDARDADDRESS OBJECTS ---
                 if StandardAddress and isinstance(tgt, StandardAddress):
-                    # Normalize Object to Dict for helper functions
                     tgt = {
                         "name": tgt.name,
                         "street": tgt.street,
