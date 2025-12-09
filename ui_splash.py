@@ -1,6 +1,6 @@
 import streamlit as st
 
-# Attempt to import database, fail gracefully if connection issues
+# Attempt to import database, fail gracefully
 try: import database
 except ImportError: database = None
 
@@ -27,20 +27,7 @@ def show_splash():
         }
         .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
         
-        /* HOW IT WORKS CARDS */
-        .step-card {
-            background-color: white;
-            padding: 20px;
-            border-radius: 10px;
-            border: 1px solid #e2e8f0;
-            height: 100%;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            text-align: center;
-        }
-        .step-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 10px; color: #2d3748 !important; }
-        .step-desc { font-size: 0.95rem; color: #4a5568 !important; line-height: 1.5; }
-
-        /* PRICING CARDS */
+        /* CARDS */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
             background: #1e3c72; /* Fallback */
@@ -57,73 +44,31 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- 2. SIDEBAR ---
-    with st.sidebar:
-        st.header("VerbaPost 📮")
-        st.markdown("---")
-        if st.button("🔑 Member Login", use_container_width=True):
-            st.session_state.app_mode = "login"
-            st.session_state.auth_view = "login" 
-            st.rerun()
-        if st.button("⚖️ Legal & Privacy", use_container_width=True):
-            st.session_state.app_mode = "legal"
-            st.rerun()
-        st.markdown("---")
-        st.caption("v3.0.4 Production")
+    # --- REMOVED REDUNDANT SIDEBAR SECTION ---
+    # ui_main.py already renders the sidebar. Having it here caused the ID collision.
 
     # --- 3. HERO ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
-        <div class="hero-subtitle">Turn voice into real mail.</div>
+        <div class="hero-subtitle">Making sending physical mail easier.</div>
         <div class="hero-subtext">
-            Texts are trivial. Emails are ignored. <b>REAL LETTERS GET OPENED.</b>
-            <br>Record live or upload audio. We print and mail it via USPS.
+            Turn your voice into professional letters. Record live or <b>upload your audio files</b> (MP3/WAV). 
+            <br>We handle the transcription, printing, and mailing via USPS.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
-        if st.button("🚀 Get Started", type="primary", use_container_width=True):
+        if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" 
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 4. HOW IT WORKS ---
-    st.markdown("### How It Works")
-    c_hw1, c_hw2, c_hw3 = st.columns(3)
-    
-    with c_hw1:
-        st.markdown("""
-        <div class="step-card">
-            <div class="step-title">🎙️ 1. Dictate</div>
-            <div class="step-desc">Speak naturally. Our AI cleans up 'ums' and 'uhs' and formats your letter perfectly.</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c_hw2:
-        st.markdown("""
-        <div class="step-card">
-            <div class="step-title">✍️ 2. Sign</div>
-            <div class="step-desc">Draw your signature on screen. We place it on the physical document before printing.</div>
-        </div>
-        """, unsafe_allow_html=True)
-        
-    with c_hw3:
-        st.markdown("""
-        <div class="step-card">
-            <div class="step-title">📮 3. We Mail</div>
-            <div class="step-desc">We print, envelope, stamp, and mail your letter via USPS First Class immediately.</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.markdown("<br><br>", unsafe_allow_html=True)
-
-    # --- 5. PRICING CARDS ---
-    st.markdown("### Choose Your Letter")
+    # --- 4. CARDS ---
     p1, p2, p3, p4 = st.columns(4)
     with p1:
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
@@ -134,16 +79,12 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 6. LEADERBOARD (GAMIFICATION RESTORED) ---
+    # --- 5. LEADERBOARD ---
     if database:
-        try:
-            stats = database.get_civic_leaderboard()
-            if stats:
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    st.subheader("📢 Civic Leaderboard")
-                    st.caption("Top states sending civic letters this month.")
-                    for state, count in stats:
-                        st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
-        except Exception:
-            pass
+        stats = database.get_civic_leaderboard()
+        if stats:
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.container(border=True):
+                st.subheader("📢 Civic Leaderboard")
+                for state, count in stats:
+                    st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
