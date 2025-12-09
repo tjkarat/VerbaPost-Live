@@ -3,6 +3,9 @@ base="light"
 primaryColor="#2a5298"
 backgroundColor="#f8f9fc"
 secondaryBackgroundColor="#ffffff"
+# textColor line is GONE
+# font line is GONE
+
 [server]
 enableCORS = false
 enableXsrfProtection = false
