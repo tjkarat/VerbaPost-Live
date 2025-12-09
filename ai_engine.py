@@ -1,4 +1,4 @@
-import openai
+from openai import OpenAI, APIConnectionError, APITimeoutError
 import os
 import tempfile
 import shutil
@@ -11,15 +11,14 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def setup_openai():
-    """Safely loads OpenAI API Key"""
+def get_client():
+    """Safely creates OpenAI Client"""
     key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
     if key:
-        openai.api_key = key
-        return True
-    return False
+        return OpenAI(api_key=key)
+    return None
 
-# --- 1. CRITICAL FIX: SAFE TEMP FILE CONTEXT MANAGER ---
+# --- 1. SAFE TEMP FILE CONTEXT MANAGER ---
 @contextlib.contextmanager
 def safe_temp_file(file_obj, suffix=".wav"):
     """
@@ -35,7 +34,7 @@ def safe_temp_file(file_obj, suffix=".wav"):
             logger.error("Insufficient disk space for processing audio.")
             raise RuntimeError("Server busy (storage full). Please try again later.")
     except Exception:
-        pass # If disk check fails (e.g. windows), proceed with caution
+        pass # If disk check fails (e.g. windows/permissions), proceed with caution
 
     tmp_path = None
     try:
@@ -55,13 +54,13 @@ def safe_temp_file(file_obj, suffix=".wav"):
             except OSError as e:
                 logger.error(f"Failed to cleanup temp file {tmp_path}: {e}")
 
-# --- 2. TRANSCRIPTION ---
+# --- 2. TRANSCRIPTION (v1.0 Syntax) ---
 def transcribe_audio(file_obj):
     """
-    Transcribes audio using OpenAI Whisper.
-    Uses the safe_temp_file context manager.
+    Transcribes audio using OpenAI Whisper (v1.0 Syntax).
     """
-    if not setup_openai():
+    client = get_client()
+    if not client:
         return "[Error: OpenAI API Key missing]"
 
     # Determine suffix from name if available, else default to .wav
@@ -70,10 +69,14 @@ def transcribe_audio(file_obj):
     try:
         with safe_temp_file(file_obj, suffix) as tmp_path:
             with open(tmp_path, "rb") as audio_file:
-                # API Call
-                transcript = openai.Audio.transcribe("whisper-1", audio_file)
+                # Updated v1.0 Call
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=audio_file
+                )
             
-            text = transcript.get("text", "")
+            # v1.0 returns an object, access via .text
+            text = transcript.text
             logger.info("Transcription successful.")
             return text
 
@@ -81,22 +84,22 @@ def transcribe_audio(file_obj):
         logger.error(f"Transcription failed: {e}")
         return f"[Error processing audio: {str(e)}]"
 
-# --- 3. TEXT REFINEMENT (RESTORED LOGIC) ---
+# --- 3. TEXT REFINEMENT (v1.0 Syntax) ---
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((openai.error.APIConnectionError, openai.error.Timeout)),
+    retry=retry_if_exception_type((APIConnectionError, APITimeoutError)),
     reraise=False 
 )
 def refine_text(text, style="Professional"):
     """
-    Refines text using GPT-3.5/4 based on the selected style.
-    Includes retry logic for stability.
+    Refines text using GPT-3.5/4 (v1.0 Syntax).
     """
     if not text or len(text.strip()) < 5:
         return text
 
-    if not setup_openai():
+    client = get_client()
+    if not client:
         return text
 
     # Prompt Engineering
@@ -110,7 +113,8 @@ def refine_text(text, style="Professional"):
     system_instruction = prompts.get(style, prompts["Professional"])
 
     try:
-        response = openai.ChatCompletion.create(
+        # Updated v1.0 Call
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": f"You are an expert editor. {system_instruction}"},
@@ -120,6 +124,7 @@ def refine_text(text, style="Professional"):
             max_tokens=1000
         )
         
+        # v1.0 Object Access
         refined = response.choices[0].message.content.strip()
         return refined
 
