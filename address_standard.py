@@ -32,11 +32,35 @@ class StandardAddress:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'StandardAddress':
         if not data: data = {}
-        street = data.get('street') or data.get('address_line1') or data.get('line1') or ""
-        line2 = data.get('address_line2') or data.get('street2') or data.get('apt') or ""
+        
+        # Robust Fallback Chain
+        street = (
+            data.get('street') or 
+            data.get('address_line1') or 
+            data.get('line1') or 
+            data.get('address') or 
+            ""
+        )
+        
+        line2 = (
+            data.get('address_line2') or 
+            data.get('street2') or 
+            data.get('apt') or 
+            data.get('suite') or 
+            ""
+        )
+        
         city = data.get('city') or data.get('address_city') or ""
-        state = data.get('state') or data.get('address_state') or ""
-        zip_c = data.get('zip') or data.get('address_zip') or ""
+        state = data.get('state') or data.get('provinceOrState') or data.get('address_state') or ""
+        zip_code = data.get('zip') or data.get('postalOrZip') or data.get('address_zip') or ""
         country = data.get('country') or data.get('country_code') or "US"
 
-        return cls(name=data.get('name', ''), street=street, address_line2=line2, city=city, state=state, zip_code=zip_c, country=country)
+        return cls(
+            name=data.get('name', ''),
+            street=street,
+            address_line2=line2,
+            city=city,
+            state=state,
+            zip_code=zip_code,
+            country=country
+        )
