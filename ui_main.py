@@ -1,5 +1,8 @@
 import streamlit as st
-from streamlit_drawable_canvas import st_canvas
+# Safe import for canvas
+try: from streamlit_drawable_canvas import st_canvas
+except Exception: st_canvas = None
+
 import os
 import tempfile
 import json
@@ -10,52 +13,42 @@ import io
 import time
 import logging
 
-# --- 1. CRITICAL UI IMPORTS ---
-try: import ui_splash
-except ImportError: ui_splash = None
-try: import ui_login
-except ImportError: ui_login = None
-try: import ui_admin
-except ImportError: ui_admin = None
-try: import ui_legal
-except ImportError: ui_legal = None
-
-# --- 2. HELPER IMPORTS ---
-try: import database
-except ImportError: database = None
-try: import ai_engine
-except ImportError: ai_engine = None
-try: import payment_engine
-except ImportError: payment_engine = None
-try: import letter_format
-except ImportError: letter_format = None
-try: import mailer
-except ImportError: mailer = None
-try: import analytics
-except ImportError: analytics = None
-try: import promo_engine
-except ImportError: promo_engine = None
-try: import secrets_manager
-except ImportError: secrets_manager = None
-try: import civic_engine
-except ImportError: civic_engine = None
-try: import bulk_engine
-except ImportError: bulk_engine = None
-try: import audit_engine 
-except ImportError: audit_engine = None
-try: import auth_engine
-except ImportError: auth_engine = None
-try: import pricing_engine 
-except ImportError: pricing_engine = None
-
-# --- FIX: Safe Import for Address Standard ---
-try: from address_standard import StandardAddress
-except ImportError: StandardAddress = None
-
-# --- 3. CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- 2. DEFENSIVE IMPORTS (Catches Crashes) ---
+def safe_import(module_name):
+    try:
+        return __import__(module_name)
+    except Exception as e:
+        logger.error(f"Failed to load {module_name}: {e}")
+        return None
+
+ui_splash = safe_import("ui_splash")
+ui_login = safe_import("ui_login")
+ui_admin = safe_import("ui_admin")
+ui_legal = safe_import("ui_legal")
+
+database = safe_import("database")
+ai_engine = safe_import("ai_engine")
+payment_engine = safe_import("payment_engine")
+letter_format = safe_import("letter_format")
+mailer = safe_import("mailer")
+analytics = safe_import("analytics")
+promo_engine = safe_import("promo_engine")
+secrets_manager = safe_import("secrets_manager")
+civic_engine = safe_import("civic_engine")
+bulk_engine = safe_import("bulk_engine")
+audit_engine = safe_import("audit_engine")
+auth_engine = safe_import("auth_engine")
+pricing_engine = safe_import("pricing_engine")
+
+# Safe Import for Address Standard
+try: from address_standard import StandardAddress
+except Exception: StandardAddress = None
+
+# --- 3. APP SETUP ---
 DEFAULT_URL = "https://verbapost.streamlit.app/"
 YOUR_APP_URL = DEFAULT_URL
 try:
@@ -151,7 +144,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.1 Production")
+        st.caption("v3.0.2 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -165,6 +158,10 @@ def render_store_page():
         return
 
     render_hero("Select Service", "Choose your letter type")
+    
+    # Check Database Health
+    if not database:
+        st.error("⚠️ Database connection failed. Please contact support.")
     
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -215,7 +212,9 @@ def render_store_page():
             st.metric("Total", f"${final_price:.2f}")
             
             btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
-            if st.button(btn_txt, type="primary", use_container_width=True):
+            
+            # Disable button if database is down
+            if st.button(btn_txt, type="primary", use_container_width=True, disabled=(not database)):
                 
                 d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
@@ -355,12 +354,13 @@ def render_workspace_page():
     with c_sig:
         st.write("✍️ **Signature**")
         if tier == "Santa": st.info("Signed by Santa")
-        else: 
+        elif st_canvas: 
             try:
                 canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig")
                 if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
-            except Exception:
-                 st.warning("Signature Pad Loading...")
+            except Exception: st.warning("Canvas Error")
+        else:
+            st.warning("Signature pad unavailable.")
     
     with c_mic:
         st.write("🎤 **Input**")
