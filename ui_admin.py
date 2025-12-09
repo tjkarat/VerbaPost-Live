@@ -20,11 +20,11 @@ except ImportError: mailer = None
 try: import civic_engine
 except ImportError: civic_engine = None
 
-# --- CRITICAL FIX: Safe Import for Address Standard ---
+# --- SAFE IMPORT: Address Standard ---
 try:
     from address_standard import StandardAddress
 except ImportError:
-    # Fallback definition to prevent Admin Console crash
+    # Fallback to prevent admin crash
     from dataclasses import dataclass
     from typing import Optional, Dict, Any
     @dataclass
@@ -125,6 +125,7 @@ def show_admin():
                         with c1:
                             st.markdown(f"**Created:** {row['Date']}")
                             st.text_area("Content", row['Content'], height=100, disabled=True, key=f"txt_{row['ID']}")
+                            st.code(f"To: {row['Recipient']}\nFrom: {row['Sender']}", language="json")
                         
                         with c2:
                             st.write("**Actions:**")
