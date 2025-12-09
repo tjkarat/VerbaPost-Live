@@ -5,9 +5,9 @@ import tempfile
 import base64
 import io
 from PIL import Image
+import time # Added time import for sleep
 
 # --- IMPORTS ---
-# Robust imports to prevent immediate crashes if a module is temporarily missing
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -30,7 +30,6 @@ try: import bulk_engine
 except ImportError: bulk_engine = None
 try: import audit_engine 
 except ImportError: audit_engine = None
-# CRITICAL: ui_login requires passing auth functions from auth_engine
 try: import auth_engine
 except ImportError: auth_engine = None
 
@@ -82,7 +81,11 @@ def reset_app():
 
 def check_session():
     """CRITICAL GUARD: Ensures user_email exists before rendering protected pages."""
-    if "user_email" not in st.session_state or not st.session_state.user_email:
+    # Initialize if missing
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
+
+    if not st.session_state.user_email:
         st.warning("⚠️ Session Expired. Please log in.")
         st.session_state.app_mode = "login"
         st.rerun()
@@ -105,7 +108,6 @@ def render_hero(title, subtitle):
     """, unsafe_allow_html=True)
 
 def render_legal_page():
-    # RESTORED: Wraps the import so the main router can call it safely
     try: 
         import ui_legal
         ui_legal.show_legal()
@@ -116,6 +118,7 @@ def render_legal_page():
 
 def _save_addresses_from_widgets(tier, is_intl):
     # Helper to capture address data from widget state variables
+    u_email = st.session_state.get("user_email")
     if tier == "Santa":
         st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
     else:
@@ -127,7 +130,7 @@ def _save_addresses_from_widgets(tier, is_intl):
             "state": st.session_state.get("w_from_state"),
             "zip": st.session_state.get("w_from_zip"),
             "country": st.session_state.get("w_from_country", "US"),
-            "email": st.session_state.get("user_email")
+            "email": u_email
         }
     
     if tier == "Civic":
@@ -143,12 +146,42 @@ def _save_addresses_from_widgets(tier, is_intl):
             "country": st.session_state.get("w_to_country", "US")
         }
 
+# --- AUTH HANDLERS (Bridge ui_login and auth_engine) ---
+def handle_login(email, password):
+    if auth_engine:
+        res, err = auth_engine.sign_in(email, password)
+        if res and res.user:
+            st.session_state.user_email = res.user.email
+            st.session_state.app_mode = "store"
+            st.success("Welcome back!")
+            time.sleep(0.5)
+            st.rerun()
+        else:
+            st.error(f"Login failed: {err}")
+    else:
+        st.error("Auth Engine Missing")
+
+def handle_signup(email, password, name, street, street2, city, state, zip_code, country, language):
+    if auth_engine:
+        res, err = auth_engine.sign_up(email, password, name, street, street2, city, state, zip_code, country, language)
+        if res and res.user:
+            st.session_state.user_email = res.user.email
+            st.session_state.app_mode = "store"
+            st.success("Account created successfully!")
+            time.sleep(0.5)
+            st.rerun()
+        else:
+            # Pass error back to return tuple for ui_login to handle? 
+            # Actually ui_login expects (res, err) return from the func it calls.
+            return res, err
+    return None, "Auth Engine Missing"
+
 # --- PAGE: STORE ---
 def render_store_page():
     if not check_session(): return
     u_email = st.session_state.user_email
 
-    # RESTORED: Payment Verification Handler ("Zombie Proof" Flow)
+    # Payment Verification
     session_id = st.query_params.get("session_id")
     if session_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -175,8 +208,12 @@ def render_store_page():
     
     # Check Admin Access
     try:
-        if secrets_manager and secrets_manager.get_secret("admin.email") == u_email.lower():
-            if st.button("🔐 Admin Console", type="secondary"): st.session_state.app_mode = "admin"; st.rerun()
+        if secrets_manager:
+            admin_target = secrets_manager.get_secret("admin.email")
+            if admin_target and str(u_email).lower() == str(admin_target).lower():
+                if st.button("🔐 Open Admin Console", type="secondary"): 
+                    st.session_state.app_mode = "admin"
+                    st.rerun()
     except: pass
 
     c1, c2 = st.columns([2, 1])
@@ -184,7 +221,13 @@ def render_store_page():
         with st.container(border=True):
             st.subheader("Available Packages")
             tier_options_list = ["Standard", "Heirloom", "Civic", "Santa", "Campaign"]
-            tier_labels = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)", "Campaign": "📢 Campaign (Bulk)"}
+            tier_labels = {
+                "Standard": "⚡ Standard ($2.99)", 
+                "Heirloom": "🏺 Heirloom ($5.99)", 
+                "Civic": "🏛️ Civic ($6.99)", 
+                "Santa": "🎅 Santa ($9.99)", 
+                "Campaign": "📢 Campaign (Bulk)"
+            }
             tier_descriptions = {
                 "Standard": "Your words professionally printed on standard paper and mailed via USPS First Class.",
                 "Heirloom": "Printed on heavyweight archival stock with a wet-ink style font for a timeless look.",
@@ -192,6 +235,7 @@ def render_store_page():
                 "Santa": "A magical letter from the North Pole on festive paper, signed by Santa Claus himself.",
                 "Campaign": "Upload a CSV. We mail everyone at once."
             }
+            
             pre_selected_index = 0
             if "target_marketing_tier" in st.session_state:
                 target = st.session_state.target_marketing_tier
@@ -201,14 +245,13 @@ def render_store_page():
             tier_code = sel
             st.info(tier_descriptions[tier_code])
             
-            qty = 1
+            qty = 1; price = 0.0
             if tier_code == "Campaign":
                 qty = st.number_input("Number of Recipients", min_value=10, max_value=5000, value=50, step=10)
                 price = 2.99 + ((qty - 1) * 1.99)
                 st.caption(f"Pricing: First letter $2.99, then $1.99/ea")
             else:
-                prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
-                price = prices[tier_code]
+                price = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}[tier_code]
 
             is_intl = False; is_certified = False
             if tier_code in ["Standard", "Heirloom"]:
@@ -234,7 +277,6 @@ def render_store_page():
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
                     
-                    # Create Draft Logic
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
                          database.update_draft_data(d_id, status="Draft", content="", tier=tier_code, price="0.00")
@@ -304,7 +346,6 @@ def render_workspace_page():
             if "w_from_zip" not in st.session_state: st.session_state.w_from_zip = user_addr["zip"]
 
     with st.container(border=True):
-        # --- TIER SPECIFIC ADDRESSING ---
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
@@ -534,7 +575,7 @@ def render_review_page():
 
     # RE-SYNC FROM WIDGETS IF NEEDED
     if tier != "Campaign" and (not st.session_state.get("to_addr") or not st.session_state.get("from_addr")):
-        pass 
+        _save_addresses_from_widgets(tier, is_intl)
 
     if tier == "Civic" and "civic_targets" in st.session_state:
         st.info(f"🏛️ **Mailing to {len(st.session_state.civic_targets)} representatives**")
@@ -561,7 +602,7 @@ def render_review_page():
     st.info("📝 **Note:** You can edit the text below directly. The AI buttons above are optional.")
     txt = st.text_area("Body Content", key="transcribed_text", height=300, disabled=st.session_state.letter_sent_success)
     
-    # --- PDF PREVIEW (FIXED: EMBED + DOWNLOAD) ---
+    # --- PDF PREVIEW (FIXED) ---
     if st.button("👁️ Preview PDF Proof", type="secondary", use_container_width=True):
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
@@ -718,18 +759,17 @@ def show_main_app():
     if mode == "splash":
         try:
             import ui_splash
-            # --- CRITICAL FIX 1: MATCH ui_splash.py ---
-            ui_splash.show_splash() 
-        except ImportError: st.error("Splash Module Missing")
-        except AttributeError: st.error("Splash module exists but show_splash() missing.")
+            ui_splash.show_splash()
+        except ImportError:
+             st.title("Splash Missing"); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
+        except AttributeError:
+             st.error("Splash module exists but show_splash() missing.")
     
     elif mode == "login":
         try: 
             import ui_login
-            # --- CRITICAL FIX 2: MATCH ui_login.py ---
-            if auth_engine:
-                ui_login.show_login(auth_engine.sign_in, auth_engine.sign_up)
-            else: st.error("Auth Engine Missing")
+            # --- BRIDGE: WRAPPER FUNCTIONS PASSED TO ui_login ---
+            ui_login.show_login(handle_login, handle_signup)
         except ImportError: st.error("Login Module Missing")
         except AttributeError: st.error("Login module exists but show_login() missing.")
         
@@ -738,7 +778,7 @@ def show_main_app():
     elif mode == "review": render_review_page()
     elif mode == "admin":
         try: import ui_admin; ui_admin.show_admin()
-        except: st.error("Admin Missing")
+        except Exception as e: st.error(f"Admin Error: {e}")
     elif mode == "legal": 
         render_legal_page()
     else: render_store_page()
