@@ -1,6 +1,6 @@
 import streamlit as st
 
-# Attempt to import database, fail gracefully
+# Attempt to import database, fail gracefully if connection issues
 try: import database
 except ImportError: database = None
 
@@ -69,7 +69,7 @@ def show_splash():
             st.session_state.app_mode = "legal"
             st.rerun()
         st.markdown("---")
-        st.caption("v3.0.3 Production")
+        st.caption("v3.0.4 Production")
 
     # --- 3. HERO ---
     st.markdown("""
@@ -137,7 +137,6 @@ def show_splash():
     # --- 6. LEADERBOARD (GAMIFICATION RESTORED) ---
     if database:
         try:
-            # Safely fetch stats; if DB fails, section simply doesn't show
             stats = database.get_civic_leaderboard()
             if stats:
                 st.markdown("<br>", unsafe_allow_html=True)
@@ -145,7 +144,6 @@ def show_splash():
                     st.subheader("📢 Civic Leaderboard")
                     st.caption("Top states sending civic letters this month.")
                     for state, count in stats:
-                        # Visualization
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
         except Exception:
             pass

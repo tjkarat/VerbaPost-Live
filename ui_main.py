@@ -141,7 +141,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.3 Stable")
+        st.caption("v3.0.4 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -230,11 +230,12 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
+                        # DEBUG: Using create_checkout_session (ensure you have the debug version of payment_engine)
                         url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                         if url: 
                             st.markdown(f'<a href="{url}" target="_self"><button style="width:100%;padding:10px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay Now</button></a>', unsafe_allow_html=True)
                         else:
-                            st.error("Stripe Connection Failed. Please check debug logs.")
+                            st.error("Stripe Link Failed. Please check Debug Logs.")
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
@@ -251,11 +252,14 @@ def _handle_draft_creation(email, tier, price):
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE ---
+# --- 7. PAGE: WORKSPACE (FULL) ---
 def render_workspace_page():
-    # --- CRITICAL FIX: LAZY IMPORT CANVAS TO PREVENT QA CRASH ---
-    try: from streamlit_drawable_canvas import st_canvas
-    except Exception: st_canvas = None
+    # --- CRITICAL FIX: LAZY IMPORT CANVAS ---
+    # We import this HERE, not at the top. This prevents the app from crashing on load if the component fails.
+    try: 
+        from streamlit_drawable_canvas import st_canvas
+    except Exception: 
+        st_canvas = None
 
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -335,6 +339,7 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
+                    # ADDRESS BOOK
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
@@ -376,11 +381,14 @@ def render_workspace_page():
         st.write("✍️ **Signature**")
         if tier == "Santa": st.info("Signed by Santa")
         else:
-            # --- FALLBACK SIGNATURE FIX ---
+            # --- FALLBACK SIGNATURE ---
             use_text_sig = st.checkbox("Type signature instead?", value=False)
+            
             if use_text_sig:
                 sig_text = st.text_input("Type your name to sign", key="txt_sig_input")
-                if sig_text: st.session_state.sig_data = None; st.session_state.sig_text = sig_text
+                if sig_text: 
+                    st.session_state.sig_data = None 
+                    st.session_state.sig_text = sig_text
             elif st_canvas: 
                 try:
                     canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig")
@@ -451,7 +459,6 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     if tier != "Campaign" and not st.session_state.get("to_addr"): _save_addrs(tier)
 
-    # AI Tools
     c1, c2, c3, c4 = st.columns(4)
     txt = st.session_state.get("transcribed_text", "")
     
