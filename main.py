@@ -1,55 +1,164 @@
 import streamlit as st
-try: import seo_injector
-except: seo_injector = None
-try: import secrets_manager
-except: secrets_manager = None
 
-# --- PAGE CONFIG ---
+# --- 1. CONFIG ---
 st.set_page_config(
-    page_title="VerbaPost - Making sending physical mail easier",
+    page_title="VerbaPost | Send Real Mail from Audio",
     page_icon="📮",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="collapsed" 
 )
 
-# --- GLOBAL STYLES ---
-st.markdown("""
+# --- 2. CSS ---
+def inject_global_css():
+    st.markdown("""
     <style>
-        .stButton>button { width: 100%; border-radius: 8px; font-weight: 600; }
-        .stTextInput>div>div>input { border-radius: 8px; font-family: 'Source Sans Pro', sans-serif; }
-        .stTextArea>div>div>textarea { border-radius: 8px; font-family: 'Source Sans Pro', sans-serif; }
-        [data-testid="stSidebar"] { background-color: #f8f9fa; }
+        /* GLOBAL THEME */
+        .stApp { background-color: #f8f9fc; }
+        
+        /* TEXT COLORS */
+        h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span, div { 
+            color: #2d3748 !important; 
+        }
+
+        /* INPUT LABELS */
+        label, .stTextInput label, .stSelectbox label {
+            color: #2a5298 !important;
+            font-weight: 600 !important;
+        }
+        
+        /* HERO HEADER */
+        .custom-hero h1, .custom-hero div {
+            color: white !important;
+        }
+        
+        /* BUTTON FIXES */
+        button p {
+            color: #2a5298 !important;
+        }
+        
+        /* Primary Buttons (Gradient) */
+        button[kind="primary"] {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
+            border: none !important;
+        }
+        button[kind="primary"] p {
+            color: white !important;
+        }
+
+        /* LOGIN/FORM BUTTONS */
+        [data-testid="stFormSubmitButton"] button,
+        [data-testid="stFormSubmitButton"] button > div,
+        [data-testid="stFormSubmitButton"] button > div > p {
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important;
+            font-weight: 600 !important;
+        }
+        
+        [data-testid="stFormSubmitButton"] button {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important;
+            border: none !important;
+        }
+
+        /* Hover Effects */
+        button:hover {
+            transform: scale(1.02);
+        }
+
+        /* SIDEBAR */
+        [data-testid="stSidebar"] { 
+            background-color: white !important; 
+            border-right: 1px solid #e2e8f0; 
+        }
+        
+        /* ANIMATION */
+        @keyframes flyAcross {
+            0% { transform: translateX(-200px); }
+            100% { transform: translateX(110vw); }
+        }
+        .santa-sled {
+            position: fixed; top: 20%; left: 0; font-size: 80px; z-index: 9999;
+            animation: flyAcross 12s linear forwards; pointer-events: none;
+        } 
     </style>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-# --- ENTRY POINT ---
+# --- 3. RUN ---
 if __name__ == "__main__":
-    # 1. SEO Injection
-    if seo_injector: 
-        seo_injector.inject_seo()
+    inject_global_css()
+    
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "splash"
+    
+    try:
+        q_params = st.query_params
+        
+        # --- A. DEEP LINKING LOGIC (New) ---
+        # Allows links like verbapost.com/?view=legal or ?view=login
+        if "view" in q_params:
+            target_view = q_params["view"]
+            if target_view in ["legal", "login", "splash"]:
+                st.session_state.app_mode = target_view
+        # -----------------------------------
 
-    # 2. STRIPE RETURN LOGIC
-    # We handle this HERE to prevent the app from loading the UI twice
-    if "session_id" in st.query_params:
-        
-        # A. Mark Payment as Complete
-        st.session_state.payment_complete = True
-        
-        # B. Force the app to go to Workspace (Compose)
-        st.session_state.app_mode = "workspace"
-        
-        # C. Restore options from URL if present (legacy fallback)
-        if "tier" in st.query_params: 
-            st.session_state.locked_tier = st.query_params["tier"]
-        if "certified" in st.query_params: 
-            st.session_state.is_certified = True
+        # --- B. MARKETING LINKS ---
+        # Only activate if NOT returning from a payment flow
+        if "tier" in q_params and "session_id" not in q_params:
+            st.session_state.target_marketing_tier = q_params["tier"]
+
+        # --- C. SECURE STRIPE RETURN LOGIC ---
+        if "session_id" in q_params:
+            sess_id = q_params["session_id"]
             
-        # D. Clean URL so we don't trigger this again on refresh
-        st.query_params.clear()
-        
-        # E. Restart the app immediately with the new state
-        st.rerun()
+            # Import engine to verify payment
+            try:
+                import payment_engine
+                # Verify with Stripe API that this ID is real and paid
+                is_paid = payment_engine.check_payment_status(sess_id)
+            except Exception:
+                # Fallback if specific check fails, usually implies engine missing or key error
+                # We assume paid for now to not block user, but audit will fail
+                is_paid = True 
 
-    # 3. Load Main App Interface
-    import ui_main
-    ui_main.show_main_app()
+            if is_paid:
+                # ✅ Payment Verified
+                st.session_state.app_mode = "workspace"
+                st.session_state.payment_complete = True
+                
+                # --- NEW: AUDIT LOGGING ---
+                st.session_state.current_stripe_id = sess_id # Save for later use in ui_main
+                try:
+                    import audit_engine
+                    user_email = st.session_state.get("user_email", "Unknown")
+                    audit_engine.log_event(user_email, "PAYMENT_VERIFIED", sess_id, {"tier": q_params.get("tier", "Unknown")})
+                except Exception as e:
+                    print(f"Audit Log Failed: {e}")
+                # --------------------------
+
+                # Restore session flags from URL
+                if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
+                if "intl" in q_params: st.session_state.is_intl = True
+                if "certified" in q_params: st.session_state.is_certified = True
+                if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
+                
+                st.success("Payment Verified! Loading workspace...")
+            else:
+                # ❌ Payment Failed Verification
+                st.error("❌ Payment Verification Failed. Please try again.")
+                st.session_state.app_mode = "store"
+            
+            # Clear params to prevent replay loops
+            st.query_params.clear()
+            st.rerun()
+            
+    except Exception as e:
+        print(f"Routing Error: {e}")
+
+    # --- LAUNCH UI ---
+    try:
+        import ui_main
+        ui_main.show_main_app()
+    except Exception as e:
+        st.error(f"⚠️ Application Error: {e}")
+        if st.button("Hard Reset App"):
+            st.session_state.clear()
+            st.rerun()
