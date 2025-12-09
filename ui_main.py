@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components  # <--- CRITICAL IMPORT FOR JS REDIRECT
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
@@ -149,7 +150,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.6 Stable")
+        st.caption("v3.0.7 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -212,7 +213,9 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- CASE 1: FREE/PROMO ---
+            # --- PAYMENT LOGIC ---
+            
+            # Case 1: Free/Promo - Direct Entry
             if discounted:
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
@@ -223,55 +226,29 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
 
-            # --- CASE 2: LINK ALREADY GENERATED (PERSISTENCE) ---
-            elif "pending_stripe_url" in st.session_state:
-                st.success("✅ Link Ready!")
-                
-                # --- FIX: HARDCODED HTML BUTTON TO FORCE NEW TAB ---
-                url = st.session_state.pending_stripe_url
-                html_btn = f"""
-                <a href="{url}" target="_blank" style="text-decoration: none;">
-                    <div style="
-                        display: block;
-                        width: 100%;
-                        padding: 12px;
-                        background-color: #28a745; /* GREEN */
-                        color: white;
-                        text-align: center;
-                        border-radius: 8px;
-                        font-weight: bold;
-                        font-family: sans-serif;
-                        cursor: pointer;
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                        transition: background-color 0.2s;
-                    ">
-                        👉 Pay Now on Stripe (New Tab)
-                    </div>
-                </a>
-                """
-                st.markdown(html_btn, unsafe_allow_html=True)
-                
-                if st.button("Cancel / Restart"):
-                    del st.session_state.pending_stripe_url
-                    st.rerun()
-
-            # --- CASE 3: GENERATE LINK ---
+            # Case 2: Paid - Stripe Redirect (with Frame Buster)
             else:
-                if st.button("Generate Secure Link", type="primary", use_container_width=True):
-                    with st.spinner("Connecting to Stripe..."):
+                if st.button(f"Pay ${final_price} & Start", type="primary", use_container_width=True):
+                    with st.spinner("Redirecting to Stripe..."):
+                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
+                        # 2. Build URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
                         if is_certified: link += "&certified=1"
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
+                        # 3. Get Stripe URL
                         if payment_engine:
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
+                                # --- THE FIX: JAVASCRIPT REDIRECT ---
+                                # This forces the redirect to happen in the TOP window, breaking out of the iframe.
                                 st.session_state.pending_stripe_url = url
-                                st.rerun() # Refresh to show the Green Button
+                                components.html(f"<script>window.top.location.href = '{url}';</script>", height=0)
+                                time.sleep(1) # Wait for JS to fire
                             else:
                                 st.error("Stripe Connection Failed.")
 
