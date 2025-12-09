@@ -33,7 +33,8 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url,
             'billing_address_collection': 'required',
         }
 
-        # --- FIX: INJECT METADATA IF PROVIDED ---
+        # --- THE FIX: Pass Metadata if provided ---
+        # This allows ui_main.py to save the "Tier" and options inside the transaction
         if metadata:
             session_payload['metadata'] = metadata
 
@@ -45,7 +46,11 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url,
         return None, None
 
 def verify_session(session_id):
-    # UPDATED: Get Key safely
+    """
+    Verifies payment and returns the session object (with metadata) 
+    so ui_main.py can restore the user's choices.
+    """
+    # Get Key safely
     stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
     if stripe_key:
         stripe.api_key = stripe_key
