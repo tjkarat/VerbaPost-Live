@@ -62,7 +62,7 @@ def reset_app():
         if k in st.session_state: del st.session_state[k]
     st.session_state.to_addr = {}
     
-    # Explicitly clear params per documentation "Success button explicitly clears st.query_params"
+    # Explicitly clear params per documentation
     if "draft_id" in st.query_params and not recovered_draft:
         st.query_params.clear()
 
@@ -125,7 +125,7 @@ def render_store_page():
     if not u_email:
         st.warning("⚠️ Session Expired."); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login")); return
 
-    # --- RESTORED LOGIC: CHECK PAYMENT RETURN ---
+    # --- CHECK PAYMENT RETURN ---
     session_id = st.query_params.get("session_id")
     if session_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -133,13 +133,11 @@ def render_store_page():
                 success, details = payment_engine.verify_session(session_id)
                 if success:
                     st.session_state.payment_complete = True
-                    # Parse metadata from Stripe to restore state
                     meta = details.get('metadata', {})
                     st.session_state.locked_tier = meta.get('tier', 'Standard')
                     st.session_state.is_intl = (meta.get('intl') == '1')
                     st.session_state.is_certified = (meta.get('certified') == '1')
                     
-                    # Log Audit
                     if audit_engine: audit_engine.log_event(u_email, "PAYMENT_SUCCESS", session_id, {"amount": details.get('amount_total')})
                     
                     st.success("Payment Confirmed! Redirecting...")
@@ -229,7 +227,6 @@ def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     render_hero("Compose Letter", f"{tier} Edition")
     
-    # Pre-fill logic
     u_addr = {}
     if database:
         p = database.get_user_profile(st.session_state.user_email)
@@ -249,7 +246,6 @@ def render_workspace_page():
                     st.success(f"Loaded {len(contacts)} contacts."); st.dataframe(contacts[:3])
                     if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("Saved!")
         else:
-            # ADDRESSING INPUTS
             if tier == "Santa": st.info("🎅 From: Santa Claus, North Pole")
             elif tier == "Civic": 
                 st.subheader("🏛️ Your Representatives")
@@ -442,16 +438,7 @@ def show_main_app():
     if mode == "splash":
         try:
             import ui_splash
-            # SAFE CALL: Check if function exists before calling, else fallback
-            if hasattr(ui_splash, 'render_splash'):
-                ui_splash.render_splash()
-            elif hasattr(ui_splash, 'show_splash'):
-                ui_splash.show_splash()
-            else:
-                # Fallback if the module exists but the function name is different
-                st.title("VerbaPost (Debug)")
-                st.write("Splash module loaded but render function not found.")
-                if st.button("Login"): st.session_state.app_mode = "login"; st.rerun()
+            ui_splash.show_splash() # --- THIS IS THE FIX ---
         except ImportError:
              st.title("Splash Missing"); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
     
