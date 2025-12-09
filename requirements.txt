@@ -1,14 +1,25 @@
-streamlit
-streamlit-drawable-canvas
-supabase
+streamlit==1.38.0
+pandas
+numpy
 stripe
-openai-whisper
-Pillow
-sqlalchemy
+# --- DATABASE ---
+supabase
 psycopg2-binary
+sqlalchemy
+# --- API CLIENTS ---
 requests
 resend
-pandas
+# --- AI & AUDIO (CPU OPTIMIZED) ---
+# We use standard openai lib, but for local whisper we need torch
+openai
+# strict pinning prevents upgrading to massive versions automatically
+openai-whisper
+# --- PDF & UTILS ---
 fpdf2
 python-dotenv
-openai
+streamlit-drawable-canvas
+# --- CRITICAL: PREVENT GPU BLOAT ---
+# Explicitly requesting cpu-only torch to save 3GB+ space
+torch --index-url https://download.pytorch.org/whl/cpu
+torchaudio --index-url https://download.pytorch.org/whl/cpu
+torchvision --index-url https://download.pytorch.org/whl/cpu

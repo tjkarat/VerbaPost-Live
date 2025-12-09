@@ -1,0 +1,14 @@
+streamlit
+streamlit-drawable-canvas
+supabase
+stripe
+openai-whisper
+Pillow
+sqlalchemy
+psycopg2-binary
+requests
+resend
+pandas
+fpdf2
+python-dotenv
+openai
