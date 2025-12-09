@@ -24,34 +24,32 @@ st.markdown("""
 
 # --- ENTRY POINT ---
 if __name__ == "__main__":
-    # 1. SEO Injection (First thing)
+    # 1. SEO Injection
     if seo_injector: 
         seo_injector.inject_seo()
 
-    # 2. CRITICAL: Handle Stripe Return Logic HERE (Before loading UI)
-    # This prevents the infinite loop by catching the params immediately.
+    # 2. STRIPE RETURN LOGIC
+    # We handle this HERE to prevent the app from loading the UI twice
     if "session_id" in st.query_params:
         
-        # A. Capture Payment Success
+        # A. Mark Payment as Complete
         st.session_state.payment_complete = True
+        
+        # B. Force the app to go to Workspace (Compose)
         st.session_state.app_mode = "workspace"
         
-        # B. Capture Tier & Options
+        # C. Restore options from URL if present (legacy fallback)
         if "tier" in st.query_params: 
             st.session_state.locked_tier = st.query_params["tier"]
-        if "qty" in st.query_params: 
-            st.session_state.bulk_paid_qty = int(st.query_params["qty"])
         if "certified" in st.query_params: 
             st.session_state.is_certified = True
             
-        # C. NUKE THE URL PARAMS
-        # This breaks the loop. The next run will be clean.
+        # D. Clean URL so we don't trigger this again on refresh
         st.query_params.clear()
         
-        # D. Restart immediately with clean URL
+        # E. Restart the app immediately with the new state
         st.rerun()
 
     # 3. Load Main App Interface
-    # We only import this if we aren't rerunning, saving resources.
     import ui_main
     ui_main.show_main_app()
