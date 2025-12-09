@@ -32,7 +32,7 @@ def inject_global_css():
 if __name__ == "__main__":
     inject_global_css()
     
-    # --- DEBUG: EARLY SECRETS CHECK ---
+    # 1. Early Secrets Check
     try:
         import secrets_manager
     except ImportError:
@@ -40,7 +40,6 @@ if __name__ == "__main__":
         st.stop()
     except Exception as e:
         st.error(f"❌ CRITICAL: Secrets loading failed: {e}")
-        st.code(traceback.format_exc())
         st.stop()
 
     if "app_mode" not in st.session_state:
@@ -49,74 +48,77 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # --- A. DEEP LINKING ---
-        if "view" in q_params:
-            target_view = q_params["view"]
-            if target_view in ["legal", "login", "splash"]:
-                st.session_state.app_mode = target_view
-                st.query_params.clear()
-        
-        # --- B. MARKETING LINKS ---
-        if "tier" in q_params and "session_id" not in q_params:
-            st.session_state.target_marketing_tier = q_params["tier"]
-
-        # --- C. SECURE STRIPE RETURN LOGIC (ANTI-WHITE SCREEN) ---
+        # --- STRIPE RETURN HANDLER (ANTI-LOOP VERSION) ---
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # Show visible feedback so user doesn't see a dead white screen
-            status_placeholder = st.empty()
-            status_placeholder.info("🔄 Verifying Payment... Please wait.")
-            
-            # 1. Verify Payment
-            try:
-                import payment_engine
-                is_paid, session_details = payment_engine.verify_session(sess_id)
-            except Exception as e:
-                is_paid = False
-                session_details = None
-                print(f"Payment Verification Error: {e}")
-
-            # 2. Audit & CSRF Logic
-            current_user = st.session_state.get("user_email")
-            payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
-            
-            if is_paid and current_user and payer_email:
-                if current_user.lower().strip() != payer_email.lower().strip():
-                    status_placeholder.error("⚠️ Security Alert: Payment email does not match logged-in user.")
-                    time.sleep(5)
-                    st.stop()
-
-            if is_paid:
-                status_placeholder.success("✅ Payment Verified!")
+            # [CRITICAL FIX] LOOP BREAKER
+            # If we already processed this ID, STOP verifying and just clear URL.
+            if st.session_state.get("current_stripe_id") == sess_id:
                 st.session_state.app_mode = "workspace"
-                st.session_state.payment_complete = True
-                st.session_state.current_stripe_id = sess_id 
-                
-                # Recover email if guest checkout
-                if not current_user and payer_email:
-                    st.session_state.user_email = payer_email
-
-                # Restore session flags from URL
-                if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
-                if "intl" in q_params: st.session_state.is_intl = True
-                if "certified" in q_params: st.session_state.is_certified = True
-                if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
-                
+                st.query_params.clear()
+                # Do NOT rerun here, just let it fall through to UI render
             else:
-                status_placeholder.error("❌ Payment Verification Failed or Expired.")
-                st.session_state.app_mode = "store"
-            
-            # Small delay to ensure state is saved before reload
-            time.sleep(1.0) 
+                # First time seeing this ID. Verify it.
+                status_box = st.empty()
+                status_box.info("🔄 Verifying Payment...")
+                
+                try:
+                    import payment_engine
+                    is_paid, session_details = payment_engine.verify_session(sess_id)
+                except Exception as e:
+                    print(f"Payment Engine Error: {e}")
+                    is_paid = False
+                    session_details = None
+
+                # Audit / CSRF
+                current_user = st.session_state.get("user_email")
+                payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
+                
+                if is_paid and current_user and payer_email:
+                    if current_user.lower().strip() != payer_email.lower().strip():
+                        status_box.error("⚠️ Security Alert: Payment email mismatch.")
+                        time.sleep(5)
+                        st.stop()
+
+                if is_paid:
+                    # Success State
+                    st.session_state.app_mode = "workspace"
+                    st.session_state.payment_complete = True
+                    st.session_state.current_stripe_id = sess_id 
+                    
+                    if not current_user and payer_email:
+                        st.session_state.user_email = payer_email
+
+                    # Restore Params
+                    if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
+                    if "intl" in q_params: st.session_state.is_intl = True
+                    if "certified" in q_params: st.session_state.is_certified = True
+                    if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
+                    
+                    status_box.success("✅ Payment Verified!")
+                    time.sleep(0.5)
+                    st.query_params.clear()
+                    st.rerun()
+                else:
+                    status_box.error("❌ Payment Verification Failed.")
+                    st.session_state.app_mode = "store"
+                    time.sleep(2.0)
+                    st.query_params.clear()
+                    st.rerun()
+
+        # --- OTHER LINKS ---
+        elif "view" in q_params:
+            st.session_state.app_mode = q_params["view"]
             st.query_params.clear()
+            # Loop breaker for views too
             st.rerun()
-            
+
     except Exception as e:
         st.error(f"Routing Error: {e}")
         st.code(traceback.format_exc())
 
-    # --- LAUNCH UI (WITH ERROR REPORTING) ---
+    # --- LAUNCH UI ---
     try:
         import ui_main
         ui_main.show_main_app()
