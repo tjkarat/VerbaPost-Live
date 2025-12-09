@@ -1,6 +1,5 @@
 import streamlit as st
 import time
-import traceback # Added for debugging
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -52,6 +51,7 @@ if __name__ == "__main__":
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
+            # LAZY IMPORT PAYMENT ENGINE (Prevents startup crash)
             try:
                 import payment_engine
                 is_paid, session_details = payment_engine.verify_session(sess_id)
@@ -59,6 +59,7 @@ if __name__ == "__main__":
                 is_paid = False
                 session_details = None
 
+            # 2. AUDIT & CSRF CHECK
             current_user = st.session_state.get("user_email")
             payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
             
@@ -92,14 +93,12 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Routing Error: {e}")
 
-    # --- LAUNCH UI ---
+    # --- LAUNCH UI (Safe Import) ---
     try:
         import ui_main
         ui_main.show_main_app()
     except Exception as e:
-        # --- DEBUG MODE: PRINT ERROR TO SCREEN ---
-        st.error("⚠️ Application Error")
-        st.code(traceback.format_exc())  # <--- This will show us the EXACT line causing the crash
+        st.error("⚠️ Application Error. Please refresh.")
         print(f"Critical UI Error: {e}")
         if st.button("Hard Reset App"):
             st.session_state.clear()

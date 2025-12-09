@@ -1,81 +1,62 @@
 import streamlit as st
 
 def show_legal():
-    st.title("⚖️ Legal & Compliance")
-    
-    # --- FIX: Changed 'current_view' to 'app_mode' ---
-    if st.button("⬅️ Back to Home", type="secondary"):
-        st.session_state.app_mode = "splash"
-        st.rerun()
-        
-    tab_privacy, tab_terms = st.tabs(["Privacy Policy", "Terms of Service"])
-    
-    with tab_privacy:
+    # --- HEADER ---
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1>⚖️ Legal & Privacy</h1>
+        <p style="color: #666;">Last Updated: December 8, 2025</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- TABS ---
+    tab1, tab2, tab3 = st.tabs(["Privacy Policy", "Terms of Service", "Acceptable Use"])
+
+    with tab1:
         st.markdown("""
         ### Privacy Policy
-        **Effective Date:** November 23, 2025
+        **1. Data Handling**
+        We respect your privacy. Audio files uploaded to VerbaPost are processed solely for the purpose of transcription and letter generation.
         
-        **1. Introduction**
-        VerbaPost LLC ("we," "us," or "our") respects your privacy. This Privacy Policy explains how we collect, use, and protect your personal information when you use our voice-to-mail service.
+        **2. Storage**
+        * **Audio:** Deleted immediately after transcription.
+        * **Transcripts:** Stored securely in our database to allow you to review and edit.
+        * **Addresses:** Stored to facilitate mailing. We do not sell your address book.
         
-        **2. Information We Collect**
-        * **Personal Data:** Name, email address, and physical address for return mail.
-        * **Recipient Data:** Names and physical addresses of the people you mail letters to.
-        * **Content Data:** Audio recordings and transcribed text of your letters.
-        * **Payment Data:** We use Stripe for payments. We do not store your full credit card number.
-        
-        **3. How We Use Your Data**
-        * **Fulfillment:** We transmit your letter content and address data to our print partner (Lob/PostGrid) solely for the purpose of printing and mailing your physical document.
-        * **Processing:** We use OpenAI's API to transcribe and polish your voice dictation.
-        * **Civic Features:** We use Geocodio to identify your elected officials based on your address.
-        
-        **4. Data Sharing**
-        We do not sell your data. We share data only with the following infrastructure providers to deliver the service:
-        * **Stripe:** Payment processing.
-        * **PostGrid:** Physical mail printing and delivery.
-        * **OpenAI:** Audio transcription.
-        * **Supabase:** Secure database storage.
-        
-        **5. Your Rights**
-        You may request the deletion of your account and all associated data by emailing support@verbapost.com.
-        
-        **6. Contact Us**
-        For privacy concerns, please contact: support@verbapost.com
+        **3. Third Parties**
+        We use trusted third-party vendors for specific functions:
+        * **OpenAI:** For transcription and text refinement.
+        * **PostGrid:** For physical printing and mailing.
+        * **Stripe:** For secure payment processing.
         """)
 
-    with tab_terms:
+    with tab2:
         st.markdown("""
         ### Terms of Service
-        **Effective Date:** November 23, 2025
+        **1. Service Description**
+        VerbaPost provides a service to convert digital audio into physical mail. We are not responsible for delays caused by the US Postal Service (USPS).
         
-        **1. Acceptance of Terms**
-        By using VerbaPost, you agree to these Terms. If you do not agree, do not use our service.
+        **2. Refunds**
+        * **Drafts:** You are not charged until you click "Pay & Send".
+        * **Sent Letters:** Once a letter is sent to our printing partner, it cannot be cancelled or refunded.
+        * **Errors:** If a system error prevents mailing after payment, a full refund will be issued.
         
-        **2. Description of Service**
-        VerbaPost converts digital input (voice/text) into physical mail delivered via the US Postal Service. We are not the USPS and cannot guarantee delivery times once the mail is handed off to the postal carrier.
-        
-        **3. User Conduct**
-        You agree NOT to use VerbaPost to send:
-        * Threatening, harassing, or illegal content.
-        * Content that violates a protective order.
-        * Fraudulent materials or scams.
-        * We reserve the right to block any user and cancel any order (with refund) if it violates these standards.
-        
-        **4. Payments & Refunds**
-        * Payments are processed immediately upon order.
-        * If a letter cannot be delivered due to an invalid address provided by you, we cannot offer a refund.
-        * If our system fails to generate or mail your letter due to a technical error, we will provide a full refund.
-        
-        **5. Liability**
-        VerbaPost LLC is not liable for any damages resulting from delayed, lost, or misdirected mail. Our liability is limited to the cost of the service paid.
-        
-        **6. Governing Law**
-        These terms are governed by the laws of the State of Tennessee.
+        **3. User Responsibility**
+        You are responsible for the content of your letters. We reserve the right to refuse service for content that is illegal, threatening, or harassing.
         """)
-    
-    st.divider()
-    
-    # Added a bottom button for convenience
-    if st.button("⬅️ Return to Home Page", type="secondary", key="bot_home_btn"):
+
+    with tab3:
+        st.markdown("""
+        ### Acceptable Use
+        By using VerbaPost, you agree NOT to:
+        * Send mail containing threats of violence or illegal activities.
+        * Use the service for fraud or "phishing" via physical mail.
+        * Harass individuals or organizations.
+        
+        **Violation of these terms will result in immediate account termination.**
+        """)
+
+    st.markdown("---")
+    if st.button("⬅️ Return to Home", use_container_width=True):
         st.session_state.app_mode = "splash"
         st.rerun()
