@@ -614,32 +614,27 @@ def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
     
-    # Handle Draft ID
+    # 1. Handle Draft ID (Preserve this if present)
     if "draft_id" in st.query_params:
         if not st.session_state.get("current_draft_id"):
             st.session_state.current_draft_id = st.query_params["draft_id"]
     
-    # Handle Stripe Return
+    # 2. Handle Stripe Return (THE FIX IS HERE)
     if "session_id" in st.query_params: 
-        # 1. Capture Tier (THIS WAS MISSING)
-        if "tier" in st.query_params:
-            st.session_state.locked_tier = st.query_params["tier"]
-            
-        # 2. Capture Other Params
-        if "qty" in st.query_params: 
-            st.session_state.bulk_paid_qty = int(st.query_params["qty"])
-        if "certified" in st.query_params: 
-            st.session_state.is_certified = True
-            
-        # 3. Set State & Rerun
+        # Capture Data
+        if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
+        if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
+        if "certified" in st.query_params: st.session_state.is_certified = True
+        
+        # Set State
         st.session_state.app_mode = "workspace"
         st.session_state.payment_complete = True
         
-        # Clear params to prevent infinite loop, but allow one run to set state
-        # (Optional: st.query_params.clear())
+        # --- CRITICAL FIX: CLEAR PARAMS TO STOP LOOP ---
+        st.query_params.clear()
         st.rerun()
 
-    # Routing
+    # 3. Routing
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": 
         import ui_login; import auth_engine
