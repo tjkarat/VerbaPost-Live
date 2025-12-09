@@ -1,14 +1,11 @@
 import streamlit as st
-
-# Attempt to import database, fail gracefully
 try: import database
 except ImportError: database = None
 
 def show_splash():
-    # --- 1. SCOPED CSS (Safe for Global App) ---
+    # --- 1. SCOPED CSS ---
     st.markdown("""
     <style>
-        /* HERO GRADIENT */
         .hero-container {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             padding: 60px 20px;
@@ -26,11 +23,9 @@ def show_splash():
             max-width: 700px; margin-left: auto; margin-right: auto;
         }
         .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
-        
-        /* CARDS */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-            background: #1e3c72; /* Fallback */
+            background: #1e3c72;
             padding: 15px; border-radius: 10px; border: 1px solid #4a90e2;
             text-align: center; height: 100%; display: flex;
             flex-direction: column; justify-content: flex-start;
@@ -38,27 +33,14 @@ def show_splash():
         }
         .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
         .price-tag { font-size: 1.8rem; font-weight: 800; color: #ffeb3b !important; margin: 5px 0; }
-        .price-desc { color: #e0e0e0 !important; font-size: 0.85rem; line-height: 1.4; }
         .price-card ul { list-style: none; padding: 0; margin-top: 10px; }
         .price-card li { color: #e0e0e0 !important; font-size: 0.85rem; margin-bottom: 4px; }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- 2. SIDEBAR ---
-    with st.sidebar:
-        st.header("VerbaPost 📮")
-        st.markdown("---")
-        if st.button("🔑 Member Login", use_container_width=True):
-            st.session_state.app_mode = "login"
-            st.session_state.auth_view = "login" 
-            st.rerun()
-        if st.button("⚖️ Legal & Privacy", use_container_width=True):
-            st.session_state.app_mode = "legal"
-            st.rerun()
-        st.markdown("---")
-        st.caption("v2.8 Production")
+    # Note: Sidebar is now handled globally in ui_main.py to prevent duplicate ID errors.
 
-    # --- 3. HERO ---
+    # --- 2. HERO ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
@@ -79,7 +61,7 @@ def show_splash():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 4. CARDS ---
+    # --- 3. CARDS ---
     p1, p2, p3, p4 = st.columns(4)
     with p1:
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
@@ -90,7 +72,7 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 5. LEADERBOARD ---
+    # --- 4. LEADERBOARD ---
     if database:
         stats = database.get_civic_leaderboard()
         if stats:

@@ -45,7 +45,7 @@ try: import audit_engine
 except ImportError: audit_engine = None
 try: import auth_engine
 except ImportError: auth_engine = None
-try: import pricing_engine # NEW IMPORT
+try: import pricing_engine 
 except ImportError: pricing_engine = None
 
 # --- 3. CONFIGURATION ---
@@ -151,7 +151,6 @@ def render_sidebar():
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
-    # --- FIX 14: AUTH CHECK BEFORE RENDERING ---
     u_email = st.session_state.get("user_email", "")
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
@@ -201,13 +200,11 @@ def render_store_page():
             if promo_engine and code and promo_engine.validate_code(code): 
                 discounted = True; st.success("✅ Applied!")
             
-            # --- FIX: SERVER-SIDE PRICING ---
             final_price = 0.00
             if not discounted:
                 if pricing_engine:
                     final_price = pricing_engine.calculate_total(tier_code, is_intl, is_certified, qty)
                 else:
-                    # Fallback (Danger)
                     final_price = 2.99 
             
             st.metric("Total", f"${final_price:.2f}")
@@ -215,7 +212,6 @@ def render_store_page():
             btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
             if st.button(btn_txt, type="primary", use_container_width=True):
                 
-                # --- FIX: GHOST DRAFT PREVENTION ---
                 d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
                 if discounted:
@@ -237,15 +233,12 @@ def render_store_page():
                         if url: st.markdown(f'<a href="{url}" target="_self"><button style="width:100%;padding:10px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay Now</button></a>', unsafe_allow_html=True)
 
 def _handle_draft_creation(email, tier, price):
-    """Helper to handle Draft Creation/Updates safely preventing Ghost Drafts."""
     d_id = st.session_state.get("current_draft_id")
     success = False
     
     if d_id and database:
-        # Try update first
         success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
     
-    # If update returned False (row deleted) or no ID exists, create new
     if not success and database:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
@@ -279,7 +272,6 @@ def render_workspace_page():
                 c, err = bulk_engine.parse_csv(f)
                 if err: st.error(err)
                 else:
-                    # --- FIX: CAMPAIGN QUANTITY VALIDATION ---
                     limit = st.session_state.get("bulk_paid_qty", 1000)
                     if len(c) > limit: 
                         st.error(f"🛑 List size ({len(c)}) exceeds paid quantity ({limit}). Please reduce list or upgrade.")
@@ -382,14 +374,12 @@ def render_workspace_page():
                             st.session_state.transcribed_text = ai_engine.transcribe_audio(tpath)
                             st.session_state.app_mode = "review"; st.rerun()
                         finally:
-                            # --- FIX: SAFE REMOVAL ---
                             if os.path.exists(tpath): 
                                 try: os.remove(tpath)
                                 except: pass
 
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
-    # Standardize 'from'
     if tier == "Santa": 
         st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
     else:
@@ -398,7 +388,6 @@ def _save_addrs(tier):
             "address_line2": st.session_state.get("w_from_street2"), "city": st.session_state.get("w_from_city"),
             "state": st.session_state.get("w_from_state"), "zip": st.session_state.get("w_from_zip"), "country": "US", "email": u
         }
-    # Standardize 'to'
     if tier == "Civic":
         st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
     else:
@@ -419,7 +408,6 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     if tier != "Campaign" and not st.session_state.get("to_addr"): _save_addrs(tier)
 
-    # AI Tools
     c1, c2, c3, c4 = st.columns(4)
     txt = st.session_state.get("transcribed_text", "")
     
@@ -460,7 +448,6 @@ def render_review_page():
         targets = []
         if tier == "Campaign": targets = st.session_state.get("bulk_targets", [])
         elif tier == "Civic": 
-            # --- FIX: NULL CHECK FOR ADDRESS OBJ ---
             for r in st.session_state.get("civic_targets", []):
                 t = r.get('address_obj')
                 if t: t['country']='US'; targets.append(t)
@@ -486,7 +473,6 @@ def render_review_page():
 
                 is_ok = False
                 if mailer:
-                    # --- FIX: ADDRESS FALLBACK CHAIN ---
                     pg_to = {
                         'name': tgt.get('name'), 
                         'address_line1': tgt.get('street') or tgt.get('address_line1') or tgt.get('line1') or tgt.get('address'),
@@ -506,7 +492,6 @@ def render_review_page():
                         'country_code': 'US'
                     }
                     
-                    # --- FIX: SAFE FILE HANDLE ---
                     try:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tpdf:
                             tpdf.write(pdf); tpath=tpdf.name
@@ -530,7 +515,6 @@ def render_review_page():
             else:
                 st.error("Errors occurred"); st.write(errs)
 
-# --- 8. MAIN ROUTER ---
 def show_main_app():
     if analytics: analytics.inject_ga()
     render_sidebar()
@@ -563,6 +547,11 @@ def _h_login(auth, e, p):
     else: st.error(err)
 
 def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
+    # CRITICAL FIX: Return the result so ui_login can unpack it!
     res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
-    if res and res.user: st.success("Created! Please Log In."); st.session_state.app_mode = "login"
-    else: st.error(err)
+    if res and res.user: 
+        st.success("Created! Please Log In.")
+        st.session_state.app_mode = "login"
+    else: 
+        st.error(err)
+    return res, err
