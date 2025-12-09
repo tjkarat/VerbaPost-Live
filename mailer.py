@@ -19,6 +19,7 @@ def verify_address_data(line1, line2, city, state, zip_code, country_code):
     api_key = get_postgrid_key()
     if not api_key: return True, None 
 
+    # Correct Endpoint for Address Verification
     url = "https://api.postgrid.com/v1/addver/verifications"
     payload = {
         "line1": line1, "line2": line2, "city": city,
@@ -46,7 +47,8 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
     api_key = get_postgrid_key()
     if not api_key: return False, "Missing API Key"
 
-    url = "https://api.postgrid.com/v1/letters"
+    # --- CRITICAL FIX: CORRECT PRINT & MAIL ENDPOINT ---
+    url = "https://api.postgrid.com/print-mail/v1/letters"
     
     # Construct strictly validated payload
     data = {
@@ -82,7 +84,7 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
             res = response.json()
             logger.info(f"Mail Sent! ID: {res.get('id')}")
             
-            # Send Email Confirmations asynchronously (fire and forget logic usually, but here synchronous)
+            # Send Email Confirmations asynchronously
             try:
                 if certified and res.get('trackingNumber'):
                     send_tracking_email(from_addr.get('email'), res.get('trackingNumber'))
