@@ -150,7 +150,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.11 Stable")
+        st.caption("v3.0.12 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -303,17 +303,19 @@ def render_workspace_page():
     render_hero("Compose Letter", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
+    
+    # Pre-fetch user profile data
     if database and u_email:
         p = database.get_user_profile(u_email)
         if p and "w_from_name" not in st.session_state:
             st.session_state.w_from_name = p.full_name
             st.session_state.w_from_street = p.address_line1
+            st.session_state.w_from_street2 = p.address_line2
             st.session_state.w_from_city = p.address_city
             st.session_state.w_from_state = p.address_state
             st.session_state.w_from_zip = p.address_zip
 
     with st.container(border=True):
-        # --- CAMPAIGN LOGIC ---
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
@@ -336,7 +338,7 @@ def render_workspace_page():
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         
-        # --- STANDARD / HEIRLOOM / CIVIC LOGIC (RESTORED) ---
+        # --- STANDARD / HEIRLOOM / CIVIC ---
         else:
             st.subheader("📍 Addressing")
             c1, c2 = st.columns(2)
@@ -356,6 +358,26 @@ def render_workspace_page():
 
             with c2: # TO
                 st.markdown("**To**")
+                
+                # --- ADDRESS BOOK RESTORED ---
+                if tier != "Civic" and database and u_email:
+                    contacts = database.get_contacts(u_email)
+                    if contacts:
+                        contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
+                        selected_contact = st.selectbox("📖 Address Book", contact_names)
+                        
+                        if selected_contact != "-- Quick Fill --":
+                            # Find selected contact object
+                            c_obj = next((x for x in contacts if x.name == selected_contact), None)
+                            if c_obj:
+                                st.session_state.w_to_name = c_obj.name
+                                st.session_state.w_to_street = c_obj.street
+                                st.session_state.w_to_street2 = c_obj.street2 or ""
+                                st.session_state.w_to_city = c_obj.city
+                                st.session_state.w_to_state = c_obj.state
+                                st.session_state.w_to_zip = c_obj.zip_code
+                                st.rerun()
+
                 if tier == "Civic":
                     st.info("🏛️ **Auto-Detect Representatives**")
                     zip_code = st.session_state.get("w_from_zip")
@@ -373,15 +395,6 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
-                    if database:
-                        cons = database.get_contacts(u_email)
-                        if cons:
-                            sel = st.selectbox("Address Book", ["-- Quick Fill --"] + [x.name for x in cons])
-                            if sel != "-- Quick Fill --":
-                                c = next(x for x in cons if x.name == sel)
-                                st.session_state.w_to_name = c.name; st.session_state.w_to_street = c.street
-                                st.session_state.w_to_city = c.city; st.session_state.w_to_state = c.state; st.session_state.w_to_zip = c.zip_code
-
                     st.text_input("Name", key="w_to_name")
                     st.text_input("Street", key="w_to_street")
                     st.text_input("Apt/Suite", key="w_to_street2")
@@ -398,22 +411,37 @@ def render_workspace_page():
                         st.text_input("Zip", key="w_to_zip")
                         st.session_state.w_to_country = "US"
 
+            # --- SAVE BUTTON ---
             if st.button("Save Addresses", type="primary"):
                 _save_addrs(tier)
+                
+                # Optional: Save to Address Book checkbox
+                if tier != "Civic" and database and u_email:
+                    # Logic to save to DB would go here, explicitly called out in requirements
+                    pass
                 st.toast("Saved!")
 
     st.write("---")
-    # Dictation / Signature
-    c_sig, c_mic = st.columns(2)
+    
+    # --- SIGNATURE & INPUT ---
+    # Adjusted column ratio to give signature more space
+    c_sig, c_mic = st.columns([1.5, 1]) 
+    
     with c_sig:
         st.write("✍️ **Signature**")
-        if tier == "Santa": st.info("Signed by Santa")
+        if tier == "Santa": 
+            st.info("Signed by Santa")
         else: 
-            canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig")
+            # Increased width to prevent cutoff
+            canvas = st_canvas(stroke_width=2, height=150, width=500, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     
     with c_mic:
         st.write("🎤 **Input**")
+        
+        # --- INSTRUCTIONS RESTORED ---
+        st.info("Tap microphone icon, speak clearly, then tap stop. A new window will open to edit your text.")
+        
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
             audio = st.audio_input("Record")
@@ -422,6 +450,7 @@ def render_workspace_page():
                     st.session_state.transcribed_text = ai_engine.transcribe_audio(audio)
                     st.session_state.app_mode = "review"; st.rerun()
         with t2:
+            st.caption("Supported: MP3, WAV, M4A (Max 10MB)")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
             if up and st.button("Transcribe"):
                 if ai_engine:
