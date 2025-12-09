@@ -17,7 +17,9 @@ def get_resend_key(): return secrets_manager.get_secret("email.password") or sec
 
 def verify_address_data(line1, line2, city, state, zip_code, country_code):
     api_key = get_postgrid_key()
-    if not api_key: return True, None 
+    if not api_key: 
+        logger.warning("⚠️ Address Verification Skipped: No API Key found.")
+        return True, None 
 
     # Correct Endpoint for Address Verification
     url = "https://api.postgrid.com/v1/addver/verifications"
@@ -38,6 +40,8 @@ def verify_address_data(line1, line2, city, state, zip_code, country_code):
                     "zip": data.get('postalOrZip'), "country": data.get('country')
                 }
             return False, "Address not found or invalid."
+        else:
+            logger.error(f"Address Verify Error: {r.status_code} - {r.text}")
     except Exception as e:
         logger.error(f"Address Verify Fail: {e}")
     
@@ -45,10 +49,17 @@ def verify_address_data(line1, line2, city, state, zip_code, country_code):
 
 def send_letter(pdf_path, to_addr, from_addr, certified=False):
     api_key = get_postgrid_key()
-    if not api_key: return False, "Missing API Key"
+    
+    # --- DEBUGGING: Check Key Presence ---
+    if not api_key: 
+        logger.error("❌ Send Letter Failed: Missing API Key.")
+        return False, "Missing API Key"
+    else:
+        logger.info(f"✅ API Key found (starts with: {api_key[:4]}...)")
 
     # --- CRITICAL FIX: CORRECT PRINT & MAIL ENDPOINT ---
     url = "https://api.postgrid.com/print-mail/v1/letters"
+    logger.info(f"📡 PostGrid Target URL: {url}")
     
     # Construct strictly validated payload
     data = {
@@ -78,11 +89,12 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
         # SAFE FILE OPENING
         with open(pdf_path, 'rb') as f_pdf:
             files = {'pdf': f_pdf}
+            logger.info("📤 Sending request to PostGrid...")
             response = requests.post(url, headers=headers, data=data, files=files, timeout=30)
             
         if response.status_code in [200, 201]:
             res = response.json()
-            logger.info(f"Mail Sent! ID: {res.get('id')}")
+            logger.info(f"✅ Mail Sent! ID: {res.get('id')}")
             
             # Send Email Confirmations asynchronously
             try:
@@ -92,11 +104,13 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
             
             return True, res
         else:
-            logger.error(f"PostGrid Error: {response.text}")
-            return False, f"API Error: {response.status_code}"
+            # --- DEBUGGING: Full Error Output ---
+            logger.error(f"❌ PostGrid API Error: {response.status_code}")
+            logger.error(f"❌ Response Body: {response.text}")
+            return False, f"API Error: {response.status_code} - {response.text}"
 
     except Exception as e:
-        logger.error(f"Connection Error: {e}")
+        logger.error(f"❌ Connection Error: {e}")
         return False, str(e)
 
 def send_tracking_email(user_email, tracking):
