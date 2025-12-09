@@ -98,7 +98,6 @@ def _save_addresses_from_widgets(tier, is_intl):
         st.session_state.from_addr = {
             "name": st.session_state.get("w_from_name"),
             "street": st.session_state.get("w_from_street"),
-            # Documentation: "We strictly use the key address_line2"
             "address_line2": st.session_state.get("w_from_street2", ""),
             "city": st.session_state.get("w_from_city"),
             "state": st.session_state.get("w_from_state"),
@@ -127,7 +126,6 @@ def render_store_page():
         st.warning("⚠️ Session Expired."); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login")); return
 
     # --- RESTORED LOGIC: CHECK PAYMENT RETURN ---
-    # This block was missing in previous attempts. It handles the user coming back from Stripe.
     session_id = st.query_params.get("session_id")
     if session_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -197,7 +195,7 @@ def render_store_page():
             st.metric("Total", f"${0.00 if discounted else price:.2f}")
             
             if st.button("🚀 Pay & Start", type="primary", use_container_width=True):
-                # Ghost Draft prevention: Create DB row only when user commits
+                # Ghost Draft prevention
                 d_id = st.session_state.get("current_draft_id")
                 if not d_id and database:
                      d_id = database.save_draft(u_email, "", tier_code, "0.00" if discounted else str(price))
@@ -221,7 +219,6 @@ def render_store_page():
                      if tier_code == "Campaign": link += f"&qty={qty}"
                      
                      if payment_engine:
-                         # The metadata passed here is critical for the logic in the return handler above
                          meta = {"tier": tier_code, "intl": "1" if is_intl else "0", "certified": "1" if is_certified else "0"}
                          url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price*100), link, YOUR_APP_URL, metadata=meta)
                          if url: st.link_button("👉 Complete Payment", url)
@@ -256,7 +253,6 @@ def render_workspace_page():
             if tier == "Santa": st.info("🎅 From: Santa Claus, North Pole")
             elif tier == "Civic": 
                 st.subheader("🏛️ Your Representatives")
-                # Simplified Civic Lookup
                 c1, c2 = st.columns(2)
                 fn = c1.text_input("Your Name", u_addr.get("name",""), key="w_from_name")
                 fs = c1.text_input("Street", u_addr.get("street",""), key="w_from_street")
@@ -270,7 +266,6 @@ def render_workspace_page():
                     else: st.error("No reps found.")
                 
             else:
-                # Standard/Heirloom
                 st.subheader("📍 Addressing")
                 with st.expander("✉️ Sender", expanded=False):
                     st.text_input("Name", u_addr.get("name",""), key="w_from_name")
@@ -352,14 +347,12 @@ def render_review_page():
 
     txt = st.text_area("Body", key="transcribed_text", height=300)
     
-    # PDF PREVIEW (Fixed for Chrome/Production)
+    # PDF PREVIEW
     if st.button("👁️ Preview PDF"):
         if letter_format:
-            # Reconstruct Address Objects for PDF
             to_addr = StandardAddress.from_dict(st.session_state.get("to_addr", {}))
             from_addr = StandardAddress.from_dict(st.session_state.get("from_addr", {}))
             
-            # Handle Sig
             sig_path = None
             if st.session_state.get("sig_data") is not None:
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
@@ -371,7 +364,6 @@ def render_review_page():
             
             if pdf:
                 b64 = base64.b64encode(pdf).decode('utf-8')
-                # EMBED FIX: Use <embed> + Download button
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
                 st.download_button("⬇️ Download PDF", pdf, "proof.pdf", "application/pdf")
             
@@ -383,7 +375,6 @@ def render_review_page():
         if st.button("🚀 Send Letter", type="primary"):
             if len(txt) < 5: st.error("Letter too short."); return
             
-            # Prepare targets
             targets = []
             if tier == "Campaign": targets = st.session_state.get("bulk_targets", [])
             elif tier == "Civic": 
@@ -391,10 +382,8 @@ def render_review_page():
                      t = r.get('address_obj'); t['country'] = 'US'; targets.append(t)
             else: targets.append(st.session_state.to_addr)
 
-            # Processing
             with st.spinner("Processing..."):
                 errs = []
-                # Sig processing for DB
                 sig_db = None; sig_path = None
                 if st.session_state.get("sig_data") is not None:
                     img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
@@ -403,12 +392,10 @@ def render_review_page():
 
                 prog = st.progress(0)
                 for i, tgt in enumerate(targets):
-                    # Generate final PDF
                     to_obj = StandardAddress.from_dict(tgt)
                     from_obj = StandardAddress.from_dict(st.session_state.from_addr)
                     pdf = letter_format.create_pdf(txt, to_obj.to_pdf_string(), from_obj.to_pdf_string(), (tier=="Heirloom"), (tier=="Santa"), sig_path)
                     
-                    # Mailer Call (Standard/Civic/Campaign ONLY)
                     is_ok = False
                     if tier in ["Standard", "Civic", "Campaign"]:
                          if mailer:
@@ -421,15 +408,13 @@ def render_review_page():
                          else:
                              errs.append("System Error: Mailer Missing")
                     else:
-                        is_ok = False # Santa/Heirloom are manual
+                        is_ok = False
 
-                    # Database Log
                     status = "Completed" if is_ok else "Pending Admin"
                     if not is_ok and tier in ["Standard", "Civic", "Campaign"]: status = "Failed/Retry"
                     
                     if database:
                         d_id = st.session_state.get("current_draft_id")
-                        # If bulk, we force create new rows for 2nd+ letter
                         if tier == "Campaign" and i > 0: d_id = None 
                         
                         if d_id: database.update_draft_data(d_id, tgt, st.session_state.from_addr, content=txt, status=status)
@@ -442,13 +427,11 @@ def render_review_page():
                 if errs: st.error(f"{len(errs)} Failures"); st.write(errs)
                 else: 
                     st.session_state.letter_sent_success = True
-                    # Notification trigger for Santa/Heirloom
                     if tier in ["Santa", "Heirloom"] and mailer: mailer.send_admin_alert(st.session_state.user_email, txt, tier)
                     st.rerun()
 
     else:
         st.success("✅ Sent Successfully!")
-        # Clears draft_id from URL per documentation
         if st.button("Start New Letter"): reset_app(); st.rerun()
 
 # --- ROUTER (FINAL) ---
@@ -457,8 +440,20 @@ def show_main_app():
     mode = st.session_state.app_mode
     
     if mode == "splash":
-        try: import ui_splash; ui_splash.render_splash()
-        except ImportError: st.title("Splash Missing"); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
+        try:
+            import ui_splash
+            # SAFE CALL: Check if function exists before calling, else fallback
+            if hasattr(ui_splash, 'render_splash'):
+                ui_splash.render_splash()
+            elif hasattr(ui_splash, 'show_splash'):
+                ui_splash.show_splash()
+            else:
+                # Fallback if the module exists but the function name is different
+                st.title("VerbaPost (Debug)")
+                st.write("Splash module loaded but render function not found.")
+                if st.button("Login"): st.session_state.app_mode = "login"; st.rerun()
+        except ImportError:
+             st.title("Splash Missing"); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
     
     elif mode == "login":
         try: import ui_login; ui_login.render_login()
