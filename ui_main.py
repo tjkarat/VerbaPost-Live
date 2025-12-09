@@ -2,14 +2,12 @@ import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
-import json
 import base64
-import numpy as np
-from PIL import Image
 import io
+from PIL import Image
 
 # --- IMPORTS ---
-# We verify these exist to prevent crashes, but ui_main relies on them.
+# Robust imports to prevent immediate crashes if a module is temporarily missing
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -32,7 +30,8 @@ try: import bulk_engine
 except ImportError: bulk_engine = None
 try: import audit_engine 
 except ImportError: audit_engine = None
-try: import auth_engine  # Critical for ui_login integration
+# CRITICAL: ui_login requires passing auth functions from auth_engine
+try: import auth_engine
 except ImportError: auth_engine = None
 
 from address_standard import StandardAddress
@@ -42,8 +41,8 @@ DEFAULT_URL = "https://verbapost.streamlit.app/"
 YOUR_APP_URL = DEFAULT_URL
 try:
     if secrets_manager:
-        found_url = secrets_manager.get_secret("BASE_URL")
-        if found_url: YOUR_APP_URL = found_url
+        val = secrets_manager.get_secret("BASE_URL")
+        if val: YOUR_APP_URL = val
 except: pass
 YOUR_APP_URL = YOUR_APP_URL.rstrip("/")
 
@@ -53,19 +52,19 @@ COUNTRIES = {
     "JP": "Japan", "BR": "Brazil", "IN": "India"
 }
 
-# --- SESSION MANAGEMENT ---
+# --- HELPER FUNCTIONS ---
+
 def reset_app():
-    """Clears session state for a fresh start, preserving user login."""
+    """Restores session to a clean state while keeping login."""
     recovered_draft = st.query_params.get("draft_id")
     # Clean up session keys but keep user info
-    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "from_addr",
+    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
     for k in keys:
         if k in st.session_state: del st.session_state[k]
-    
     st.session_state.to_addr = {}
     
     # Explicitly clear params per documentation
@@ -90,7 +89,6 @@ def check_session():
         return False
     return True
 
-# --- UI COMPONENTS ---
 def render_hero(title, subtitle):
     # CSS FIX: Forces white text on blue background
     st.markdown(f"""
@@ -99,26 +97,58 @@ def render_hero(title, subtitle):
     </style>
     <div class="custom-hero" style="
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px;
-        box-shadow: 0 8px 16px rgba(0,0,0,0.1); color: white;">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; text-shadow: 0px 1px 2px rgba(0,0,0,0.2);">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.95; margin-top: 10px;">{subtitle}</div>
+        padding: 30px; border-radius: 12px; text-align: center; margin-bottom: 25px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: white;">
+        <h1 style="margin: 0; font-size: 2.5rem; font-weight: 700;">{title}</h1>
+        <div style="font-size: 1.1rem; opacity: 0.95; margin-top: 5px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
 def render_legal_page():
+    # RESTORED: Wraps the import so the main router can call it safely
     try: 
         import ui_legal
         ui_legal.show_legal()
-    except:
-        st.error("Legal module not found.")
+    except ImportError:
+        st.error("Legal module missing.")
+    except AttributeError:
+        st.error("Legal module found but show_legal() missing.")
+
+def _save_addresses_from_widgets(tier, is_intl):
+    # Helper to capture address data from widget state variables
+    if tier == "Santa":
+        st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
+    else:
+        st.session_state.from_addr = {
+            "name": st.session_state.get("w_from_name"),
+            "street": st.session_state.get("w_from_street"),
+            "address_line2": st.session_state.get("w_from_street2", ""),
+            "city": st.session_state.get("w_from_city"),
+            "state": st.session_state.get("w_from_state"),
+            "zip": st.session_state.get("w_from_zip"),
+            "country": st.session_state.get("w_from_country", "US"),
+            "email": st.session_state.get("user_email")
+        }
+    
+    if tier == "Civic":
+        st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
+    else:
+        st.session_state.to_addr = {
+            "name": st.session_state.get("w_to_name"),
+            "street": st.session_state.get("w_to_street"),
+            "address_line2": st.session_state.get("w_to_street2", ""),
+            "city": st.session_state.get("w_to_city"),
+            "state": st.session_state.get("w_to_state"),
+            "zip": st.session_state.get("w_to_zip"),
+            "country": st.session_state.get("w_to_country", "US")
+        }
 
 # --- PAGE: STORE ---
 def render_store_page():
     if not check_session(): return
     u_email = st.session_state.user_email
 
-    # --- PAYMENT VERIFICATION (ZOMBIE PROOF) ---
+    # RESTORED: Payment Verification Handler ("Zombie Proof" Flow)
     session_id = st.query_params.get("session_id")
     if session_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -126,7 +156,6 @@ def render_store_page():
                 success, details = payment_engine.verify_session(session_id)
                 if success:
                     st.session_state.payment_complete = True
-                    # Metadata restoration
                     meta = details.get('metadata', {})
                     st.session_state.locked_tier = meta.get('tier', 'Standard')
                     st.session_state.is_intl = (meta.get('intl') == '1')
@@ -144,14 +173,10 @@ def render_store_page():
 
     render_hero("Select Service", "Choose your letter type")
     
-    # Admin Check
+    # Check Admin Access
     try:
-        if secrets_manager:
-            admin_target = secrets_manager.get_secret("admin.email")
-            if admin_target and str(u_email).lower() == str(admin_target).lower():
-                if st.button("🔐 Open Admin Console", type="secondary"): 
-                    st.session_state.app_mode = "admin"
-                    st.rerun()
+        if secrets_manager and secrets_manager.get_secret("admin.email") == u_email.lower():
+            if st.button("🔐 Admin Console", type="secondary"): st.session_state.app_mode = "admin"; st.rerun()
     except: pass
 
     c1, c2 = st.columns([2, 1])
@@ -159,13 +184,7 @@ def render_store_page():
         with st.container(border=True):
             st.subheader("Available Packages")
             tier_options_list = ["Standard", "Heirloom", "Civic", "Santa", "Campaign"]
-            tier_labels = {
-                "Standard": "⚡ Standard ($2.99)", 
-                "Heirloom": "🏺 Heirloom ($5.99)", 
-                "Civic": "🏛️ Civic ($6.99)", 
-                "Santa": "🎅 Santa ($9.99)", 
-                "Campaign": "📢 Campaign (Bulk)"
-            }
+            tier_labels = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)", "Campaign": "📢 Campaign (Bulk)"}
             tier_descriptions = {
                 "Standard": "Your words professionally printed on standard paper and mailed via USPS First Class.",
                 "Heirloom": "Printed on heavyweight archival stock with a wet-ink style font for a timeless look.",
@@ -173,7 +192,6 @@ def render_store_page():
                 "Santa": "A magical letter from the North Pole on festive paper, signed by Santa Claus himself.",
                 "Campaign": "Upload a CSV. We mail everyone at once."
             }
-            
             pre_selected_index = 0
             if "target_marketing_tier" in st.session_state:
                 target = st.session_state.target_marketing_tier
@@ -183,13 +201,14 @@ def render_store_page():
             tier_code = sel
             st.info(tier_descriptions[tier_code])
             
-            qty = 1; price = 0.0
+            qty = 1
             if tier_code == "Campaign":
                 qty = st.number_input("Number of Recipients", min_value=10, max_value=5000, value=50, step=10)
                 price = 2.99 + ((qty - 1) * 1.99)
                 st.caption(f"Pricing: First letter $2.99, then $1.99/ea")
             else:
-                price = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}[tier_code]
+                prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
+                price = prices[tier_code]
 
             is_intl = False; is_certified = False
             if tier_code in ["Standard", "Heirloom"]:
@@ -268,8 +287,13 @@ def render_workspace_page():
         p = database.get_user_profile(u_email)
         if p: 
             user_addr = {
-                "name": p.full_name, "street": p.address_line1, "address_line2": getattr(p, "address_line2", ""), 
-                "city": p.address_city, "state": p.address_state, "zip": p.address_zip, "country": getattr(p, "country", "US")
+                "name": p.full_name, 
+                "street": p.address_line1, 
+                "address_line2": getattr(p, "address_line2", ""), 
+                "city": p.address_city, 
+                "state": p.address_state, 
+                "zip": p.address_zip, 
+                "country": getattr(p, "country", "US")
             }
             # PREFILL DEFAULTS
             if "w_from_name" not in st.session_state: st.session_state.w_from_name = user_addr["name"]
@@ -510,7 +534,6 @@ def render_review_page():
 
     # RE-SYNC FROM WIDGETS IF NEEDED
     if tier != "Campaign" and (not st.session_state.get("to_addr") or not st.session_state.get("from_addr")):
-        # This handles cases where user skips saving explicit
         pass 
 
     if tier == "Civic" and "civic_targets" in st.session_state:
@@ -538,7 +561,7 @@ def render_review_page():
     st.info("📝 **Note:** You can edit the text below directly. The AI buttons above are optional.")
     txt = st.text_area("Body Content", key="transcribed_text", height=300, disabled=st.session_state.letter_sent_success)
     
-    # --- PDF PREVIEW (FIXED) ---
+    # --- PDF PREVIEW (FIXED: EMBED + DOWNLOAD) ---
     if st.button("👁️ Preview PDF Proof", type="secondary", use_container_width=True):
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
@@ -695,20 +718,18 @@ def show_main_app():
     if mode == "splash":
         try:
             import ui_splash
-            ui_splash.show_splash()
-        except ImportError:
-             st.title("Splash Missing"); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
-        except AttributeError:
-             st.error("Splash module exists but show_splash() missing.")
+            # --- CRITICAL FIX 1: MATCH ui_splash.py ---
+            ui_splash.show_splash() 
+        except ImportError: st.error("Splash Module Missing")
+        except AttributeError: st.error("Splash module exists but show_splash() missing.")
     
     elif mode == "login":
         try: 
             import ui_login
-            # --- CRITICAL FIX: Pass auth functions to match ui_login.py signature ---
+            # --- CRITICAL FIX 2: MATCH ui_login.py ---
             if auth_engine:
                 ui_login.show_login(auth_engine.sign_in, auth_engine.sign_up)
-            else:
-                st.error("Auth Engine is missing!")
+            else: st.error("Auth Engine Missing")
         except ImportError: st.error("Login Module Missing")
         except AttributeError: st.error("Login module exists but show_login() missing.")
         
@@ -717,7 +738,7 @@ def show_main_app():
     elif mode == "review": render_review_page()
     elif mode == "admin":
         try: import ui_admin; ui_admin.show_admin()
-        except Exception as e: st.error(f"Admin Error: {e}")
+        except: st.error("Admin Missing")
     elif mode == "legal": 
         render_legal_page()
     else: render_store_page()
