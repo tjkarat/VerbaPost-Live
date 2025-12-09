@@ -65,7 +65,8 @@ def show_splash():
     # --- 3. PRICING CARDS ---
     p1, p2, p3, p4 = st.columns(4)
     with p1:
-        st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
+        # Added 'Machine Stamped' to equalize height
+        st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li><li>📮 Machine Stamped</li></ul></div>""", unsafe_allow_html=True)
     with p2:
         st.markdown("""<div class="price-card"><div class="price-title">Heirloom</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
     with p3:

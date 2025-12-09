@@ -48,18 +48,19 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # --- STRIPE RETURN HANDLER (ANTI-LOOP VERSION) ---
+        # --- STRIPE RETURN HANDLER (LOOP BREAKER) ---
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # [CRITICAL FIX] LOOP BREAKER
-            # If we already processed this ID, STOP verifying and just clear URL.
+            # [CRITICAL FIX] 
+            # If we already processed this ID, STOP verification logic.
+            # Just clear the URL and show the app.
             if st.session_state.get("current_stripe_id") == sess_id:
-                st.session_state.app_mode = "workspace"
                 st.query_params.clear()
-                # Do NOT rerun here, just let it fall through to UI render
+                st.session_state.app_mode = "workspace"
+                # Do NOT rerun. Just fall through to rendering.
             else:
-                # First time seeing this ID. Verify it.
+                # First time processing this ID
                 status_box = st.empty()
                 status_box.info("🔄 Verifying Payment...")
                 
@@ -97,9 +98,8 @@ if __name__ == "__main__":
                     if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
                     
                     status_box.success("✅ Payment Verified!")
-                    time.sleep(0.5)
+                    # Just clear, don't rerun immediately (avoids race condition)
                     st.query_params.clear()
-                    st.rerun()
                 else:
                     status_box.error("❌ Payment Verification Failed.")
                     st.session_state.app_mode = "store"
@@ -111,7 +111,6 @@ if __name__ == "__main__":
         elif "view" in q_params:
             st.session_state.app_mode = q_params["view"]
             st.query_params.clear()
-            # Loop breaker for views too
             st.rerun()
 
     except Exception as e:

@@ -219,7 +219,7 @@ def show_admin():
             except Exception as e:
                 st.error(f"Error loading queue: {e}")
 
-    # --- TAB: PROMO CODES (RESTORED) ---
+    # --- TAB: PROMO CODES (With Usage Stats) ---
     with tab_promo:
         st.subheader("Manage Codes")
         if promo_engine:
@@ -238,7 +238,7 @@ def show_admin():
             st.write("---")
             st.markdown("### Active Codes")
             
-            # --- FIX: ROBUST FETCH AND DISPLAY ---
+            # --- FIX: VISIBLE TABLE LOGIC ---
             try:
                 stats = promo_engine.get_all_codes_with_usage()
                 if stats and len(stats) > 0: 
