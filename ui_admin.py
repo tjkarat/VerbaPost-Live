@@ -23,7 +23,7 @@ try: import civic_engine
 except ImportError: civic_engine = None
 
 # --- SAFE IMPORT: Address Standard ---
-# This prevents a crash if the address model changes
+# This prevents a crash if the address model changes or is missing
 try:
     from address_standard import StandardAddress
 except ImportError:
@@ -53,7 +53,7 @@ def check_password():
     st.info("🔒 Admin Access Required")
     pwd = st.text_input("Enter Admin Password", type="password", key="admin_pwd_input")
     
-    # Get password from secrets
+    # Get password from secrets or default to 'admin'
     correct_pwd = "admin" 
     if secrets_manager:
         fetched = secrets_manager.get_secret("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
@@ -72,7 +72,8 @@ def show_admin():
     if not check_password(): return
 
     st.title("🔐 Admin Console")
-    st.caption(f"Logged in as: {st.session_state.get('user_email', 'Unknown')}")
+    if "user_email" in st.session_state:
+        st.caption(f"Logged in as: {st.session_state.user_email}")
     
     # 2. Header / Actions
     c_top, c_logout = st.columns([4, 1])
@@ -205,7 +206,7 @@ def show_admin():
                                             b64 = base64.b64encode(pdf_bytes).decode()
                                             st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="letter_{row["ID"]}.pdf" style="background-color:#4CAF50;color:white;padding:8px;text-decoration:none;border-radius:4px;">⬇️ Download PDF</a>', unsafe_allow_html=True)
                                         else:
-                                            st.error("PDF generation returned empty bytes.")
+                                            st.error("PDF generation failed (empty).")
                                 except Exception as e:
                                     st.error(f"PDF Error: {e}")
 
@@ -218,7 +219,7 @@ def show_admin():
             except Exception as e:
                 st.error(f"Error loading queue: {e}")
 
-    # --- TAB: PROMO CODES (With Usage Stats) ---
+    # --- TAB: PROMO CODES (RESTORED) ---
     with tab_promo:
         st.subheader("Manage Codes")
         if promo_engine:
@@ -237,13 +238,13 @@ def show_admin():
             st.write("---")
             st.markdown("### Active Codes")
             
-            # --- ROBUST FETCH ---
+            # --- FIX: ROBUST FETCH AND DISPLAY ---
             try:
                 stats = promo_engine.get_all_codes_with_usage()
                 if stats and len(stats) > 0: 
                     st.dataframe(stats, use_container_width=True)
                 else:
-                    st.info("No promo codes found.")
+                    st.info("No promo codes found (or database connection failed).")
             except Exception as e:
                 st.error(f"Failed to fetch promo stats: {e}")
         else:
