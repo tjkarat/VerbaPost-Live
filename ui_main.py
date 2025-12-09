@@ -63,6 +63,8 @@ def reset_app():
     else: st.session_state.app_mode = "splash"
 
 def render_hero(title, subtitle):
+    # --- FIX: AGGRESSIVE WHITE TEXT FORCING ---
+    # We use a <span> wrapper to ensure the color overrides Streamlit's global theme
     st.markdown(f"""
     <div class="custom-hero" style="
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -71,8 +73,12 @@ def render_hero(title, subtitle):
         text-align: center;
         margin-bottom: 30px;
         box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: #ffffff !important; text-shadow: 0px 1px 2px rgba(0,0,0,0.2);">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.95; margin-top: 10px; color: #ffffff !important;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; text-shadow: 0px 1px 2px rgba(0,0,0,0.2);">
+            <span style="color: #ffffff !important;">{title}</span>
+        </h1>
+        <div style="font-size: 1.2rem; opacity: 0.95; margin-top: 10px;">
+            <span style="color: #ffffff !important;">{subtitle}</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -636,7 +642,6 @@ def render_review_page():
             reset_app()
             st.rerun()
 
-# --- THE MISSING ROUTER FUNCTION ---
 def show_main_app():
     if "app_mode" not in st.session_state:
         reset_app()
