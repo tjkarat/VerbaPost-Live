@@ -77,7 +77,6 @@ def show_splash():
 
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
-        # Added a key here just to be absolutely safe
         if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True, key="splash_cta_main"):
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" 
@@ -122,7 +121,6 @@ def show_splash():
 
     # --- 5. LEADERBOARD ---
     if database:
-        # Wrapped in Try/Except to prevent crashes if DB tables are missing
         try:
             stats = database.get_civic_leaderboard()
             if stats:
@@ -132,4 +130,4 @@ def show_splash():
                     for state, count in stats:
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
         except Exception:
-            pass # Fail silently if DB is not ready
+            pass
