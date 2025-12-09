@@ -207,7 +207,7 @@ def show_admin():
             except Exception as e:
                 st.error(f"Error loading queue: {e}")
 
-    # --- TAB: PROMO CODES ---
+    # --- TAB: PROMO CODES (FIXED) ---
     with tab_promo:
         st.subheader("Manage Codes")
         if promo_engine:
@@ -217,11 +217,18 @@ def show_admin():
                 limit = c_limit.number_input("Max Uses", 1, 1000, 100)
                 if st.form_submit_button("Create Code"):
                     ok, msg = promo_engine.create_code(new_code, limit)
-                    if ok: st.success(msg)
+                    if ok: st.success(msg); st.rerun()
                     else: st.error(msg)
             
-            # Show existing codes
+            # --- FIX: SHOW ERRORS IF FETCH FAILS ---
+            st.write("---")
             try:
                 stats = promo_engine.get_all_codes_with_usage()
-                if stats: st.dataframe(stats)
-            except: pass
+                if stats and len(stats) > 0: 
+                    st.dataframe(stats, use_container_width=True)
+                else:
+                    st.info("No promo codes found (or database connection failed).")
+            except Exception as e:
+                st.error(f"Failed to fetch promo stats: {e}")
+        else:
+            st.error("Promo Engine module missing.")
