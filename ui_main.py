@@ -258,6 +258,9 @@ def render_workspace_page():
     render_hero("Compose Letter", f"{tier} Edition")
     
     u_email = st.session_state.get("user_email")
+    
+    # --- 1. ADDRESS SYNC LOGIC (Fix for Missing Data) ---
+    # Restore "From" from Profile if missing
     if database and u_email:
         p = database.get_user_profile(u_email)
         if p and "w_from_name" not in st.session_state:
@@ -266,6 +269,17 @@ def render_workspace_page():
             st.session_state.w_from_city = p.address_city
             st.session_state.w_from_state = p.address_state
             st.session_state.w_from_zip = p.address_zip
+
+    # Restore "To" from Session if widgets are empty but data exists (e.g. Back from Review)
+    if "to_addr" in st.session_state and st.session_state.to_addr and "w_to_name" not in st.session_state:
+        data = st.session_state.to_addr
+        st.session_state.w_to_name = data.get("name", "")
+        st.session_state.w_to_street = data.get("street", "")
+        st.session_state.w_to_street2 = data.get("address_line2", "")
+        st.session_state.w_to_city = data.get("city", "")
+        st.session_state.w_to_state = data.get("state", "")
+        st.session_state.w_to_zip = data.get("zip", "")
+        st.session_state.w_to_country = data.get("country", "US")
 
     with st.container(border=True):
         if tier == "Campaign":
@@ -322,11 +336,19 @@ def render_workspace_page():
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
-                            sel = st.selectbox("Address Book", ["-- Quick Fill --"] + [x.name for x in cons])
+                            # --- Fix for Address Book Quick Fill ---
+                            names = ["-- Quick Fill --"] + [x.name for x in cons]
+                            sel = st.selectbox("Address Book", names)
                             if sel != "-- Quick Fill --":
                                 c = next(x for x in cons if x.name == sel)
-                                st.session_state.w_to_name = c.name; st.session_state.w_to_street = c.street
-                                st.session_state.w_to_city = c.city; st.session_state.w_to_state = c.state; st.session_state.w_to_zip = c.zip_code
+                                # Force session state update before widget render next cycle
+                                st.session_state.w_to_name = c.name
+                                st.session_state.w_to_street = c.street
+                                st.session_state.w_to_city = c.city
+                                st.session_state.w_to_state = c.state
+                                st.session_state.w_to_zip = c.zip_code
+                                # Rerun to populate fields immediately
+                                st.rerun()
 
                     st.text_input("Name", key="w_to_name")
                     st.text_input("Street", key="w_to_street")
@@ -346,7 +368,7 @@ def render_workspace_page():
 
             if st.button("Save Addresses", type="primary"):
                 _save_addrs(tier)
-                st.toast("Saved!")
+                st.toast("✅ Addresses Saved!")
 
     st.write("---")
     # Dictation / Signature
@@ -366,6 +388,9 @@ def render_workspace_page():
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
+            # --- INSTRUCTIONAL MESSAGE ADDED HERE ---
+            st.info("💡 **Instructions:**\n1. Click **Start Recording**\n2. Speak your letter clearly\n3. Click **Stop Recording**\n4. Wait a moment for AI transcription")
+            
             try:
                 audio = st.audio_input("Record")
                 if audio and ai_engine:
