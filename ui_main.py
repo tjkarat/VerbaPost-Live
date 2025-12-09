@@ -1,5 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components  # <--- CRITICAL IMPORT FOR JS REDIRECT
+import streamlit.components.v1 as components # <--- CRITICAL IMPORT
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
@@ -150,7 +150,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.7 Stable")
+        st.caption("v3.0.8 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -213,9 +213,7 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- PAYMENT LOGIC ---
-            
-            # Case 1: Free/Promo - Direct Entry
+            # --- CASE 1: FREE/PROMO ---
             if discounted:
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
@@ -226,29 +224,44 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
 
-            # Case 2: Paid - Stripe Redirect (with Frame Buster)
+            # --- CASE 2: LINK ALREADY GENERATED (JAVASCRIPT BUSTER) ---
+            elif "pending_stripe_url" in st.session_state:
+                url = st.session_state.pending_stripe_url
+                st.success("✅ Link Generated!")
+                st.info("A new tab should open for payment. If not, click below:")
+                
+                # Manual Button (Green)
+                st.link_button("👉 Pay Now on Stripe (New Tab)", url, type="primary", use_container_width=True)
+                
+                # --- AUTO-OPEN JS INJECTION ---
+                # This automatically opens the link in a new tab, bypassing the white screen iframe issue
+                components.html(f"""
+                    <script>
+                        window.open('{url}', '_blank');
+                    </script>
+                """, height=0)
+                
+                if st.button("Cancel / Restart"):
+                    del st.session_state.pending_stripe_url
+                    st.rerun()
+
+            # --- CASE 3: GENERATE LINK ---
             else:
-                if st.button(f"Pay ${final_price} & Start", type="primary", use_container_width=True):
-                    with st.spinner("Redirecting to Stripe..."):
-                        # 1. Create Draft
+                if st.button("Proceed to Payment", type="primary", use_container_width=True):
+                    with st.spinner("Preparing secure link..."):
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
-                        # 2. Build URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
                         if is_certified: link += "&certified=1"
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
-                        # 3. Get Stripe URL
                         if payment_engine:
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
-                                # --- THE FIX: JAVASCRIPT REDIRECT ---
-                                # This forces the redirect to happen in the TOP window, breaking out of the iframe.
                                 st.session_state.pending_stripe_url = url
-                                components.html(f"<script>window.top.location.href = '{url}';</script>", height=0)
-                                time.sleep(1) # Wait for JS to fire
+                                st.rerun() # This triggers the JS on the next render
                             else:
                                 st.error("Stripe Connection Failed.")
 
