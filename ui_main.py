@@ -7,26 +7,12 @@ import io
 import time
 from PIL import Image
 
-# --- 1. CRITICAL: PREVENT CIRCULAR DEPENDENCY CRASH ---
-# This must be loaded before 'mailer' or 'ui_admin'
+# --- 1. CRITICAL: LOAD DATA MODEL FIRST ---
+# Prevents KeyError by ensuring StandardAddress exists before mailer imports it.
 try:
     from address_standard import StandardAddress
 except ImportError:
-    # Fallback if file is momentarily inaccessible
-    from dataclasses import dataclass
-    from typing import Optional, Dict, Any
-    @dataclass
-    class StandardAddress:
-        name: str
-        street: str
-        address_line2: Optional[str] = ""
-        city: str = ""
-        state: str = ""
-        zip_code: str = ""
-        country: str = "US"
-        def to_pdf_string(self): return f"{self.name}\n{self.street}"
-        @classmethod
-        def from_dict(cls, d): return cls(name=d.get('name',''), street=d.get('street',''))
+    st.error("Critical Error: address_standard.py is missing.")
 
 # --- 2. LOAD MODULES ---
 try: import database
@@ -95,10 +81,10 @@ def reset_app():
         st.session_state.app_mode = "splash"
 
 def check_session():
+    # If returning from payment, allow one pass to verify
+    if st.query_params.get("session_id"): return True
+    
     if "user_email" not in st.session_state or not st.session_state.user_email:
-        # Check if we are mid-payment return before kicking out
-        if st.query_params.get("session_id"): return True
-        
         st.warning("Session Expired.")
         st.session_state.app_mode = "login"
         st.rerun()
@@ -120,8 +106,9 @@ def render_hero(title, subtitle):
     """, unsafe_allow_html=True)
 
 def render_legal_page():
+    # MATCHES ui_legal.py
     try: import ui_legal; ui_legal.show_legal()
-    except: st.error("Legal page unavailable.")
+    except: st.error("Legal module missing.")
 
 def _save_addresses_from_widgets(tier, is_intl):
     u_email = st.session_state.get("user_email")
@@ -145,7 +132,7 @@ def _save_addresses_from_widgets(tier, is_intl):
             "country": st.session_state.get("w_to_country", "US")
         }
 
-# --- 5. AUTH HANDLERS (Matches ui_login.py) ---
+# --- 5. AUTH HANDLERS (MATCHES ui_login.py) ---
 def handle_login(email, password):
     if auth_engine:
         res, err = auth_engine.sign_in(email, password)
@@ -163,14 +150,13 @@ def handle_signup(email, password, name, street, street2, city, state, zip_code,
         if res and res.user:
             st.session_state.user_email = res.user.email
             st.session_state.app_mode = "store"
-            # ui_login expects a return tuple
             return res, None
         else: return None, err
     return None, "Auth Engine Missing"
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
-    # Handle Stripe Return
+    # Payment Return Logic
     sess_id = st.query_params.get("session_id")
     if sess_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -178,11 +164,11 @@ def render_store_page():
                 success, details = payment_engine.verify_session(sess_id)
                 if success:
                     st.session_state.payment_complete = True
-                    # Attempt to recover email from Stripe if session was lost
+                    # Attempt Auto-Login from Stripe Email if session lost
                     if not st.session_state.get("user_email"):
                         try:
-                            rec_email = details.get("customer_details", {}).get("email")
-                            if rec_email: st.session_state.user_email = rec_email
+                            rec = details.get("customer_details", {}).get("email")
+                            if rec: st.session_state.user_email = rec
                         except: pass
                     
                     if audit_engine: audit_engine.log_event(st.session_state.get("user_email"), "PAYMENT_SUCCESS", sess_id, {"amount": details.get('amount_total')})
@@ -196,7 +182,6 @@ def render_store_page():
 
     render_hero("Select Service", "Choose your letter type")
     
-    # Admin Check
     try:
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email")
@@ -210,20 +195,13 @@ def render_store_page():
             st.subheader("Available Packages")
             tier_options = ["Standard", "Heirloom", "Civic", "Santa", "Campaign"]
             tier_labels = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)", "Campaign": "📢 Campaign (Bulk)"}
-            
-            pre_sel = 0
-            if "target_marketing_tier" in st.session_state:
-                t = st.session_state.target_marketing_tier
-                if t in tier_options: pre_sel = tier_options.index(t)
-
-            sel = st.radio("Select Tier", tier_options, format_func=lambda x: tier_labels[x], index=pre_sel)
+            sel = st.radio("Select Tier", tier_options, format_func=lambda x: tier_labels[x])
             tier_code = sel
             
             qty = 1; price = 0.0
             if tier_code == "Campaign":
                 qty = st.number_input("Number of Recipients", 10, 5000, 50, 10)
                 price = 2.99 + ((qty - 1) * 1.99)
-                st.caption(f"Pricing: First letter $2.99, then $1.99/ea")
             else:
                 price = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}[tier_code]
 
@@ -231,8 +209,8 @@ def render_store_page():
             if tier_code in ["Standard", "Heirloom"]:
                 c1a, c1b = st.columns(2)
                 if c1a.checkbox("Send Internationally? (+$2.00)", key="intl_toggle_check"): price += 2.00; is_intl = True
-                if c1b.checkbox("📜 Certified Mail (+$12.00)"): price += 12.00; is_certified = True; st.caption("Includes tracking.")
-            
+                if c1b.checkbox("📜 Certified Mail (+$12.00)"): price += 12.00; is_certified = True
+
             st.session_state.locked_tier = tier_code
             st.session_state.is_intl = is_intl
             st.session_state.is_certified = is_certified
@@ -277,7 +255,7 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
-                        # FIX: Remove metadata arg to prevent TypeError with existing engine
+                        # FIX: REMOVE METADATA ARG TO MATCH payment_engine.py
                         url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price*100), link, YOUR_APP_URL)
                         if url: st.markdown(f'<a href="{url}" target="_self" style="text-decoration:none;"><button style="width:100%;padding:10px;background:#6772e5;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay with Stripe</button></a>', unsafe_allow_html=True)
                     else: st.error("Payment Engine Missing")
@@ -294,7 +272,6 @@ def render_workspace_page():
         p = database.get_user_profile(u_email)
         if p: 
             u_addr = {"name": p.full_name, "street": p.address_line1, "street2": getattr(p, "address_line2", ""), "city": p.address_city, "state": p.address_state, "zip": p.address_zip, "country": getattr(p, "country", "US")}
-            # Defaults
             if "w_from_name" not in st.session_state: st.session_state.w_from_name = u_addr.get("name","")
             if "w_from_street" not in st.session_state: st.session_state.w_from_street = u_addr.get("street","")
             if "w_from_street2" not in st.session_state: st.session_state.w_from_street2 = u_addr.get("street2","")
@@ -318,12 +295,10 @@ def render_workspace_page():
                     if st.button("Confirm"): st.session_state.bulk_targets = contacts; st.toast("Saved!")
         
         elif tier == "Santa":
-            st.info("🎅 **From:** Santa Claus, North Pole (Locked)")
-            st.subheader("📍 Addressing")
-            st.markdown("**📮 To (Recipient)**")
+            st.info("🎅 **From:** Santa Claus, North Pole")
             st.text_input("Child's Name", key="w_to_name")
             st.text_input("Street Address", key="w_to_street")
-            st.text_input("Apt / Suite (Optional)", key="w_to_street2")
+            st.text_input("Apt / Suite", key="w_to_street2")
             c1, c2, c3 = st.columns([2, 1, 1])
             c1.text_input("City", key="w_to_city")
             c2.text_input("State", key="w_to_state")
@@ -331,13 +306,7 @@ def render_workspace_page():
             st.session_state.w_to_country = "US"
             
             if st.button("Save Address", type="primary"):
-                st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
-                st.session_state.to_addr = {
-                    "name": st.session_state.w_to_name, "street": st.session_state.w_to_street,
-                    "address_line2": st.session_state.w_to_street2, "city": st.session_state.w_to_city,
-                    "state": st.session_state.w_to_state, "zip": st.session_state.w_to_zip, "country": "US"
-                }
-                st.toast("Address Saved!")
+                _save_addresses_from_widgets(tier, False); st.toast("Address Saved!")
 
         elif tier == "Civic":
             st.subheader("🏛️ Your Representatives")
@@ -479,6 +448,7 @@ def render_review_page():
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path = tmp.name
             
             pdf = letter_format.create_pdf(txt, to_obj.to_pdf_string(), from_obj.to_pdf_string(), (tier=="Heirloom"), (tier=="Santa"), sig_path)
+            
             if pdf:
                 b64 = base64.b64encode(pdf).decode()
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
@@ -540,8 +510,9 @@ def show_main_app():
         try: import ui_splash; ui_splash.show_splash()
         except: st.error("Splash Missing"); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
     elif mode == "login":
+        # MATCHES ui_login.py signature: show_login(login_func, signup_func)
         try: import ui_login; ui_login.show_login(handle_login, handle_signup)
-        except: st.error("Login Missing")
+        except: st.error("Login Module Missing")
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
