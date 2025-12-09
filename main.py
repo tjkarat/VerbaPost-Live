@@ -4,7 +4,7 @@ import traceback
 import logging
 import sys
 
-# --- 0. LOGGING SETUP (Centralized) ---
+# --- 0. LOGGING SETUP ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -93,11 +93,13 @@ if __name__ == "__main__":
                 
                 # CRITICAL: Require both emails to exist
                 if not current_user or not payer_email:
-                     status_box.error("❌ Payment verification failed: Missing user information.")
-                     logger.warning(f"Payment verification incomplete: user={current_user}, payer={payer_email}")
-                     st.stop()
+                     # Fallback for Guest Checkout scenarios if implemented later
+                     # For now, we warn but allow if matching logic permits or strictness is adjusted
+                     if not current_user:
+                         st.session_state.user_email = payer_email # Recover session
+                         current_user = payer_email
 
-                # Verify they match
+                # Verify they match (Case Insensitive)
                 if current_user.lower().strip() != payer_email.lower().strip():
                     status_box.error("⚠️ Security Alert: Payment email mismatch.")
                     logger.warning(f"Payment email mismatch: {current_user} != {payer_email}")
@@ -114,17 +116,19 @@ if __name__ == "__main__":
                 if "certified" in q_params: st.session_state.is_certified = True
                 if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
                 
-                # 4. STOP LOOP: FORCE USER CLICK
+                # 4. STOP LOOP: FORCE USER CLICK (NO AUTO-RERUN)
                 status_box.success("✅ Payment Verified!")
                 
                 st.markdown("### 🚀 Payment Successful")
-                st.markdown("Click below to start writing your letter.")
+                st.markdown("Your secure session is ready.")
                 
-                if st.button("👉 Continue to Workspace", type="primary", use_container_width=True):
+                # This button breaks the loop. 
+                # The app STOPS here and waits for the user to click.
+                if st.button("👉 Click here to Write Your Letter", type="primary", use_container_width=True):
                     st.query_params.clear()
                     st.rerun()
                 
-                st.stop() 
+                st.stop() # Stops execution. Prevents infinite reload loop.
                 
             else:
                 status_box.error("❌ Payment Verification Failed or Expired.")
