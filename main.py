@@ -48,21 +48,23 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # --- STRIPE RETURN HANDLER (LOOP BREAKER) ---
+        # --- STRIPE RETURN HANDLER (DIRECT RENDER - NO LOOP) ---
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # [CRITICAL FIX] 
-            # If we already processed this ID, STOP verification logic.
-            # Just clear the URL and show the app.
-            if st.session_state.get("current_stripe_id") == sess_id:
-                st.query_params.clear()
+            # CHECK: Have we already processed this exact session?
+            # If yes, don't verify again. Just show workspace.
+            if st.session_state.get("current_stripe_id") == sess_id and st.session_state.get("payment_complete"):
                 st.session_state.app_mode = "workspace"
-                # Do NOT rerun. Just fall through to rendering.
+                # Remove param silently without forcing a rerun
+                if "session_id" in st.query_params:
+                    del st.query_params["session_id"]
+            
             else:
-                # First time processing this ID
+                # FIRST TIME PROCESSING
+                # Draw a placeholder so user sees something happening
                 status_box = st.empty()
-                status_box.info("🔄 Verifying Payment...")
+                status_box.info("🔄 Verifying Payment... (Do not refresh)")
                 
                 try:
                     import payment_engine
@@ -79,39 +81,45 @@ if __name__ == "__main__":
                 if is_paid and current_user and payer_email:
                     if current_user.lower().strip() != payer_email.lower().strip():
                         status_box.error("⚠️ Security Alert: Payment email mismatch.")
-                        time.sleep(5)
+                        time.sleep(10)
                         st.stop()
 
                 if is_paid:
-                    # Success State
-                    st.session_state.app_mode = "workspace"
+                    # 1. Update State
                     st.session_state.payment_complete = True
                     st.session_state.current_stripe_id = sess_id 
+                    st.session_state.app_mode = "workspace"
                     
+                    # 2. Recover User Info
                     if not current_user and payer_email:
                         st.session_state.user_email = payer_email
 
-                    # Restore Params
+                    # 3. Restore Config
                     if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                     if "intl" in q_params: st.session_state.is_intl = True
                     if "certified" in q_params: st.session_state.is_certified = True
                     if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
                     
+                    # 4. CRITICAL FIX: Direct Success Message & NO RERUN
                     status_box.success("✅ Payment Verified!")
-                    # Just clear, don't rerun immediately (avoids race condition)
-                    st.query_params.clear()
+                    
+                    # We clear the URL param in memory only. 
+                    # The browser URL bar might still show it, but that is fine.
+                    # It prevents the crash.
+                    if "session_id" in st.query_params:
+                        del st.query_params["session_id"]
+                    
                 else:
-                    status_box.error("❌ Payment Verification Failed.")
+                    status_box.error("❌ Payment Verification Failed or Expired.")
                     st.session_state.app_mode = "store"
-                    time.sleep(2.0)
-                    st.query_params.clear()
-                    st.rerun()
+                    time.sleep(2)
+                    if "session_id" in st.query_params:
+                        del st.query_params["session_id"]
 
         # --- OTHER LINKS ---
         elif "view" in q_params:
             st.session_state.app_mode = q_params["view"]
             st.query_params.clear()
-            st.rerun()
 
     except Exception as e:
         st.error(f"Routing Error: {e}")
