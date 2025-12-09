@@ -7,11 +7,12 @@ import io
 import time
 from PIL import Image
 
-# --- 1. CRITICAL IMPORT ORDER (Prevents KeyErrors) ---
-# We must import the data model BEFORE importing modules that depend on it (like mailer)
-try: from address_standard import StandardAddress
+# --- 1. CRITICAL: LOAD CORE DATA MODEL FIRST ---
+# This ensures the class exists in sys.modules before 'mailer' tries to import it.
+try:
+    from address_standard import StandardAddress
 except ImportError:
-    # Fail-safe definition if file is locked
+    # Fallback definition to prevent crash if file is locked/missing
     from dataclasses import dataclass
     from typing import Optional, Dict, Any
     @dataclass
@@ -23,11 +24,12 @@ except ImportError:
         state: str = ""
         zip_code: str = ""
         country: str = "US"
+        def to_postgrid_payload(self): return {}
         def to_pdf_string(self): return f"{self.name}\n{self.street}"
         @classmethod
         def from_dict(cls, d): return cls(name=d.get('name',''), street=d.get('street',''))
 
-# --- 2. MODULE IMPORTS ---
+# --- 2. LOAD MODULES ---
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -71,6 +73,7 @@ COUNTRIES = {
 
 # --- 4. SESSION HELPERS ---
 def reset_app():
+    """Restores session to a clean state while keeping login."""
     recovered = st.query_params.get("draft_id")
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
@@ -95,6 +98,15 @@ def reset_app():
         st.session_state.app_mode = "splash"
 
 def check_session():
+    # If we just finished payment, we might be in a weird state. Allow workspace if paid.
+    if st.session_state.get("payment_complete", False):
+        if not st.session_state.get("user_email"):
+            st.warning("⚠️ Session refreshed. Please re-login to save your letter.")
+            st.session_state.app_mode = "login"
+            st.rerun()
+            return False
+        return True
+
     if "user_email" not in st.session_state or not st.session_state.user_email:
         st.warning("Session Expired.")
         st.session_state.app_mode = "login"
@@ -119,39 +131,34 @@ def render_hero(title, subtitle):
 
 def render_legal_page():
     try: import ui_legal; ui_legal.show_legal()
-    except: st.error("Legal page unavailable.")
+    except: st.error("Legal module missing.")
 
 def _save_addresses_from_widgets(tier, is_intl):
     u_email = st.session_state.get("user_email")
+    # Capture Sender
     if tier == "Santa":
         st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
     else:
         st.session_state.from_addr = {
-            "name": st.session_state.get("w_from_name"),
-            "street": st.session_state.get("w_from_street"),
-            "address_line2": st.session_state.get("w_from_street2", ""),
-            "city": st.session_state.get("w_from_city"),
-            "state": st.session_state.get("w_from_state"),
-            "zip": st.session_state.get("w_from_zip"),
-            "country": st.session_state.get("w_from_country", "US"),
-            "email": u_email
+            "name": st.session_state.get("w_from_name"), "street": st.session_state.get("w_from_street"),
+            "address_line2": st.session_state.get("w_from_street2", ""), "city": st.session_state.get("w_from_city"),
+            "state": st.session_state.get("w_from_state"), "zip": st.session_state.get("w_from_zip"),
+            "country": st.session_state.get("w_from_country", "US"), "email": u_email
         }
-    
+    # Capture Recipient
     if tier == "Civic":
         st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
     else:
         st.session_state.to_addr = {
-            "name": st.session_state.get("w_to_name"),
-            "street": st.session_state.get("w_to_street"),
-            "address_line2": st.session_state.get("w_to_street2", ""),
-            "city": st.session_state.get("w_to_city"),
-            "state": st.session_state.get("w_to_state"),
-            "zip": st.session_state.get("w_to_zip"),
+            "name": st.session_state.get("w_to_name"), "street": st.session_state.get("w_to_street"),
+            "address_line2": st.session_state.get("w_to_street2", ""), "city": st.session_state.get("w_to_city"),
+            "state": st.session_state.get("w_to_state"), "zip": st.session_state.get("w_to_zip"),
             "country": st.session_state.get("w_to_country", "US")
         }
 
-# --- 5. AUTH HANDLERS ---
+# --- 5. AUTH HANDLERS (Bridge for ui_login.py) ---
 def handle_login(email, password):
+    # ui_login calls this and expects US to handle the redirect
     if auth_engine:
         res, err = auth_engine.sign_in(email, password)
         if res and res.user:
@@ -163,19 +170,22 @@ def handle_login(email, password):
         else: st.error(f"Login failed: {err}")
 
 def handle_signup(email, password, name, street, street2, city, state, zip_code, country, language):
+    # ui_login calls this and expects return values (res, err)
     if auth_engine:
         res, err = auth_engine.sign_up(email, password, name, street, street2, city, state, zip_code, country, language)
         if res and res.user:
             st.session_state.user_email = res.user.email
             st.session_state.app_mode = "store"
-            # Return result so ui_login can show success msg
             return res, None
         else: return None, err
     return None, "Auth Engine Missing"
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
-    # PAYMENT RETURN HANDLER
+    if not check_session(): return
+    u_email = st.session_state.user_email
+
+    # Verify Payment if returning from Stripe
     sess_id = st.query_params.get("session_id")
     if sess_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -183,32 +193,23 @@ def render_store_page():
                 success, details = payment_engine.verify_session(sess_id)
                 if success:
                     st.session_state.payment_complete = True
-                    # Auto-restore session from Stripe metadata
-                    meta = details.get('metadata', {})
-                    if meta:
-                        st.session_state.locked_tier = meta.get('tier', 'Standard')
-                        st.session_state.is_intl = (meta.get('intl') == '1')
-                        st.session_state.is_certified = (meta.get('certified') == '1')
-                    
-                    # Auto-login from Stripe email if session died
-                    if not st.session_state.get("user_email"):
+                    # Metadata fallback: if user_email was lost, try to recover from Stripe details
+                    if not u_email:
                         try:
-                            rec_email = details.get("customer_details", {}).get("email")
-                            if rec_email: st.session_state.user_email = rec_email
+                            rec = details.get("customer_details", {}).get("email")
+                            if rec: st.session_state.user_email = rec
                         except: pass
-
+                    
                     if audit_engine: audit_engine.log_event(st.session_state.get("user_email"), "PAYMENT_SUCCESS", sess_id, {"amount": details.get('amount_total')})
                     st.success("Payment Received!")
                     st.session_state.app_mode = "workspace"
                     st.rerun()
-                else: st.error("Payment Verification Failed")
-
-    if not check_session(): return
-    u_email = st.session_state.user_email
+                else: 
+                    st.error("Payment Verification Failed")
 
     render_hero("Select Service", "Choose your letter type")
     
-    # Admin
+    # Admin Check
     try:
         if secrets_manager:
             admin_target = secrets_manager.get_secret("admin.email")
@@ -255,21 +256,21 @@ def render_store_page():
             st.subheader("Checkout")
             code = st.text_input("Promo Code")
             discounted = False
-            if promo_engine and code and promo_engine.validate_code(code): discounted = True; st.success("✅ Applied!")
+            if promo_engine and code:
+                if promo_engine.validate_code(code): discounted = True; st.success("✅ Applied!")
             
-            st.metric("Total", f"${0.00 if discounted else price:.2f}")
-            
-            if st.button("🚀 Pay & Start", type="primary", use_container_width=True):
-                # Save Draft
-                d_id = st.session_state.get("current_draft_id")
-                if d_id and database: database.update_draft_data(d_id, status="Draft", tier=tier_code, price="0.00" if discounted else str(price))
-                elif database: 
-                    d_id = database.save_draft(u_email, "", tier_code, "0.00" if discounted else str(price))
-                    st.session_state.current_draft_id = d_id
-                    st.query_params["draft_id"] = str(d_id)
-
-                if discounted:
+            if discounted:
+                st.metric("Total", "$0.00", delta=f"-${price:.2f} off")
+                if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code, u_email)
+                    
+                    d_id = st.session_state.get("current_draft_id")
+                    if d_id and database: database.update_draft_data(d_id, status="Draft", content="", tier=tier_code, price="0.00")
+                    elif database: 
+                        d_id = database.save_draft(u_email, "", tier_code, "0.00")
+                        st.session_state.current_draft_id = d_id
+                        st.query_params["draft_id"] = str(d_id)
+
                     if audit_engine: audit_engine.log_event(u_email, "FREE_TIER_STARTED", None, {"code": code})
                     st.session_state.payment_complete = True
                     st.session_state.app_mode = "workspace"
@@ -277,7 +278,6 @@ def render_store_page():
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
-                    # Save State
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database: database.update_draft_data(d_id, status="Draft", tier=tier_code, price=price)
                     elif database: 
@@ -291,9 +291,8 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
-                        # PASS METADATA (Now supported by updated payment_engine)
-                        meta = {"tier": tier_code, "intl": "1" if is_intl else "0", "certified": "1" if is_certified else "0"}
-                        url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price*100), link, YOUR_APP_URL, metadata=meta)
+                        # FIX: No metadata passed, ensuring compatibility with your current payment_engine.py
+                        url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price*100), link, YOUR_APP_URL)
                         if url: st.markdown(f'<a href="{url}" target="_self" style="text-decoration:none;"><button style="width:100%;padding:10px;background:#6772e5;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay with Stripe</button></a>', unsafe_allow_html=True)
                     else: st.error("Payment Engine Missing")
 
@@ -381,6 +380,7 @@ def render_workspace_page():
                 for r in st.session_state.civic_targets: st.write(f"🏛️ {r['name']} ({r['title']})")
 
         else:
+            # STANDARD / HEIRLOOM
             st.subheader("📍 Addressing")
             with st.expander(f"✉️ Sender: {u_addr.get('name', '')}", expanded=False):
                 st.text_input("Sender Name", key="w_from_name")
@@ -462,6 +462,7 @@ def render_workspace_page():
             if up and st.button("Transcribe"):
                 with tempfile.NamedTemporaryFile(delete=False, suffix="."+up.name.split('.')[-1]) as tmp:
                     tmp.write(up.getvalue()); st.session_state.transcribed_text = ai_engine.transcribe_audio(tmp.name); st.session_state.app_mode = "review"; st.rerun()
+        else: st.error("AI Engine Missing")
 
 # --- 8. PAGE: REVIEW ---
 def render_review_page():
@@ -470,6 +471,7 @@ def render_review_page():
     if st.button("⬅️ Edit"): st.session_state.app_mode = "workspace"; st.rerun()
     
     tier = st.session_state.get("locked_tier", "Standard")
+    # Auto-Save Check
     if tier != "Campaign" and not st.session_state.get("to_addr"): 
         st.warning("⚠️ Addresses not saved properly.")
 
@@ -483,7 +485,7 @@ def render_review_page():
     
     txt = st.text_area("Body", key="transcribed_text", height=300)
     
-    # PDF PREVIEW
+    # PDF Preview
     if st.button("👁️ Preview PDF"):
         if letter_format:
             to_obj = StandardAddress.from_dict(st.session_state.get("to_addr", {}))
