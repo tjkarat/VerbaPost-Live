@@ -65,7 +65,7 @@ def reset_app():
 def render_hero(title, subtitle):
     # --- FIX 1: FORCE WHITE TEXT ON BLUE BACKGROUND ---
     # This explicit style overrides any global config settings
-        st.markdown(f"""
+    st.markdown(f"""
     <div class="custom-hero" style="
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
         padding: 40px;
@@ -633,3 +633,5 @@ def render_review_page():
             st.caption("You will also receive this via email.")
         
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True):
+            reset_app()
+            st.rerun()
