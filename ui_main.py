@@ -63,7 +63,19 @@ def reset_app():
     else: st.session_state.app_mode = "splash"
 
 def render_hero(title, subtitle):
-    st.markdown(f"""<div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);"><h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1><div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div></div>""", unsafe_allow_html=True)
+    # --- FIX: FORCE WHITE TEXT WITH INLINE STYLES ---
+    st.markdown(f"""
+    <div class="custom-hero" style="
+        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+        padding: 40px;
+        border-radius: 15px;
+        text-align: center;
+        margin-bottom: 30px;
+        box-shadow: 0 8px 16px rgba(0,0,0,0.1);">
+        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: #ffffff !important; text-shadow: 0px 1px 2px rgba(0,0,0,0.2);">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.95; margin-top: 10px; color: #ffffff !important;">{subtitle}</div>
+    </div>
+    """, unsafe_allow_html=True)
 
 def render_legal_page(): import ui_legal; ui_legal.show_legal()
 
@@ -216,55 +228,74 @@ def render_workspace_page():
                     if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("List Saved!")
         
         else:
-            st.subheader("📍 Addressing")
+            # Prepare Defaults
             def_n=user_addr.get("name",""); def_s=user_addr.get("street","")
             def_s2=user_addr.get("address_line2",""); def_c=user_addr.get("city","")
             def_st=user_addr.get("state",""); def_z=user_addr.get("zip",""); def_cntry=user_addr.get("country","US")
             
             if tier == "Santa":
                 st.info("🎅 **From:** Santa Claus, North Pole (Locked)")
+                st.subheader("📍 Addressing")
+                st.markdown("**📮 To (Recipient)**")
+                # Santa needs To fields shown
+                st.text_input("Recipient Name", key="w_to_name")
+                st.text_input("Recipient Street", key="w_to_street")
+                st.text_input("Recipient Apt/Suite (Optional)", key="w_to_street2")
+                c_city, c_state, c_zip = st.columns([2, 1, 1])
+                c_city.text_input("City", key="w_to_city")
+                c_state.text_input("State", key="w_to_state")
+                c_zip.text_input("Zip", key="w_to_zip")
+                st.session_state.w_to_country = "US"
+                
+                if st.button("Save Address", type="primary"):
+                    _save_addresses_from_widgets(tier, False)
+                    st.toast("Address Saved!")
+
             elif tier == "Civic":
-                 # --- FIX: CIVIC LOOKUP UI ---
-                 st.markdown("**(From) Your Voting Address**")
-                 st.caption("We use this to find your specific elected officials.")
+                 st.subheader("🏛️ Your Representatives")
                  
-                 c_f1, c_f2 = st.columns([1, 1])
-                 with c_f1:
-                     f_name = st.text_input("Your Name", value=def_n, key="w_from_name")
-                     f_street = st.text_input("Street Address", value=def_s, key="w_from_street")
-                     f_street2 = st.text_input("Apt/Suite", value=def_s2, key="w_from_street2")
-                 with c_f2:
-                     f_city = st.text_input("City", value=def_c, key="w_from_city")
-                     f_state = st.text_input("State", value=def_st, key="w_from_state")
-                     f_zip = st.text_input("Zip", value=def_z, key="w_from_zip")
-                 st.session_state.w_from_country = "US"
+                 # --- FIX: AUTOMATIC CIVIC LOOKUP ---
+                 # 1. Display the User's Address (Auto-filled)
+                 with st.expander("📍 Using your voting address (Click to Edit)", expanded=False):
+                     c_f1, c_f2 = st.columns([1, 1])
+                     with c_f1:
+                         f_name = st.text_input("Your Name", value=def_n, key="w_from_name")
+                         f_street = st.text_input("Street Address", value=def_s, key="w_from_street")
+                         f_street2 = st.text_input("Apt/Suite", value=def_s2, key="w_from_street2")
+                     with c_f2:
+                         f_city = st.text_input("City", value=def_c, key="w_from_city")
+                         f_state = st.text_input("State", value=def_st, key="w_from_state")
+                         f_zip = st.text_input("Zip", value=def_z, key="w_from_zip")
+                     st.session_state.w_from_country = "US"
+                     
+                     if st.button("🔄 Update Address & Search Again"):
+                         if "civic_targets" in st.session_state: del st.session_state.civic_targets
+                         st.rerun()
 
-                 if st.button("🔍 Find My Representatives", type="primary"):
-                     if civic_engine:
-                         # Construct full address for Geocodio
-                         full_addr = f"{f_street}, {f_city}, {f_state} {f_zip}"
-                         if f_street:
-                             with st.spinner("Locating officials..."):
-                                 reps = civic_engine.get_reps(full_addr)
-                                 if reps:
-                                     st.session_state.civic_targets = reps
-                                     st.success(f"✅ Found {len(reps)} representatives!")
-                                 else:
-                                     st.error("No representatives found for this address.")
-                         else:
-                             st.error("Please enter a street address first.")
-                     else:
-                         st.error("Civic Engine missing.")
+                 # 2. Logic: If address exists, auto-search
+                 if "civic_targets" not in st.session_state:
+                     full_addr = f"{f_street}, {f_city}, {f_state} {f_zip}"
+                     if f_street and len(f_street) > 5 and civic_engine:
+                         with st.spinner(f"🔍 Finding representatives for {f_street}..."):
+                             reps = civic_engine.get_reps(full_addr)
+                             if reps:
+                                 st.session_state.civic_targets = reps
+                                 st.rerun() # Refresh to show results
+                             else:
+                                 st.error("Could not find representatives. Please check the address above.")
+                     elif not f_street:
+                         st.info("⚠️ Please ensure your address is set in your profile or enter it above.")
 
-                 # Show who we found
+                 # 3. Display Results
                  if "civic_targets" in st.session_state:
-                     st.write("---")
-                     st.markdown("🎯 **Recipients (Auto-Selected):**")
+                     st.success(f"✅ Targets Identified: {len(st.session_state.civic_targets)} Elected Officials")
                      for r in st.session_state.civic_targets:
                          st.info(f"🏛️ **{r['title']} {r['name']}**")
+                     st.caption("We will mail a physical letter to each of these officials.")
 
             else:
-                # Standard / Heirloom "From" inputs
+                # STANDARD / HEIRLOOM MODE
+                st.subheader("📍 Addressing")
                 with st.expander(f"✉️ From: {def_n} (Click to Edit)", expanded=False):
                     st.text_input("Sender Name", value=def_n, key="w_from_name")
                     st.text_input("Sender Street", value=def_s, key="w_from_street")
@@ -278,8 +309,6 @@ def render_workspace_page():
                     c_sstate.text_input("State/Prov", value=def_st, key="w_from_state")
                     c_szip.text_input("Zip/Postal", value=def_z, key="w_from_zip")
 
-            # --- FIX: HIDE RECIPIENT INPUTS FOR CIVIC ---
-            if tier != "Civic":
                 st.markdown("---")
                 st.markdown("**📮 To (Recipient)**")
                 
@@ -613,35 +642,18 @@ def render_review_page():
 def show_main_app():
     if analytics: analytics.inject_ga()
     mode = st.session_state.get("app_mode", "splash")
-    
-    # 1. Handle Draft ID (Preserve this if present)
     if "draft_id" in st.query_params:
-        if not st.session_state.get("current_draft_id"):
-            st.session_state.current_draft_id = st.query_params["draft_id"]
-    
-    # 2. Handle Stripe Return (THE FIX IS HERE)
+        if not st.session_state.get("current_draft_id"): st.session_state.current_draft_id = st.query_params["draft_id"]
     if "session_id" in st.query_params: 
-        # Capture Data
         if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
         if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
         if "certified" in st.query_params: st.session_state.is_certified = True
-        
-        # Set State
-        st.session_state.app_mode = "workspace"
-        st.session_state.payment_complete = True
-        
-        # --- CRITICAL FIX: CLEAR PARAMS TO STOP LOOP ---
-        st.query_params.clear()
-        st.rerun()
+        st.session_state.app_mode = "workspace"; st.session_state.payment_complete = True; st.query_params.clear(); st.rerun()
 
-    # 3. Routing
     if mode == "splash": import ui_splash; ui_splash.show_splash()
     elif mode == "login": 
         import ui_login; import auth_engine
-        ui_login.show_login(
-            lambda e,p: _handle_login(auth_engine, e,p), 
-            lambda e,p,n,a,a2,c,s,z,cntry,lang: _handle_signup(auth_engine, e,p,n,a,a2,c,s,z,cntry,lang)
-        )
+        ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,a2,c,s,z,cntry,lang: _handle_signup(auth_engine, e,p,n,a,a2,c,s,z,cntry,lang))
     elif mode == "forgot_password": import ui_login; import auth_engine; ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
     elif mode == "reset_verify": import ui_login; import auth_engine; ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
     elif mode == "store": render_store_page()
