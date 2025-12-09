@@ -1,17 +1,15 @@
 import streamlit as st
 
-# Attempt to import database safely. 
-# If database.py is broken or missing, we continue without it.
-try: 
+# Safe Import of Database
+try:
     import database
-except (ImportError, SyntaxError): 
+except (ImportError, SyntaxError):
     database = None
 
 def show_splash():
     # --- 1. SCOPED CSS ---
     st.markdown("""
     <style>
-        /* HERO GRADIENT */
         .hero-container {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             padding: 60px 20px;
@@ -28,20 +26,15 @@ def show_splash():
             opacity: 0.95; color: #ffffff !important;
             max-width: 700px; margin-left: auto; margin-right: auto;
         }
-        .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
-        
-        /* CARDS */
         .price-card {
-            background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-            background: #1e3c72; /* Fallback */
+            background: #1e3c72;
             padding: 15px; border-radius: 10px; border: 1px solid #4a90e2;
             text-align: center; height: 100%; display: flex;
             flex-direction: column; justify-content: flex-start;
-            color: white !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            color: white !important;
         }
-        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
+        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; }
         .price-tag { font-size: 1.8rem; font-weight: 800; color: #ffeb3b !important; margin: 5px 0; }
-        .price-desc { color: #e0e0e0 !important; font-size: 0.85rem; line-height: 1.4; }
         .price-card ul { list-style: none; padding: 0; margin-top: 10px; }
         .price-card li { color: #e0e0e0 !important; font-size: 0.85rem; margin-bottom: 4px; }
     </style>
@@ -59,9 +52,9 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
 
-    # Call to Action Button
-    c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
-    with c_btn:
+    # Call to Action
+    c1, c2, c3 = st.columns([1, 2, 1])
+    with c2:
         if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" 
@@ -74,24 +67,29 @@ def show_splash():
     with p1:
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
     with p2:
-        st.markdown("""<div class="price-card"><div class="price-title">🏺 Heirloom</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Heirloom</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
     with p3:
-        st.markdown("""<div class="price-card"><div class="price-title">🏛️ Civic</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Civic</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
     with p4:
-        st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 4. GAMIFICATION / LEADERBOARD ---
-    # This logic prevents crashes if database is missing
+    # --- 4. LEADERBOARD (Safe Mode) ---
     st.markdown("<br>", unsafe_allow_html=True)
-    if database:
+    
+    if database is None:
+        st.info("📢 Civic Leaderboard (Database Offline)")
+        return
+
+    # If database exists, try to fetch stats
+    try:
         stats = database.get_civic_leaderboard()
         with st.container(border=True):
             st.subheader("📢 Civic Leaderboard")
-            if stats:
+            if not stats:
+                st.info("No letters sent yet. Be the first!")
+            else:
                 for state, count in stats:
                     st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
-            else:
-                st.info("No letters sent yet. Be the first!")
-    else:
-        # Fallback if DB is down/missing
-        st.info("📢 Civic Leaderboard (Connecting...)")
+    except Exception as e:
+        # Prevent splash crash if DB query fails
+        st.warning(f"Leaderboard unavailable: {e}")
