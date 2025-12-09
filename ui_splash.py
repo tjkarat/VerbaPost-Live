@@ -126,11 +126,15 @@ def show_splash():
         # Wrapped in Try/Except to prevent crashes if DB tables are missing
         try:
             stats = database.get_civic_leaderboard()
-            if stats:
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    st.subheader("📢 Civic Leaderboard")
+            
+            # Render container regardless of stats so the box appears
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.container(border=True):
+                st.subheader("📢 Civic Leaderboard")
+                if stats:
                     for state, count in stats:
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
+                else:
+                    st.info("No letters sent yet. Be the first to start the movement!")
         except Exception:
             pass # Fail silently if DB is not ready
