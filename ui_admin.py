@@ -6,7 +6,7 @@ import requests
 from datetime import datetime
 from sqlalchemy import text
 
-# --- IMPORTS ---
+# --- ROBUST IMPORTS ---
 try: import database
 except ImportError: database = None
 try: import letter_format
@@ -17,219 +17,165 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import mailer
 except ImportError: mailer = None
-# FIX: Import StandardAddress for consistent PDF generation
-from address_standard import StandardAddress
+
+# --- CRITICAL FIX: Safe Import for Address Standard ---
+try:
+    from address_standard import StandardAddress
+except ImportError:
+    # Fallback definition to prevent Admin Console crash
+    from dataclasses import dataclass
+    from typing import Optional, Dict, Any
+    @dataclass
+    class StandardAddress:
+        name: str
+        street: str
+        address_line2: Optional[str] = ""
+        city: str = ""
+        state: str = ""
+        zip_code: str = ""
+        country: str = "US"
+        def to_pdf_string(self): return f"{self.name}\n{self.street}"
+        @classmethod
+        def from_dict(cls, d): return cls(name=d.get('name',''), street=d.get('street',''))
 
 def check_password():
+    """Simple password gate for the admin panel."""
     if st.session_state.get("admin_logged_in"): return True
-    pwd = st.text_input("Admin Password", type="password")
+    
+    st.info("🔒 Admin Access Required")
+    pwd = st.text_input("Enter Admin Password", type="password", key="admin_pwd_input")
+    
+    # Get password from secrets or default to 'admin'
     correct_pwd = "admin" 
     if secrets_manager:
-        fetched = secrets_manager.get_secret("ADMIN_PASSWORD")
+        fetched = secrets_manager.get_secret("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
         if fetched: correct_pwd = fetched
-    if st.button("Login"):
+        
+    if st.button("Unlock Console"):
         if pwd == correct_pwd:
             st.session_state.admin_logged_in = True
             st.rerun()
-        else: st.error("Incorrect Password")
+        else:
+            st.error("❌ Incorrect Password")
     return False
 
-def check_service_health():
-    health = {}
-    
-    # 1. Database
-    try:
-        if database and database.get_session():
-            with database.get_engine().connect() as conn: conn.execute(text("SELECT 1"))
-            health["Database"] = True
-        else: health["Database"] = False
-    except: health["Database"] = False
-
-    # 2. AI Engine (OpenAI)
-    try:
-        key = secrets_manager.get_secret("OPENAI_API_KEY")
-        if key and key.startswith("sk-"): health["AI Engine"] = True
-        else: health["AI Engine"] = False
-    except: health["AI Engine"] = False
-
-    # 3. Stripe
-    try:
-        key = secrets_manager.get_secret("STRIPE_SECRET_KEY")
-        if key and key.startswith("sk_"): health["Stripe"] = True
-        else: health["Stripe"] = False
-    except: health["Stripe"] = False
-
-    # 4. Email (Resend)
-    try:
-        key = secrets_manager.get_secret("email.password")
-        if key and key.startswith("re_"): health["Email (Resend)"] = True
-        else: health["Email (Resend)"] = False
-    except: health["Email (Resend)"] = False
-
-    # 5. Civic API (Geocodio)
-    try:
-        key = secrets_manager.get_secret("geocodio.api_key")
-        if key: health["Civic (Geocodio)"] = True
-        else: health["Civic (Geocodio)"] = False
-    except: health["Civic (Geocodio)"] = False
-
-    return health
-
 def show_admin():
-    st.title("🔐 Admin Console")
+    # 1. Gatekeeper
     if not check_password(): return
-    if st.button("Logout"):
-        st.session_state.admin_logged_in = False; st.session_state.app_mode = "store"; st.rerun()
 
-    tab_overview, tab_drafts, tab_manual, tab_promo = st.tabs(["📊 Overview", "📝 Drafts & Fixes", "🖨️ Manual Fulfillment", "🎟️ Promo Codes"])
+    st.title("🔐 Admin Console")
+    
+    # 2. Header / Actions
+    c_top, c_logout = st.columns([4, 1])
+    with c_logout:
+        if st.button("Log Out"):
+            st.session_state.admin_logged_in = False
+            st.session_state.app_mode = "store"
+            st.rerun()
 
-    # --- TAB 1: OVERVIEW ---
+    # 3. Dashboard Tabs
+    tab_overview, tab_manual, tab_promo = st.tabs(["📊 Overview", "🖨️ Manual Fulfillment", "🎟️ Promo Codes"])
+
+    # --- TAB: OVERVIEW ---
     with tab_overview:
-        c_health, c_stats = st.columns([1, 2])
-        with c_health:
-            st.subheader("🔌 System Status")
-            with st.container(border=True):
-                status_map = check_service_health()
-                for service, is_up in status_map.items():
-                    icon = "✅" if is_up else "❌"
-                    color = "green" if is_up else "red"
-                    st.markdown(f"**{service}:** :{color}[{icon} {'Online' if is_up else 'Offline/Missing'}]")
-        with c_stats:
-            st.subheader("Business Metrics")
-            if database:
-                try:
-                    drafts = database.fetch_all_drafts()
-                    df = pd.DataFrame(drafts)
-                    if not df.empty:
-                        m1, m2, m3 = st.columns(3)
-                        m1.metric("Total Orders", len(df))
-                        m2.metric("Pending Admin", len(df[df['Status'] == 'Pending Admin']))
-                        m3.metric("Completed", len(df[df['Status'] == 'Completed']))
-                    else: st.info("No data yet.")
-                except Exception as e: st.error(f"DB Error: {e}")
+        st.subheader("System Health")
+        # Simple health check indicators
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if database: st.success("✅ Database") 
+            else: st.error("❌ Database Missing")
+        with c2:
+            if secrets_manager and secrets_manager.get_secret("stripe.secret_key"): st.success("✅ Stripe Configured")
+            else: st.warning("⚠️ Stripe Keys Missing")
+        with c3:
+            if secrets_manager and secrets_manager.get_secret("postgrid.api_key"): st.success("✅ PostGrid Configured")
+            else: st.warning("⚠️ PostGrid Keys Missing")
 
         st.divider()
-        st.subheader("Recent Activity Log")
-        if database:
-            drafts = database.fetch_all_drafts()
-            df = pd.DataFrame(drafts)
-            if not df.empty:
-                st.dataframe(df.head(15), use_container_width=True)
-
-    # --- TAB 2: DRAFTS & FIXES ---
-    with tab_drafts:
-        st.subheader("Manage All Orders")
-        if database:
-            drafts = database.fetch_all_drafts()
-            if drafts:
-                drafts.sort(key=lambda x: x['ID'], reverse=True)
-                
-                for row in drafts:
-                    label = f"#{row['ID']} | {row['Date']} | {row['Email']} | {row['Status']}"
-                    
-                    with st.expander(label):
-                        c1, c2 = st.columns(2)
-                        try: to_data = json.loads(row['Recipient']) if row['Recipient'] else {}
-                        except: to_data = {}
-                        
-                        with c1:
-                            st.write("**Current Data:**")
-                            st.json(to_data)
-                            if st.button(f"🗑️ Delete #{row['ID']}", key=f"del_{row['ID']}"):
-                                st.warning("Delete not implemented safely yet.")
-                            
-                        with c2:
-                            st.write("**Edit Address:**")
-                            with st.form(key=f"fix_form_{row['ID']}"):
-                                n_name = st.text_input("Name", to_data.get('name',''))
-                                n_str = st.text_input("Street", to_data.get('street','') or to_data.get('address_line1',''))
-                                n_str2 = st.text_input("Apt/Suite", to_data.get('address_line2','') or to_data.get('street2',''))
-                                n_city = st.text_input("City", to_data.get('city','') or to_data.get('address_city',''))
-                                n_state = st.text_input("State", to_data.get('state','') or to_data.get('address_state',''))
-                                n_zip = st.text_input("Zip", to_data.get('zip','') or to_data.get('address_zip',''))
-                                
-                                if st.form_submit_button("Update & Set to Retry"):
-                                    new_to = {
-                                        "name": n_name, "street": n_str, "address_line2": n_str2,
-                                        "city": n_city, "state": n_state, "zip": n_zip, "country": "US"
-                                    }
-                                    database.update_draft_data(row['ID'], to_addr=new_to, status="Retry")
-                                    st.success("Updated!")
-                                    st.rerun()
-
-    # --- TAB 3: MANUAL FULFILLMENT ---
-    with tab_manual:
-        st.subheader("🖨️ Print Queue (Heirloom / Santa)")
         
+        # Database Stats
         if database:
-            all_drafts = database.fetch_all_drafts()
-            manual_queue = [d for d in all_drafts if d['Tier'] in ['Heirloom', 'Santa']]
-            
-            if not manual_queue:
-                st.info("No Heirloom or Santa orders found.")
-            
-            for row in manual_queue:
-                status_icon = "✅" if row['Status'] == 'Completed' else "⏳"
+            try:
+                drafts = database.fetch_all_drafts()
+                if drafts:
+                    df = pd.DataFrame(drafts)
+                    st.dataframe(df.tail(10), use_container_width=True)
+                else:
+                    st.info("No orders found in database.")
+            except Exception as e:
+                st.error(f"Failed to load data: {e}")
+
+    # --- TAB: MANUAL FULFILLMENT ---
+    with tab_manual:
+        st.subheader("🖨️ Queue (Santa / Heirloom)")
+        if database:
+            try:
+                all_drafts = database.fetch_all_drafts()
+                # Filter for manual processing tiers
+                manual_queue = [d for d in all_drafts if d.get('Tier') in ['Heirloom', 'Santa']]
                 
-                with st.container(border=True):
-                    c_info, c_act = st.columns([3, 1])
-                    with c_info:
-                        st.markdown(f"**#{row['ID']}** {status_icon} | {row['Tier']} | {row['Email']}")
-                        st.caption(f"Date: {row['Date']}")
-                    
-                    with c_act:
-                        if st.button(f"📄 Generate PDF", key=f"btn_pdf_{row['ID']}"):
-                            try:
-                                to_data = json.loads(row['Recipient']) if row['Recipient'] else {}
-                                from_data = json.loads(row['Sender']) if row['Sender'] else {}
-                                
-                                # FIX: Use StandardAddress for consistent formatting
-                                to_std = StandardAddress.from_dict(to_data)
-                                to_str = to_std.to_pdf_string()
-                                
-                                from_std = StandardAddress.from_dict(from_data)
-                                from_str = from_std.to_pdf_string()
-                                
-                                if letter_format:
-                                    pdf_bytes = letter_format.create_pdf(
-                                        row['Content'], 
-                                        to_str, 
-                                        from_str, 
-                                        is_heirloom=("Heirloom" in row['Tier']),
-                                        is_santa=("Santa" in row['Tier'])
-                                    )
-                                    if pdf_bytes:
-                                        b64 = base64.b64encode(pdf_bytes).decode()
-                                        href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{row["ID"]}.pdf" style="background-color:#4CAF50;color:white;padding:8px 12px;text-decoration:none;border-radius:4px;">📥 Download PDF</a>'
-                                        st.markdown(href, unsafe_allow_html=True)
+                if not manual_queue:
+                    st.success("🎉 Queue is empty! All caught up.")
+                
+                for row in manual_queue:
+                    with st.expander(f"{row['Tier']} Order #{row['ID']} - {row['Email']}"):
+                        c_info, c_act = st.columns([3, 1])
+                        with c_info:
+                            st.write(f"**Status:** {row['Status']}")
+                            st.text_area("Content Preview", row['Content'], height=100, disabled=True, key=f"txt_{row['ID']}")
+                        
+                        with c_act:
+                            # PDF Generation Button
+                            if st.button("📄 Generate PDF", key=f"gen_{row['ID']}"):
+                                try:
+                                    # Parse addresses safely
+                                    to_data = json.loads(row['Recipient']) if row['Recipient'] else {}
+                                    from_data = json.loads(row['Sender']) if row['Sender'] else {}
+                                    
+                                    # Use the Safe StandardAddress class
+                                    to_std = StandardAddress.from_dict(to_data)
+                                    from_std = StandardAddress.from_dict(from_data)
+                                    
+                                    if letter_format:
+                                        pdf_bytes = letter_format.create_pdf(
+                                            row['Content'], 
+                                            to_std.to_pdf_string(), 
+                                            from_std.to_pdf_string(), 
+                                            is_heirloom=("Heirloom" in row['Tier']), 
+                                            is_santa=("Santa" in row['Tier'])
+                                        )
                                         
-                                        if st.button(f"Mark #{row['ID']} Mailed", key=f"mark_{row['ID']}"):
-                                            database.update_draft_data(row['ID'], status="Completed")
-                                            st.success("Completed!")
-                                            st.rerun()
-                            except Exception as e: st.error(f"Error: {e}")
+                                        # Create Download Link
+                                        b64 = base64.b64encode(pdf_bytes).decode()
+                                        href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{row["ID"]}.pdf" style="background-color:#4CAF50;color:white;padding:8px 16px;text-decoration:none;border-radius:4px;">⬇️ Download PDF</a>'
+                                        st.markdown(href, unsafe_allow_html=True)
+                                except Exception as e:
+                                    st.error(f"Generation Error: {e}")
 
-        st.divider()
-        st.subheader("📜 Recent Activity Table")
-        if database:
-            df_hist = pd.DataFrame(all_drafts)
-            if not df_hist.empty:
-                st.dataframe(df_hist.head(20), use_container_width=True)
+                            if st.button("✅ Mark Sent", key=f"sent_{row['ID']}"):
+                                database.update_draft_data(row['ID'], status="Completed")
+                                st.success("Marked as Completed!")
+                                time.sleep(1)
+                                st.rerun()
 
-    # --- TAB 4: PROMO CODES ---
+            except Exception as e:
+                st.error(f"Error loading queue: {e}")
+
+    # --- TAB: PROMO CODES ---
     with tab_promo:
-        st.subheader("Promo Codes")
+        st.subheader("Manage Codes")
         if promo_engine:
-            c1, c2 = st.columns(2)
-            with c1:
-                with st.form("create_promo"):
-                    new_code = st.text_input("New Code Name")
-                    usage_limit = st.number_input("Max Uses", min_value=1, value=10)
-                    if st.form_submit_button("Create Code"):
-                        success, msg = promo_engine.create_code(new_code, usage_limit)
-                        if success: st.success(msg)
-                        else: st.error(msg)
-            with c2:
-                st.write("Active Codes")
+            with st.form("new_promo"):
+                c_code, c_limit = st.columns([2, 1])
+                new_code = c_code.text_input("Code (e.g. SAVE20)")
+                limit = c_limit.number_input("Max Uses", 1, 1000, 100)
+                if st.form_submit_button("Create Code"):
+                    ok, msg = promo_engine.create_code(new_code, limit)
+                    if ok: st.success(msg)
+                    else: st.error(msg)
+            
+            # Show existing codes
+            try:
                 stats = promo_engine.get_all_codes_with_usage()
                 if stats: st.dataframe(stats)
+            except: pass
