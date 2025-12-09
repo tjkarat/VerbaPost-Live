@@ -300,21 +300,25 @@ def render_workspace_page():
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
-            f = st.file_uploader("CSV (Name, Street, City, State, Zip)", type=['csv'])
+            
+            # --- FIX: FILE SIZE LIMIT ---
+            MAX_MB = 10
+            f = st.file_uploader(f"CSV (Max {MAX_MB}MB, Name, Street, City, State, Zip)", type=['csv'])
+            
             if f:
-                c, err = bulk_engine.parse_csv(f)
-                if err: st.error(err)
+                if f.size > MAX_MB * 1024 * 1024:
+                     st.error(f"❌ File too large. Max size is {MAX_MB}MB.")
                 else:
-                    limit = st.session_state.get("bulk_paid_qty", 1000)
-                    if len(c) > limit: 
-                        st.error(f"🛑 List size ({len(c)}) exceeds paid quantity ({limit}). Please reduce list or upgrade.")
-                        st.session_state.bulk_targets = []
+                    c, err = bulk_engine.parse_csv(f, max_rows=1000)
+                    if err: st.error(err)
                     else:
-                        st.success(f"✅ {len(c)} contacts loaded.")
-                        if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
-        else:
-            st.subheader("📍 Addressing")
-            c1, c2 = st.columns(2)
+                        limit = st.session_state.get("bulk_paid_qty", 1000)
+                        if len(c) > limit: 
+                            st.error(f"🛑 List size ({len(c)}) exceeds paid quantity ({limit}).")
+                            st.session_state.bulk_targets = []
+                        else:
+                            st.success(f"✅ {len(c)} contacts loaded.")
+                            if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
             
             with c1: # FROM
                 st.markdown("**From**")

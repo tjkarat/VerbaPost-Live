@@ -1,6 +1,16 @@
 import streamlit as st
 import time
 import traceback
+import logging
+import sys
+
+# --- 0. LOGGING SETUP (Centralized) ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -48,7 +58,18 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # --- STRIPE RETURN HANDLER (MANUAL BRAKE) ---
+        # --- A. DEEP LINKING ---
+        if "view" in q_params:
+            target_view = q_params["view"]
+            if target_view in ["legal", "login", "splash"]:
+                st.session_state.app_mode = target_view
+                st.query_params.clear()
+        
+        # --- B. MARKETING LINKS ---
+        if "tier" in q_params and "session_id" not in q_params:
+            st.session_state.target_marketing_tier = q_params["tier"]
+
+        # --- C. SECURE STRIPE RETURN LOGIC ---
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
@@ -61,28 +82,32 @@ if __name__ == "__main__":
                 import payment_engine
                 is_paid, session_details = payment_engine.verify_session(sess_id)
             except Exception as e:
-                print(f"Payment Engine Error: {e}")
+                logger.error(f"Payment Engine Error: {e}")
                 is_paid = False
                 session_details = None
 
-            # 2. Audit / CSRF
-            current_user = st.session_state.get("user_email")
-            payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
-            
-            if is_paid and current_user and payer_email:
+            # 2. AUDIT & CSRF CHECK
+            if is_paid:
+                current_user = st.session_state.get("user_email")
+                payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
+                
+                # CRITICAL: Require both emails to exist
+                if not current_user or not payer_email:
+                     status_box.error("❌ Payment verification failed: Missing user information.")
+                     logger.warning(f"Payment verification incomplete: user={current_user}, payer={payer_email}")
+                     st.stop()
+
+                # Verify they match
                 if current_user.lower().strip() != payer_email.lower().strip():
                     status_box.error("⚠️ Security Alert: Payment email mismatch.")
+                    logger.warning(f"Payment email mismatch: {current_user} != {payer_email}")
                     st.stop()
 
-            if is_paid:
                 # 3. SET STATE
                 st.session_state.payment_complete = True
                 st.session_state.current_stripe_id = sess_id 
                 st.session_state.app_mode = "workspace"
                 
-                if not current_user and payer_email:
-                    st.session_state.user_email = payer_email
-
                 # Restore Config
                 if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                 if "intl" in q_params: st.session_state.is_intl = True
@@ -95,13 +120,11 @@ if __name__ == "__main__":
                 st.markdown("### 🚀 Payment Successful")
                 st.markdown("Click below to start writing your letter.")
                 
-                # This button breaks the loop. 
-                # The app STOPS here and waits for the user.
                 if st.button("👉 Continue to Workspace", type="primary", use_container_width=True):
                     st.query_params.clear()
                     st.rerun()
                 
-                st.stop() # Stops execution. No auto-reload.
+                st.stop() 
                 
             else:
                 status_box.error("❌ Payment Verification Failed or Expired.")
@@ -111,15 +134,9 @@ if __name__ == "__main__":
                     st.rerun()
                 st.stop()
 
-        # --- OTHER LINKS ---
-        elif "view" in q_params:
-            st.session_state.app_mode = q_params["view"]
-            st.query_params.clear()
-            st.rerun()
-
     except Exception as e:
         st.error(f"Routing Error: {e}")
-        st.code(traceback.format_exc())
+        logger.error(f"Routing Error: {e}", exc_info=True)
 
     # --- LAUNCH UI ---
     try:
@@ -128,7 +145,7 @@ if __name__ == "__main__":
     except Exception as e:
         st.error("⚠️ Application Crash")
         st.markdown(f"**Error:** `{e}`")
-        st.code(traceback.format_exc())
+        logger.critical(f"UI Crash: {e}", exc_info=True)
         
         if st.button("Hard Reset App State"):
             st.session_state.clear()

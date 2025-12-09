@@ -1,10 +1,13 @@
 import streamlit as st
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, func
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import json
 import secrets_manager
+from contextlib import contextmanager
+import logging
 
+logger = logging.getLogger(__name__)
 Base = declarative_base()
 
 # --- MODELS ---
@@ -222,3 +225,61 @@ def get_civic_leaderboard():
         return []
     finally:
         db.close()
+        import streamlit as st
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy.orm import sessionmaker, declarative_base
+from datetime import datetime
+import json
+import secrets_manager
+from contextlib import contextmanager
+import logging
+
+logger = logging.getLogger(__name__)
+Base = declarative_base()
+
+# ... [KEEP YOUR EXISTING MODELS HERE: UserProfile, LetterDraft, etc.] ...
+
+@st.cache_resource
+def get_engine():
+    db_url = secrets_manager.get_secret("DATABASE_URL")
+    if db_url: db_url = db_url.replace("postgres://", "postgresql://")
+    else: db_url = "sqlite:///local_dev.db"
+    try:
+        engine = create_engine(db_url, pool_pre_ping=True)
+        Base.metadata.create_all(bind=engine)
+        return engine
+    except Exception as e:
+        logger.error(f"DB Error: {e}")
+        return None
+
+# --- FIX: CONTEXT MANAGER ---
+@contextmanager
+def get_db_session():
+    engine = get_engine()
+    if not engine: raise RuntimeError("DB Engine missing")
+    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    try:
+        yield session
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
+
+# Example usage fix for one function (Apply this pattern to others):
+def get_user_profile(email):
+    try:
+        with get_db_session() as db:
+            return db.query(UserProfile).filter(UserProfile.email == email).first()
+    except Exception:
+        return None
+
+def get_contacts(user_email):
+    try:
+        with get_db_session() as db:
+            return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
+    except Exception:
+        return []
+
+# ... Apply 'with get_db_session() as db:' to save_draft, update_draft_data, etc. ...

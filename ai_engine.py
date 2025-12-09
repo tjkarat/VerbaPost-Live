@@ -1,116 +1,129 @@
-import streamlit as st
+import openai
 import os
 import tempfile
+import shutil
+import contextlib
+import logging
 import secrets_manager
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # --- CONFIGURATION ---
-# CRITICAL: Do NOT import 'whisper' here. It loads 2GB of Torch/NVIDIA libraries.
-# Loading it at the top level causes Streamlit Cloud (QA) to crash immediately (White Screen).
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def load_model():
-    """
-    Lazy loader for the local Whisper model.
-    Only runs if we actually try to use local transcription.
-    """
-    import whisper 
-    print("⬇️ STARTING LOCAL MODEL LOAD...")
-    model = whisper.load_model("tiny")
-    print("✅ MODEL LOADED SUCCESSFULLY")
-    return model
+def setup_openai():
+    """Safely loads OpenAI API Key"""
+    key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
+    if key:
+        openai.api_key = key
+        return True
+    return False
 
-def transcribe_audio(audio_file):
+# --- 1. CRITICAL FIX: SAFE TEMP FILE CONTEXT MANAGER ---
+@contextlib.contextmanager
+def safe_temp_file(file_obj, suffix=".wav"):
     """
-    Robust Transcriber:
-    1. Tries Local Whisper (Free, but heavy memory usage).
-    2. Falls back to OpenAI API (Reliable, requires Key).
+    Context manager for safe temp file handling.
+    1. Checks for available disk space (prevents filling the disk).
+    2. Writes the file.
+    3. Yields the path.
+    4. GUARANTEES deletion in the 'finally' block.
     """
-    # 1. Setup Temp File
-    prefix = "audio"
-    suffix = ".wav"
-    # Handle both file-like objects and Streamlit UploadedFile
-    if hasattr(audio_file, 'name'):
-        suffix = f".{audio_file.name.split('.')[-1]}"
-        
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(audio_file.getvalue())
-        tmp_path = tmp.name
-
+    # Safety Check: Require at least 50MB free space
     try:
-        # --- ATTEMPT 1: LOCAL WHISPER ---
-        # We wrap this in a broad try/except because it frequently crashes on small cloud instances
-        try:
-            # Check if we should skip local to save memory (optional env var)
-            if os.environ.get("SKIP_LOCAL_WHISPER"):
-                raise ImportError("Skipping local whisper by config")
+        if shutil.disk_usage('/tmp').free < 50 * 1024 * 1024:
+            logger.error("Insufficient disk space for processing audio.")
+            raise RuntimeError("Server busy (storage full). Please try again later.")
+    except Exception:
+        pass # If disk check fails (e.g. windows), proceed with caution
 
-            import whisper
-            print("🎤 Attempting Local Whisper...")
-            model = load_model()
-            result = model.transcribe(tmp_path, fp16=False)
-            return result["text"]
-            
-        except (ImportError, Exception, RuntimeError) as e:
-            print(f"⚠️ Local Whisper unavailable ({e}). Switching to OpenAI API...")
+    tmp_path = None
+    try:
+        # Create temp file, delete=False so we can close it and let other libs open it by path
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=tempfile.gettempdir()) as tmp:
+            tmp.write(file_obj.getvalue())
+            tmp_path = tmp.name
+        
+        yield tmp_path
 
-        # --- ATTEMPT 2: OPENAI API (Fallback) ---
-        import openai
-        api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-        
-        if not api_key:
-            return "⚠️ Error: Transcription failed. No API Key found and Local AI crashed."
-            
-        client = openai.OpenAI(api_key=api_key)
-        
-        with open(tmp_path, "rb") as audio_file_obj:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file_obj
-            )
-        return transcript.text
-
-    except Exception as e:
-        return f"❌ Transcription Critical Error: {str(e)}"
-        
     finally:
-        # Cleanup temp file
-        if os.path.exists(tmp_path):
-            try: os.remove(tmp_path)
-            except: pass
+        # Cleanup guarantees
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+                logger.info(f"Cleaned up temp file: {tmp_path}")
+            except OSError as e:
+                logger.error(f"Failed to cleanup temp file {tmp_path}: {e}")
 
-def refine_text(text, style):
+# --- 2. TRANSCRIPTION ---
+def transcribe_audio(file_obj):
     """
-    Sends text to OpenAI to be rewritten in a specific style.
+    Transcribes audio using OpenAI Whisper.
+    Uses the safe_temp_file context manager.
     """
+    if not setup_openai():
+        return "[Error: OpenAI API Key missing]"
+
+    # Determine suffix from name if available, else default to .wav
+    suffix = f".{file_obj.name.split('.')[-1]}" if hasattr(file_obj, 'name') else '.wav'
+    
     try:
-        import openai
-        
-        # Get Key Safely
-        api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-        
-        if not api_key:
-            print("❌ AI Editor: Missing OPENAI_API_KEY")
-            return text 
-        
-        client = openai.OpenAI(api_key=api_key)
-        
-        prompts = {
-            "Grammar": "Fix grammar and spelling errors. Keep the tone natural.",
-            "Professional": "Rewrite this to be formal, polite, and professional.",
-            "Friendly": "Rewrite this to be warm, personal, and friendly.",
-            "Concise": "Rewrite this to be concise and to the point. Remove fluff."
-        }
-        
-        instruction = prompts.get(style, "Fix grammar.")
-        
-        response = client.chat.completions.create(
-            model="gpt-3.5-turbo", 
-            messages=[
-                {"role": "system", "content": f"You are an expert editor. {instruction}"},
-                {"role": "user", "content": text}
-            ]
-        )
-        return response.choices[0].message.content
-        
+        with safe_temp_file(file_obj, suffix) as tmp_path:
+            with open(tmp_path, "rb") as audio_file:
+                # API Call
+                transcript = openai.Audio.transcribe("whisper-1", audio_file)
+            
+            text = transcript.get("text", "")
+            logger.info("Transcription successful.")
+            return text
+
     except Exception as e:
-        print(f"AI Edit Error: {e}")
+        logger.error(f"Transcription failed: {e}")
+        return f"[Error processing audio: {str(e)}]"
+
+# --- 3. TEXT REFINEMENT (RESTORED LOGIC) ---
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((openai.error.APIConnectionError, openai.error.Timeout)),
+    reraise=False 
+)
+def refine_text(text, style="Professional"):
+    """
+    Refines text using GPT-3.5/4 based on the selected style.
+    Includes retry logic for stability.
+    """
+    if not text or len(text.strip()) < 5:
+        return text
+
+    if not setup_openai():
+        return text
+
+    # Prompt Engineering
+    prompts = {
+        "Grammar": "Correct the grammar and spelling of the following text. Do not change the tone or content, just fix errors.",
+        "Professional": "Rewrite the following text to be professional, polite, and formal suitable for business correspondence.",
+        "Friendly": "Rewrite the following text to be warm, personal, and friendly.",
+        "Concise": "Rewrite the following text to be concise and to the point, removing unnecessary fluff."
+    }
+
+    system_instruction = prompts.get(style, prompts["Professional"])
+
+    try:
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": f"You are an expert editor. {system_instruction}"},
+                {"role": "user", "content": f"Text to rewrite:\n{text}"}
+            ],
+            temperature=0.7,
+            max_tokens=1000
+        )
+        
+        refined = response.choices[0].message.content.strip()
+        return refined
+
+    except Exception as e:
+        logger.error(f"AI Refinement Failed: {e}")
+        # Fail safe: Return original text if AI fails
         return text
