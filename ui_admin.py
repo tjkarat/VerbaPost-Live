@@ -7,6 +7,8 @@ import time
 from datetime import datetime
 
 # --- ROBUST IMPORTS ---
+# We wrap these in try/except blocks so the Admin panel doesn't crash 
+# just because one module is missing.
 try: import database
 except ImportError: database = None
 try: import letter_format
@@ -21,10 +23,11 @@ try: import civic_engine
 except ImportError: civic_engine = None
 
 # --- SAFE IMPORT: Address Standard ---
+# This prevents a crash if the address model changes
 try:
     from address_standard import StandardAddress
 except ImportError:
-    # Fallback to prevent admin crash
+    # Fallback class if the real one is missing
     from dataclasses import dataclass
     from typing import Optional, Dict, Any
     @dataclass
@@ -41,13 +44,16 @@ except ImportError:
         def from_dict(cls, d): return cls(name=d.get('name',''), street=d.get('street',''))
 
 def check_password():
-    """Simple password gate for the admin panel."""
+    """
+    Simple password gate for the admin panel.
+    Checks against secrets.toml or defaults to 'admin'.
+    """
     if st.session_state.get("admin_logged_in"): return True
     
     st.info("🔒 Admin Access Required")
     pwd = st.text_input("Enter Admin Password", type="password", key="admin_pwd_input")
     
-    # Get password from secrets or default to 'admin'
+    # Get password from secrets
     correct_pwd = "admin" 
     if secrets_manager:
         fetched = secrets_manager.get_secret("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
@@ -66,6 +72,7 @@ def show_admin():
     if not check_password(): return
 
     st.title("🔐 Admin Console")
+    st.caption(f"Logged in as: {st.session_state.get('user_email', 'Unknown')}")
     
     # 2. Header / Actions
     c_top, c_logout = st.columns([4, 1])
@@ -159,6 +166,7 @@ def show_admin():
                     
                 elif filter_opt == "Manual Queue (Santa/Heirloom)":
                     queue = [d for d in all_drafts if d.get('Tier') in ['Heirloom', 'Santa']]
+                    if not queue: st.info("No manual orders pending.")
                     
                 else: # All
                     queue = all_drafts[:50] # Limit to 50 for performance
@@ -193,8 +201,11 @@ def show_admin():
                                             is_heirloom=("Heirloom" in row['Tier']), 
                                             is_santa=("Santa" in row['Tier'])
                                         )
-                                        b64 = base64.b64encode(pdf_bytes).decode()
-                                        st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="letter_{row["ID"]}.pdf" style="background-color:#4CAF50;color:white;padding:8px;text-decoration:none;border-radius:4px;">⬇️ Download PDF</a>', unsafe_allow_html=True)
+                                        if pdf_bytes:
+                                            b64 = base64.b64encode(pdf_bytes).decode()
+                                            st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="letter_{row["ID"]}.pdf" style="background-color:#4CAF50;color:white;padding:8px;text-decoration:none;border-radius:4px;">⬇️ Download PDF</a>', unsafe_allow_html=True)
+                                        else:
+                                            st.error("PDF generation returned empty bytes.")
                                 except Exception as e:
                                     st.error(f"PDF Error: {e}")
 
@@ -207,7 +218,7 @@ def show_admin():
             except Exception as e:
                 st.error(f"Error loading queue: {e}")
 
-    # --- TAB: PROMO CODES (FIXED) ---
+    # --- TAB: PROMO CODES (With Usage Stats) ---
     with tab_promo:
         st.subheader("Manage Codes")
         if promo_engine:
@@ -217,17 +228,22 @@ def show_admin():
                 limit = c_limit.number_input("Max Uses", 1, 1000, 100)
                 if st.form_submit_button("Create Code"):
                     ok, msg = promo_engine.create_code(new_code, limit)
-                    if ok: st.success(msg); st.rerun()
+                    if ok: 
+                        st.success(msg)
+                        time.sleep(1)
+                        st.rerun()
                     else: st.error(msg)
             
-            # --- FIX: SHOW ERRORS IF FETCH FAILS ---
             st.write("---")
+            st.markdown("### Active Codes")
+            
+            # --- ROBUST FETCH ---
             try:
                 stats = promo_engine.get_all_codes_with_usage()
                 if stats and len(stats) > 0: 
                     st.dataframe(stats, use_container_width=True)
                 else:
-                    st.info("No promo codes found (or database connection failed).")
+                    st.info("No promo codes found.")
             except Exception as e:
                 st.error(f"Failed to fetch promo stats: {e}")
         else:
