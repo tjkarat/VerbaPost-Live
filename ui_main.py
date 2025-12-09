@@ -10,7 +10,6 @@ import io
 
 # --- IMPORTS ---
 # We use try/except blocks to prevent the entire app from crashing if a module is missing.
-# However, we must handle the 'None' case in the logic later.
 try: import database
 except ImportError: database = None
 
@@ -67,7 +66,7 @@ COUNTRIES = {
 def reset_app():
     """Clears session state for a fresh start, preserving user login."""
     recovered_draft = st.query_params.get("draft_id")
-    # List of keys to clear. We do NOT clear 'user_email' or 'app_mode' here implicitly.
+    # List of keys to clear. We do NOT clear 'user_email' or 'app_mode'.
     keys = [
         "audio_path", "transcribed_text", "payment_complete", "sig_data", 
         "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", 
@@ -94,7 +93,7 @@ def reset_app():
 def render_hero(title, subtitle):
     """
     Renders the blue header card.
-    FIX: Uses a dedicated <style> block to force white text, overriding Streamlit defaults.
+    FIX: Uses specific CSS targeting to force white text on the blue background.
     """
     st.markdown(f"""
     <style>
@@ -105,28 +104,20 @@ def render_hero(title, subtitle):
             text-align: center;
             margin-bottom: 30px;
             box-shadow: 0 8px 16px rgba(0,0,0,0.1);
-        }}
-        .verba-hero-title {{
-            margin: 0; 
-            font-size: 3rem; 
-            font-weight: 700; 
-            color: #ffffff !important; 
-            text-shadow: 0px 1px 2px rgba(0,0,0,0.2);
-        }}
-        .verba-hero-subtitle {{
-            font-size: 1.2rem; 
-            opacity: 0.95; 
-            margin-top: 10px; 
             color: #ffffff !important;
         }}
-        /* Force override of any global stream lit text colors inside this container */
-        .verba-hero-container * {{
-            color: white !important;
+        /* Aggressively target all elements inside the hero to be white */
+        .verba-hero-container h1, 
+        .verba-hero-container p, 
+        .verba-hero-container div, 
+        .verba-hero-container span {{
+            color: #ffffff !important;
+            text-shadow: 0px 1px 2px rgba(0,0,0,0.2);
         }}
     </style>
     <div class="verba-hero-container">
-        <h1 class="verba-hero-title">{title}</h1>
-        <div class="verba-hero-subtitle">{subtitle}</div>
+        <h1 style="font-size: 3rem; font-weight: 700; margin:0;">{title}</h1>
+        <div style="font-size: 1.2rem; opacity: 0.95; margin-top: 10px;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -232,7 +223,6 @@ def render_store_page():
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
                     
-                    # Logic to save/update draft
                     d_id = st.session_state.get("current_draft_id")
                     if d_id:
                          if database: database.update_draft_data(d_id, status="Draft", content="", tier=tier_code, price="0.00")
@@ -251,7 +241,6 @@ def render_store_page():
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
-                    # Save Draft before Payment
                     d_id = st.session_state.get("current_draft_id")
                     if d_id:
                         if database: database.update_draft_data(d_id, status="Draft", tier=tier_code, price=price)
@@ -261,7 +250,6 @@ def render_store_page():
                             st.session_state.current_draft_id = d_id
                             st.query_params["draft_id"] = str(d_id)
                     
-                    # Generate Stripe Link
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if d_id: link += f"&draft_id={d_id}" 
                     if is_intl: link += "&intl=1"
@@ -284,7 +272,6 @@ def render_workspace_page():
     u_email = st.session_state.get("user_email")
     user_addr = {}
     
-    # Pre-fetch user profile if available
     if database and u_email:
         p = database.get_user_profile(u_email)
         if p: 
@@ -604,6 +591,7 @@ def render_review_page():
     st.info("📝 **Note:** You can edit the text below directly. The AI buttons above are optional.")
     txt = st.text_area("Body Content", key="transcribed_text", height=300, disabled=st.session_state.letter_sent_success)
     
+    # --- PDF PREVIEW FIX ---
     if st.button("👁️ Preview PDF Proof", type="secondary", use_container_width=True):
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
@@ -628,9 +616,25 @@ def render_review_page():
 
                 if letter_format:
                     pdf_bytes = letter_format.create_pdf(txt, to_str, from_str, is_heirloom=("Heirloom" in tier), is_santa=("Santa" in tier), signature_path=sig_path)
-                    if pdf_bytes:
+                    
+                    if pdf_bytes and len(pdf_bytes) > 100:
                         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                        st.markdown(f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
+                        
+                        # --- FIX: ROBUST PDF DISPLAY ---
+                        # 1. We use an <embed> tag which is more robust than <iframe> for PDFs
+                        # 2. We ALSO offer a direct download button. If the preview fails, the download will likely work.
+                        
+                        pdf_display = f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">'
+                        st.markdown(pdf_display, unsafe_allow_html=True)
+                        
+                        st.download_button(
+                            label="⬇️ Download PDF Proof",
+                            data=pdf_bytes,
+                            file_name="verbapost_proof.pdf",
+                            mime="application/pdf",
+                        )
+                    else:
+                        st.error("⚠️ PDF Generation Failed (Empty File).")
                 else:
                     st.error("Letter Format engine not loaded.")
                 
@@ -730,7 +734,7 @@ def render_review_page():
                                         if audit_engine: 
                                             audit_engine.log_event(u_email, "MAIL_API_FAILURE", current_stripe_id, {"error": str(resp)})
                                 else:
-                                    # --- FIX: Alert if mailer missing ---
+                                    # Alert if mailer missing
                                     errors.append("System Error: Mailer module not found.")
                                     is_pg_ok = False
 
