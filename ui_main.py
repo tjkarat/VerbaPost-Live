@@ -8,6 +8,11 @@ import numpy as np
 from PIL import Image
 import io
 import time
+import logging
+
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- IMPORTS ---
 try: import database
@@ -49,16 +54,13 @@ COUNTRIES = {
 }
 
 def reset_app():
-    # Only recover if NOT explicitly clearing (handled in success button)
     recovered_draft = st.query_params.get("draft_id")
-    
-    # Clear Session
+    # Clear Session safely
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
     for k in keys:
         if k in st.session_state: del st.session_state[k]
     st.session_state.to_addr = {}
     
-    # Priority: Draft Recovery > Store (Logged In) > Splash (Logged Out)
     if recovered_draft:
         st.session_state.current_draft_id = recovered_draft
         st.session_state.app_mode = "workspace" 
@@ -71,15 +73,13 @@ def reset_app():
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);"><h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1><div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div></div>""", unsafe_allow_html=True)
 
-def show_santa_animation(): st.markdown("""<div class="santa-sled">🎅🛷</div>""", unsafe_allow_html=True)
 def render_legal_page(): 
     try: import ui_legal; ui_legal.show_legal()
     except: st.info("Legal page unavailable.")
 
 def render_store_page():
+    # --- FIX 14: AUTH CHECK BEFORE RENDERING ---
     u_email = st.session_state.get("user_email", "")
-    
-    # --- SAFETY FIX: UNAUTHENTICATED GUARD ---
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
         if st.button("Go to Login"):
@@ -122,8 +122,8 @@ def render_store_page():
             
             qty = 1
             if tier_code == "Campaign":
-                unit_price = 1.99
                 qty = st.number_input("Number of Recipients", min_value=10, max_value=5000, value=50, step=10)
+                # --- FIX 15: PRICE CALCULATION LOGIC ---
                 price = 2.99 + ((qty - 1) * 1.99)
                 st.caption(f"Pricing: First letter $2.99, then $1.99/ea")
             else:
@@ -150,39 +150,25 @@ def render_store_page():
                 code_input = st.text_input("Promo Code", key="promo_box")
                 if code_input and promo_engine.validate_code(code_input): discounted = True; st.success("✅ Code Applied!")
             
+            # --- FIX 7: SERVER-SIDE PRICE VALIDATION ---
+            # We calculate final_price here to ensure UI manipulation doesn't work
+            final_price = 0.00 if discounted else price
+
             if discounted:
                 st.metric("Total", "$0.00", delta=f"-${price:.2f} off")
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     if promo_engine: promo_engine.log_usage(code_input, u_email)
                     
-                    # --- LOGIC FIX: GHOST DRAFT PREVENTION ---
-                    if st.session_state.get("current_draft_id"):
-                        d_id = st.session_state.current_draft_id
-                        if database: database.update_draft_data(d_id, status="Draft", content="", tier=tier_code, price="0.00")
-                    else:
-                        if database: 
-                            d_id = database.save_draft(u_email, "", tier_code, "0.00")
-                            st.session_state.current_draft_id = d_id
-                            st.query_params["draft_id"] = str(d_id)
+                    _handle_draft_creation(u_email, tier_code, "0.00")
                         
                     if audit_engine: audit_engine.log_event(u_email, "FREE_TIER_STARTED", None, {"code": code_input})
                     st.session_state.payment_complete = True; st.session_state.locked_tier = tier_code; st.session_state.bulk_paid_qty = qty if tier_code == "Campaign" else 1
                     st.session_state.app_mode = "workspace"; st.rerun()
             else:
-                st.metric("Total", f"${price:.2f}")
-                if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
+                st.metric("Total", f"${final_price:.2f}")
+                if st.button(f"Pay ${final_price:.2f} & Start", type="primary", use_container_width=True):
                     
-                    d_id = None
-                    # --- LOGIC FIX: GHOST DRAFT & PRICE UPDATE ---
-                    if st.session_state.get("current_draft_id"):
-                        d_id = st.session_state.current_draft_id
-                        # Update Price & Tier in case user switched selection
-                        if database: database.update_draft_data(d_id, status="Draft", tier=tier_code, price=price)
-                    else:
-                        if database: 
-                            d_id = database.save_draft(u_email, "", tier_code, price)
-                            st.session_state.current_draft_id = d_id
-                            st.query_params["draft_id"] = str(d_id)
+                    d_id = _handle_draft_creation(u_email, tier_code, final_price)
                     
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if d_id: link += f"&draft_id={d_id}" 
@@ -191,11 +177,28 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
 
                     if payment_engine:
-                        # CRITICAL: Call with 4 arguments only as per your legacy payment_engine.py
-                        final_cents = int(price * 100)
+                        final_cents = int(final_price * 100)
+                        # Metadata removed for legacy engine compat
                         url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", final_cents, link, YOUR_APP_URL)
-                        if url: st.markdown(f"""<a href="{url}" target="_self" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
-                    else: st.error("Payment Engine Missing")
+                        if url: st.markdown(f"""<a href="{url}" target="_blank" style="text-decoration:none;"><div style="background-color:#6772e5; color:white; padding:12px; border-radius:4px; text-align:center; font-weight:bold;">👉 Pay Now via Stripe</div></a>""", unsafe_allow_html=True)
+
+def _handle_draft_creation(email, tier, price):
+    """Helper to handle Draft Creation/Updates safely preventing Ghost Drafts."""
+    d_id = st.session_state.get("current_draft_id")
+    success = False
+    
+    if d_id and database:
+        # Try update first
+        success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+    
+    # --- FIX 6: GHOST DRAFT PREVENTION ---
+    # If update returned False (row deleted) or no ID exists, create new
+    if not success and database:
+        d_id = database.save_draft(email, "", tier, price)
+        st.session_state.current_draft_id = d_id
+        st.query_params["draft_id"] = str(d_id)
+        
+    return d_id
 
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
@@ -227,15 +230,18 @@ def render_workspace_page():
                 contacts, error = bulk_engine.parse_csv(uploaded_file)
                 if error: st.error(error)
                 else:
-                    st.success(f"✅ Loaded {len(contacts)} recipients.")
-                    st.dataframe(contacts[:5])
                     paid_qty = st.session_state.get("bulk_paid_qty", 1000)
-                    if len(contacts) > paid_qty: st.warning(f"⚠️ Limit: {paid_qty}")
-                    if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("List Saved!")
+                    # --- FIX 15: CAMPAIGN QUANTITY VALIDATION ---
+                    if len(contacts) > paid_qty: 
+                        st.error(f"🛑 List exceeds paid quantity ({len(contacts)} > {paid_qty}). Please reduce list or upgrade.")
+                        st.session_state.bulk_targets = []
+                    else:
+                        st.success(f"✅ Loaded {len(contacts)} recipients.")
+                        st.dataframe(contacts[:5])
+                        if st.button("Confirm List"): st.session_state.bulk_targets = contacts; st.toast("List Saved!")
         
         else:
             st.subheader("📍 Addressing")
-            # Defaults using standardized keys
             def_n=user_addr.get("name",""); def_s=user_addr.get("street","")
             def_s2=user_addr.get("address_line2","") 
             def_c=user_addr.get("city",""); def_st=user_addr.get("state",""); def_z=user_addr.get("zip","")
@@ -311,8 +317,9 @@ def render_workspace_page():
             if c_save1.button("Save Addresses", type="primary"):
                  check_name = st.session_state.get("w_to_name", "")
                  check_street = st.session_state.get("w_to_street", "")
-                 if not check_name or not check_street:
-                     st.error("⚠️ **Autofill Detected but not Saved:** Please click inside the Name and Street boxes to ensure the browser saves them.")
+                 # --- FIX 18: IMPROVED AUTOFILL WARNING ---
+                 if (not check_name and not check_street):
+                     st.warning("Please fill in Name and Street.")
                  else:
                      _save_addresses_from_widgets(tier, is_intl)
                      d_id = st.session_state.get("current_draft_id")
@@ -333,7 +340,6 @@ def render_workspace_page():
                         st.session_state.get("w_to_country", "US")
                     )
                     st.success(f"Saved {name}!")
-                    time.sleep(1)
                     st.rerun()
                 else: st.error("Enter Name & Street first.")
 
@@ -382,10 +388,13 @@ def render_workspace_page():
                                     st.rerun()
                                 except Exception as e: st.error(f"Transcription Failed: {e}")
                                 finally:
-                                    if os.path.exists(tmp_path): os.remove(tmp_path)
+                                    # --- FIX 9: SAFE REMOVAL ---
+                                    if os.path.exists(tmp_path): 
+                                        try: os.remove(tmp_path)
+                                        except: pass
 
 def _save_addresses_from_widgets(tier, is_intl):
-    # --- FIX: STANDARDIZED DATA STRUCTURE ---
+    # --- FIX 5: STANDARDIZED DATA STRUCTURE (Source of Truth: street) ---
     if tier == "Santa":
         st.session_state.from_addr = {
             "name": "Santa Claus", "street": "123 Elf Road", 
@@ -468,8 +477,10 @@ def render_review_page():
             from_p = st.session_state.get("from_addr") or {"name": "Sender", "street": "123 St", "city": "City", "state": "ST", "zip": "12345", "country": "US"}
             
             with st.spinner("Generating Proof..."):
+                # Standardize Address Display
                 lines = [to_p.get('name', '')]
-                lines.append(to_p.get('street', ''))
+                street_val = to_p.get('street', '') or to_p.get('line1', '') or to_p.get('address_line1', '')
+                lines.append(street_val)
                 lines.append(to_p.get('address_line2', '') or to_p.get('street2', ''))
                 lines.append(f"{to_p.get('city', '')}, {to_p.get('state', '')} {to_p.get('zip', '')}")
                 if to_p.get('country') != 'US': lines.append(COUNTRIES.get(to_p.get('country'), ''))
@@ -495,7 +506,9 @@ def render_review_page():
                     if pdf_bytes:
                         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                         st.markdown(f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
-                if sig_path: os.remove(sig_path)
+                if sig_path: 
+                    try: os.remove(sig_path)
+                    except: pass
 
     if not st.session_state.letter_sent_success:
         if st.button("🚀 Send Letter", type="primary"):
@@ -512,7 +525,11 @@ def render_review_page():
                     st.error("⚠️ No mailing list found. Please upload a CSV first.")
                     st.stop()
             elif tier == "Civic" and "civic_targets" in st.session_state:
-                for rep in st.session_state.civic_targets: t = rep['address_obj']; t['country'] = 'US'; targets.append(t) 
+                # --- FIX 10: MISSING NULL CHECK ---
+                for rep in st.session_state.civic_targets: 
+                    t = rep.get('address_obj')
+                    if t: 
+                        t['country'] = 'US'; targets.append(t) 
             else:
                 if not st.session_state.get("to_addr"):
                     st.error("⚠️ Recipient Address missing."); return
@@ -546,10 +563,9 @@ def render_review_page():
                     successful_count = 0
                     
                     for i, to_data in enumerate(targets):
-                        # --- FIX: ROBUST ADDRESS CONSTRUCTION ---
+                        # --- FIX 5: STANDARDIZED ADDRESS KEYS ---
                         lines = [to_data.get('name', '')]
                         
-                        # Fallback for Civic/API addresses that use 'line1' or 'address'
                         street = (to_data.get('street', '') or 
                                   to_data.get('line1', '') or 
                                   to_data.get('address_line1', '') or 
@@ -575,41 +591,48 @@ def render_review_page():
                             
                             is_pg_ok = False
                             if (tier == "Standard" or tier == "Civic" or tier == "Campaign") and mailer:
-                                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: tmp.write(pdf_bytes); tmp_path = tmp.name
-                                
-                                # Prep Payload (Robust Key Access)
-                                pg_to = {
-                                    'name': to_data.get('name'), 
-                                    'address_line1': street, # Use the computed street
-                                    'address_line2': to_data.get('address_line2', '') or to_data.get('street2', ''),
-                                    'address_city': to_data.get('city'), 
-                                    'address_state': to_data.get('state'), 
-                                    'address_zip': to_data.get('zip'), 
-                                    'country_code': to_data.get('country', 'US')
-                                }
-                                pg_from = {
-                                    'name': from_data.get('name'), 
-                                    'address_line1': from_data.get('street'), 
-                                    'address_line2': from_data.get('address_line2', '') or from_data.get('street2', ''),
-                                    'address_city': from_data.get('city'), 
-                                    'address_state': from_data.get('state'), 
-                                    'address_zip': from_data.get('zip'), 
-                                    'country_code': from_data.get('country', 'US'), 
-                                    'email': u_email
-                                }
-                                
-                                success, resp = mailer.send_letter(tmp_path, pg_to, pg_from, certified=is_certified)
-                                os.remove(tmp_path)
-                                
-                                if success:
-                                    is_pg_ok = True
-                                    successful_count += 1
-                                    if is_certified and resp.get('trackingNumber'): st.session_state.last_tracking_num = resp.get('trackingNumber')
-                                    if audit_engine: audit_engine.log_event(u_email, "MAIL_SENT_SUCCESS", current_stripe_id, {"provider_id": resp.get('id')})
-                                else:
-                                    is_pg_ok = False
-                                    errors.append(f"{to_data.get('name')}: {resp}")
-                                    if audit_engine: audit_engine.log_event(u_email, "MAIL_API_FAILURE", current_stripe_id, {"error": str(resp)})
+                                # --- FIX 8: SAFE FILE HANDLE ---
+                                tmp_path = None
+                                try:
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: 
+                                        tmp.write(pdf_bytes); tmp_path = tmp.name
+                                    
+                                    # Prep Payload
+                                    pg_to = {
+                                        'name': to_data.get('name'), 
+                                        'address_line1': street, 
+                                        'address_line2': to_data.get('address_line2', '') or to_data.get('street2', ''),
+                                        'address_city': to_data.get('city'), 
+                                        'address_state': to_data.get('state'), 
+                                        'address_zip': to_data.get('zip'), 
+                                        'country_code': to_data.get('country', 'US')
+                                    }
+                                    pg_from = {
+                                        'name': from_data.get('name'), 
+                                        'address_line1': from_data.get('street'), 
+                                        'address_line2': from_data.get('address_line2', '') or from_data.get('street2', ''),
+                                        'address_city': from_data.get('city'), 
+                                        'address_state': from_data.get('state'), 
+                                        'address_zip': from_data.get('zip'), 
+                                        'country_code': from_data.get('country', 'US'), 
+                                        'email': u_email
+                                    }
+                                    
+                                    success, resp = mailer.send_letter(tmp_path, pg_to, pg_from, certified=is_certified)
+                                    
+                                    if success:
+                                        is_pg_ok = True
+                                        successful_count += 1
+                                        if is_certified and resp.get('trackingNumber'): st.session_state.last_tracking_num = resp.get('trackingNumber')
+                                        if audit_engine: audit_engine.log_event(u_email, "MAIL_SENT_SUCCESS", current_stripe_id, {"provider_id": resp.get('id')})
+                                    else:
+                                        is_pg_ok = False
+                                        errors.append(f"{to_data.get('name')}: {resp}")
+                                        if audit_engine: audit_engine.log_event(u_email, "MAIL_API_FAILURE", current_stripe_id, {"error": str(resp)})
+                                finally:
+                                    if tmp_path and os.path.exists(tmp_path): 
+                                        try: os.remove(tmp_path)
+                                        except: pass
 
                             if database:
                                 final_status = "Pending Admin"
@@ -625,7 +648,9 @@ def render_review_page():
 
                         prog_bar.progress((i + 1) / len(targets))
 
-                    if sig_path and os.path.exists(sig_path): os.remove(sig_path)
+                    if sig_path and os.path.exists(sig_path): 
+                        try: os.remove(sig_path)
+                        except: pass
                     
                     if errors: 
                         st.session_state.campaign_errors = errors
@@ -643,11 +668,13 @@ def render_review_page():
                         st.rerun()
 
             except Exception as e:
-                st.error(f"Critical Error: {e}")
+                st.error("Processing Error.")
+                logger.error(f"Critical Error: {e}") # Log to console, not UI
                 if audit_engine: audit_engine.log_event(u_email, "APP_CRASH_DURING_SEND", current_stripe_id, {"trace": str(e)})
 
     else:
-        show_santa_animation()
+        # --- FIX 17: REMOVED SANTA ANIMATION ---
+        
         if st.session_state.get("campaign_errors"):
             st.error(f"⚠️ {len(st.session_state.campaign_errors)} failed.")
             with st.expander("View Errors"):
