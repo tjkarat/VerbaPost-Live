@@ -44,10 +44,7 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- REMOVED REDUNDANT SIDEBAR SECTION ---
-    # ui_main.py already renders the sidebar. Having it here caused the ID collision.
-
-    # --- 3. HERO ---
+    # --- 2. HERO ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
@@ -68,7 +65,7 @@ def show_splash():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 4. CARDS ---
+    # --- 3. PRICING CARDS ---
     p1, p2, p3, p4 = st.columns(4)
     with p1:
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
@@ -79,12 +76,19 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 5. LEADERBOARD ---
+    # --- 4. GAMIFICATION / LEADERBOARD ---
     if database:
         stats = database.get_civic_leaderboard()
-        if stats:
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.container(border=True):
-                st.subheader("📢 Civic Leaderboard")
+        # LOGIC UPDATE: We render the container even if stats are empty
+        # so you can see the section exists.
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.subheader("📢 Civic Leaderboard")
+            if stats:
                 for state, count in stats:
                     st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
+            else:
+                [cite_start]st.info("No letters sent yet. Be the first to start the movement!") [cite: 1]
+    else:
+        # Fallback if database.py didn't import (e.g., missing secrets)
+        st.warning("⚠️ Database connection missing. Leaderboard unavailable.")
