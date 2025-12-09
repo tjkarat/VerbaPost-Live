@@ -10,7 +10,7 @@ import io
 import time
 import logging
 
-# --- 1. CRITICAL UI IMPORTS ---
+# --- 1. UI IMPORTS ---
 try: import ui_splash
 except ImportError: ui_splash = None
 try: import ui_login
@@ -20,7 +20,7 @@ except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
 
-# --- 2. HELPER IMPORTS ---
+# --- 2. ENGINE IMPORTS ---
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -48,7 +48,7 @@ except ImportError: auth_engine = None
 try: import pricing_engine 
 except ImportError: pricing_engine = None
 
-# --- 3. CONFIGURATION ---
+# --- 3. CONFIG ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def reset_app(full_logout=False):
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "pending_stripe_url"] # Clean up pending url
+            "pending_stripe_url"] 
             
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
