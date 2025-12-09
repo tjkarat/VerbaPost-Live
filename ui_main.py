@@ -64,7 +64,6 @@ def reset_app():
 
 def render_hero(title, subtitle):
     # --- FIX: AGGRESSIVE WHITE TEXT FORCING ---
-    # We use a <span> wrapper to ensure the color overrides Streamlit's global theme
     st.markdown(f"""
     <div class="custom-hero" style="
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -686,5 +685,4 @@ def show_main_app():
         render_legal_page()
     
     else:
-        # Fallback
         render_store_page()
