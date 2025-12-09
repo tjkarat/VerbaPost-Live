@@ -63,21 +63,7 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- 2. SIDEBAR ---
-    with st.sidebar:
-        st.header("VerbaPost 📮")
-        st.markdown("---")
-        if st.button("🔑 Member Login", use_container_width=True):
-            st.session_state.app_mode = "login"
-            st.session_state.auth_view = "login" 
-            st.rerun()
-        if st.button("⚖️ Legal & Privacy", use_container_width=True):
-            st.session_state.app_mode = "legal"
-            st.rerun()
-        st.markdown("---")
-        st.caption("v3.0.9 Stable")
-
-    # --- 3. HERO ---
+    # --- 2. HERO ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
@@ -91,14 +77,15 @@ def show_splash():
 
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
-        if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
+        # Added a key here just to be absolutely safe
+        if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True, key="splash_cta_main"):
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" 
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 4. HOW IT WORKS (RESTORED) ---
+    # --- 3. HOW IT WORKS ---
     st.markdown("""
     <h3 style="text-align: center; color: #2a5298; margin-bottom: 20px;">How It Works</h3>
     <div class="steps-container">
@@ -121,7 +108,7 @@ def show_splash():
     <br>
     """, unsafe_allow_html=True)
 
-    # --- 5. PRICING CARDS ---
+    # --- 4. PRICING CARDS ---
     st.markdown("<h3 style='text-align: center; color: #2a5298; margin-bottom: 20px;'>Simple Pricing</h3>", unsafe_allow_html=True)
     p1, p2, p3, p4 = st.columns(4)
     with p1:
@@ -133,12 +120,16 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 6. LEADERBOARD ---
+    # --- 5. LEADERBOARD ---
     if database:
-        stats = database.get_civic_leaderboard()
-        if stats:
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.container(border=True):
-                st.subheader("📢 Civic Leaderboard")
-                for state, count in stats:
-                    st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
+        # Wrapped in Try/Except to prevent crashes if DB tables are missing
+        try:
+            stats = database.get_civic_leaderboard()
+            if stats:
+                st.markdown("<br>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.subheader("📢 Civic Leaderboard")
+                    for state, count in stats:
+                        st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
+        except Exception:
+            pass # Fail silently if DB is not ready
