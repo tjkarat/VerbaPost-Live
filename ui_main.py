@@ -4,12 +4,13 @@ import os
 import tempfile
 import json
 import base64
+import numpy as np
 from PIL import Image
 import io
 import time
 import logging
 
-# --- 1. UI IMPORTS ---
+# --- 1. CRITICAL UI IMPORTS ---
 try: import ui_splash
 except ImportError: ui_splash = None
 try: import ui_login
@@ -19,7 +20,7 @@ except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
 
-# --- 2. ENGINE IMPORTS ---
+# --- 2. HELPER IMPORTS ---
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -40,12 +41,14 @@ try: import civic_engine
 except ImportError: civic_engine = None
 try: import bulk_engine
 except ImportError: bulk_engine = None
+try: import audit_engine 
+except ImportError: audit_engine = None
 try: import auth_engine
 except ImportError: auth_engine = None
 try: import pricing_engine 
 except ImportError: pricing_engine = None
 
-# --- 3. CONFIG ---
+# --- 3. CONFIGURATION ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -73,7 +76,7 @@ def reset_app(full_logout=False):
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "pending_stripe_url"] 
+            "pending_stripe_url"] # Clean up pending url
             
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
@@ -92,6 +95,15 @@ def reset_app(full_logout=False):
             st.session_state.app_mode = "store"
         else: 
             st.session_state.app_mode = "splash"
+
+def check_session():
+    if st.query_params.get("session_id"): return True
+    if "user_email" not in st.session_state or not st.session_state.user_email:
+        st.warning("⚠️ Session Expired.")
+        st.session_state.app_mode = "login"
+        st.rerun()
+        return False
+    return True
 
 # --- 5. SHARED UI COMPONENTS ---
 def render_hero(title, subtitle):
@@ -137,7 +149,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.4 Stable")
+        st.caption("v3.0.5 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -211,49 +223,35 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
 
-            # --- CASE 2: PAID (NO-RERUN FIX) ---
+            # --- CASE 2: LINK ALREADY GENERATED (PERSISTENCE) ---
+            elif "pending_stripe_url" in st.session_state:
+                st.success("✅ Secure Link Ready!")
+                
+                # CRITICAL FIX: This component natively opens in a NEW TAB.
+                # This breaks out of the iframe trap.
+                st.link_button("👉 Pay Now on Stripe", st.session_state.pending_stripe_url, type="primary", use_container_width=True)
+                
+                if st.button("Cancel / Restart"):
+                    del st.session_state.pending_stripe_url
+                    st.rerun()
+
+            # --- CASE 3: GENERATE LINK ---
             else:
-                # We use a regular button to trigger the API call
                 if st.button("Generate Secure Link", type="primary", use_container_width=True):
                     with st.spinner("Connecting to Stripe..."):
-                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
-                        # 2. Build URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
                         if is_certified: link += "&certified=1"
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
-                        # 3. Get Stripe URL
                         if payment_engine:
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
-                            
-                            if url:
-                                # 4. RENDER HTML BUTTON (NO RERUN)
-                                # This creates a clickable link immediately without reloading the page.
-                                st.success("✅ Ready!")
-                                html = f"""
-                                <a href="{url}" target="_blank" style="text-decoration: none;">
-                                    <div style="
-                                        width: 100%;
-                                        background: #635bff;
-                                        color: white;
-                                        padding: 12px;
-                                        border-radius: 4px;
-                                        text-align: center;
-                                        font-weight: bold;
-                                        font-family: sans-serif;
-                                        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                                        margin-top: 10px;
-                                        cursor: pointer;
-                                    ">
-                                        👉 Pay Now on Stripe
-                                    </div>
-                                </a>
-                                """
-                                st.markdown(html, unsafe_allow_html=True)
+                            if url: 
+                                st.session_state.pending_stripe_url = url
+                                st.rerun() # Refresh to show the "Pay Now" link
                             else:
                                 st.error("Stripe Connection Failed.")
 
