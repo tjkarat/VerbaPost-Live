@@ -63,7 +63,8 @@ def reset_app():
     else: st.session_state.app_mode = "splash"
 
 def render_hero(title, subtitle):
-    # --- FIX: FORCE WHITE TEXT WITH INLINE STYLES ---
+    # --- FIX 1: FORCE WHITE TEXT ON BLUE BACKGROUND ---
+    # This explicit style overrides any global config settings
     st.markdown(f"""
     <div class="custom-hero" style="
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -237,7 +238,6 @@ def render_workspace_page():
                 st.info("🎅 **From:** Santa Claus, North Pole (Locked)")
                 st.subheader("📍 Addressing")
                 st.markdown("**📮 To (Recipient)**")
-                # Santa needs To fields shown
                 st.text_input("Recipient Name", key="w_to_name")
                 st.text_input("Recipient Street", key="w_to_street")
                 st.text_input("Recipient Apt/Suite (Optional)", key="w_to_street2")
@@ -254,8 +254,7 @@ def render_workspace_page():
             elif tier == "Civic":
                  st.subheader("🏛️ Your Representatives")
                  
-                 # --- FIX: AUTOMATIC CIVIC LOOKUP ---
-                 # 1. Display the User's Address (Auto-filled)
+                 # --- FIX 2: AUTOMATIC CIVIC LOOKUP ---
                  with st.expander("📍 Using your voting address (Click to Edit)", expanded=False):
                      c_f1, c_f2 = st.columns([1, 1])
                      with c_f1:
@@ -272,7 +271,6 @@ def render_workspace_page():
                          if "civic_targets" in st.session_state: del st.session_state.civic_targets
                          st.rerun()
 
-                 # 2. Logic: If address exists, auto-search
                  if "civic_targets" not in st.session_state:
                      full_addr = f"{f_street}, {f_city}, {f_state} {f_zip}"
                      if f_street and len(f_street) > 5 and civic_engine:
@@ -280,13 +278,12 @@ def render_workspace_page():
                              reps = civic_engine.get_reps(full_addr)
                              if reps:
                                  st.session_state.civic_targets = reps
-                                 st.rerun() # Refresh to show results
+                                 st.rerun() 
                              else:
                                  st.error("Could not find representatives. Please check the address above.")
                      elif not f_street:
                          st.info("⚠️ Please ensure your address is set in your profile or enter it above.")
 
-                 # 3. Display Results
                  if "civic_targets" in st.session_state:
                      st.success(f"✅ Targets Identified: {len(st.session_state.civic_targets)} Elected Officials")
                      for r in st.session_state.civic_targets:
@@ -294,7 +291,6 @@ def render_workspace_page():
                      st.caption("We will mail a physical letter to each of these officials.")
 
             else:
-                # STANDARD / HEIRLOOM MODE
                 st.subheader("📍 Addressing")
                 with st.expander(f"✉️ From: {def_n} (Click to Edit)", expanded=False):
                     st.text_input("Sender Name", value=def_n, key="w_from_name")
@@ -636,46 +632,4 @@ def render_review_page():
             st.info(f"📜 **Certified Mail Tracking:** {st.session_state.last_tracking_num}")
             st.caption("You will also receive this via email.")
         
-        if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True): 
-             st.query_params.clear(); reset_app(); st.session_state.app_mode = "store"; st.rerun()
-
-def show_main_app():
-    if analytics: analytics.inject_ga()
-    mode = st.session_state.get("app_mode", "splash")
-    if "draft_id" in st.query_params:
-        if not st.session_state.get("current_draft_id"): st.session_state.current_draft_id = st.query_params["draft_id"]
-    if "session_id" in st.query_params: 
-        if "tier" in st.query_params: st.session_state.locked_tier = st.query_params["tier"]
-        if "qty" in st.query_params: st.session_state.bulk_paid_qty = int(st.query_params["qty"])
-        if "certified" in st.query_params: st.session_state.is_certified = True
-        st.session_state.app_mode = "workspace"; st.session_state.payment_complete = True; st.query_params.clear(); st.rerun()
-
-    if mode == "splash": import ui_splash; ui_splash.show_splash()
-    elif mode == "login": 
-        import ui_login; import auth_engine
-        ui_login.show_login(lambda e,p: _handle_login(auth_engine, e,p), lambda e,p,n,a,a2,c,s,z,cntry,lang: _handle_signup(auth_engine, e,p,n,a,a2,c,s,z,cntry,lang))
-    elif mode == "forgot_password": import ui_login; import auth_engine; ui_login.show_forgot_password(lambda e: auth_engine.send_password_reset(e))
-    elif mode == "reset_verify": import ui_login; import auth_engine; ui_login.show_reset_verify(lambda e,t,n: auth_engine.reset_password_with_token(e,t,n))
-    elif mode == "store": render_store_page()
-    elif mode == "workspace": render_workspace_page()
-    elif mode == "review": render_review_page()
-    elif mode == "legal": render_legal_page()
-    elif mode == "admin": import ui_admin; ui_admin.show_admin()
-    else: st.error(f"Error: Unknown App Mode '{mode}'"); st.button("Reset", on_click=reset_app)
-
-    with st.sidebar:
-        if st.button("🏠 Home"): reset_app(); st.rerun()
-        if st.session_state.get("user_email"):
-            st.write(f"User: {st.session_state.user_email}")
-            if st.button("Logout"): st.session_state.clear(); st.rerun()
-
-def _handle_login(auth, email, password):
-    res, err = auth.sign_in(email, password)
-    if res and res.user: st.session_state.user = res.user; st.session_state.user_email = res.user.email; st.session_state.app_mode = "store"; st.rerun()
-    else: st.session_state.auth_error = err
-
-def _handle_signup(auth, email, password, name, addr, addr2, city, state, zip_c, country, lang):
-    res, err = auth.sign_up(email, password, name, addr, addr2, city, state, zip_c, country, lang)
-    if res and res.user: st.success("Account Created! Please log in."); st.session_state.app_mode = "login"
-    else: st.session_state.auth_error = err
-    return res, err
+        if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True):
