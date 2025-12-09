@@ -72,7 +72,8 @@ def reset_app(full_logout=False):
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
-            "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
+            "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
+            "sig_text"]
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     
@@ -251,7 +252,7 @@ def _handle_draft_creation(email, tier, price):
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE ---
+# --- 7. PAGE: WORKSPACE (FIXED SIGNATURE & ADDRESS SYNC) ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -259,7 +260,7 @@ def render_workspace_page():
     
     u_email = st.session_state.get("user_email")
     
-    # --- 1. ADDRESS SYNC LOGIC (Fix for Missing Data) ---
+    # --- 1. ADDRESS SYNC LOGIC (Data Persistence) ---
     # Restore "From" from Profile if missing
     if database and u_email:
         p = database.get_user_profile(u_email)
@@ -270,7 +271,7 @@ def render_workspace_page():
             st.session_state.w_from_state = p.address_state
             st.session_state.w_from_zip = p.address_zip
 
-    # Restore "To" from Session if widgets are empty but data exists (e.g. Back from Review)
+    # Restore "To" from Session if widgets are empty but data exists
     if "to_addr" in st.session_state and st.session_state.to_addr and "w_to_name" not in st.session_state:
         data = st.session_state.to_addr
         st.session_state.w_to_name = data.get("name", "")
@@ -336,18 +337,15 @@ def render_workspace_page():
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
-                            # --- Fix for Address Book Quick Fill ---
                             names = ["-- Quick Fill --"] + [x.name for x in cons]
                             sel = st.selectbox("Address Book", names)
                             if sel != "-- Quick Fill --":
                                 c = next(x for x in cons if x.name == sel)
-                                # Force session state update before widget render next cycle
                                 st.session_state.w_to_name = c.name
                                 st.session_state.w_to_street = c.street
                                 st.session_state.w_to_city = c.city
                                 st.session_state.w_to_state = c.state
                                 st.session_state.w_to_zip = c.zip_code
-                                # Rerun to populate fields immediately
                                 st.rerun()
 
                     st.text_input("Name", key="w_to_name")
@@ -371,24 +369,33 @@ def render_workspace_page():
                 st.toast("✅ Addresses Saved!")
 
     st.write("---")
-    # Dictation / Signature
+    
+    # --- SIGNATURE & DICTATION ---
     c_sig, c_mic = st.columns(2)
     with c_sig:
-        st.write("✍️ **Signature**")
+        st.subheader("✍️ Signature")
         if tier == "Santa": st.info("Signed by Santa")
-        elif st_canvas: 
-            try:
-                canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig")
-                if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
-            except Exception: st.warning("Canvas Error")
         else:
-            st.warning("Signature pad unavailable.")
+            # Fallback for when Canvas fails to load
+            use_text_sig = st.checkbox("Type signature instead?", value=False)
+            
+            if use_text_sig:
+                sig_text = st.text_input("Type your name to sign", key="txt_sig_input")
+                if sig_text:
+                    st.session_state.sig_data = None 
+                    st.session_state.sig_text = sig_text 
+            elif st_canvas: 
+                try:
+                    canvas = st_canvas(stroke_width=2, height=150, width=400, key="sig", background_color="#ffffff")
+                    if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
+                except Exception: st.warning("Canvas Error - Use Text Option")
+            else:
+                st.warning("Signature pad unavailable.")
     
     with c_mic:
-        st.write("🎤 **Input**")
+        st.subheader("🎤 Input")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
-            # --- INSTRUCTIONAL MESSAGE ADDED HERE ---
             st.info("💡 **Instructions:**\n1. Click **Start Recording**\n2. Speak your letter clearly\n3. Click **Stop Recording**\n4. Wait a moment for AI transcription")
             
             try:
@@ -469,10 +476,14 @@ def render_review_page():
         from_s = _fmt_prev(st.session_state.get("from_addr", {}))
         
         sig_path = None
+        # Handle Image Signature
         if st.session_state.get("sig_data") is not None:
             img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
         
+        # NOTE: If sig_data is None (text mode), letter_format simply omits the signature image. 
+        # Future enhancement: Pass 'st.session_state.sig_text' to create_pdf if supported.
+
         if letter_format:
             pdf = letter_format.create_pdf(st.session_state.transcribed_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
             if pdf:

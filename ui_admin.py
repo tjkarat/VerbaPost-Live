@@ -76,73 +76,66 @@ def show_admin():
             st.rerun()
 
     # 3. Dashboard Tabs
-    tab_overview, tab_manual, tab_promo = st.tabs(["📊 Overview", "🖨️ Manual Fulfillment", "🎟️ Promo Codes"])
+    tab_overview, tab_manage, tab_promo = st.tabs(["📊 Live Feed", "🛠️ Order Management", "🎟️ Promo Codes"])
 
-    # --- TAB: OVERVIEW ---
+    # --- TAB: LIVE FEED (No Limits) ---
     with tab_overview:
-        st.subheader("System Health")
-        # Simple health check indicators
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            if database: st.success("✅ Database") 
-            else: st.error("❌ Database Missing")
-        with c2:
-            if secrets_manager and secrets_manager.get_secret("stripe.secret_key"): st.success("✅ Stripe")
-            else: st.warning("⚠️ Stripe Keys")
-        with c3:
-            if secrets_manager and secrets_manager.get_secret("postgrid.api_key"): st.success("✅ PostGrid")
-            else: st.warning("⚠️ PostGrid Keys")
-        with c4:
-            # Geocodio Check
-            if secrets_manager and (secrets_manager.get_secret("GEOCODIO_API_KEY") or secrets_manager.get_secret("geocodio.api_key")):
-                st.success("✅ Geocodio")
-            else:
-                st.warning("⚠️ Geocodio Keys")
-
-        st.divider()
-        
-        # Database Stats
+        st.subheader("All Orders (Newest First)")
         if database:
             try:
-                drafts = database.fetch_all_drafts()
+                drafts = database.fetch_all_drafts() # Fetch ALL
                 if drafts:
                     df = pd.DataFrame(drafts)
-                    st.dataframe(df.tail(10), use_container_width=True)
+                    # Show useful columns first
+                    cols = ["ID", "Date", "Status", "Tier", "Email", "Price"]
+                    existing_cols = [c for c in cols if c in df.columns]
+                    st.dataframe(df[existing_cols], use_container_width=True, height=500)
                 else:
-                    st.info("No orders found in database.")
+                    st.info("Database empty.")
             except Exception as e:
                 st.error(f"Failed to load data: {e}")
 
-    # --- TAB: MANUAL FULFILLMENT ---
-    with tab_manual:
-        st.subheader("🖨️ Queue (Santa / Heirloom)")
+    # --- TAB: ORDER MANAGEMENT (Fix Failed Orders) ---
+    with tab_manage:
+        st.subheader("🛠️ Fix & Fulfill")
+        
+        filter_opt = st.radio("Show Orders:", ["Failed / Errors Only", "Manual Queue (Santa/Heirloom)", "All Orders"], horizontal=True)
+        
         if database:
             try:
                 all_drafts = database.fetch_all_drafts()
-                # Filter for manual processing tiers
-                manual_queue = [d for d in all_drafts if d.get('Tier') in ['Heirloom', 'Santa']]
                 
-                if not manual_queue:
-                    st.success("🎉 Queue is empty! All caught up.")
-                
-                for row in manual_queue:
-                    with st.expander(f"{row['Tier']} Order #{row['ID']} - {row['Email']}"):
-                        c_info, c_act = st.columns([3, 1])
-                        with c_info:
-                            st.write(f"**Status:** {row['Status']}")
-                            st.text_area("Content Preview", row['Content'], height=100, disabled=True, key=f"txt_{row['ID']}")
+                # --- FILTER LOGIC ---
+                if filter_opt == "Failed / Errors Only":
+                    queue = [d for d in all_drafts if d.get('Status') in ['Failed', 'Error', 'Payment Failed']]
+                    if not queue: st.success("✅ No failed orders found!")
+                    
+                elif filter_opt == "Manual Queue (Santa/Heirloom)":
+                    queue = [d for d in all_drafts if d.get('Tier') in ['Heirloom', 'Santa']]
+                    
+                else: # All
+                    queue = all_drafts[:50] # Limit to 50 for performance
+                    st.caption("Showing last 50 orders for performance.")
+
+                # --- DISPLAY CARDS ---
+                for row in queue:
+                    with st.expander(f"#{row['ID']} | {row['Tier']} | {row['Email']} | Status: {row['Status']}"):
+                        c1, c2 = st.columns([2, 1])
                         
-                        with c_act:
-                            # PDF Generation Button
-                            if st.button("📄 Generate PDF", key=f"gen_{row['ID']}"):
+                        with c1:
+                            st.markdown(f"**Created:** {row['Date']}")
+                            st.text_area("Content", row['Content'], height=100, disabled=True, key=f"txt_{row['ID']}")
+                        
+                        with c2:
+                            st.write("**Actions:**")
+                            
+                            # 1. Regenerate PDF
+                            if st.button("📄 View PDF", key=f"pdf_{row['ID']}"):
                                 try:
-                                    # Parse addresses safely
-                                    to_data = json.loads(row['Recipient']) if row['Recipient'] else {}
-                                    from_data = json.loads(row['Sender']) if row['Sender'] else {}
-                                    
-                                    # Use the Safe StandardAddress class
-                                    to_std = StandardAddress.from_dict(to_data)
-                                    from_std = StandardAddress.from_dict(from_data)
+                                    to_d = json.loads(row['Recipient']) if row['Recipient'] else {}
+                                    from_d = json.loads(row['Sender']) if row['Sender'] else {}
+                                    to_std = StandardAddress.from_dict(to_d)
+                                    from_std = StandardAddress.from_dict(from_d)
                                     
                                     if letter_format:
                                         pdf_bytes = letter_format.create_pdf(
@@ -152,20 +145,17 @@ def show_admin():
                                             is_heirloom=("Heirloom" in row['Tier']), 
                                             is_santa=("Santa" in row['Tier'])
                                         )
-                                        
-                                        # Create Download Link
                                         b64 = base64.b64encode(pdf_bytes).decode()
-                                        href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{row["ID"]}.pdf" style="background-color:#4CAF50;color:white;padding:8px 16px;text-decoration:none;border-radius:4px;">⬇️ Download PDF</a>'
-                                        st.markdown(href, unsafe_allow_html=True)
+                                        st.markdown(f'<a href="data:application/pdf;base64,{b64}" download="letter_{row["ID"]}.pdf" style="background-color:#4CAF50;color:white;padding:8px;text-decoration:none;border-radius:4px;">⬇️ Download PDF</a>', unsafe_allow_html=True)
                                 except Exception as e:
-                                    st.error(f"Generation Error: {e}")
+                                    st.error(f"PDF Error: {e}")
 
-                            if st.button("✅ Mark Sent", key=f"sent_{row['ID']}"):
-                                database.update_draft_data(row['ID'], status="Completed")
-                                st.success("Marked as Completed!")
-                                time.sleep(1)
-                                st.rerun()
-
+                            # 2. Force Status Update
+                            new_stat = st.selectbox("Set Status", ["Completed", "Failed", "Refunded"], key=f"stat_{row['ID']}")
+                            if st.button("Update Status", key=f"upd_{row['ID']}"):
+                                database.update_draft_data(row['ID'], status=new_stat)
+                                st.toast(f"Updated order #{row['ID']} to {new_stat}")
+                                time.sleep(1); st.rerun()
             except Exception as e:
                 st.error(f"Error loading queue: {e}")
 
