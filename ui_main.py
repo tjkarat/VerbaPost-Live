@@ -149,7 +149,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.5 Stable")
+        st.caption("v3.0.6 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -225,11 +225,31 @@ def render_store_page():
 
             # --- CASE 2: LINK ALREADY GENERATED (PERSISTENCE) ---
             elif "pending_stripe_url" in st.session_state:
-                st.success("✅ Secure Link Ready!")
+                st.success("✅ Link Ready!")
                 
-                # CRITICAL FIX: This component natively opens in a NEW TAB.
-                # This breaks out of the iframe trap.
-                st.link_button("👉 Pay Now on Stripe", st.session_state.pending_stripe_url, type="primary", use_container_width=True)
+                # --- FIX: HARDCODED HTML BUTTON TO FORCE NEW TAB ---
+                url = st.session_state.pending_stripe_url
+                html_btn = f"""
+                <a href="{url}" target="_blank" style="text-decoration: none;">
+                    <div style="
+                        display: block;
+                        width: 100%;
+                        padding: 12px;
+                        background-color: #28a745; /* GREEN */
+                        color: white;
+                        text-align: center;
+                        border-radius: 8px;
+                        font-weight: bold;
+                        font-family: sans-serif;
+                        cursor: pointer;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                        transition: background-color 0.2s;
+                    ">
+                        👉 Pay Now on Stripe (New Tab)
+                    </div>
+                </a>
+                """
+                st.markdown(html_btn, unsafe_allow_html=True)
                 
                 if st.button("Cancel / Restart"):
                     del st.session_state.pending_stripe_url
@@ -251,7 +271,7 @@ def render_store_page():
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
                                 st.session_state.pending_stripe_url = url
-                                st.rerun() # Refresh to show the "Pay Now" link
+                                st.rerun() # Refresh to show the Green Button
                             else:
                                 st.error("Stripe Connection Failed.")
 
