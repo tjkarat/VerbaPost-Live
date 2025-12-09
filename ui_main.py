@@ -106,7 +106,6 @@ def render_hero(title, subtitle):
             box-shadow: 0 8px 16px rgba(0,0,0,0.1);
             color: #ffffff !important;
         }}
-        /* Aggressively target all elements inside the hero to be white */
         .verba-hero-container h1, 
         .verba-hero-container p, 
         .verba-hero-container div, 
@@ -139,7 +138,6 @@ def render_store_page():
 
     render_hero("Select Service", "Choose your letter type")
     
-    # Admin Check
     is_admin = False
     try:
         if secrets_manager:
@@ -591,7 +589,6 @@ def render_review_page():
     st.info("📝 **Note:** You can edit the text below directly. The AI buttons above are optional.")
     txt = st.text_area("Body Content", key="transcribed_text", height=300, disabled=st.session_state.letter_sent_success)
     
-    # --- PDF PREVIEW FIX ---
     if st.button("👁️ Preview PDF Proof", type="secondary", use_container_width=True):
         if not txt or len(txt.strip()) < 5:
             st.error("⚠️ Cannot preview empty letter.")
@@ -621,9 +618,7 @@ def render_review_page():
                         b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                         
                         # --- FIX: ROBUST PDF DISPLAY ---
-                        # 1. We use an <embed> tag which is more robust than <iframe> for PDFs
-                        # 2. We ALSO offer a direct download button. If the preview fails, the download will likely work.
-                        
+                        # Uses <embed> for reliability and offers a download fallback
                         pdf_display = f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">'
                         st.markdown(pdf_display, unsafe_allow_html=True)
                         
@@ -796,7 +791,7 @@ def render_review_page():
             reset_app()
             st.rerun()
 
-# --- MAIN ROUTER ---
+# --- MAIN ROUTER (MUST BE AT THE BOTTOM) ---
 def show_main_app():
     if "app_mode" not in st.session_state:
         reset_app()
@@ -805,9 +800,10 @@ def show_main_app():
     
     if mode == "splash":
         try:
-            import ui_landing
-            ui_landing.render_landing()
+            import ui_splash
+            ui_splash.render_splash()
         except ImportError:
+            # Fallback if the splash file is truly missing (Debug)
             st.title("VerbaPost (Debug Mode)")
             if st.button("Login"):
                 st.session_state.app_mode = "login"
@@ -815,8 +811,8 @@ def show_main_app():
 
     elif mode == "login":
         try:
-            import ui_auth
-            ui_auth.render_login()
+            import ui_login
+            ui_login.render_login()
         except ImportError:
             st.subheader("Login Placeholder")
             email = st.text_input("Email")
@@ -835,7 +831,11 @@ def show_main_app():
         render_review_page()
     
     elif mode == "admin":
-        st.write("Admin Panel (Placeholder)")
+        try:
+            import ui_admin
+            ui_admin.render_admin()
+        except:
+             st.write("Admin Panel (Placeholder - File Missing)")
     
     elif mode == "legal":
         render_legal_page()
