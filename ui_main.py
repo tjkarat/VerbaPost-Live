@@ -8,7 +8,7 @@ import time
 from PIL import Image
 
 # --- 1. CRITICAL: LOAD CORE DEFINITIONS FIRST ---
-# This prevents the 'KeyError' crash by defining the class locally if the import fails
+# This prevents the 'KeyError: address_standard' crash by defining the class locally if the file isn't ready
 try:
     from address_standard import StandardAddress
 except ImportError:
@@ -70,7 +70,7 @@ COUNTRIES = {
     "JP": "Japan", "BR": "Brazil", "IN": "India"
 }
 
-# --- 4. SESSION MANAGEMENT ---
+# --- 4. SESSION & HELPERS ---
 def reset_app():
     """Restores session to a clean state while keeping login."""
     recovered = st.query_params.get("draft_id")
@@ -106,9 +106,8 @@ def check_session():
         return False
     return True
 
-# --- 5. UI COMPONENTS ---
 def render_hero(title, subtitle):
-    # CSS FIX: Forces white text on blue background
+    # Aggressive CSS to fix black font issue
     st.markdown(f"""
     <style>
         .custom-hero h1, .custom-hero div {{ color: white !important; }}
@@ -126,9 +125,14 @@ def render_legal_page():
     try: import ui_legal; ui_legal.show_legal()
     except: st.error("Legal page unavailable.")
 
-# --- 6. AUTH BRIDGE HANDLERS ---
-# These functions bridge ui_login.py (frontend) with auth_engine.py (backend)
+# --- 5. AUTH HANDLERS (The Bridge) ---
+# ui_login.py expects these specific signatures and return types
+
 def handle_login(email, password):
+    """
+    Called by ui_login.py for existing users.
+    NOTE: ui_login DOES NOT check return value. We must handle redirect here.
+    """
     if auth_engine:
         res, err = auth_engine.sign_in(email, password)
         if res and res.user:
@@ -141,40 +145,50 @@ def handle_login(email, password):
             st.error(f"Login failed: {err}")
 
 def handle_signup(email, password, name, street, street2, city, state, zip_code, country, language):
+    """
+    Called by ui_login.py for new users.
+    NOTE: ui_login DOES check return value (res, err). We must return it.
+    """
     if auth_engine:
         res, err = auth_engine.sign_up(email, password, name, street, street2, city, state, zip_code, country, language)
         if res and res.user:
             st.session_state.user_email = res.user.email
             st.session_state.app_mode = "store"
-            st.success("Account created! Logging in...")
-            time.sleep(0.5)
-            st.rerun()
-        else: return res, err
+            # ui_login handles the success message, but we set the state
+            return res, None 
+        else: 
+            return None, err
     return None, "Auth Engine Missing"
 
-# --- 7. PAGE: STORE ---
+# --- 6. PAGE: STORE ---
 def render_store_page():
-    # Allow payment return processing BEFORE check_session
+    # Payment Verification Loop (Zombie Proofing)
     sess_id = st.query_params.get("session_id")
+    
+    # If returning from payment, handle it BEFORE checking session
+    # This prevents the "redirect to login" loop if session was lost
     if sess_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
             if payment_engine:
                 success, details = payment_engine.verify_session(sess_id)
                 if success:
                     st.session_state.payment_complete = True
-                    # Try to restore email from Stripe metadata if session was lost
+                    
+                    # AUTO-LOGIN from Stripe Data if session lost
                     if not st.session_state.get("user_email"):
                         try:
-                            rec_email = details.get("customer_details", {}).get("email")
-                            if rec_email: st.session_state.user_email = rec_email
+                            cust_email = details.get("customer_details", {}).get("email")
+                            if cust_email: st.session_state.user_email = cust_email
                         except: pass
-                    
+
                     if audit_engine: audit_engine.log_event(st.session_state.get("user_email"), "PAYMENT_SUCCESS", sess_id, {"amount": details.get('amount_total')})
                     st.success("Payment Received!")
                     st.session_state.app_mode = "workspace"
                     st.rerun()
-                else: st.error("Payment Verification Failed")
+                else: 
+                    st.error("Payment Verification Failed")
 
+    # Now verify login
     if not check_session(): return
     u_email = st.session_state.user_email
 
@@ -211,7 +225,8 @@ def render_store_page():
                 price = 2.99 + ((qty - 1) * 1.99)
                 st.caption(f"Pricing: First letter $2.99, then $1.99/ea")
             else:
-                price = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}[tier_code]
+                prices = {"Standard": 2.99, "Heirloom": 5.99, "Civic": 6.99, "Santa": 9.99}
+                price = prices[tier_code]
 
             is_intl = False; is_certified = False
             if tier_code in ["Standard", "Heirloom"]:
@@ -266,12 +281,12 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
-                        # CRITICAL FIX: No metadata passed here because your payment_engine doesn't support it
+                        # SAFE CALL: No metadata argument to ensure compatibility
                         url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price*100), link, YOUR_APP_URL)
                         if url: st.markdown(f'<a href="{url}" target="_self" style="text-decoration:none;"><button style="width:100%;padding:10px;background:#6772e5;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay with Stripe</button></a>', unsafe_allow_html=True)
                     else: st.error("Payment Engine Missing")
 
-# --- 8. PAGE: WORKSPACE ---
+# --- 7. PAGE: WORKSPACE ---
 def render_workspace_page():
     if not check_session(): return
     tier = st.session_state.get("locked_tier", "Standard")
@@ -451,7 +466,7 @@ def render_workspace_page():
                 with tempfile.NamedTemporaryFile(delete=False, suffix="."+up.name.split('.')[-1]) as tmp:
                     tmp.write(up.getvalue()); st.session_state.transcribed_text = ai_engine.transcribe_audio(tmp.name); st.session_state.app_mode = "review"; st.rerun()
 
-# --- 9. PAGE: REVIEW ---
+# --- 8. PAGE: REVIEW ---
 def render_review_page():
     if not check_session(): return
     render_hero("Review", "Finalize")
@@ -537,7 +552,7 @@ def render_review_page():
                 if tier in ["Santa", "Heirloom"] and mailer: mailer.send_admin_alert(st.session_state.user_email, txt, tier)
                 if st.button("New Letter"): reset_app(); st.rerun()
 
-# --- 10. MAIN ROUTER ---
+# --- 9. MAIN ROUTER ---
 def show_main_app():
     if "app_mode" not in st.session_state: reset_app()
     mode = st.session_state.app_mode
