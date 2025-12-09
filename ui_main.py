@@ -614,3 +614,47 @@ def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
     res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
     if res and res.user: st.success("Created! Please Log In."); st.session_state.app_mode = "login"
     else: st.error(err)
+    if tier == "Santa": 
+        st.session_state.from_addr = {
+            "name": "Santa Claus", 
+            "street": "123 Elf Road", 
+            "city": "North Pole", 
+            "state": "NP", 
+            "zip": "88888", 
+            "country": "NP"
+        }
+    else:
+        st.session_state.from_addr = {
+            "name": st.session_state.get("w_from_name"), 
+            "street": st.session_state.get("w_from_street"),
+            "address_line2": st.session_state.get("w_from_street2"), 
+            "city": st.session_state.get("w_from_city"),
+            "state": st.session_state.get("w_from_state"), 
+            "zip": st.session_state.get("w_from_zip"), 
+            "country": "US", 
+            "email": u
+        }
+    
+    if tier == "Civic":
+        st.session_state.to_addr = {
+            "name": "Civic Action", 
+            "street": "Capitol", 
+            "city": "DC", 
+            "state": "DC", 
+            "zip": "20000", 
+            "country": "US"
+        }
+    else:
+        st.session_state.to_addr = {
+            "name": st.session_state.get("w_to_name"), 
+            "street": st.session_state.get("w_to_street"),
+            "address_line2": st.session_state.get("w_to_street2"), 
+            "city": st.session_state.get("w_to_city"),
+            "state": st.session_state.get("w_to_state"), 
+            "zip": st.session_state.get("w_to_zip"),
+            "country": st.session_state.get("w_to_country", "US")
+        }
+    
+    d_id = st.session_state.get("current_draft_id")
+    if d_id and database: 
+        database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
