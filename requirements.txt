@@ -1,19 +1,13 @@
-streamlit==1.38.0
-pandas
-numpy
-stripe
+streamlit
+streamlit-drawable-canvas
 supabase
-psycopg2-binary
+stripe
+openai-whisper
 sqlalchemy
+psycopg2-binary
 requests
 resend
-openai
+pandas
 fpdf2
 python-dotenv
-streamlit-drawable-canvas
-# --- CRITICAL: CPU-ONLY VERSIONS ---
-# This prevents the 3GB download that kills the server
-openai-whisper
-torch --index-url https://download.pytorch.org/whl/cpu
-torchaudio --index-url https://download.pytorch.org/whl/cpu
-torchvision --index-url https://download.pytorch.org/whl/cpu
+openai
