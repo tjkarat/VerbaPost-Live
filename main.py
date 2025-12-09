@@ -48,13 +48,13 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # --- STRIPE RETURN HANDLER (MANUAL BREAK) ---
+        # --- STRIPE RETURN HANDLER (MANUAL BRAKE) ---
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
             # Placeholder for status
             status_box = st.empty()
-            status_box.info("🔄 Verifying Payment...")
+            status_box.info("🔄 Verifying Payment... Please wait.")
             
             # 1. Verify Payment
             try:
@@ -92,13 +92,16 @@ if __name__ == "__main__":
                 # 4. STOP LOOP: FORCE USER CLICK
                 status_box.success("✅ Payment Verified!")
                 
-                st.markdown("### 🚀 Ready to write?")
-                if st.button("👉 Click here to start letter", type="primary"):
+                st.markdown("### 🚀 Payment Successful")
+                st.markdown("Click below to start writing your letter.")
+                
+                # This button breaks the loop. 
+                # The app STOPS here and waits for the user.
+                if st.button("👉 Continue to Workspace", type="primary", use_container_width=True):
                     st.query_params.clear()
                     st.rerun()
                 
-                # CRITICAL: Stop execution here. Do not auto-reload.
-                st.stop()
+                st.stop() # Stops execution. No auto-reload.
                 
             else:
                 status_box.error("❌ Payment Verification Failed or Expired.")
