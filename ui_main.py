@@ -1,5 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components # <--- CRITICAL IMPORT
+import streamlit.components.v1 as components
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
@@ -150,7 +150,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.8 Stable")
+        st.caption("v3.0.11 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -213,7 +213,9 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- CASE 1: FREE/PROMO ---
+            # --- PAYMENT LOGIC ---
+
+            # Case 1: Free/Promo - Direct Entry
             if discounted:
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
@@ -224,44 +226,58 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
 
-            # --- CASE 2: LINK ALREADY GENERATED (JAVASCRIPT BUSTER) ---
+            # Case 2: Link Already Generated - Show HTML Button
             elif "pending_stripe_url" in st.session_state:
                 url = st.session_state.pending_stripe_url
                 st.success("✅ Link Generated!")
-                st.info("A new tab should open for payment. If not, click below:")
                 
-                # Manual Button (Green)
-                st.link_button("👉 Pay Now on Stripe (New Tab)", url, type="primary", use_container_width=True)
+                # --- FIXED: Explicit White Text Color ---
+                st.markdown(f'''
+                <a href="{url}" target="_blank" style="text-decoration: none;">
+                    <div style="
+                        width: 100%;
+                        background-color: #28a745; 
+                        color: #FFFFFF !important; 
+                        padding: 14px; 
+                        text-align: center; 
+                        border-radius: 8px; 
+                        font-weight: bold; 
+                        font-family: sans-serif;
+                        font-size: 16px;
+                        cursor: pointer;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                        transition: background-color 0.2s;
+                    ">
+                        👉 Pay Now on Stripe (New Tab)
+                    </div>
+                </a>
+                ''', unsafe_allow_html=True)
                 
-                # --- AUTO-OPEN JS INJECTION ---
-                # This automatically opens the link in a new tab, bypassing the white screen iframe issue
-                components.html(f"""
-                    <script>
-                        window.open('{url}', '_blank');
-                    </script>
-                """, height=0)
-                
-                if st.button("Cancel / Restart"):
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Cancel / Start Over", use_container_width=True):
                     del st.session_state.pending_stripe_url
                     st.rerun()
 
-            # --- CASE 3: GENERATE LINK ---
+            # Case 3: Initial State - Generate Link
             else:
-                if st.button("Proceed to Payment", type="primary", use_container_width=True):
-                    with st.spinner("Preparing secure link..."):
+                if st.button("Generate Payment Link", type="primary", use_container_width=True):
+                    with st.spinner("Connecting to Stripe..."):
+                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
+                        # 2. Build URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
                         if is_certified: link += "&certified=1"
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
+                        # 3. Get Stripe URL
                         if payment_engine:
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
                                 st.session_state.pending_stripe_url = url
-                                st.rerun() # This triggers the JS on the next render
+                                st.rerun()
                             else:
                                 st.error("Stripe Connection Failed.")
 
@@ -280,7 +296,7 @@ def _handle_draft_creation(email, tier, price):
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE (unchanged) ---
+# --- 7. PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -297,11 +313,11 @@ def render_workspace_page():
             st.session_state.w_from_zip = p.address_zip
 
     with st.container(border=True):
+        # --- CAMPAIGN LOGIC ---
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             
-            # --- FIX: FILE SIZE LIMIT ---
             MAX_MB = 10
             f = st.file_uploader(f"CSV (Max {MAX_MB}MB, Name, Street, City, State, Zip)", type=['csv'])
             
@@ -319,6 +335,11 @@ def render_workspace_page():
                         else:
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
+        
+        # --- STANDARD / HEIRLOOM / CIVIC LOGIC (RESTORED) ---
+        else:
+            st.subheader("📍 Addressing")
+            c1, c2 = st.columns(2)
             
             with c1: # FROM
                 st.markdown("**From**")
