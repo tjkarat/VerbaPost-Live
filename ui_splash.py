@@ -57,7 +57,21 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- 2. HERO ---
+    # --- 2. SIDEBAR ---
+    with st.sidebar:
+        st.header("VerbaPost 📮")
+        st.markdown("---")
+        if st.button("🔑 Member Login", use_container_width=True):
+            st.session_state.app_mode = "login"
+            st.session_state.auth_view = "login" 
+            st.rerun()
+        if st.button("⚖️ Legal & Privacy", use_container_width=True):
+            st.session_state.app_mode = "legal"
+            st.rerun()
+        st.markdown("---")
+        st.caption("v3.0.3 Production")
+
+    # --- 3. HERO ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
@@ -78,7 +92,7 @@ def show_splash():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 3. HOW IT WORKS ---
+    # --- 4. HOW IT WORKS ---
     st.markdown("### How It Works")
     c_hw1, c_hw2, c_hw3 = st.columns(3)
     
@@ -108,7 +122,7 @@ def show_splash():
     
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # --- 4. PRICING CARDS ---
+    # --- 5. PRICING CARDS ---
     st.markdown("### Choose Your Letter")
     p1, p2, p3, p4 = st.columns(4)
     with p1:
@@ -120,12 +134,15 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 5. LEADERBOARD ---
+    # --- 6. LEADERBOARD ---
     if database:
-        stats = database.get_civic_leaderboard()
-        if stats:
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.container(border=True):
-                st.subheader("📢 Civic Leaderboard")
-                for state, count in stats:
-                    st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
+        try:
+            stats = database.get_civic_leaderboard()
+            if stats:
+                st.markdown("<br>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.subheader("📢 Civic Leaderboard")
+                    for state, count in stats:
+                        st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
+        except Exception:
+            pass
