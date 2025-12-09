@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import traceback # NEW: Import traceback to see the actual error
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -31,6 +32,18 @@ def inject_global_css():
 if __name__ == "__main__":
     inject_global_css()
     
+    # --- DEBUG: EARLY SECRETS CHECK ---
+    # This will tell you immediately if secrets are the problem
+    try:
+        import secrets_manager
+    except ImportError:
+        st.error("❌ CRITICAL: secrets_manager.py file is missing.")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ CRITICAL: Secrets loading failed: {e}")
+        st.code(traceback.format_exc())
+        st.stop()
+
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
     
@@ -51,7 +64,7 @@ if __name__ == "__main__":
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # LAZY IMPORT PAYMENT ENGINE (Prevents startup crash)
+            # LAZY IMPORT PAYMENT ENGINE
             try:
                 import payment_engine
                 is_paid, session_details = payment_engine.verify_session(sess_id)
@@ -91,15 +104,24 @@ if __name__ == "__main__":
             st.rerun()
             
     except Exception as e:
+        st.error(f"Routing Error: {e}")
         print(f"Routing Error: {e}")
 
-    # --- LAUNCH UI (Safe Import) ---
+    # --- LAUNCH UI (FIXED: SHOW TRACEBACK) ---
     try:
         import ui_main
         ui_main.show_main_app()
     except Exception as e:
-        st.error("⚠️ Application Error. Please refresh.")
+        # NEW LOGIC: Don't hide the error. Show it.
+        st.error("⚠️ Application Crash")
+        st.markdown(f"**Error:** `{e}`")
+        
+        # Print the full traceback so you can see exactly which line failed
+        st.code(traceback.format_exc())
+        
         print(f"Critical UI Error: {e}")
-        if st.button("Hard Reset App"):
+        
+        # Optional: Keep the reset button just in case it's a state issue
+        if st.button("Hard Reset App State"):
             st.session_state.clear()
             st.rerun()
