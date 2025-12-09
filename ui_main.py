@@ -13,7 +13,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- 2. DEFENSIVE IMPORTS (Catches Crashes) ---
+# --- 2. DEFENSIVE IMPORTS ---
 def safe_import(module_name):
     try:
         return __import__(module_name)
@@ -40,7 +40,6 @@ audit_engine = safe_import("audit_engine")
 auth_engine = safe_import("auth_engine")
 pricing_engine = safe_import("pricing_engine")
 
-# Safe Import for Address Standard
 try: from address_standard import StandardAddress
 except Exception: StandardAddress = None
 
@@ -64,12 +63,12 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
-    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
-            "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
-            "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
-            "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
-            "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "sig_text"] # Added sig_text
+    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "sig_text", 
+            "to_addr", "from_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", 
+            "is_intl", "is_certified", "letter_sent_success", "locked_tier", 
+            "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", 
+            "w_from_name", "w_from_street", "w_from_city", "w_from_state", "w_from_zip",
+            "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     
@@ -91,13 +90,13 @@ def reset_app(full_logout=False):
 def check_session():
     if st.query_params.get("session_id"): return True
     if "user_email" not in st.session_state or not st.session_state.user_email:
-        st.warning("⚠️ Session Expired.")
+        st.warning("⚠️ Session Expired. Please log in.")
         st.session_state.app_mode = "login"
         st.rerun()
         return False
     return True
 
-# --- 5. SHARED UI COMPONENTS ---
+# --- 5. UI COMPONENTS ---
 def render_hero(title, subtitle):
     st.markdown(f"""<div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1);"><h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1><div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div></div>""", unsafe_allow_html=True)
 
@@ -109,8 +108,6 @@ def render_sidebar():
         
         if user_email:
             st.success(f"👤 **Logged in as:**\n{user_email}")
-            
-            # Admin Check
             admin_target = "tjkarat@gmail.com"
             if secrets_manager:
                 sec = secrets_manager.get_secret("admin.email")
@@ -118,45 +115,37 @@ def render_sidebar():
             
             if str(user_email).lower().strip() == str(admin_target).lower().strip():
                 if st.button("🔐 Admin Console", type="primary", use_container_width=True):
-                    st.session_state.app_mode = "admin"
-                    st.rerun()
+                    st.session_state.app_mode = "admin"; st.rerun()
 
             if st.button("🚪 Log Out", type="secondary", use_container_width=True):
-                reset_app(full_logout=True)
-                st.rerun()
+                reset_app(full_logout=True); st.rerun()
         else:
             st.info("👤 **Guest User**")
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
-                st.session_state.app_mode = "login"
-                st.rerun()
+                st.session_state.app_mode = "login"; st.rerun()
 
         st.markdown("---")
         mode = st.session_state.get("app_mode", "splash")
         if mode in ["workspace", "review"] and user_email:
              if st.button("🛒 Store (New Letter)", icon="🛍️", use_container_width=True):
-                 st.session_state.app_mode = "store"
-                 st.rerun()
+                 st.session_state.app_mode = "store"; st.rerun()
 
         st.markdown("### Support")
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
-            st.session_state.app_mode = "legal"
-            st.rerun()
-        st.caption("v3.0.4 Stable")
+            st.session_state.app_mode = "legal"; st.rerun()
+        st.caption("v3.0.5 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
-    # --- AUTH CHECK BEFORE RENDERING ---
     u_email = st.session_state.get("user_email", "")
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
         if st.button("Go to Login"):
-            st.session_state.app_mode = "login"
-            st.rerun()
+            st.session_state.app_mode = "login"; st.rerun()
         return
 
     render_hero("Select Service", "Choose your letter type")
     
-    # Check Database Health
     if not database:
         st.error("⚠️ Database connection failed. Please contact support.")
     
@@ -172,24 +161,18 @@ def render_store_page():
                 "Santa": "Magical letter from North Pole, signed by Santa.",
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
-            
             sel = st.radio("Select Tier", list(tier_labels.keys()), format_func=lambda x: tier_labels[x])
-            tier_code = sel
-            st.info(tier_desc[tier_code])
+            st.info(tier_desc.get(sel, ""))
+            st.session_state.locked_tier = sel
             
             qty = 1
-            if tier_code == "Campaign":
-                qty = st.number_input("Recipients", 10, 5000, 50, 10)
-                st.caption(f"Pricing: First $2.99, then $1.99/ea")
-
-            is_intl = False; is_certified = False
-            if tier_code in ["Standard", "Heirloom"]:
+            if sel == "Campaign": qty = st.number_input("Recipients", 10, 5000, 50, 10)
+            
+            st.session_state.is_intl = False; st.session_state.is_certified = False
+            if sel in ["Standard", "Heirloom"]:
                 c_opt1, c_opt2 = st.columns(2)
-                if c_opt1.checkbox("International (+$2.00)"): is_intl = True
-                if c_opt2.checkbox("Certified Mail (+$12.00)"): is_certified = True
-
-            st.session_state.is_intl = is_intl
-            st.session_state.is_certified = is_certified
+                st.session_state.is_intl = c_opt1.checkbox("International (+$2.00)")
+                st.session_state.is_certified = c_opt2.checkbox("Certified Mail (+$12.00)")
 
     with c2:
         with st.container(border=True):
@@ -202,7 +185,7 @@ def render_store_page():
             final_price = 0.00
             if not discounted:
                 if pricing_engine:
-                    final_price = pricing_engine.calculate_total(tier_code, is_intl, is_certified, qty)
+                    final_price = pricing_engine.calculate_total(sel, st.session_state.is_intl, st.session_state.is_certified, qty)
                 else:
                     final_price = 2.99 
             
@@ -210,32 +193,29 @@ def render_store_page():
             
             btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
             
-            # Disable button if database is down
             if st.button(btn_txt, type="primary", use_container_width=True, disabled=(not database)):
-                
-                d_id = _handle_draft_creation(u_email, tier_code, final_price)
+                d_id = _handle_draft_creation(u_email, sel, final_price)
 
                 if discounted:
                     if promo_engine: promo_engine.log_usage(code, u_email)
                     st.session_state.payment_complete = True
-                    st.session_state.locked_tier = tier_code
+                    st.session_state.locked_tier = sel
                     st.session_state.bulk_paid_qty = qty
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
+                    st.session_state.app_mode = "workspace"; st.rerun()
                 else:
-                    link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                    link = f"{YOUR_APP_URL}?tier={sel}&session_id={{CHECKOUT_SESSION_ID}}"
                     if d_id: link += f"&draft_id={d_id}"
-                    if is_intl: link += "&intl=1"
-                    if is_certified: link += "&certified=1"
-                    if tier_code == "Campaign": link += f"&qty={qty}"
+                    if st.session_state.is_intl: link += "&intl=1"
+                    if st.session_state.is_certified: link += "&certified=1"
+                    if sel == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
-                        # DEBUG: Using create_checkout_session (ensure you have the debug version of payment_engine)
-                        url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
+                        # Use DEBUG create session to catch errors
+                        url, _ = payment_engine.create_checkout_session(f"VerbaPost {sel}", int(final_price*100), link, YOUR_APP_URL)
                         if url: 
                             st.markdown(f'<a href="{url}" target="_self"><button style="width:100%;padding:10px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay Now</button></a>', unsafe_allow_html=True)
                         else:
-                            st.error("Stripe Link Failed. Please check Debug Logs.")
+                            st.error("Stripe Link Generation Failed. Check Debug Logs.")
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
@@ -255,7 +235,7 @@ def _handle_draft_creation(email, tier, price):
 # --- 7. PAGE: WORKSPACE (FULL) ---
 def render_workspace_page():
     # --- CRITICAL FIX: LAZY IMPORT CANVAS ---
-    # We import this HERE, not at the top. This prevents the app from crashing on load if the component fails.
+    # This prevents the white screen crash on app load
     try: 
         from streamlit_drawable_canvas import st_canvas
     except Exception: 
@@ -267,7 +247,7 @@ def render_workspace_page():
     
     u_email = st.session_state.get("user_email")
     
-    # --- 1. ADDRESS SYNC LOGIC (Fix for Missing Data) ---
+    # --- 1. ADDRESS SYNC LOGIC ---
     if database and u_email:
         p = database.get_user_profile(u_email)
         if p and "w_from_name" not in st.session_state:
@@ -289,6 +269,7 @@ def render_workspace_page():
 
     with st.container(border=True):
         if tier == "Campaign":
+            # --- CAMPAIGN LOGIC ---
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             f = st.file_uploader("CSV (Name, Street, City, State, Zip)", type=['csv'])
@@ -304,6 +285,7 @@ def render_workspace_page():
                         st.success(f"✅ {len(c)} contacts loaded.")
                         if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
+            # --- STANDARD ADDRESSING ---
             st.subheader("📍 Addressing")
             c1, c2 = st.columns(2)
             
@@ -323,6 +305,7 @@ def render_workspace_page():
             with c2: # TO
                 st.markdown("**To**")
                 if tier == "Civic":
+                    # --- CIVIC LOGIC ---
                     st.info("🏛️ **Auto-Detect Representatives**")
                     zip_code = st.session_state.get("w_from_zip")
                     if not zip_code: st.warning("Enter your Zip Code in the 'From' section first.")
@@ -339,7 +322,7 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
-                    # ADDRESS BOOK
+                    # --- ADDRESS BOOK ---
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
@@ -431,7 +414,9 @@ def render_workspace_page():
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
     if tier == "Santa": 
-        st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
+        st.session_state.from_addr = {
+            "name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"
+        }
     else:
         st.session_state.from_addr = {
             "name": st.session_state.get("w_from_name"), "street": st.session_state.get("w_from_street"),
@@ -440,13 +425,14 @@ def _save_addrs(tier):
         }
     
     if tier == "Civic":
-        st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
+        st.session_state.to_addr = {
+            "name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"
+        }
     else:
         st.session_state.to_addr = {
             "name": st.session_state.get("w_to_name"), "street": st.session_state.get("w_to_street"),
             "address_line2": st.session_state.get("w_to_street2"), "city": st.session_state.get("w_to_city"),
-            "state": st.session_state.get("w_to_state"), "zip": st.session_state.get("w_to_zip"),
-            "country": st.session_state.get("w_to_country", "US")
+            "state": st.session_state.get("w_to_state"), "zip": st.session_state.get("w_to_zip"), "country": "US"
         }
     
     d_id = st.session_state.get("current_draft_id")
@@ -509,16 +495,10 @@ def render_review_page():
         with st.spinner("Sending..."):
             errs = []
             for tgt in targets:
-                # --- HANDLE STANDARDADDRESS OBJECTS ---
                 if StandardAddress and isinstance(tgt, StandardAddress):
                     tgt = {
-                        "name": tgt.name,
-                        "street": tgt.street,
-                        "address_line2": tgt.address_line2,
-                        "city": tgt.city,
-                        "state": tgt.state,
-                        "zip": tgt.zip_code,
-                        "country": tgt.country
+                        "name": tgt.name, "street": tgt.street, "address_line2": tgt.address_line2,
+                        "city": tgt.city, "state": tgt.state, "zip": tgt.zip_code, "country": tgt.country
                     }
 
                 def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
@@ -614,47 +594,3 @@ def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
     res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
     if res and res.user: st.success("Created! Please Log In."); st.session_state.app_mode = "login"
     else: st.error(err)
-    if tier == "Santa": 
-        st.session_state.from_addr = {
-            "name": "Santa Claus", 
-            "street": "123 Elf Road", 
-            "city": "North Pole", 
-            "state": "NP", 
-            "zip": "88888", 
-            "country": "NP"
-        }
-    else:
-        st.session_state.from_addr = {
-            "name": st.session_state.get("w_from_name"), 
-            "street": st.session_state.get("w_from_street"),
-            "address_line2": st.session_state.get("w_from_street2"), 
-            "city": st.session_state.get("w_from_city"),
-            "state": st.session_state.get("w_from_state"), 
-            "zip": st.session_state.get("w_from_zip"), 
-            "country": "US", 
-            "email": u
-        }
-    
-    if tier == "Civic":
-        st.session_state.to_addr = {
-            "name": "Civic Action", 
-            "street": "Capitol", 
-            "city": "DC", 
-            "state": "DC", 
-            "zip": "20000", 
-            "country": "US"
-        }
-    else:
-        st.session_state.to_addr = {
-            "name": st.session_state.get("w_to_name"), 
-            "street": st.session_state.get("w_to_street"),
-            "address_line2": st.session_state.get("w_to_street2"), 
-            "city": st.session_state.get("w_to_city"),
-            "state": st.session_state.get("w_to_state"), 
-            "zip": st.session_state.get("w_to_zip"),
-            "country": st.session_state.get("w_to_country", "US")
-        }
-    
-    d_id = st.session_state.get("current_draft_id")
-    if d_id and database: 
-        database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
