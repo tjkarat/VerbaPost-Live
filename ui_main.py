@@ -63,8 +63,6 @@ def reset_app():
     else: st.session_state.app_mode = "splash"
 
 def render_hero(title, subtitle):
-    # --- FIX 1: FORCE WHITE TEXT ON BLUE BACKGROUND ---
-    # This explicit style overrides any global config settings
     st.markdown(f"""
     <div class="custom-hero" style="
         background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -78,7 +76,9 @@ def render_hero(title, subtitle):
     </div>
     """, unsafe_allow_html=True)
 
-def render_legal_page(): import ui_legal; ui_legal.show_legal()
+def render_legal_page(): 
+    try: import ui_legal; ui_legal.show_legal()
+    except: st.error("Legal page not found.")
 
 def render_store_page():
     u_email = st.session_state.get("user_email", "")
@@ -635,3 +635,51 @@ def render_review_page():
         if st.button("🏁 Success! Send Another Letter", type="primary", use_container_width=True):
             reset_app()
             st.rerun()
+
+# --- THE MISSING ROUTER FUNCTION ---
+def show_main_app():
+    if "app_mode" not in st.session_state:
+        reset_app()
+    
+    mode = st.session_state.get("app_mode", "splash")
+    
+    if mode == "splash":
+        try:
+            import ui_landing
+            ui_landing.render_landing()
+        except ImportError:
+            st.title("VerbaPost (Debug Mode)")
+            if st.button("Login"):
+                st.session_state.app_mode = "login"
+                st.rerun()
+
+    elif mode == "login":
+        try:
+            import ui_auth
+            ui_auth.render_login()
+        except ImportError:
+            st.subheader("Login Placeholder")
+            email = st.text_input("Email")
+            if st.button("Login"):
+                st.session_state.user_email = email
+                st.session_state.app_mode = "store"
+                st.rerun()
+
+    elif mode == "store":
+        render_store_page()
+    
+    elif mode == "workspace":
+        render_workspace_page()
+    
+    elif mode == "review":
+        render_review_page()
+    
+    elif mode == "admin":
+        st.write("Admin Panel (Placeholder)")
+    
+    elif mode == "legal":
+        render_legal_page()
+    
+    else:
+        # Fallback
+        render_store_page()
