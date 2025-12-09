@@ -7,6 +7,7 @@ import io
 from PIL import Image
 
 # --- IMPORTS ---
+# Robust imports prevent crashes if a module is temporarily unavailable
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -62,6 +63,7 @@ def reset_app():
         if k in st.session_state: del st.session_state[k]
     st.session_state.to_addr = {}
     
+    # Explicitly clear params per documentation
     if "draft_id" in st.query_params and not recovered_draft:
         st.query_params.clear()
 
@@ -75,7 +77,7 @@ def reset_app():
         st.session_state.app_mode = "splash"
 
 def render_hero(title, subtitle):
-    # CRITICAL CSS FIX: Forces white text on blue background
+    # CSS FIX: Forces white text on blue background
     st.markdown(f"""
     <style>
         .custom-hero h1, .custom-hero div {{ color: white !important; }}
@@ -90,7 +92,7 @@ def render_hero(title, subtitle):
     """, unsafe_allow_html=True)
 
 def render_legal_page():
-    # THIS FUNCTION WAS MISSING IN PREVIOUS VERSIONS
+    # RESTORED: Wraps the import so the main router can call it
     try: 
         import ui_legal
         ui_legal.show_legal()
@@ -100,6 +102,7 @@ def render_legal_page():
         st.error("Legal module found but show_legal() missing.")
 
 def _save_addresses_from_widgets(tier, is_intl):
+    # Helper to capture address data from widget state variables
     if tier == "Santa":
         st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
     else:
@@ -127,13 +130,13 @@ def _save_addresses_from_widgets(tier, is_intl):
             "country": st.session_state.get("w_to_country", "US")
         }
 
-# --- PAGE 1: STORE & PAYMENT ---
+# --- PAGE: STORE & PAYMENT ---
 def render_store_page():
     u_email = st.session_state.get("user_email")
     if not u_email:
         st.warning("⚠️ Session Expired."); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login")); return
 
-    # Payment Verification Handler
+    # RESTORED: Payment Verification Handler ("Zombie Proof" Flow)
     session_id = st.query_params.get("session_id")
     if session_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -145,15 +148,20 @@ def render_store_page():
                     st.session_state.locked_tier = meta.get('tier', 'Standard')
                     st.session_state.is_intl = (meta.get('intl') == '1')
                     st.session_state.is_certified = (meta.get('certified') == '1')
+                    
                     if audit_engine: audit_engine.log_event(u_email, "PAYMENT_SUCCESS", session_id, {"amount": details.get('amount_total')})
+                    
                     st.success("Confirmed! Redirecting...")
                     st.session_state.app_mode = "workspace"
                     st.rerun()
-                else: st.error("Payment Verification Failed.")
-            else: st.error("Payment Engine Missing")
+                else:
+                    st.error("Payment Verification Failed.")
+            else:
+                st.error("Payment Engine Missing")
 
     render_hero("Select Service", "Choose your letter type")
     
+    # Check Admin Access
     try:
         if secrets_manager and secrets_manager.get_secret("admin.email") == u_email.lower():
             if st.button("🔐 Admin Console", type="secondary"): st.session_state.app_mode = "admin"; st.rerun()
@@ -196,6 +204,7 @@ def render_store_page():
             st.metric("Total", f"${0.00 if discounted else price:.2f}")
             
             if st.button("🚀 Pay & Start", type="primary", use_container_width=True):
+                # Ghost Draft prevention
                 d_id = st.session_state.get("current_draft_id")
                 if not d_id and database:
                      d_id = database.save_draft(u_email, "", tier_code, "0.00" if discounted else str(price))
@@ -224,7 +233,7 @@ def render_store_page():
                          if url: st.link_button("👉 Complete Payment", url)
                      else: st.error("Payment Engine Missing")
 
-# --- PAGE 2: WORKSPACE ---
+# --- PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     render_hero("Compose Letter", f"{tier} Edition")
@@ -327,13 +336,14 @@ def render_workspace_page():
                      st.session_state.app_mode = "review"; st.rerun()
         else: st.error("AI Engine Missing")
 
-# --- PAGE 3: REVIEW ---
+# --- PAGE: REVIEW & SEND ---
 def render_review_page():
     render_hero("Review Letter", "Finalize and Send")
     tier = st.session_state.get("locked_tier")
     
     if st.button("⬅️ Edit"): st.session_state.app_mode = "workspace"; st.rerun()
 
+    # AI Tools
     c1, c2, c3, c4 = st.columns(4)
     if ai_engine:
         txt = st.session_state.get("transcribed_text", "")
@@ -344,6 +354,7 @@ def render_review_page():
 
     txt = st.text_area("Body", key="transcribed_text", height=300)
     
+    # PDF PREVIEW (FIXED)
     if st.button("👁️ Preview PDF"):
         if letter_format:
             to_addr = StandardAddress.from_dict(st.session_state.get("to_addr", {}))
@@ -360,12 +371,14 @@ def render_review_page():
             
             if pdf:
                 b64 = base64.b64encode(pdf).decode('utf-8')
+                # EMBED FIX: Use <embed> + Download button
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
                 st.download_button("⬇️ Download PDF", pdf, "proof.pdf", "application/pdf")
             
             if sig_path: os.remove(sig_path)
         else: st.error("PDF Engine Missing")
 
+    # SEND LOGIC
     if not st.session_state.get("letter_sent_success"):
         if st.button("🚀 Send Letter", type="primary"):
             if len(txt) < 5: st.error("Letter too short."); return
@@ -429,7 +442,7 @@ def render_review_page():
         st.success("✅ Sent Successfully!")
         if st.button("Start New Letter"): reset_app(); st.rerun()
 
-# --- MAIN ROUTER ---
+# --- MAIN ROUTER (FINAL & CORRECTED) ---
 def show_main_app():
     if "app_mode" not in st.session_state: reset_app()
     mode = st.session_state.app_mode
@@ -437,10 +450,12 @@ def show_main_app():
     if mode == "splash":
         try:
             import ui_splash
-            # FIXED: Calls show_splash instead of render_splash
+            # FIXED: Calls show_splash() specifically (not render_splash)
             ui_splash.show_splash()
         except ImportError:
              st.title("Splash Missing"); st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
+        except AttributeError:
+             st.error("Splash module exists but show_splash() missing.")
     
     elif mode == "login":
         try: import ui_login; ui_login.render_login()
@@ -453,6 +468,6 @@ def show_main_app():
         try: import ui_admin; ui_admin.render_admin()
         except: st.error("Admin Missing")
     elif mode == "legal": 
-        # FIXED: restored function definition above
+        # FIXED: Calls the function defined locally above
         render_legal_page()
     else: render_store_page()
