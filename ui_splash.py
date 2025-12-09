@@ -1,11 +1,14 @@
 import streamlit as st
 
-# Attempt to import database, fail gracefully
-try: import database
-except ImportError: database = None
+# Attempt to import database safely. 
+# If database.py is broken or missing, we continue without it.
+try: 
+    import database
+except (ImportError, SyntaxError): 
+    database = None
 
 def show_splash():
-    # --- 1. SCOPED CSS (Safe for Global App) ---
+    # --- 1. SCOPED CSS ---
     st.markdown("""
     <style>
         /* HERO GRADIENT */
@@ -44,7 +47,7 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- 2. HERO ---
+    # --- 2. HERO SECTION ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
@@ -56,6 +59,7 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
 
+    # Call to Action Button
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
         if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
@@ -77,18 +81,17 @@ def show_splash():
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
     # --- 4. GAMIFICATION / LEADERBOARD ---
+    # This logic prevents crashes if database is missing
+    st.markdown("<br>", unsafe_allow_html=True)
     if database:
         stats = database.get_civic_leaderboard()
-        # LOGIC UPDATE: We render the container even if stats are empty
-        # so you can see the section exists.
-        st.markdown("<br>", unsafe_allow_html=True)
         with st.container(border=True):
             st.subheader("📢 Civic Leaderboard")
             if stats:
                 for state, count in stats:
                     st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
             else:
-                [cite_start]st.info("No letters sent yet. Be the first to start the movement!") [cite: 1]
+                st.info("No letters sent yet. Be the first!")
     else:
-        # Fallback if database.py didn't import (e.g., missing secrets)
-        st.warning("⚠️ Database connection missing. Leaderboard unavailable.")
+        # Fallback if DB is down/missing
+        st.info("📢 Civic Leaderboard (Connecting...)")
