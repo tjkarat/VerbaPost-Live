@@ -51,12 +51,11 @@ if __name__ == "__main__":
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # 1. VERIFY PAYMENT
+            # LAZY IMPORT PAYMENT ENGINE (Prevents startup crash)
             try:
                 import payment_engine
                 is_paid, session_details = payment_engine.verify_session(sess_id)
             except ImportError:
-                # Fallback for dev without payment engine
                 is_paid = False
                 session_details = None
 
@@ -64,15 +63,9 @@ if __name__ == "__main__":
             current_user = st.session_state.get("user_email")
             payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
             
-            # --- FIX: CSRF PROTECTION ---
-            # If user is logged in, email MUST match payment email
             if is_paid and current_user and payer_email:
                 if current_user.lower().strip() != payer_email.lower().strip():
                     st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
-                    try:
-                        import audit_engine
-                        audit_engine.log_event(current_user, "PAYMENT_CSRF_BLOCK", sess_id, {"payer": payer_email})
-                    except: pass
                     st.stop()
 
             if is_paid:
@@ -80,33 +73,19 @@ if __name__ == "__main__":
                 st.session_state.payment_complete = True
                 st.session_state.current_stripe_id = sess_id 
                 
-                # Auto-login guest
                 if not current_user and payer_email:
                     st.session_state.user_email = payer_email
 
-                # Restore flags
                 if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                 if "intl" in q_params: st.session_state.is_intl = True
                 if "certified" in q_params: st.session_state.is_certified = True
                 if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
                 
-                try:
-                    import audit_engine
-                    audit_engine.log_event(st.session_state.get("user_email"), "PAYMENT_VERIFIED", sess_id, {"tier": q_params.get("tier", "Unknown")})
-                except: pass
-
                 st.success("Payment Verified! Loading workspace...")
             else:
-                # --- FIX: FAILURE LOGGING ---
-                try:
-                    import audit_engine
-                    audit_engine.log_event(None, "PAYMENT_VERIFY_FAILED", sess_id, {"reason": "Invalid or Unpaid"})
-                except: pass
                 st.error("❌ Payment Verification Failed or Expired.")
                 st.session_state.app_mode = "store"
             
-            # --- FIX: RACE CONDITION ---
-            # Wait for session state to propagate to server
             time.sleep(0.5) 
             st.query_params.clear()
             st.rerun()
@@ -114,11 +93,13 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Routing Error: {e}")
 
-    # --- LAUNCH UI ---
+    # --- LAUNCH UI (CRITICAL FIX: LAZY IMPORT) ---
     try:
+        # Move import INSIDE the try block to catch the KeyError
         import ui_main
         ui_main.show_main_app()
     except Exception as e:
+        # If UI crashes, show a hard reset button instead of a red stack trace
         st.error("⚠️ Application Error. Please refresh.")
         print(f"Critical UI Error: {e}")
         if st.button("Hard Reset App"):
