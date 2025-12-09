@@ -35,6 +35,7 @@ def show_splash():
             border: 1px solid #e2e8f0;
             height: 100%;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            text-align: center;
         }
         .step-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 10px; color: #2d3748 !important; }
         .step-desc { font-size: 0.95rem; color: #4a5568 !important; line-height: 1.5; }
@@ -74,17 +75,17 @@ def show_splash():
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
-        <div class="hero-subtitle">Making sending physical mail easier.</div>
+        <div class="hero-subtitle">Turn voice into real mail.</div>
         <div class="hero-subtext">
-            Turn your voice into professional letters. Record live or <b>upload your audio files</b> (MP3/WAV). 
-            <br>We handle the transcription, printing, and mailing via USPS.
+            Texts are trivial. Emails are ignored. <b>REAL LETTERS GET OPENED.</b>
+            <br>Record live or upload audio. We print and mail it via USPS.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
-        if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
+        if st.button("🚀 Get Started", type="primary", use_container_width=True):
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" 
             st.rerun()
@@ -107,7 +108,7 @@ def show_splash():
         st.markdown("""
         <div class="step-card">
             <div class="step-title">✍️ 2. Sign</div>
-            <div class="step-desc">Draw your signature on screen. We place it on the physical document before printing.</div>
+            <div class="step-desc">Draw your signature on screen. We place it on the physical document.</div>
         </div>
         """, unsafe_allow_html=True)
         
@@ -115,7 +116,7 @@ def show_splash():
         st.markdown("""
         <div class="step-card">
             <div class="step-title">📮 3. We Mail</div>
-            <div class="step-desc">We print, envelope, stamp, and mail your letter via USPS First Class immediately.</div>
+            <div class="step-desc">We print, envelope, stamp, and mail your letter via USPS First Class.</div>
         </div>
         """, unsafe_allow_html=True)
     
