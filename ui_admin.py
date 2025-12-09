@@ -3,8 +3,8 @@ import pandas as pd
 import json
 import base64
 import requests
+import time
 from datetime import datetime
-from sqlalchemy import text
 
 # --- ROBUST IMPORTS ---
 try: import database
@@ -17,6 +17,8 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import mailer
 except ImportError: mailer = None
+try: import civic_engine
+except ImportError: civic_engine = None
 
 # --- CRITICAL FIX: Safe Import for Address Standard ---
 try:
@@ -80,16 +82,22 @@ def show_admin():
     with tab_overview:
         st.subheader("System Health")
         # Simple health check indicators
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
             if database: st.success("✅ Database") 
             else: st.error("❌ Database Missing")
         with c2:
-            if secrets_manager and secrets_manager.get_secret("stripe.secret_key"): st.success("✅ Stripe Configured")
-            else: st.warning("⚠️ Stripe Keys Missing")
+            if secrets_manager and secrets_manager.get_secret("stripe.secret_key"): st.success("✅ Stripe")
+            else: st.warning("⚠️ Stripe Keys")
         with c3:
-            if secrets_manager and secrets_manager.get_secret("postgrid.api_key"): st.success("✅ PostGrid Configured")
-            else: st.warning("⚠️ PostGrid Keys Missing")
+            if secrets_manager and secrets_manager.get_secret("postgrid.api_key"): st.success("✅ PostGrid")
+            else: st.warning("⚠️ PostGrid Keys")
+        with c4:
+            # Geocodio Check
+            if secrets_manager and (secrets_manager.get_secret("GEOCODIO_API_KEY") or secrets_manager.get_secret("geocodio.api_key")):
+                st.success("✅ Geocodio")
+            else:
+                st.warning("⚠️ Geocodio Keys")
 
         st.divider()
         

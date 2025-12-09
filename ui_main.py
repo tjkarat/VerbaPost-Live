@@ -7,7 +7,18 @@ import time
 import traceback
 from PIL import Image
 
-# --- 1. LOCAL DATA MODELS (Safety Fallback) ---
+# --- 1. CORE UI MODULES (Standard Imports to fix caching) ---
+# We import these at the top so Streamlit sees them immediately.
+try: import ui_login
+except ImportError: ui_login = None
+try: import ui_splash
+except ImportError: ui_splash = None
+try: import ui_admin
+except ImportError: ui_admin = None
+try: import ui_legal
+except ImportError: ui_legal = None
+
+# --- 2. LOCAL DATA MODELS ---
 try:
     from address_standard import StandardAddress
 except ImportError:
@@ -20,42 +31,31 @@ except ImportError:
         @classmethod
         def from_dict(cls, d): return cls(name=d.get('name',''), street=d.get('street',''))
 
-# --- 2. STANDARD IMPORTS (No Dynamic Loops) ---
-# We import each module individually to prevent the KeyError crash
+# --- 3. HELPER MODULES ---
 try: import database
 except ImportError: database = None
-
 try: import ai_engine
 except ImportError: ai_engine = None
-
 try: import payment_engine
 except ImportError: payment_engine = None
-
 try: import letter_format
 except ImportError: letter_format = None
-
 try: import mailer
 except ImportError: mailer = None
-
 try: import promo_engine
 except ImportError: promo_engine = None
-
 try: import secrets_manager
 except ImportError: secrets_manager = None
-
 try: import civic_engine
 except ImportError: civic_engine = None
-
 try: import bulk_engine
 except ImportError: bulk_engine = None
-
 try: import audit_engine
 except ImportError: audit_engine = None
-
 try: import auth_engine
 except ImportError: auth_engine = None
 
-# --- 3. CONFIGURATION ---
+# --- 4. CONFIGURATION ---
 DEFAULT_URL = "https://verbapost.streamlit.app/"
 YOUR_APP_URL = DEFAULT_URL
 try:
@@ -71,7 +71,7 @@ COUNTRIES = {
     "JP": "Japan", "BR": "Brazil", "IN": "India"
 }
 
-# --- 4. SESSION MANAGEMENT ---
+# --- 5. SESSION MANAGEMENT ---
 def reset_app():
     """Clears session state to start fresh."""
     recovered = st.query_params.get("draft_id")
@@ -143,7 +143,7 @@ def _save_addresses_from_widgets(tier, is_intl):
             "country": st.session_state.get("w_to_country", "US")
         }
 
-# --- 5. AUTH WRAPPERS (Bridge to ui_login.py) ---
+# --- 6. AUTH WRAPPERS ---
 def handle_login(email, password):
     if auth_engine:
         res, err = auth_engine.sign_in(email, password)
@@ -164,9 +164,8 @@ def handle_signup(email, password, name, street, street2, city, state, zip_code,
         else: return None, err
     return None, "Auth Engine Missing"
 
-# --- 6. PAGE: STORE ---
+# --- 7. PAGES ---
 def render_store_page():
-    # Stripe Return Handling
     sess_id = st.query_params.get("session_id")
     if sess_id and not st.session_state.get("payment_complete"):
         with st.spinner("Verifying Payment..."):
@@ -174,16 +173,13 @@ def render_store_page():
                 success, details = payment_engine.verify_session(sess_id)
                 if success:
                     st.session_state.payment_complete = True
-                    # Auto-login from Stripe email if session was lost
                     if not st.session_state.get("user_email"):
                         try:
                             rec = details.get("customer_details", {}).get("email")
                             if rec: st.session_state.user_email = rec
                         except: pass
-                    
                     if audit_engine: 
                         audit_engine.log_event(st.session_state.get("user_email"), "PAYMENT_SUCCESS", sess_id, {"amount": details.get('amount_total')})
-                    
                     st.success("Payment Received!")
                     st.session_state.app_mode = "workspace"
                     st.rerun()
@@ -253,7 +249,6 @@ def render_store_page():
             else:
                 st.metric("Total", f"${price:.2f}")
                 if st.button(f"Pay ${price:.2f} & Start", type="primary", use_container_width=True):
-                    # Save Initial Draft State
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database: database.update_draft_data(d_id, status="Draft", tier=tier_code, price=price)
                     elif database: 
@@ -267,13 +262,12 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
-                        # CRITICAL: Call with 4 arguments only to match your file
+                        # CRITICAL: Call with 4 arguments only
                         url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(price*100), link, YOUR_APP_URL)
                         if url: st.markdown(f'<a href="{url}" target="_self" style="text-decoration:none;"><button style="width:100%;padding:10px;background:#6772e5;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay with Stripe</button></a>', unsafe_allow_html=True)
                         else: st.error("Stripe Initialization Failed (Check API Keys)")
                     else: st.error("Payment Engine Missing")
 
-# --- 7. PAGE: WORKSPACE ---
 def render_workspace_page():
     if not check_session(): return
     tier = st.session_state.get("locked_tier", "Standard")
@@ -428,7 +422,6 @@ def render_workspace_page():
                     tmp.write(up.getvalue()); st.session_state.transcribed_text = ai_engine.transcribe_audio(tmp.name); st.session_state.app_mode = "review"; st.rerun()
         else: st.error("AI Engine Missing")
 
-# --- 8. PAGE: REVIEW ---
 def render_review_page():
     if not check_session(): return
     render_hero("Review", "Finalize")
@@ -514,35 +507,31 @@ def render_review_page():
                     mailer.send_admin_alert(st.session_state.user_email, txt, tier)
                 if st.button("New Letter"): reset_app(); st.rerun()
 
-# --- 9. MAIN ROUTER ---
+# --- 8. MAIN ROUTER ---
 def show_main_app():
     if "app_mode" not in st.session_state: reset_app()
     mode = st.session_state.app_mode
     
     if mode == "splash":
-        try: 
-            import ui_splash
-            ui_splash.show_splash()
-        except Exception as e:
-            # Fallback text if splash fails
+        if ui_splash: ui_splash.show_splash()
+        else:
             st.title("VerbaPost 📮")
-            st.button("Enter App", on_click=lambda: st.session_state.update(app_mode="login"))
-            st.error(f"Splash Error: {e}")
+            st.button("Login", on_click=lambda: st.session_state.update(app_mode="login"))
             
     elif mode == "login":
-        try: import ui_login; ui_login.show_login(handle_login, handle_signup)
-        except: st.error("Login Module Missing")
+        if ui_login: ui_login.show_login(handle_login, handle_signup)
+        else: st.error("Login Module Missing")
         
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
     
     elif mode == "admin":
-        try: import ui_admin; ui_admin.show_admin()
-        except: st.error("Admin Missing")
+        if ui_admin: ui_admin.show_admin()
+        else: st.error("Admin Missing")
         
     elif mode == "legal": 
-        try: import ui_legal; ui_legal.show_legal()
-        except: st.info("Legal Page Under Maintenance")
+        if ui_legal: ui_legal.show_legal()
+        else: st.info("Legal Page Under Maintenance")
         
     else: render_store_page()
