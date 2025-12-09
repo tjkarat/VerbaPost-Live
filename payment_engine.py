@@ -2,7 +2,7 @@ import stripe
 import secrets_manager
 import logging
 
-# Configure Logging
+# Configure Logging (Silent in UI, visible in Console)
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,7 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url,
         session = stripe.checkout.Session.create(**payload)
         return session.url, session.id
     except Exception as e:
+        # Logs to server console, NOT the user screen
         logger.error(f"Stripe Checkout Error: {e}")
         return None, None
 
