@@ -150,7 +150,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.13 Stable")
+        st.caption("v3.0.14 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -231,7 +231,7 @@ def render_store_page():
                 url = st.session_state.pending_stripe_url
                 st.success("✅ Link Generated!")
                 
-                # Explicit White Text Color
+                # --- FIXED: Explicit White Text Color ---
                 st.markdown(f'''
                 <a href="{url}" target="_blank" style="text-decoration: none;">
                     <div style="
@@ -263,7 +263,6 @@ def render_store_page():
                 if st.button("Generate Payment Link", type="primary", use_container_width=True):
                     with st.spinner("Connecting to Stripe..."):
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
-
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
@@ -334,32 +333,60 @@ def render_workspace_page():
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         
-        # --- STANDARD / HEIRLOOM / CIVIC ---
         else:
             st.subheader("📍 Addressing")
-            c1, c2 = st.columns(2)
-            
-            with c1: # FROM
-                st.markdown("**From**")
-                if tier == "Santa": st.info("🎅 Santa Claus")
-                else:
-                    st.text_input("Name", key="w_from_name")
-                    st.text_input("Street", key="w_from_street")
-                    st.text_input("Apt/Suite", key="w_from_street2")
-                    ca, cb = st.columns(2)
-                    ca.text_input("City", key="w_from_city")
-                    cb.text_input("State", key="w_from_state")
-                    st.text_input("Zip", key="w_from_zip")
-                    st.session_state.w_from_country = "US"
-
-            with c2: # TO
-                st.markdown("**To**")
-                if tier != "Civic":
-                    st.info("⚠️ Note: If using browser autofill, please click outside the text box to ensure the address is saved.")
+            # --- AUTOFILL FIX: USE A FORM ---
+            # Using a form wrapper ensures that browser autofill values are captured 
+            # when the "Save Addresses" button is clicked.
+            with st.form("addressing_form"):
+                c1, c2 = st.columns(2)
                 
-                # --- ADDRESS BOOK ---
-                if tier != "Civic" and database and u_email:
-                    contacts = database.get_contacts(u_email)
+                with c1: # FROM
+                    st.markdown("**From**")
+                    if tier == "Santa": st.info("🎅 Santa Claus")
+                    else:
+                        st.text_input("Name", key="w_from_name")
+                        st.text_input("Street", key="w_from_street")
+                        st.text_input("Apt/Suite", key="w_from_street2")
+                        ca, cb = st.columns(2)
+                        ca.text_input("City", key="w_from_city")
+                        cb.text_input("State", key="w_from_state")
+                        st.text_input("Zip", key="w_from_zip")
+                        st.session_state.w_from_country = "US"
+
+                with c2: # TO
+                    st.markdown("**To**")
+                    if tier == "Civic":
+                        st.info("🏛️ **Auto-Detect Representatives**")
+                        # Civic doesn't use standard to-fields here
+                    else:
+                        st.text_input("Name", key="w_to_name")
+                        st.text_input("Street", key="w_to_street")
+                        st.text_input("Apt/Suite", key="w_to_street2")
+                        
+                        if is_intl:
+                            st.selectbox("Country", list(COUNTRIES.keys()), key="w_to_country")
+                            st.text_input("City", key="w_to_city")
+                            st.text_input("State/Prov", key="w_to_state")
+                            st.text_input("Postal Code", key="w_to_zip")
+                        else:
+                            ca, cb = st.columns(2)
+                            ca.text_input("City", key="w_to_city")
+                            cb.text_input("State", key="w_to_state")
+                            st.text_input("Zip", key="w_to_zip")
+                            st.session_state.w_to_country = "US"
+                
+                # The Submit Button inside the form
+                save_clicked = st.form_submit_button("Save Addresses", type="primary")
+
+            if save_clicked:
+                _save_addrs(tier)
+                st.toast("Addresses Saved!")
+
+            # --- ADDRESS BOOK (Outside form for interactivity) ---
+            if tier != "Civic" and database and u_email:
+                contacts = database.get_contacts(u_email)
+                if contacts:
                     contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
                     selected_contact = st.selectbox("📖 Address Book", contact_names)
                     
@@ -374,89 +401,36 @@ def render_workspace_page():
                             st.session_state.w_to_zip = c_obj.zip_code
                             st.rerun()
 
-                if tier == "Civic":
-                    st.info("🏛️ **Auto-Detect Representatives**")
-                    zip_code = st.session_state.get("w_from_zip")
-                    if not zip_code: st.warning("Enter your Zip Code in the 'From' section first.")
-                    elif civic_engine:
-                        if st.button("🔍 Find My Reps"):
-                            with st.spinner("Searching..."):
-                                reps = civic_engine.get_reps(f"{st.session_state.w_from_street} {st.session_state.w_from_city} {st.session_state.w_from_state} {zip_code}")
-                                if reps: 
-                                    st.session_state.civic_targets = reps
-                                    st.success(f"Found {len(reps)} Reps!")
-                                else: st.error("No representatives found for this address.")
-                    
-                    if "civic_targets" in st.session_state:
+            # Civic Rep Lookup (Outside Form)
+            if tier == "Civic" and civic_engine:
+                 zip_code = st.session_state.get("w_from_zip")
+                 if not zip_code: st.warning("Enter your Zip Code in the 'From' section first.")
+                 else:
+                    if st.button("🔍 Find My Reps"):
+                        with st.spinner("Searching..."):
+                            reps = civic_engine.get_reps(f"{st.session_state.w_from_street} {st.session_state.w_from_city} {st.session_state.w_from_state} {zip_code}")
+                            if reps: 
+                                st.session_state.civic_targets = reps
+                                st.success(f"Found {len(reps)} Reps!")
+                            else: st.error("No representatives found for this address.")
+                 
+                 if "civic_targets" in st.session_state:
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
-
-                else:
-                    st.text_input("Name", key="w_to_name")
-                    st.text_input("Street", key="w_to_street")
-                    st.text_input("Apt/Suite", key="w_to_street2")
-                    
-                    if is_intl:
-                        st.selectbox("Country", list(COUNTRIES.keys()), key="w_to_country")
-                        st.text_input("City", key="w_to_city")
-                        st.text_input("State/Prov", key="w_to_state")
-                        st.text_input("Postal Code", key="w_to_zip")
-                    else:
-                        ca, cb = st.columns(2)
-                        ca.text_input("City", key="w_to_city")
-                        cb.text_input("State", key="w_to_state")
-                        st.text_input("Zip", key="w_to_zip")
-                        st.session_state.w_to_country = "US"
-
-            # --- SAVE BUTTON & ADDRESS BOOK LOGIC ---
-            if tier != "Civic":
-                c_chk, c_btn = st.columns([1, 1])
-                with c_chk:
-                    save_contact = st.checkbox("Save to Address Book")
-                with c_btn:
-                    if st.button("Save Addresses", type="primary", use_container_width=True):
-                        _save_addrs(tier)
-                        
-                        # Actual Database Save
-                        if save_contact and database and u_email:
-                            try:
-                                database.add_contact(
-                                    u_email,
-                                    st.session_state.get("w_to_name"),
-                                    st.session_state.get("w_to_street"),
-                                    st.session_state.get("w_to_street2", ""),
-                                    st.session_state.get("w_to_city"),
-                                    st.session_state.get("w_to_state"),
-                                    st.session_state.get("w_to_zip"),
-                                    st.session_state.get("w_to_country", "US")
-                                )
-                                st.toast("Contact Saved! 📖")
-                            except Exception as e:
-                                st.error(f"Save failed: {e}")
-                        
-                        st.toast("Draft Saved!")
-            else:
-                 if st.button("Save Addresses", type="primary"):
-                    _save_addrs(tier)
-                    st.toast("Draft Saved!")
 
     st.write("---")
     
     # --- SIGNATURE & INPUT ---
-    # Adjusted column ratio to give signature more space
     c_sig, c_mic = st.columns([1.5, 1]) 
     
     with c_sig:
         st.write("✍️ **Signature**")
-        if tier == "Santa": 
-            st.info("Signed by Santa")
+        if tier == "Santa": st.info("Signed by Santa")
         else: 
-            # Increased width to prevent cutoff
             canvas = st_canvas(stroke_width=2, height=150, width=500, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     
     with c_mic:
         st.write("🎤 **Input**")
-        
         st.info("Tap microphone, speak clearly, then tap stop. A new window will open to edit your text.")
         
         t1, t2 = st.tabs(["Record", "Upload"])
@@ -465,7 +439,10 @@ def render_workspace_page():
             if audio and ai_engine:
                 with st.spinner("Thinking..."): 
                     st.session_state.transcribed_text = ai_engine.transcribe_audio(audio)
-                    st.session_state.app_mode = "review"; st.rerun()
+                    if st.session_state.transcribed_text and "[" not in st.session_state.transcribed_text:
+                        st.session_state.app_mode = "review"; st.rerun()
+                    else:
+                         st.warning(st.session_state.transcribed_text) # Show warning instead of error for silence
         with t2:
             st.caption("Supported: MP3, WAV, M4A (Max 10MB)")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
@@ -542,8 +519,6 @@ def render_review_page():
             if pdf:
                 b64 = base64.b64encode(pdf).decode()
                 st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
-                
-                # --- ADDED: Fallback Download Button ---
                 st.download_button("⬇️ Download Preview", data=pdf, file_name="preview.pdf", mime="application/pdf")
         
         if sig_path: 
