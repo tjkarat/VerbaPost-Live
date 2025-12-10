@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components # CRITICAL: Required for JS Auto-Open
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
@@ -77,12 +76,13 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
+    # Removed "auto_open" variables
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "checkout_url", "auto_open"] 
+            "checkout_url"] 
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     
@@ -159,7 +159,7 @@ def render_sidebar():
             with st.expander("⚠️ System Warnings"):
                 st.json(dependency_errors)
         
-        st.caption("v3.2.11 Auto-JS Fix")
+        st.caption("v3.2.12 HTML Anchor Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -186,9 +186,9 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
+            # Helper to clear session if options change
             def _clear_checkout():
                 if "checkout_url" in st.session_state: del st.session_state.checkout_url
-                if "auto_open" in st.session_state: del st.session_state.auto_open
                 
             sel = st.radio("Select Tier", list(tier_labels.keys()), format_func=lambda x: tier_labels[x], on_change=_clear_checkout)
             tier_code = sel
@@ -225,9 +225,8 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- PAYMENT LOGIC (JS AUTO-OPEN RESTORED) ---
-            
-            # 1. If no link exists, show the generation button
+            # --- PAYMENT LOGIC (HTML ANCHOR FIX) ---
+            # 1. State: Payment Link NOT Generated
             if "checkout_url" not in st.session_state:
                 btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
                 
@@ -249,61 +248,40 @@ def render_store_page():
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
                         if payment_engine:
+                            # Generate URL and store it
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
                                 st.session_state.checkout_url = url
-                                st.session_state.auto_open = True # Flag to trigger JS
-                                st.rerun()
+                                st.rerun() # Force re-run to display the link button
             
-            # 2. If link exists, show fallback button AND attempt auto-open
+            # 2. State: Payment Link READY (Stable state)
             else:
                 url = st.session_state.checkout_url
                 st.success("✅ **Invoice Created!**")
                 
-                # A. HTML Button (The "Native" Breakout)
+                # CORRECT IMPLEMENTATION: Raw HTML Anchor Tag
+                # This explicitly sets target="_blank" which Streamlit Cloud respects
                 st.markdown(f'''
-                    <a href="{url}" target="_blank" style="text-decoration:none;">
+                    <a href="{url}" target="_blank" style="text-decoration:none; display:block; margin: 10px 0;">
                         <div style="
-                            width:100%;
-                            background-color: #635bff;
-                            color: white;
-                            padding: 12px;
-                            text-align: center;
-                            border-radius: 5px;
-                            font-weight: bold;
-                            font-size: 16px;
-                            cursor: pointer;
-                            margin-top: 10px;
-                            margin-bottom: 10px;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                            width: 100%; 
+                            background: linear-gradient(135deg, #635bff 0%, #4b47ea 100%); 
+                            color: white; 
+                            padding: 14px; 
+                            text-align: center; 
+                            border-radius: 8px; 
+                            font-weight: bold; 
+                            font-size: 16px; 
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                            transition: transform 0.1s;
                         ">
-                            👉 Pay Now (New Window)
+                            👉 Pay Now on Stripe (New Tab)
                         </div>
                     </a>
-                    <div style="text-align:center; font-size:12px; color:#666;">
-                        Pop-up blocked? Click the button above.
-                    </div>
                 ''', unsafe_allow_html=True)
                 
-                # B. JS Auto-Open (The "Prior Logic")
-                if st.session_state.get("auto_open"):
-                    js = f"""
-                    <script>
-                        // Attempt to open the window automatically
-                        setTimeout(function() {{
-                            window.open('{url}', '_blank');
-                        }}, 500);
-                    </script>
-                    """
-                    components.html(js, height=0, width=0)
-                    # We keep auto_open=True for one refresh cycle so it triggers, 
-                    # but usually we want to clear it to prevent loops. 
-                    # However, components.html runs on every render, so we must be careful.
-                    st.session_state.auto_open = False 
-
                 if st.button("Cancel Order", type="secondary", use_container_width=True):
                     del st.session_state.checkout_url
-                    if "auto_open" in st.session_state: del st.session_state.auto_open
                     st.rerun()
 
 def _handle_draft_creation(email, tier, price):
