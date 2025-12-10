@@ -16,6 +16,7 @@ def get_client():
     key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
     if key:
         return OpenAI(api_key=key)
+    logger.error("OpenAI API Key not found in secrets.")
     return None
 
 # --- 1. SAFE TEMP FILE CONTEXT MANAGER ---
@@ -23,7 +24,7 @@ def get_client():
 def safe_temp_file(file_obj, suffix=".wav"):
     """
     Context manager for safe temp file handling.
-    1. Checks for available disk space (prevents filling the disk).
+    1. Checks for available disk space.
     2. Writes the file.
     3. Yields the path.
     4. GUARANTEES deletion in the 'finally' block.
@@ -40,7 +41,18 @@ def safe_temp_file(file_obj, suffix=".wav"):
     try:
         # Create temp file, delete=False so we can close it and let other libs open it by path
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=tempfile.gettempdir()) as tmp:
-            tmp.write(file_obj.getvalue())
+            # CRITICAL FIX: Ensure we are at the start of the file stream
+            file_obj.seek(0)
+            data = file_obj.getvalue()
+            
+            # Debug Log: Check if we actually have data
+            data_size = len(data)
+            logger.info(f"Writing audio to temp file. Size: {data_size} bytes")
+            
+            if data_size == 0:
+                raise ValueError("Audio file is empty (0 bytes).")
+                
+            tmp.write(data)
             tmp_path = tmp.name
         
         yield tmp_path
@@ -69,6 +81,8 @@ def transcribe_audio(file_obj):
     try:
         with safe_temp_file(file_obj, suffix) as tmp_path:
             with open(tmp_path, "rb") as audio_file:
+                logger.info("Sending audio to OpenAI Whisper...")
+                
                 # Updated v1.0 Call
                 transcript = client.audio.transcriptions.create(
                     model="whisper-1", 
@@ -77,11 +91,16 @@ def transcribe_audio(file_obj):
             
             # v1.0 returns an object, access via .text
             text = transcript.text
-            logger.info("Transcription successful.")
+            
+            if not text or not text.strip():
+                logger.warning("OpenAI returned empty text.")
+                return "[No speech detected. Please try recording again.]"
+            
+            logger.info(f"Transcription successful. Preview: {text[:50]}...")
             return text
 
     except Exception as e:
-        logger.error(f"Transcription failed: {e}")
+        logger.error(f"Transcription failed: {e}", exc_info=True)
         return f"[Error processing audio: {str(e)}]"
 
 # --- 3. TEXT REFINEMENT (v1.0 Syntax) ---
