@@ -36,11 +36,16 @@ def detect_language(text):
 
 def sanitize_text(text, is_cjk=False):
     if not isinstance(text, str): return str(text)
-    replacements = {'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-'}
+    # Basic replacements for Latin-1 compatibility
+    replacements = {
+        '\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', 
+        '\u2013': '-', '\u2014': '-', '\u2026': '...'
+    }
     for k, v in replacements.items(): text = text.replace(k, v)
     
     if is_cjk: return text 
     else:
+        # Strict encode/decode to strip unsupported chars
         try: return text.encode('latin-1', 'ignore').decode('latin-1')
         except: return text
 
@@ -114,7 +119,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.set_font(body_font, '', body_size)
         safe_content = sanitize_text(content, is_cjk)
         if not safe_content or len(safe_content.strip()) == 0:
-            safe_content = "[ERROR: No Content Provided. Please return to editor.]"; pdf.set_text_color(255, 0, 0) 
+            safe_content = "[ERROR: No Content Provided.]"; pdf.set_text_color(255, 0, 0) 
             
         pdf.multi_cell(170, 8, safe_content); pdf.set_text_color(0, 0, 0)
         pdf.ln(20) 
@@ -127,15 +132,19 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             try: pdf.image(signature_path, x=20, w=40)
             except: pass
         
-        # --- FIXED PDF OUTPUT FOR FPDF2 ---
+        # --- FIXED PDF OUTPUT ---
         try:
-            # FPDF2 output() returns a bytearray by default
-            pdf_bytes = pdf.output()
-            return bytes(pdf_bytes)
+            # FPDF2 style: output() -> bytearray
+            # FPDF1.7 style: output(dest='S') -> string
+            # We try both to be 100% safe against library versions
+            try:
+                raw = pdf.output()
+                return bytes(raw)
+            except:
+                return pdf.output(dest='S').encode('latin-1')
         except Exception as out_err:
              logger.error(f"PDF Output Error: {out_err}")
-             # Fallback for older versions just in case
-             return pdf.output(dest='S').encode('latin-1')
+             return None
 
     except Exception as e:
         logger.error(f"PDF Generation Failed: {e}", exc_info=True)
