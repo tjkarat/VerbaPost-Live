@@ -8,10 +8,11 @@ from contextlib import contextmanager
 import logging
 
 # --- CONFIG ---
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 Base = declarative_base()
 
-# --- MODELS (Do not change) ---
+# --- MODELS ---
 class UserProfile(Base):
     __tablename__ = "user_profiles"
     id = Column(String, primary_key=True, index=True)
@@ -62,16 +63,17 @@ class PromoCode(Base):
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
-    # 1. Try to get the real Supabase URL
+    # Strict production usage: Only uses secrets_manager
     db_url = secrets_manager.get_secret("DATABASE_URL")
     
     if db_url:
         # Fix for SQLAlchemy compatibility with Supabase/Postgres
-        db_url = db_url.replace("postgres://", "postgresql://")
+        if db_url.startswith("postgres://"):
+            db_url = db_url.replace("postgres://", "postgresql://")
         logger.info("✅ Connected to Remote Database (Supabase)")
     else:
-        # Fallback to local with a WARNING
-        logger.warning("⚠️ DATABASE_URL not found! Using temporary local DB. Data will be lost on restart.")
+        # Fallback only if secret is genuinely missing
+        logger.warning("⚠️ DATABASE_URL not found in secrets manager! Using temporary local DB.")
         db_url = "sqlite:///local_dev.db"
         
     try:
@@ -105,27 +107,7 @@ def get_user_profile(email):
         with get_db_session() as db:
             return db.query(UserProfile).filter(UserProfile.email == email).first()
     except Exception: return None
-def fetch_all_drafts():
-    try:
-        with get_db_session() as db:
-            drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
-            return [
-                {
-                    "ID": d.id,
-                    "Date": d.created_at,
-                    "Email": d.user_email,
-                    "Tier": d.tier,
-                    "Status": d.status,
-                    "Price": d.price,
-                    "Recipient": d.recipient_json,
-                    "Sender": d.sender_json,
-                    "Content": d.transcription
-                }
-                for d in drafts
-            ]
-    except Exception as e:
-        logger.error(f"Fetch Drafts Error: {e}")
-        return []
+
 def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=None, status="Draft"):
     try:
         with get_db_session() as db:
@@ -203,3 +185,28 @@ def delete_contact(contact_id):
             db.query(SavedContact).filter(SavedContact.id == contact_id).delete()
             return True
     except Exception: return False
+
+# --- ADMIN FUNCTIONS (Missing in previous version) ---
+def fetch_all_drafts():
+    """Fetches draft history for admin console"""
+    try:
+        with get_db_session() as db:
+            drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
+            
+            data = []
+            for d in drafts:
+                data.append({
+                    "ID": d.id,
+                    "Date": d.created_at.strftime("%Y-%m-%d %H:%M"),
+                    "Email": d.user_email,
+                    "Tier": d.tier,
+                    "Status": d.status,
+                    "Price": d.price,
+                    "Content": d.transcription,
+                    "Recipient": d.recipient_json,
+                    "Sender": d.sender_json
+                })
+            return data
+    except Exception as e:
+        logger.error(f"Fetch Drafts Error: {e}")
+        return []

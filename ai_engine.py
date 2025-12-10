@@ -18,6 +18,7 @@ def load_whisper_model():
     # CRITICAL FIX: Import inside function to prevent 'torch.classes' reload errors
     import whisper
     
+    # CHANGED TO TINY TO PREVENT CRASHES
     logger.info("🧠 Loading Whisper AI model (tiny)...")
     return whisper.load_model("tiny")
 
@@ -49,7 +50,6 @@ def transcribe_audio(audio_input):
         text = result["text"].strip()
         logger.info("✅ Transcription successful.")
         
-        # FIX: Return plain text for silence so UI doesn't block it
         return text if text else "Silence detected (Please try recording again)"
 
     except Exception as e:
