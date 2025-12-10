@@ -23,14 +23,8 @@ except ImportError: ui_legal = None
 
 # --- 2. ENGINE IMPORTS ---
 import database 
-
-# DEBUG: Explicit import check for AI Engine
-try: 
-    import ai_engine
-except ImportError as e: 
-    logging.error(f"❌ AI Engine Import Failed: {e}")
-    ai_engine = None
-
+try: import ai_engine
+except ImportError: ai_engine = None
 try: import payment_engine
 except ImportError: payment_engine = None
 try: import letter_format
@@ -291,6 +285,7 @@ def render_workspace_page():
                             st.session_state.w_to_city = c_obj.city
                             st.session_state.w_to_state = c_obj.state
                             st.session_state.w_to_zip = c_obj.zip_code
+                            # Force rerun so the form below picks up these new values immediately
                             st.rerun()
 
             st.subheader("📍 Addressing")
