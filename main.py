@@ -4,9 +4,10 @@ import traceback
 import logging
 import sys
 
-# --- 0. LOGGING SETUP ---
+# --- 0. LOGGING SETUP (UPDATED FOR DEBUGGING) ---
+# FIX: Changed level from INFO to DEBUG to see detailed traces
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[logging.StreamHandler(sys.stdout)]
 )
@@ -93,10 +94,8 @@ if __name__ == "__main__":
                 
                 # CRITICAL: Require both emails to exist
                 if not current_user or not payer_email:
-                     # Fallback for Guest Checkout scenarios if implemented later
-                     # For now, we warn but allow if matching logic permits or strictness is adjusted
                      if not current_user:
-                         st.session_state.user_email = payer_email # Recover session
+                         st.session_state.user_email = payer_email 
                          current_user = payer_email
 
                 # Verify they match (Case Insensitive)
@@ -122,13 +121,11 @@ if __name__ == "__main__":
                 st.markdown("### 🚀 Payment Successful")
                 st.markdown("Your secure session is ready.")
                 
-                # This button breaks the loop. 
-                # The app STOPS here and waits for the user to click.
                 if st.button("👉 Click here to Write Your Letter", type="primary", use_container_width=True):
                     st.query_params.clear()
                     st.rerun()
                 
-                st.stop() # Stops execution. Prevents infinite reload loop.
+                st.stop() 
                 
             else:
                 status_box.error("❌ Payment Verification Failed or Expired.")
