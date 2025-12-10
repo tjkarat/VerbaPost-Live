@@ -81,7 +81,6 @@ def get_engine():
             db_url = db_url.replace("postgres://", "postgresql://")
         logger.info("✅ Connected to Remote Database (Supabase)")
     else:
-        # Fallback to local with a WARNING
         logger.warning("⚠️ DATABASE_URL not found! Using temporary local DB.")
         db_url = "sqlite:///local_dev.db"
         
@@ -99,8 +98,10 @@ def get_db_session():
     engine = get_engine()
     if not engine:
         raise RuntimeError("Database engine could not be initialized")
-        
-    session = sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+    
+    # CRITICAL FIX: expire_on_commit=False keeps objects alive after session closes
+    # This prevents DetachedInstanceError in the UI
+    session = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)()
     try:
         yield session
         session.commit()
@@ -114,15 +115,8 @@ def get_db_session():
 def get_user_profile(email):
     try:
         with get_db_session() as db:
-            user = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if user:
-                # CRITICAL FIX: Expunge object so it persists after session closes
-                db.expunge(user)
-                return user
-            return None
-    except Exception as e:
-        logger.error(f"Get Profile Error: {e}")
-        return None
+            return db.query(UserProfile).filter(UserProfile.email == email).first()
+    except Exception: return None
 
 def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=None, status="Draft"):
     try:
@@ -192,17 +186,8 @@ def add_contact(user_email, name, street, street2, city, state, zip_code, countr
 def get_contacts(user_email):
     try:
         with get_db_session() as db:
-            # Fetch contacts
-            contacts = db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
-            
-            # CRITICAL FIX FOR CRASH: Expunge all objects so they can be read by UI after session closes
-            if contacts:
-                db.expunge_all()
-            
-            return contacts
-    except Exception as e:
-        logger.error(f"Get Contacts Error: {e}")
-        return []
+            return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
+    except Exception: return []
 
 def delete_contact(contact_id):
     try:
@@ -211,19 +196,15 @@ def delete_contact(contact_id):
             return True
     except Exception: return False
 
-# --- ADMIN CONSOLE SUPPORT ---
+# --- ADMIN CONSOLE ---
 def fetch_all_drafts():
-    """
-    Fetches all drafts for the Admin Console.
-    Returns a list of dictionaries.
-    """
     try:
         with get_db_session() as db:
             drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
             
-            results = []
+            data = []
             for d in drafts:
-                results.append({
+                data.append({
                     "ID": d.id,
                     "Date": d.created_at.strftime("%Y-%m-%d %H:%M"),
                     "Email": d.user_email,
@@ -234,7 +215,7 @@ def fetch_all_drafts():
                     "Recipient": d.recipient_json,
                     "Sender": d.sender_json
                 })
-            return results
+            return data
     except Exception as e:
         logger.error(f"Fetch Drafts Error: {e}")
         return []

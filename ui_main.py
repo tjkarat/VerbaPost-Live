@@ -267,6 +267,28 @@ def render_workspace_page():
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
+            # --- CRITICAL FIX: ADDRESS BOOK LOGIC MUST BE ABOVE THE FORM ---
+            # If this is below the form, it crashes Streamlit because variables are modified after instantiation.
+            if tier != "Civic" and database and u_email:
+                try: contacts = database.get_contacts(u_email)
+                except: contacts = []
+                
+                if contacts:
+                    contact_names = ["-- Select from Address Book --"] + [c.name for c in contacts]
+                    selected_contact = st.selectbox("📖 Address Book", contact_names)
+                    
+                    if selected_contact != "-- Select from Address Book --":
+                        c_obj = next((x for x in contacts if x.name == selected_contact), None)
+                        if c_obj:
+                            st.session_state.w_to_name = c_obj.name
+                            st.session_state.w_to_street = c_obj.street
+                            st.session_state.w_to_street2 = c_obj.street2 or ""
+                            st.session_state.w_to_city = c_obj.city
+                            st.session_state.w_to_state = c_obj.state
+                            st.session_state.w_to_zip = c_obj.zip_code
+                            # Force rerun so the form below picks up these new values
+                            st.rerun()
+
             st.subheader("📍 Addressing")
             with st.form("addressing_form"):
                 c1, c2 = st.columns(2)
@@ -309,24 +331,8 @@ def render_workspace_page():
                 _persist_draft(tier)
                 st.toast("Addresses Captured!")
 
-            # --- ADDRESS BOOK ---
-            if tier != "Civic" and database and u_email:
-                try: contacts = database.get_contacts(u_email)
-                except: contacts = []
-                
-                contact_names = ["-- Select from Address Book --"] + ([c.name for c in contacts] if contacts else ["(No contacts found - Add to DB enabled)"])
-                selected_contact = st.selectbox("📖 Address Book", contact_names)
-                
-                if selected_contact not in ["-- Select from Address Book --", "(No contacts found - Add to DB enabled)"]:
-                    c_obj = next((x for x in contacts if x.name == selected_contact), None)
-                    if c_obj:
-                        st.session_state.w_to_name = c_obj.name
-                        st.session_state.w_to_street = c_obj.street
-                        st.session_state.w_to_street2 = c_obj.street2 or ""
-                        st.session_state.w_to_city = c_obj.city
-                        st.session_state.w_to_state = c_obj.state
-                        st.session_state.w_to_zip = c_obj.zip_code
-                        st.rerun()
+            # --- ADDRESS BOOK USED TO BE HERE (CAUSING CRASH) ---
+            # It has been moved UP to prevent the StreamlitAPIException
 
             if tier == "Civic" and civic_engine:
                  zip_code = st.session_state.get("w_from_zip")
