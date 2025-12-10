@@ -1,149 +1,123 @@
+import streamlit as st
+import logging
 import os
 import tempfile
-import shutil
-import contextlib
-import logging
-import streamlit as st
-from openai import OpenAI
+import secrets_manager
 
-# Try to import whisper (Local AI)
-try: 
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- 1. LOCAL WHISPER SETUP (Transcription) ---
+# We use a try/except import so the app doesn't crash if whisper isn't installed yet
+try:
     import whisper
 except ImportError:
     whisper = None
 
-# Try to import secrets
-try: import secrets_manager
-except ImportError: secrets_manager = None
-
-# --- CONFIGURATION ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# --- 1. LOAD LOCAL WHISPER MODEL (Cached) ---
 @st.cache_resource
 def load_whisper_model():
     """
-    Loads the local Whisper model once and caches it in memory.
+    Loads the local Whisper model into memory.
+    Cached so it only loads once per session (preventing slowness).
     """
     if not whisper:
-        logger.error("Whisper library not installed.")
+        logger.error("Whisper module not found. Please add 'openai-whisper' to requirements.txt")
         return None
-        
-    logger.info("🧠 Loading Whisper AI model (base)...")
-    try:
-        return whisper.load_model("base")
-    except Exception as e:
-        logger.error(f"Failed to load Whisper: {e}")
-        return None
+    
+    logger.info("Loading local Whisper model (base)...")
+    # 'base' is the best trade-off for speed vs accuracy on a standard server.
+    return whisper.load_model("base")
 
-def get_openai_client():
-    """Safely creates OpenAI Client for text refinement only"""
-    if not secrets_manager: return None
-    key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-    if key:
-        return OpenAI(api_key=key)
-    return None
-
-# --- 2. SAFE TEMP FILE CONTEXT MANAGER ---
-@contextlib.contextmanager
-def safe_temp_file(file_obj, suffix=".wav"):
+def transcribe_audio(audio_input):
     """
-    Context manager for safe temp file handling.
-    Checks disk space and guarantees cleanup.
+    Transcribes audio using the local CPU/GPU model.
+    Does NOT use OpenAI API.
     """
-    try:
-        if shutil.disk_usage('/tmp').free < 50 * 1024 * 1024:
-            logger.error("Insufficient disk space.")
-            raise RuntimeError("Server storage full.")
-    except Exception:
-        pass 
+    model = load_whisper_model()
+    if not model:
+        return "[Error: Whisper library not installed.]"
 
     tmp_path = None
     try:
-        # Create temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=tempfile.gettempdir()) as tmp:
-            file_obj.seek(0)
-            data = file_obj.getvalue()
-            if len(data) == 0:
-                raise ValueError("Audio file is empty.")
-            tmp.write(data)
-            tmp_path = tmp.name
-        
-        yield tmp_path
+        # Handle file-like object (microphone/upload) vs file path
+        if isinstance(audio_input, str):
+            # It's a file path (from upload temp file)
+            logger.info(f"Transcribing file path: {audio_input}")
+            result = model.transcribe(audio_input)
+        else:
+            # It's a BytesIO object (from microphone)
+            # We must write it to a temp file because local Whisper needs a file on disk
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                tmp.write(audio_input.getvalue())
+                tmp_path = tmp.name
+            
+            logger.info("Transcribing microphone input...")
+            result = model.transcribe(tmp_path)
 
+        text = result["text"].strip()
+        return text if text else "[Silence detected]"
+
+    except Exception as e:
+        logger.error(f"Local Transcription Failed: {e}")
+        return f"[Error: Transcription failed - {str(e)}]"
+    
     finally:
+        # cleanup temp file if we created one
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except OSError as e:
-                logger.error(f"Cleanup failed: {e}")
+            except:
+                pass
 
-# --- 3. LOCAL TRANSCRIPTION ---
-def transcribe_audio(file_obj):
-    """
-    Transcribes audio using the LOCAL Whisper model.
-    """
-    if not whisper:
-        return "[Error: Whisper library missing on server.]"
+# --- 2. OPENAI SETUP (Only for Text Refinement) ---
+# This was the code "missing" from the short version.
+# It handles the "Professional", "Grammar", "Friendly" buttons.
 
-    # Determine suffix
-    suffix = f".{file_obj.name.split('.')[-1]}" if hasattr(file_obj, 'name') else '.wav'
-    
+def get_openai_client():
     try:
-        model = load_whisper_model()
-        if not model:
-            return "[Error: Could not load Whisper model.]"
-        
-        with safe_temp_file(file_obj, suffix) as tmp_path:
-            logger.info(f"🎧 Transcribing {tmp_path} locally...")
-            
-            # Local Inference
-            result = model.transcribe(tmp_path)
-            text = result["text"]
-            
-            if not text or not text.strip():
-                return "[No speech detected. Please try recording again.]"
-            
-            logger.info("✅ Transcription successful.")
-            return text
+        import openai
+        api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
+        if not api_key:
+            return None
+        return openai.OpenAI(api_key=api_key)
+    except ImportError:
+        logger.warning("OpenAI library not found. Refinement features disabled.")
+        return None
 
-    except Exception as e:
-        logger.error(f"Local Transcription failed: {e}", exc_info=True)
-        return f"[Error processing audio: {str(e)}]"
-
-# --- 4. TEXT REFINEMENT (OpenAI GPT) ---
 def refine_text(text, style="Professional"):
     """
-    Refines text using GPT-3.5/4.
+    Uses OpenAI GPT-4o ONLY for rewriting text (Grammar, Professional, etc).
+    If OpenAI API key is missing or fails, it simply returns the original text.
     """
-    if not text or len(text.strip()) < 5:
+    if not text or len(text) < 5:
         return text
 
     client = get_openai_client()
     if not client:
-        return text 
+        # If API is down/missing, we just return original text so user loses nothing.
+        logger.warning("Cannot refine text: OpenAI client missing.")
+        return text
 
     prompts = {
-        "Grammar": "Correct the grammar and spelling.",
-        "Professional": "Rewrite to be professional, polite, and formal.",
-        "Friendly": "Rewrite to be warm and personal.",
-        "Concise": "Rewrite to be concise and to the point."
+        "Grammar": "Fix grammar, spelling, and punctuation. Do not change the tone.",
+        "Professional": "Rewrite this text to be professional, polite, and business-appropriate. Keep the core message.",
+        "Friendly": "Rewrite this text to be warm, friendly, and casual.",
+        "Concise": "Rewrite this text to be brief and to the point. Remove fluff.",
     }
 
-    system_instruction = prompts.get(style, prompts["Professional"])
+    system_instruction = prompts.get(style, "Fix grammar.")
 
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": f"You are an expert editor. {system_instruction}"},
-                {"role": "user", "content": f"Text to rewrite:\n{text}"}
+                {"role": "system", "content": f"You are a helpful editor. {system_instruction} Return ONLY the rewritten body text."},
+                {"role": "user", "content": text}
             ],
             temperature=0.7
         )
         return response.choices[0].message.content.strip()
-
     except Exception as e:
-        logger.error(f"Refinement Failed: {e}")
+        logger.error(f"Refine Text Error: {e}")
         return text

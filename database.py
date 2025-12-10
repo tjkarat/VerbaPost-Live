@@ -77,7 +77,7 @@ def get_engine():
         logger.error(f"DB Error: {e}")
         return None
 
-# --- CONTEXT MANAGER (The Stability Fix) ---
+# --- CONTEXT MANAGER (The Fix) ---
 @contextmanager
 def get_db_session():
     """
