@@ -4,6 +4,7 @@ import os
 import tempfile
 import secrets_manager
 import subprocess
+import gc 
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -14,15 +15,23 @@ logger = logging.getLogger(__name__)
 def load_whisper_model():
     """
     Loads the local Whisper model into memory.
+    Cached so it only loads once per session.
     """
-    # CRITICAL: Check for FFmpeg first to prevent hard crashes
+    # Force Garbage Collection before load to free up RAM
+    gc.collect()
+    
+    # 1. Check for FFmpeg (Critical for Audio)
     try:
         subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    except (FileNotFoundError, subprocess.CalledProcessError):
+    except Exception:
         logger.error("❌ FFmpeg is missing. Please add 'ffmpeg' to packages.txt.")
         return None
 
+    # 2. Import Whisper locally to avoid top-level memory cost
     import whisper
+    
+    # 3. Load the TINY model (Critical for Cloud Stability)
+    # 'base' uses ~1GB RAM and crashes Streamlit Cloud. 'tiny' uses ~150MB.
     logger.info("🧠 Loading Whisper AI model (tiny)...")
     return whisper.load_model("tiny")
 
@@ -33,7 +42,9 @@ def transcribe_audio(audio_input):
     try:
         model = load_whisper_model()
         if model is None:
-            return "Error: Server missing audio tools (FFmpeg). Please contact support."
+            return "Error: Server missing audio tools (FFmpeg). Please contact admin."
+            
+        logger.info("🎧 Audio received. Preparing to transcribe...")
     except Exception as e:
         return f"Error loading Whisper: {e}"
 
@@ -44,12 +55,11 @@ def transcribe_audio(audio_input):
             result = model.transcribe(audio_input)
         else:
             # Microphone (BytesIO) -> Temp File
-            # We explicitly allow "wb" (write binary) to prevent encoding errors
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                 tmp.write(audio_input.getvalue())
                 tmp_path = tmp.name
             
-            logger.info("🎧 Transcribing microphone input...")
+            logger.info(f"🎧 Transcribing temporary file: {tmp_path}")
             result = model.transcribe(tmp_path)
 
         text = result["text"].strip()
@@ -62,21 +72,24 @@ def transcribe_audio(audio_input):
         return f"Error: {str(e)}"
     
     finally:
+        # Cleanup temp file
         if tmp_path and os.path.exists(tmp_path):
             try: os.remove(tmp_path)
             except: pass
+        # Force GC again after heavy work
+        gc.collect()
 
-# --- 2. OPENAI SETUP (Only for Text Refinement) ---
+# --- 2. OPENAI SETUP (Text Refinement) ---
 def get_openai_client():
     try:
         import openai
+        # Try finding key in multiple locations
         api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-        
-        # Fallback to direct secrets
         if not api_key:
+            # Fallback to direct secret access
             try: api_key = st.secrets["openai"]["api_key"]
             except: pass
-
+            
         if not api_key: return None
         return openai.OpenAI(api_key=api_key)
     except ImportError:
@@ -84,7 +97,7 @@ def get_openai_client():
 
 def refine_text(text, style="Professional"):
     """
-    Uses OpenAI GPT-4o ONLY for rewriting text.
+    Uses OpenAI GPT-4o for rewriting text.
     """
     if not text or len(text) < 5: return text
 
