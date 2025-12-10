@@ -414,11 +414,6 @@ def render_workspace_page():
             # --- SAVE BUTTON ---
             if st.button("Save Addresses", type="primary"):
                 _save_addrs(tier)
-                
-                # Optional: Save to Address Book checkbox
-                if tier != "Civic" and database and u_email:
-                    # Logic to save to DB would go here, explicitly called out in requirements
-                    pass
                 st.toast("Saved!")
 
     st.write("---")
