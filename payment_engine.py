@@ -1,10 +1,28 @@
+import streamlit as st
 import stripe
 import secrets_manager
-import logging
-
 # Configure Logging (Silent in UI, visible in Console)
 logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
+
+def create_checkout_session(product_name, amount_cents, success_url, cancel_url, metadata=None):
+    try:
+        # 1. Try standard manager
+        stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
+        
+        # 2. Fallback: Check Streamlit secrets directly (Fixes QA/Cloud)
+        if not stripe_key:
+            try:
+                stripe_key = st.secrets["stripe"]["secret_key"]
+            except:
+                pass
+
+        if stripe_key: 
+            stripe.api_key = stripe_key
+        else: 
+            st.error("❌ Stripe configuration missing.")
+            return None, None
+
 
 def create_checkout_session(product_name, amount_cents, success_url, cancel_url, metadata=None):
     """
