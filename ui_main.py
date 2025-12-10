@@ -11,6 +11,10 @@ import io
 import time
 import logging
 
+# --- 0. LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # --- 1. UI IMPORTS ---
 try: import ui_splash
 except ImportError: ui_splash = None
@@ -21,12 +25,15 @@ except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
 
-# --- 2. ENGINE IMPORTS ---
+# --- 2. ENGINE IMPORTS (WITH DEBUGGING) ---
 import database 
-# DEBUG: Explicit check for AI Engine
+
+# DEBUG: Check AI Engine Load Status
 try: 
     import ai_engine
-except ImportError: 
+    logger.info("✅ [UI IMPORT] ai_engine loaded successfully")
+except ImportError as e: 
+    logger.error(f"❌ [UI IMPORT] ai_engine FAILED: {e}")
     ai_engine = None
 
 try: import payment_engine
@@ -53,9 +60,6 @@ try: import pricing_engine
 except ImportError: pricing_engine = None
 
 # --- 3. CONFIG ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 DEFAULT_URL = "https://verbapost.streamlit.app/"
 try:
     if secrets_manager:
@@ -128,7 +132,7 @@ def render_sidebar():
         st.markdown("### Support")
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"; st.rerun()
-        st.caption("v3.1.5 Fix")
+        st.caption("v3.1.5 Debug")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -272,15 +276,13 @@ def render_workspace_page():
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
             # --- SAFE ADDRESS BOOK LOGIC (MOVED ABOVE FORM) ---
-            # This prevents "Widget Modified" errors by updating state before inputs are drawn
             if tier != "Civic" and database and u_email:
                 try: contacts = database.get_contacts(u_email)
                 except: contacts = []
                 
                 if contacts:
-                    # Using key helps reset the widget state cleanly
                     contact_names = ["-- Select from Address Book --"] + [c.name for c in contacts]
-                    selected_contact = st.selectbox("📖 Address Book", contact_names, key="addr_book_selector")
+                    selected_contact = st.selectbox("📖 Address Book", contact_names, key="addr_book_select")
                     
                     if selected_contact != "-- Select from Address Book --":
                         c_obj = next((x for x in contacts if x.name == selected_contact), None)
@@ -291,7 +293,6 @@ def render_workspace_page():
                             st.session_state.w_to_city = c_obj.city
                             st.session_state.w_to_state = c_obj.state
                             st.session_state.w_to_zip = c_obj.zip_code
-                            # Force rerun so values populate the form below immediately
                             st.rerun()
 
             st.subheader("📍 Addressing")
@@ -328,7 +329,6 @@ def render_workspace_page():
                             st.text_input("Zip", key="w_to_zip")
                             st.session_state.w_to_country = "US"
                 
-                # --- AUTOFILL SAVE BUTTON ---
                 save_clicked = st.form_submit_button("Save Addresses", type="primary")
 
             if save_clicked:
@@ -362,29 +362,50 @@ def render_workspace_page():
         st.write("🎤 **Input**")
         st.info("Tap microphone, speak clearly, then tap stop.")
         t1, t2 = st.tabs(["Record", "Upload"])
+        
+        # --- TAB 1: RECORD ---
         with t1:
-            audio = st.audio_input("Record")
-            if audio:
-                if not ai_engine:
-                    st.error("⚠️ AI Engine missing or failed to load. Check logs.")
-                else:
-                    with st.spinner("Transcribing..."): 
-                        txt = ai_engine.transcribe_audio(audio)
-                        st.session_state.transcribed_text = txt
-                        st.session_state.app_mode = "review"; st.rerun()
+            audio_val = st.audio_input("Record")
+            
+            # EXPLICIT BUTTON to trigger logic (Prevents auto-run glitches)
+            if audio_val:
+                st.audio(audio_val) # Playback
+                if st.button("✨ Transcribe Recording", type="primary"):
+                    if not ai_engine:
+                         st.error("❌ AI Engine failed to load (Check logs).")
+                    else:
+                        logger.info("🎤 [UI] Starting Microphone Transcription...")
+                        with st.spinner("Transcribing..."): 
+                            txt = ai_engine.transcribe_audio(audio_val)
+                            
+                            if "Error" in txt:
+                                st.error(txt)
+                            else:
+                                st.session_state.transcribed_text = txt
+                                st.session_state.app_mode = "review"
+                                st.rerun()
+
+        # --- TAB 2: UPLOAD ---
         with t2:
             st.caption("Supported: MP3, WAV, M4A (Max 10MB)")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
-            if up and st.button("Transcribe"):
+            if up and st.button("Transcribe Upload"):
                 if ai_engine:
+                    logger.info(f"📂 [UI] Starting File Transcription: {up.name} ({up.size} bytes)")
                     with st.spinner("Processing..."):
                         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{up.name.split('.')[-1]}") as tmp:
                             tmp.write(up.getvalue()); tpath=tmp.name
                         try:
-                            st.session_state.transcribed_text = ai_engine.transcribe_audio(tpath)
-                            st.session_state.app_mode = "review"; st.rerun()
+                            txt = ai_engine.transcribe_audio(tpath)
+                            if "Error" in txt:
+                                st.error(txt)
+                            else:
+                                st.session_state.transcribed_text = txt
+                                st.session_state.app_mode = "review"; st.rerun()
                         finally:
                             if os.path.exists(tpath): os.remove(tpath)
+                else:
+                    st.error("❌ AI Engine failed to load.")
 
 def _save_addrs_to_session(tier):
     u = st.session_state.get("user_email")
