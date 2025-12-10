@@ -23,8 +23,13 @@ except ImportError: ui_legal = None
 
 # --- 2. ENGINE IMPORTS ---
 import database 
-try: import ai_engine
-except ImportError: ai_engine = None
+# DEBUG: Explicit import check for AI Engine to prevent silent failures
+try: 
+    import ai_engine
+except ImportError as e: 
+    logging.error(f"❌ AI Engine Import Failed: {e}")
+    ai_engine = None
+
 try: import payment_engine
 except ImportError: payment_engine = None
 try: import letter_format
@@ -267,7 +272,7 @@ def render_workspace_page():
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
-            # --- CRITICAL FIX: ADDRESS BOOK LOGIC MUST BE ABOVE THE FORM ---
+            # --- SAFE ADDRESS BOOK LOGIC (Top of Function) ---
             if tier != "Civic" and database and u_email:
                 try: contacts = database.get_contacts(u_email)
                 except: contacts = []
@@ -285,7 +290,6 @@ def render_workspace_page():
                             st.session_state.w_to_city = c_obj.city
                             st.session_state.w_to_state = c_obj.state
                             st.session_state.w_to_zip = c_obj.zip_code
-                            # Force rerun so the form below picks up these new values immediately
                             st.rerun()
 
             st.subheader("📍 Addressing")

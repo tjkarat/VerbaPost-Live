@@ -11,10 +11,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- 1. LOCAL WHISPER SETUP (Transcription) ---
+# NOTE: We do NOT use @st.cache_resource here because caching the model 
+# permanently holds RAM, leading to crashes. We load/unload on demand.
 def load_whisper_model():
     """
-    Loads the local Whisper model into memory.
-    Lazy loaded to prevent app crashes on startup.
+    Loads the local Whisper model into memory ONLY when needed.
     """
     # Force Garbage Collection before load to free up RAM
     gc.collect()
@@ -26,11 +27,12 @@ def load_whisper_model():
         logger.error("❌ FFmpeg is missing. Please add 'ffmpeg' to packages.txt.")
         return None
 
-    # 2. Import Whisper locally (LAZY IMPORT)
+    # 2. Import Whisper locally to avoid top-level memory cost
     # This prevents the app from crashing during the initial boot sequence
     import whisper
     
     # 3. Load the TINY model (Critical for Cloud Stability)
+    # 'base' uses ~1GB RAM and crashes Streamlit Cloud. 'tiny' uses ~150MB.
     logger.info("🧠 Loading Whisper AI model (tiny)...")
     return whisper.load_model("tiny")
 
@@ -42,7 +44,6 @@ def transcribe_audio(audio_input):
     tmp_path = None
     
     try:
-        # Load model only when requested
         model = load_whisper_model()
         if model is None:
             return "Error: Server missing audio tools (FFmpeg). Please contact admin."
