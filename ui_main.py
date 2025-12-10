@@ -215,6 +215,8 @@ def render_store_page():
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
                     if promo_engine: promo_engine.log_usage(code, u_email)
+                    if audit_engine: audit_engine.log_event(u_email, "PROMO_USED", "FREE", {"code": code})
+                    
                     st.session_state.payment_complete = True
                     st.session_state.locked_tier = tier_code
                     st.session_state.bulk_paid_qty = qty
@@ -232,11 +234,37 @@ def render_store_page():
                 if tier_code == "Campaign": link += f"&qty={qty}"
                 
                 if payment_engine:
-                    url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
+                    url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                     
-                    # --- CRITICAL FIX: USE ST.LINK_BUTTON TO FORCE NEW TAB ---
                     if url:
-                        st.link_button("👉 Pay Now (Opens New Window)", url, type="primary", use_container_width=True)
+                        # Log the intent to pay
+                        if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
+                        
+                        # --- 3. RENDER NEW TAB BUTTON (Gold Standard Fix) ---
+                        st.markdown(f'''
+                        <a href="{url}" target="_blank" style="text-decoration: none;">
+                            <div style="
+                                display: block;
+                                width: 100%;
+                                padding: 16px;
+                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                color: white;
+                                text-align: center;
+                                border-radius: 8px;
+                                font-weight: bold;
+                                font-size: 1.1rem;
+                                box-shadow: 0 4px 14px 0 rgba(118, 75, 162, 0.39);
+                                margin-top: 10px;
+                                cursor: pointer;
+                                transition: transform 0.2s ease-in-out;
+                            ">
+                                👉 Pay Now (Secure Stripe)
+                            </div>
+                        </a>
+                        <div style="text-align: center; font-size: 0.8rem; color: #666; margin-top: 5px;">
+                            Opens securely in a new tab
+                        </div>
+                        ''', unsafe_allow_html=True)
                     else:
                         st.error("⚠️ Stripe Config Missing (Check API Keys)")
 
