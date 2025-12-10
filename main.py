@@ -56,7 +56,7 @@ if __name__ == "__main__":
             # Lazy Import Engines
             try:
                 import payment_engine
-                import audit_engine # Added for logging
+                import audit_engine 
                 is_paid, session_details = payment_engine.verify_session(sess_id)
             except ImportError:
                 is_paid = False
@@ -65,23 +65,29 @@ if __name__ == "__main__":
             current_user = st.session_state.get("user_email")
             payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
             
+            # 1. CSRF Check
             if is_paid and current_user and payer_email:
                 if current_user.lower().strip() != payer_email.lower().strip():
                     if audit_engine: audit_engine.log_event(current_user, "PAYMENT_MISMATCH", sess_id, {"payer": payer_email})
                     st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
                     st.stop()
 
+            # 2. Success Handling
             if is_paid:
                 st.session_state.app_mode = "workspace"
                 st.session_state.payment_complete = True
                 st.session_state.current_stripe_id = sess_id 
                 
-                # Log Success
+                # Clear pending URL so we don't show the Pay button again
+                if "pending_stripe_url" in st.session_state:
+                    del st.session_state.pending_stripe_url
+                
                 if audit_engine: audit_engine.log_event(current_user, "PAYMENT_VERIFIED", sess_id, {})
 
                 if not current_user and payer_email:
                     st.session_state.user_email = payer_email
 
+                # Recover Params
                 if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                 if "intl" in q_params: st.session_state.is_intl = True
                 if "certified" in q_params: st.session_state.is_certified = True

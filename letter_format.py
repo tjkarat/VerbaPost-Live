@@ -10,9 +10,8 @@ logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-# FIX: Updated to match the actual file in your repo: "Caveat-VariableFont_wght.ttf"
 FONT_MAP = {
-    "Caveat-VariableFont_wght.ttf": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-VariableFont_wght.ttf",
+    "Caveat-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Regular.ttf",
     "NotoSansSC-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC-Regular.ttf",
     "NotoSansJP-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP-Regular.ttf",
     "NotoSansKR-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/notosanskr/NotoSansKR-Regular.ttf",
@@ -77,11 +76,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf = LetterPDF(is_santa=is_santa, format='Letter')
         pdf.set_auto_page_break(True, margin=20)
         
-        # --- FIX: Use Variable Font File ---
-        font_filename = "Caveat-VariableFont_wght.ttf"
-        if os.path.exists(font_filename): 
-            pdf.add_font('Caveat', '', font_filename)
-        
+        if os.path.exists("Caveat-Regular.ttf"): pdf.add_font('Caveat', '', 'Caveat-Regular.ttf')
         target_font_name, target_font_file = detect_language(content)
         is_cjk = target_font_name.startswith("Noto")
         
@@ -90,8 +85,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         else: target_font_name = 'Helvetica'; is_cjk = False
 
         if is_cjk: body_font = target_font_name
-        elif (is_heirloom or is_santa) and os.path.exists(font_filename): 
-            body_font = 'Caveat'
+        elif is_heirloom or is_santa: body_font = 'Caveat'
         else: body_font = 'Helvetica'
             
         body_size = 14 if is_cjk else (18 if is_santa else 12)
@@ -126,17 +120,28 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.ln(20) 
         
         if is_santa:
-            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if (not is_cjk and os.path.exists(font_filename)) else 'Helvetica' 
+            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if not is_cjk else 'Helvetica' 
             pdf.set_font(sig_font, '', 32); pdf.set_text_color(180, 20, 20) 
             pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
         elif signature_path and os.path.exists(signature_path):
             try: pdf.image(signature_path, x=20, w=40)
             except: pass
         
-        raw_output = pdf.output(dest='S')
-        if isinstance(raw_output, (bytes, bytearray)): return bytes(raw_output)
-        elif isinstance(raw_output, str): return raw_output.encode('latin-1', 'ignore')
-        else: return bytes(raw_output)
+        # --- FIXED RETURN LOGIC ---
+        try:
+            # Output as string ('S') first
+            raw_output = pdf.output(dest='S')
+            
+            # Ensure bytes for Streamlit
+            if isinstance(raw_output, str):
+                return raw_output.encode('latin-1')
+            elif isinstance(raw_output, (bytes, bytearray)):
+                return bytes(raw_output)
+            else:
+                return bytes(raw_output)
+        except Exception as out_err:
+             logger.error(f"PDF Output Error: {out_err}")
+             return None
 
     except Exception as e:
         logger.error(f"PDF Generation Failed: {e}", exc_info=True)

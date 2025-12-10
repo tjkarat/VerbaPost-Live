@@ -75,7 +75,9 @@ def reset_app(full_logout=False):
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
-            "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
+            "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
+            "pending_stripe_url"] # Added pending_stripe_url to clear list
+            
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     
@@ -93,15 +95,6 @@ def reset_app(full_logout=False):
             st.session_state.app_mode = "store"
         else: 
             st.session_state.app_mode = "splash"
-
-def check_session():
-    if st.query_params.get("session_id"): return True
-    if "user_email" not in st.session_state or not st.session_state.user_email:
-        st.warning("⚠️ Session Expired.")
-        st.session_state.app_mode = "login"
-        st.rerun()
-        return False
-    return True
 
 # --- 5. SHARED UI COMPONENTS ---
 def render_hero(title, subtitle):
@@ -138,9 +131,8 @@ def render_sidebar():
 
         st.markdown("---")
         mode = st.session_state.get("app_mode", "splash")
-        # Only show Store button if in workspace/review and logged in
         if mode in ["workspace", "review"] and user_email:
-             if st.button("🛒 Store (New Letter)", icon="🛍️", use_container_width=True):
+             if st.button("🛒 Store (New Letter)", use_container_width=True):
                  st.session_state.app_mode = "store"
                  st.rerun()
 
@@ -149,10 +141,9 @@ def render_sidebar():
             st.session_state.app_mode = "legal"
             st.rerun()
             
-# --- FIX: Version Updated ---
-        st.caption("v3.1.7")
+        st.caption("v3.1.5 (Hotfix)")
 
-# --- 6. PAGE: STORE ---
+# --- 6. PAGE: STORE (FIXED PAYMENT FLOW) ---
 def render_store_page():
     # --- AUTH GUARD ---
     u_email = st.session_state.get("user_email", "")
@@ -178,7 +169,13 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
-            sel = st.radio("Select Tier", list(tier_labels.keys()), format_func=lambda x: tier_labels[x])
+            # Keep selection sticky if returning from elsewhere
+            default_idx = 0
+            stored_tier = st.session_state.get("locked_tier")
+            if stored_tier and stored_tier in list(tier_labels.keys()):
+                default_idx = list(tier_labels.keys()).index(stored_tier)
+
+            sel = st.radio("Select Tier", list(tier_labels.keys()), index=default_idx, format_func=lambda x: tier_labels[x])
             tier_code = sel
             st.info(tier_desc[tier_code])
             
@@ -213,7 +210,7 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- PAYMENT BUTTON LOGIC ---
+            # --- PAYMENT LOGIC START ---
             if discounted:
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
@@ -226,50 +223,52 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
-                # 1. Draft Logic
-                d_id = _handle_draft_creation(u_email, tier_code, final_price)
-                
-                # 2. Build Link
-                link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
-                if d_id: link += f"&draft_id={d_id}"
-                if is_intl: link += "&intl=1"
-                if is_certified: link += "&certified=1"
-                if tier_code == "Campaign": link += f"&qty={qty}"
-                
-                if payment_engine:
-                    url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
+                # --- STRIPE TWO-STEP FLOW (FIXED) ---
+                # Check if we have a pending URL in session
+                if "pending_stripe_url" in st.session_state:
+                    url = st.session_state.pending_stripe_url
+                    st.success("✅ Link Generated!")
                     
-                    if url:
-                        # Log the intent to pay
-                        if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
-                        
-                        # --- 3. RENDER NEW TAB BUTTON (Gold Standard Fix) ---
-                        st.markdown(f'''
-                        <a href="{url}" target="_blank" style="text-decoration: none;">
-                            <div style="
-                                display: block;
-                                width: 100%;
-                                padding: 16px;
-                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                                color: white;
-                                text-align: center;
-                                border-radius: 8px;
-                                font-weight: bold;
-                                font-size: 1.1rem;
-                                box-shadow: 0 4px 14px 0 rgba(118, 75, 162, 0.39);
-                                margin-top: 10px;
-                                cursor: pointer;
-                                transition: transform 0.2s ease-in-out;
-                            ">
-                                👉 Pay Now (Secure Stripe)
-                            </div>
-                        </a>
-                        <div style="text-align: center; font-size: 0.8rem; color: #666; margin-top: 5px;">
-                            Opens securely in a new tab
+                    # HTML BUTTON (New Tab Escape)
+                    st.markdown(f'''
+                    <a href="{url}" target="_blank" style="text-decoration: none;">
+                        <div style="
+                            display: block; width: 100%; padding: 14px;
+                            background: linear-gradient(135deg, #28a745 0%, #218838 100%);
+                            color: white; text-align: center; border-radius: 8px;
+                            font-weight: bold; font-size: 1.1rem;
+                            box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-top: 10px;
+                        ">
+                            👉 Pay Now (Opens New Tab)
                         </div>
-                        ''', unsafe_allow_html=True)
-                    else:
-                        st.error("⚠️ Stripe Config Missing (Check API Keys)")
+                    </a>
+                    ''', unsafe_allow_html=True)
+
+                    if st.button("Cancel / Reset"):
+                        del st.session_state.pending_stripe_url
+                        st.rerun()
+                else:
+                    if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
+                        # 1. Create Draft
+                        d_id = _handle_draft_creation(u_email, tier_code, final_price)
+                        
+                        # 2. Build Return URL
+                        link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                        if d_id: link += f"&draft_id={d_id}"
+                        if is_intl: link += "&intl=1"
+                        if is_certified: link += "&certified=1"
+                        if tier_code == "Campaign": link += f"&qty={qty}"
+                        
+                        if payment_engine:
+                            url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
+                            
+                            if url:
+                                if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
+                                # 3. Save to Session and Rerun to show HTML button
+                                st.session_state.pending_stripe_url = url
+                                st.rerun()
+                            else:
+                                st.error("⚠️ Stripe Config Missing")
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
@@ -282,11 +281,10 @@ def _handle_draft_creation(email, tier, price):
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
         st.query_params["draft_id"] = str(d_id)
-        if success is False: st.warning("⚠️ Session recovered (Previous draft was missing).")
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE ---
+# --- 7. PAGE: WORKSPACE (FIXED TRANSCRIPTION) ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -399,34 +397,24 @@ def render_workspace_page():
         with t1:
             audio = st.audio_input("Record")
             if audio and ai_engine:
-                with st.spinner("Thinking..."): 
-                    st.session_state.transcribed_text = ai_engine.transcribe_audio(audio)
-                    st.session_state.app_mode = "review"
-                    st.success("Processing Complete!")
-                    if st.button("Next: Review Letter"): st.rerun()
+                if st.button("Transcribe Recording"):
+                    with st.spinner("Thinking..."): 
+                        # Critical: ai_engine.transcribe_audio now handles BytesIO safely
+                        st.session_state.transcribed_text = ai_engine.transcribe_audio(audio)
+                        st.session_state.app_mode = "review"
+                        st.success("Processing Complete!")
+                        st.rerun()
 
         with t2:
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
-            if up and st.button("Transcribe"):
+            if up and st.button("Transcribe File"):
                 if ai_engine:
                     with st.spinner("Processing..."):
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{up.name.split('.')[-1]}") as tmp:
-                            tmp.write(up.getvalue()); tpath=tmp.name
-                        try:
-                            # --- STABILIZED TRANSCRIPTION LOGIC ---
-                            text = ai_engine.transcribe_audio(tpath)
-                            st.session_state.transcribed_text = text
-                            st.session_state.app_mode = "review"
-                            
-                            st.success("✅ Transcription Complete!")
-                            # Provide manual advance in case auto-rerun fails
-                            if st.button("👉 Proceed to Review", type="primary"):
-                                st.rerun()
-                                
-                        finally:
-                            if os.path.exists(tpath): 
-                                try: os.remove(tpath)
-                                except: pass
+                        # Critical: Pass the UploadedFile object directly
+                        text = ai_engine.transcribe_audio(up)
+                        st.session_state.transcribed_text = text
+                        st.session_state.app_mode = "review"
+                        st.rerun()
 
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
@@ -451,6 +439,7 @@ def _save_addrs(tier):
     d_id = st.session_state.get("current_draft_id")
     if d_id and database: database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
 
+# --- 8. PAGE: REVIEW (FIXED PDF PREVIEW) ---
 def render_review_page():
     render_hero("Review", "Finalize & Send")
     if st.button("⬅️ Edit"): st.session_state.app_mode = "workspace"; st.rerun()
@@ -484,9 +473,11 @@ def render_review_page():
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
         
         if letter_format:
-            pdf = letter_format.create_pdf(st.session_state.transcribed_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
-            if pdf:
-                b64 = base64.b64encode(pdf).decode()
+            # letter_format now returns correct bytes/string encoded
+            pdf_bytes = letter_format.create_pdf(st.session_state.transcribed_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
+            
+            if pdf_bytes:
+                b64 = base64.b64encode(pdf_bytes).decode()
                 st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
         
         if sig_path: 
@@ -562,7 +553,7 @@ def render_review_page():
             else:
                 st.error("Errors occurred"); st.write(errs)
 
-# --- 8. MAIN ROUTER ---
+# --- 9. MAIN ROUTER ---
 def show_main_app():
     if analytics: analytics.inject_ga()
     render_sidebar()
