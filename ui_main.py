@@ -20,11 +20,15 @@ except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
 
-# --- 2. HELPER IMPORTS ---
+# --- 2. HELPER IMPORTS & DIAGNOSTICS ---
+dependency_errors = {}
+
 try: import database
-except ImportError: database = None
+except ImportError as e: database = None; dependency_errors['database'] = str(e)
+
 try: import ai_engine
-except ImportError: ai_engine = None
+except ImportError as e: ai_engine = None; dependency_errors['ai_engine'] = str(e)
+
 try: import payment_engine
 except ImportError: payment_engine = None
 try: import letter_format
@@ -147,7 +151,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.1.5 Production")
+        st.caption("v3.1.7 Fixed Button")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -281,7 +285,6 @@ def render_workspace_page():
                         if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
             st.subheader("📍 Addressing")
-            # --- FIX: ADDRESSING FORM TO CAPTURE AUTOFILL ---
             with st.form("address_form"):
                 c1, c2 = st.columns(2)
                 
@@ -312,7 +315,6 @@ def render_workspace_page():
                             cons = database.get_contacts(u_email)
                             if cons:
                                 sel = st.selectbox("Address Book", ["-- Quick Fill --"] + [x.name for x in cons])
-                                # Note: Selectbox logic happens outside form usually, but limited here
                         
                         st.text_input("Name", key="w_to_name")
                         st.text_input("Street", key="w_to_street")
@@ -331,7 +333,6 @@ def render_workspace_page():
                             st.session_state.w_to_country = "US"
 
                 if st.form_submit_button("Save Addresses", type="primary"):
-                    # Civic logic needs to happen here or after submission
                     if tier == "Civic" and civic_engine and st.session_state.w_from_zip:
                         full_addr = f"{st.session_state.w_from_street} {st.session_state.w_from_city} {st.session_state.w_from_state} {st.session_state.w_from_zip}"
                         reps = civic_engine.get_reps(full_addr)
@@ -341,7 +342,6 @@ def render_workspace_page():
                     st.toast("Address Saved!")
 
     st.write("---")
-    # Dictation / Signature
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
@@ -354,31 +354,42 @@ def render_workspace_page():
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         
-        # --- FIX: RECORD TAB LOGIC ---
+        # --- FIXED: Explicit Button Logic ---
         with t1:
             audio_val = st.audio_input("Record")
-            if audio_val and ai_engine:
-                with st.spinner("Processing recording..."): 
-                    # CRITICAL FIX: Save buffer to temp file before passing to Whisper
-                    try:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                            tmp.write(audio_val.getvalue())
-                            tpath = tmp.name
-                        
-                        st.session_state.transcribed_text = ai_engine.transcribe_audio(tpath)
-                        st.session_state.app_mode = "review"
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Recording Error: {e}")
-                    finally:
-                        if 'tpath' in locals() and os.path.exists(tpath):
-                            try: os.remove(tpath)
-                            except: pass
+            
+            # Button will ONLY show up if audio is recorded
+            if audio_val:
+                if st.button("✨ Transcribe Recording", type="primary", key="btn_transcribe_rec"):
+                    # 1. Check if AI Engine failed to load
+                    if not ai_engine:
+                        err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
+                        st.error(f"⚠️ Critical Error: AI Engine unavailable.\n\nReason: {err_msg}")
+                        st.stop()
+                    
+                    # 2. Proceed if Engine exists
+                    with st.spinner("Processing recording..."): 
+                        try:
+                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                                tmp.write(audio_val.getvalue())
+                                tpath = tmp.name
+                            
+                            st.session_state.transcribed_text = ai_engine.transcribe_audio(tpath)
+                            st.session_state.app_mode = "review"
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Transcription Failed: {e}")
+                        finally:
+                            if 'tpath' in locals() and os.path.exists(tpath):
+                                try: os.remove(tpath)
+                                except: pass
 
         with t2:
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
             if up and st.button("Transcribe"):
-                if ai_engine:
+                if not ai_engine:
+                    st.error(f"AI Engine Missing: {dependency_errors.get('ai_engine','Unknown')}")
+                else:
                     with st.spinner("Processing file..."):
                         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{up.name.split('.')[-1]}") as tmp:
                             tmp.write(up.getvalue()); tpath=tmp.name
