@@ -116,7 +116,7 @@ def get_user_profile(email):
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
             if user:
-                # FIX: Expunge to prevent DetachedInstanceError
+                # CRITICAL FIX: Expunge object so it persists after session closes
                 db.expunge(user)
                 return user
             return None
@@ -192,10 +192,13 @@ def add_contact(user_email, name, street, street2, city, state, zip_code, countr
 def get_contacts(user_email):
     try:
         with get_db_session() as db:
+            # Fetch contacts
             contacts = db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
-            # CRITICAL FIX: Expunge all items so list comprehension in UI doesn't crash
+            
+            # CRITICAL FIX FOR CRASH: Expunge all objects so they can be read by UI after session closes
             if contacts:
                 db.expunge_all()
+            
             return contacts
     except Exception as e:
         logger.error(f"Get Contacts Error: {e}")
@@ -208,14 +211,19 @@ def delete_contact(contact_id):
             return True
     except Exception: return False
 
-# --- ADMIN CONSOLE ---
+# --- ADMIN CONSOLE SUPPORT ---
 def fetch_all_drafts():
+    """
+    Fetches all drafts for the Admin Console.
+    Returns a list of dictionaries.
+    """
     try:
         with get_db_session() as db:
             drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
-            data = []
+            
+            results = []
             for d in drafts:
-                data.append({
+                results.append({
                     "ID": d.id,
                     "Date": d.created_at.strftime("%Y-%m-%d %H:%M"),
                     "Email": d.user_email,
@@ -226,7 +234,7 @@ def fetch_all_drafts():
                     "Recipient": d.recipient_json,
                     "Sender": d.sender_json
                 })
-            return data
+            return results
     except Exception as e:
         logger.error(f"Fetch Drafts Error: {e}")
         return []
