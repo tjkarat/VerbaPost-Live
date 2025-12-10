@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components # Required for JS injection
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
@@ -76,7 +77,6 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
-    # Added "checkout_url" to clean up on reset
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
@@ -161,7 +161,7 @@ def render_sidebar():
                 st.error("Missing Modules:")
                 st.json(dependency_errors)
         
-        st.caption("v3.2.2 Stripe Blank Fix")
+        st.caption("v3.2.4 Auto-Window")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -188,7 +188,6 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
-            # Use on_change to clear checkout url if tier changes
             def _clear_checkout():
                 if "checkout_url" in st.session_state: del st.session_state.checkout_url
                 
@@ -229,7 +228,7 @@ def render_store_page():
             
             btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
             
-            # BUTTON LOGIC
+            # 1. TRIGGER BUTTON
             if st.button(btn_txt, type="primary", use_container_width=True):
                 d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
@@ -241,6 +240,7 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
                 else:
+                    # GENERATE STRIPE URL
                     link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                     if d_id: link += f"&draft_id={d_id}"
                     if is_intl: link += "&intl=1"
@@ -248,17 +248,34 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
-                        # PERSISTENCE FIX: Store the URL so it survives re-renders
                         url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                         if url: 
                             st.session_state.checkout_url = url
+                            st.rerun() # FORCE RERUN TO RENDER JS IMMEDIATELY
             
-            # RENDER PAY BUTTON (Outside the if block to ensure it stays visible)
+            # 2. AUTO-OPEN & FALLBACK (PERSISTED STATE)
             if st.session_state.get("checkout_url"):
                 url = st.session_state.checkout_url
-                st.success("Link Generated! Click below:")
-                # CRITICAL FIX: target="_blank" guarantees no iframe blocking
-                st.markdown(f'<a href="{url}" target="_blank"><button style="width:100%;padding:12px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;">👉 Pay With Stripe (New Tab)</button></a>', unsafe_allow_html=True)
+                
+                # A. The Manual Link (Fallback) - target="_blank" is CRITICAL
+                st.success("Link Ready! Opening Stripe...")
+                st.markdown(f'''
+                    <a href="{url}" target="_blank" style="text-decoration:none;">
+                        <button style="width:100%;padding:15px;background:#635bff;color:white;border:none;border-radius:8px;font-size:18px;font-weight:bold;cursor:pointer;">
+                            👉 Pay Now (New Window)
+                        </button>
+                    </a>
+                    <br><small style="color:grey">If the window didn't open automatically, click the button above.</small>
+                ''', unsafe_allow_html=True)
+                
+                # B. The Auto-Open Logic (Restored)
+                # This injects JS to try opening the window automatically
+                js = f"""<script>
+                    setTimeout(function() {{
+                        window.open('{url}', '_blank').focus();
+                    }}, 1000);
+                </script>"""
+                components.html(js, height=0, width=0)
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
