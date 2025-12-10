@@ -64,7 +64,22 @@ def show_splash():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- 2. HERO ---
+    # --- 2. SIDEBAR (Restored from v3.0) ---
+    with st.sidebar:
+        st.header("VerbaPost 📮")
+        st.markdown("---")
+        # Note: ui_main.py also renders sidebar items. 
+        # These are specific to the splash screen context.
+        if st.button("🔑 Member Login", use_container_width=True, key="splash_login_btn"):
+            st.session_state.app_mode = "login"
+            st.session_state.auth_view = "login" 
+            st.rerun()
+        if st.button("⚖️ Legal & Privacy", use_container_width=True, key="splash_legal_btn"):
+            st.session_state.app_mode = "legal"
+            st.rerun()
+        st.markdown("---")
+
+    # --- 3. HERO ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
@@ -78,14 +93,14 @@ def show_splash():
 
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
-        if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True, key="splash_cta_main"):
+        if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True, key="splash_hero_cta"):
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" 
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- 3. HOW IT WORKS ---
+    # --- 4. HOW IT WORKS (Visual Guide) ---
     st.markdown("""
     <h3 style="text-align: center; color: #2a5298; margin-bottom: 20px;">How It Works</h3>
     <div class="steps-container">
@@ -108,7 +123,7 @@ def show_splash():
     <br>
     """, unsafe_allow_html=True)
 
-    # --- 4. PRICING CARDS ---
+    # --- 5. PRICING CARDS ---
     p1, p2, p3, p4 = st.columns(4)
     with p1:
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li><li>&nbsp;</li></ul></div>""", unsafe_allow_html=True)
@@ -119,17 +134,20 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- 5. LEADERBOARD ---
-    if database:
-        try:
-            stats = database.get_civic_leaderboard()
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.container(border=True):
-                st.subheader("📢 Civic Leaderboard")
+    # --- 6. LEADERBOARD (Gamification) ---
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container(border=True):
+        st.subheader("📢 Civic Leaderboard")
+        if database:
+            try:
+                stats = database.get_civic_leaderboard()
                 if stats:
                     for state, count in stats:
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
                 else:
                     st.info("No letters sent yet. Be the first to start the movement!")
-        except Exception:
-            pass
+            except Exception as e:
+                # Show explicit warning instead of hiding it
+                st.warning("Leaderboard temporarily unavailable (Database Offline)")
+        else:
+            st.caption("Leaderboard unavailable in Guest Mode")

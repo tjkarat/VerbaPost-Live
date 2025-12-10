@@ -138,6 +138,7 @@ def render_sidebar():
 
         st.markdown("---")
         mode = st.session_state.get("app_mode", "splash")
+        # Only show Store button if in workspace/review and logged in
         if mode in ["workspace", "review"] and user_email:
              if st.button("🛒 Store (New Letter)", icon="🛍️", use_container_width=True):
                  st.session_state.app_mode = "store"
@@ -147,7 +148,9 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v2.8 Production")
+            
+# --- FIX: Version Updated ---
+        st.caption("v3.1.7")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
