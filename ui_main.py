@@ -274,8 +274,9 @@ def render_workspace_page():
                 except: contacts = []
                 
                 if contacts:
+                    # Using a key helps reset the widget if needed
                     contact_names = ["-- Select from Address Book --"] + [c.name for c in contacts]
-                    selected_contact = st.selectbox("📖 Address Book", contact_names)
+                    selected_contact = st.selectbox("📖 Address Book", contact_names, key="addr_book_select")
                     
                     if selected_contact != "-- Select from Address Book --":
                         c_obj = next((x for x in contacts if x.name == selected_contact), None)
@@ -286,7 +287,7 @@ def render_workspace_page():
                             st.session_state.w_to_city = c_obj.city
                             st.session_state.w_to_state = c_obj.state
                             st.session_state.w_to_zip = c_obj.zip_code
-                            # Force rerun so the form below picks up these new values
+                            # Force rerun so the form below picks up these new values immediately
                             st.rerun()
 
             st.subheader("📍 Addressing")
@@ -330,9 +331,6 @@ def render_workspace_page():
                 _save_addrs_to_session(tier)
                 _persist_draft(tier)
                 st.toast("Addresses Captured!")
-
-            # --- ADDRESS BOOK USED TO BE HERE (CAUSING CRASH) ---
-            # It has been moved UP to prevent the StreamlitAPIException
 
             if tier == "Civic" and civic_engine:
                  zip_code = st.session_state.get("w_from_zip")
