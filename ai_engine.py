@@ -1,4 +1,3 @@
-import whisper
 import os
 import tempfile
 import shutil
@@ -7,7 +6,13 @@ import logging
 import streamlit as st
 from openai import OpenAI
 
-# Try to import secrets for GPT refinement
+# Try to import whisper (Local AI)
+try: 
+    import whisper
+except ImportError:
+    whisper = None
+
+# Try to import secrets
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
@@ -20,10 +25,17 @@ logger = logging.getLogger(__name__)
 def load_whisper_model():
     """
     Loads the local Whisper model once and caches it in memory.
-    This prevents reloading the 1GB+ model on every button click.
     """
+    if not whisper:
+        logger.error("Whisper library not installed.")
+        return None
+        
     logger.info("🧠 Loading Whisper AI model (base)...")
-    return whisper.load_model("base")
+    try:
+        return whisper.load_model("base")
+    except Exception as e:
+        logger.error(f"Failed to load Whisper: {e}")
+        return None
 
 def get_openai_client():
     """Safely creates OpenAI Client for text refinement only"""
@@ -40,7 +52,6 @@ def safe_temp_file(file_obj, suffix=".wav"):
     Context manager for safe temp file handling.
     Checks disk space and guarantees cleanup.
     """
-    # Check disk space (50MB min)
     try:
         if shutil.disk_usage('/tmp').free < 50 * 1024 * 1024:
             logger.error("Insufficient disk space.")
@@ -52,7 +63,6 @@ def safe_temp_file(file_obj, suffix=".wav"):
     try:
         # Create temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=tempfile.gettempdir()) as tmp:
-            # CRITICAL: Reset pointer to start of file so we don't read 0 bytes
             file_obj.seek(0)
             data = file_obj.getvalue()
             if len(data) == 0:
@@ -73,13 +83,17 @@ def safe_temp_file(file_obj, suffix=".wav"):
 def transcribe_audio(file_obj):
     """
     Transcribes audio using the LOCAL Whisper model.
-    No API keys required for this part.
     """
+    if not whisper:
+        return "[Error: Whisper library missing on server.]"
+
     # Determine suffix
     suffix = f".{file_obj.name.split('.')[-1]}" if hasattr(file_obj, 'name') else '.wav'
     
     try:
         model = load_whisper_model()
+        if not model:
+            return "[Error: Could not load Whisper model.]"
         
         with safe_temp_file(file_obj, suffix) as tmp_path:
             logger.info(f"🎧 Transcribing {tmp_path} locally...")
@@ -108,7 +122,7 @@ def refine_text(text, style="Professional"):
 
     client = get_openai_client()
     if not client:
-        return text # Return original if no API key
+        return text 
 
     prompts = {
         "Grammar": "Correct the grammar and spelling.",
