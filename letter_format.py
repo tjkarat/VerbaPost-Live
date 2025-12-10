@@ -127,21 +127,15 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             try: pdf.image(signature_path, x=20, w=40)
             except: pass
         
-        # --- FIXED RETURN LOGIC ---
+        # --- FIXED PDF OUTPUT FOR FPDF2 ---
         try:
-            # Output as string ('S') first
-            raw_output = pdf.output(dest='S')
-            
-            # Ensure bytes for Streamlit
-            if isinstance(raw_output, str):
-                return raw_output.encode('latin-1')
-            elif isinstance(raw_output, (bytes, bytearray)):
-                return bytes(raw_output)
-            else:
-                return bytes(raw_output)
+            # FPDF2 output() returns a bytearray by default
+            pdf_bytes = pdf.output()
+            return bytes(pdf_bytes)
         except Exception as out_err:
              logger.error(f"PDF Output Error: {out_err}")
-             return None
+             # Fallback for older versions just in case
+             return pdf.output(dest='S').encode('latin-1')
 
     except Exception as e:
         logger.error(f"PDF Generation Failed: {e}", exc_info=True)
