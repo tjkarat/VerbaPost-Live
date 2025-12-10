@@ -3,6 +3,7 @@ import logging
 import os
 import tempfile
 import secrets_manager
+import subprocess
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
@@ -13,22 +14,26 @@ logger = logging.getLogger(__name__)
 def load_whisper_model():
     """
     Loads the local Whisper model into memory.
-    Cached so it only loads once per session.
     """
-    # CRITICAL FIX: Import inside function to prevent 'torch.classes' reload errors
+    # CRITICAL: Check for FFmpeg first to prevent hard crashes
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        logger.error("❌ FFmpeg is missing. Please add 'ffmpeg' to packages.txt.")
+        return None
+
     import whisper
-    
-    # CHANGED TO TINY TO PREVENT CRASHES
     logger.info("🧠 Loading Whisper AI model (tiny)...")
     return whisper.load_model("tiny")
 
 def transcribe_audio(audio_input):
     """
     Transcribes audio using the local CPU/GPU model.
-    Does NOT use OpenAI API.
     """
     try:
         model = load_whisper_model()
+        if model is None:
+            return "Error: Server missing audio tools (FFmpeg). Please contact support."
     except Exception as e:
         return f"Error loading Whisper: {e}"
 
@@ -36,10 +41,10 @@ def transcribe_audio(audio_input):
     try:
         # Handle file-like object (microphone/upload) vs file path
         if isinstance(audio_input, str):
-            logger.info(f"🎧 Transcribing file path: {audio_input}")
             result = model.transcribe(audio_input)
         else:
             # Microphone (BytesIO) -> Temp File
+            # We explicitly allow "wb" (write binary) to prevent encoding errors
             with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                 tmp.write(audio_input.getvalue())
                 tmp_path = tmp.name
@@ -66,6 +71,12 @@ def get_openai_client():
     try:
         import openai
         api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
+        
+        # Fallback to direct secrets
+        if not api_key:
+            try: api_key = st.secrets["openai"]["api_key"]
+            except: pass
+
         if not api_key: return None
         return openai.OpenAI(api_key=api_key)
     except ImportError:

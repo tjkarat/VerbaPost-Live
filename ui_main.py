@@ -23,8 +23,14 @@ except ImportError: ui_legal = None
 
 # --- 2. ENGINE IMPORTS ---
 import database 
-try: import ai_engine
-except ImportError: ai_engine = None
+
+# DEBUG: Explicit import check for AI Engine
+try: 
+    import ai_engine
+except ImportError as e: 
+    logging.error(f"❌ AI Engine Import Failed: {e}")
+    ai_engine = None
+
 try: import payment_engine
 except ImportError: payment_engine = None
 try: import letter_format
@@ -268,13 +274,11 @@ def render_workspace_page():
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
             # --- CRITICAL FIX: ADDRESS BOOK LOGIC MUST BE ABOVE THE FORM ---
-            # If this is below the form, it crashes Streamlit because variables are modified after instantiation.
             if tier != "Civic" and database and u_email:
                 try: contacts = database.get_contacts(u_email)
                 except: contacts = []
                 
                 if contacts:
-                    # Using a key helps reset the widget if needed
                     contact_names = ["-- Select from Address Book --"] + [c.name for c in contacts]
                     selected_contact = st.selectbox("📖 Address Book", contact_names, key="addr_book_select")
                     
@@ -287,7 +291,6 @@ def render_workspace_page():
                             st.session_state.w_to_city = c_obj.city
                             st.session_state.w_to_state = c_obj.state
                             st.session_state.w_to_zip = c_obj.zip_code
-                            # Force rerun so the form below picks up these new values immediately
                             st.rerun()
 
             st.subheader("📍 Addressing")
@@ -360,11 +363,14 @@ def render_workspace_page():
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
             audio = st.audio_input("Record")
-            if audio and ai_engine:
-                with st.spinner("Thinking..."): 
-                    txt = ai_engine.transcribe_audio(audio)
-                    st.session_state.transcribed_text = txt
-                    st.session_state.app_mode = "review"; st.rerun()
+            if audio:
+                if not ai_engine:
+                    st.error("⚠️ AI Module Failed to Load. Check logs.")
+                else:
+                    with st.spinner("Thinking..."): 
+                        txt = ai_engine.transcribe_audio(audio)
+                        st.session_state.transcribed_text = txt
+                        st.session_state.app_mode = "review"; st.rerun()
         with t2:
             st.caption("Supported: MP3, WAV, M4A (Max 10MB)")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
