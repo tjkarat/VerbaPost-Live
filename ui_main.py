@@ -12,6 +12,7 @@ import time
 import logging
 
 # --- 0. LOGGING SETUP ---
+# Ensure we see UI logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -25,9 +26,8 @@ except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
 
-# --- 2. ENGINE IMPORTS (WITH DEBUGGING) ---
+# --- 2. ENGINE IMPORTS ---
 import database 
-
 # DEBUG: Check AI Engine Load Status
 try: 
     import ai_engine
@@ -329,6 +329,7 @@ def render_workspace_page():
                             st.text_input("Zip", key="w_to_zip")
                             st.session_state.w_to_country = "US"
                 
+                # --- AUTOFILL SAVE BUTTON ---
                 save_clicked = st.form_submit_button("Save Addresses", type="primary")
 
             if save_clicked:
@@ -363,7 +364,7 @@ def render_workspace_page():
         st.info("Tap microphone, speak clearly, then tap stop.")
         t1, t2 = st.tabs(["Record", "Upload"])
         
-        # --- TAB 1: RECORD ---
+        # --- TAB 1: RECORD (FIXED with BUTTON) ---
         with t1:
             audio_val = st.audio_input("Record")
             

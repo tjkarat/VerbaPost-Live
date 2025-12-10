@@ -4,12 +4,13 @@ import traceback
 import logging
 import sys
 
-# --- 0. LOGGING SETUP (UPDATED FOR DEBUGGING) ---
-# FIX: Changed level from INFO to DEBUG to see detailed traces
+# --- 0. LOGGING SETUP (CRITICAL FIX) ---
+# We force the level to DEBUG so 'ai_engine' logs (which are debug level) actually show up.
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.DEBUG, 
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True # Force override of any other logger settings
 )
 logger = logging.getLogger(__name__)
 
@@ -94,6 +95,7 @@ if __name__ == "__main__":
                 
                 # CRITICAL: Require both emails to exist
                 if not current_user or not payer_email:
+                     # Fallback for Guest Checkout scenarios
                      if not current_user:
                          st.session_state.user_email = payer_email 
                          current_user = payer_email
@@ -148,6 +150,7 @@ if __name__ == "__main__":
         st.markdown(f"**Error:** `{e}`")
         logger.critical(f"UI Crash: {e}", exc_info=True)
         
+        # Hard Reset Option
         if st.button("Hard Reset App State"):
             st.session_state.clear()
             st.rerun()
