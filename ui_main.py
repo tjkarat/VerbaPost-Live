@@ -10,7 +10,7 @@ import io
 import time
 import logging
 
-# --- 1. CRITICAL UI IMPORTS ---
+# --- 1. UI IMPORTS ---
 try: import ui_splash
 except ImportError: ui_splash = None
 try: import ui_login
@@ -125,7 +125,7 @@ def render_sidebar():
                 st.rerun()
         else:
             st.info("👤 **Guest User**")
-            # CLEANUP: Only showing one primary action button
+            # SIDEBAR CLEANUP: Primary action only
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.rerun()
@@ -137,8 +137,8 @@ def render_sidebar():
                  st.session_state.app_mode = "store"
                  st.rerun()
 
-        # CLEANUP: Removed duplicate Legal button
-        st.caption("v3.1.5 (Hotfix)")
+        # SIDEBAR CLEANUP: Removed duplicate Legal button
+        st.caption("v3.1.6 (Instructions Added)")
 
 # --- 6. PAGE: STORE (FIXED PAYMENT FLOW) ---
 def render_store_page():
@@ -166,7 +166,6 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
-            # Keep selection sticky if returning from elsewhere
             default_idx = 0
             stored_tier = st.session_state.get("locked_tier")
             if stored_tier and stored_tier in list(tier_labels.keys()):
@@ -207,7 +206,6 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- PAYMENT LOGIC START ---
             if discounted:
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
@@ -220,12 +218,10 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
-                # --- STRIPE TWO-STEP FLOW (FIXED) ---
                 if "pending_stripe_url" in st.session_state:
                     url = st.session_state.pending_stripe_url
                     st.success("✅ Link Generated!")
                     
-                    # HTML BUTTON (New Tab Escape)
                     st.markdown(f'''
                     <a href="{url}" target="_blank" style="text-decoration: none;">
                         <div style="
@@ -245,10 +241,7 @@ def render_store_page():
                         st.rerun()
                 else:
                     if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
-                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
-                        
-                        # 2. Build Return URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
@@ -279,7 +272,7 @@ def _handle_draft_creation(email, tier, price):
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE (FIXED TRANSCRIPTION + ADDRESS BOOK) ---
+# --- 7. PAGE: WORKSPACE (UPDATED INSTRUCTIONS) ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -347,7 +340,6 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
-                    # --- RESTORED ADDRESS BOOK LOGIC ---
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
@@ -378,13 +370,11 @@ def render_workspace_page():
                 st.toast("Saved!")
 
     st.write("---")
-    # Dictation / Signature
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
         if tier == "Santa": st.info("Signed by Santa")
         else: 
-            # FIXED WIDTH 300
             canvas = st_canvas(stroke_width=2, height=150, width=300, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     
@@ -392,11 +382,13 @@ def render_workspace_page():
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
+            # INSTRUCTIONS ADDED
+            st.info("🎙️ **Instructions:**\n1. Click the microphone icon to start.\n2. Speak your letter clearly.\n3. Click the square 'Stop' button when finished.")
             audio = st.audio_input("Record")
             if audio and st.button("Transcribe Recording"):
                 if ai_engine:
-                    with st.spinner("Thinking..."): 
-                        # Critical: ai_engine.transcribe_audio now handles BytesIO safely
+                    # IMPROVED SPINNER MESSAGE
+                    with st.spinner("🔊 Transcribing your voice... This typically takes 10-30 seconds. Please wait..."): 
                         res = ai_engine.transcribe_audio(audio)
                         if res.startswith("Error:"):
                             st.error(res)
@@ -407,11 +399,11 @@ def render_workspace_page():
                             st.rerun()
 
         with t2:
+            st.info("📂 Upload MP3, WAV, or M4A audio files.")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
             if up and st.button("Transcribe File"):
                 if ai_engine:
-                    with st.spinner("Processing..."):
-                        # Critical: Pass the UploadedFile object directly
+                    with st.spinner("🔊 Processing file... This may take up to a minute depending on file size."):
                         text = ai_engine.transcribe_audio(up)
                         st.session_state.transcribed_text = text
                         st.session_state.app_mode = "review"
@@ -474,7 +466,6 @@ def render_review_page():
             with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
         
         if letter_format:
-            # letter_format now returns correct bytes/string encoded
             pdf_bytes = letter_format.create_pdf(st.session_state.transcribed_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
             
             if pdf_bytes:

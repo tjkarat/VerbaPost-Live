@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- CACHED MODEL LOADER (FIXED) ---
+# --- CACHED MODEL LOADER ---
 @st.cache_resource(show_spinner=False)
 def load_whisper_model_cached():
     """
@@ -61,7 +61,6 @@ def load_and_transcribe(audio_path_or_file):
         text = result.get("text", "").strip()
         
         if not text:
-            # FIX: Return a friendly message instead of empty string
             return True, "[Audio processed, but no speech was detected. Please try recording again.]"
         
         return True, text
