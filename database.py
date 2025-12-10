@@ -63,17 +63,26 @@ class PromoCode(Base):
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
-    # Strict production usage: Only uses secrets_manager
+    # 1. Try to get the real Supabase URL via Manager
     db_url = secrets_manager.get_secret("DATABASE_URL")
     
+    # 2. EMERGENCY FALLBACK: Check Streamlit secrets directly
+    if not db_url:
+        try:
+            db_url = st.secrets.get("DATABASE_URL")
+            if db_url:
+                logger.info("✅ Found DATABASE_URL in direct secrets (Fallback)")
+        except:
+            pass
+
     if db_url:
         # Fix for SQLAlchemy compatibility with Supabase/Postgres
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://")
         logger.info("✅ Connected to Remote Database (Supabase)")
     else:
-        # Fallback only if secret is genuinely missing
-        logger.warning("⚠️ DATABASE_URL not found in secrets manager! Using temporary local DB.")
+        # Fallback to local with a WARNING
+        logger.warning("⚠️ DATABASE_URL not found! Using temporary local DB.")
         db_url = "sqlite:///local_dev.db"
         
     try:
@@ -105,8 +114,15 @@ def get_db_session():
 def get_user_profile(email):
     try:
         with get_db_session() as db:
-            return db.query(UserProfile).filter(UserProfile.email == email).first()
-    except Exception: return None
+            user = db.query(UserProfile).filter(UserProfile.email == email).first()
+            if user:
+                # CRITICAL FIX: Expunge object so it persists after session closes
+                db.expunge(user)
+                return user
+            return None
+    except Exception as e:
+        logger.error(f"Get Profile Error: {e}")
+        return None
 
 def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=None, status="Draft"):
     try:
@@ -186,16 +202,21 @@ def delete_contact(contact_id):
             return True
     except Exception: return False
 
-# --- ADMIN FUNCTIONS (Missing in previous version) ---
+# --- ADMIN CONSOLE SUPPORT (ADDED) ---
 def fetch_all_drafts():
-    """Fetches draft history for admin console"""
+    """
+    Fetches all drafts for the Admin Console.
+    Returns a list of dictionaries.
+    """
     try:
         with get_db_session() as db:
+            # Fetch latest 100 drafts to prevent overload
             drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
             
-            data = []
+            # Convert SQLAlchemy objects to simple dictionaries
+            results = []
             for d in drafts:
-                data.append({
+                results.append({
                     "ID": d.id,
                     "Date": d.created_at.strftime("%Y-%m-%d %H:%M"),
                     "Email": d.user_email,
@@ -206,7 +227,7 @@ def fetch_all_drafts():
                     "Recipient": d.recipient_json,
                     "Sender": d.sender_json
                 })
-            return data
+            return results
     except Exception as e:
         logger.error(f"Fetch Drafts Error: {e}")
         return []
