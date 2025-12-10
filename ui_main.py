@@ -154,7 +154,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.1.9 Stripe Fix")
+        st.caption("v3.2.0 Stripe Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -250,7 +250,7 @@ def render_store_page():
             if st.session_state.get("checkout_url"):
                 url = st.session_state.checkout_url
                 st.success("Payment Link Ready!")
-                # Changed target to _blank to avoid iframe blocking issues
+                # CRITICAL FIX: target="_blank" prevents X-Frame-Options error
                 st.markdown(f'<a href="{url}" target="_blank"><button style="width:100%;padding:10px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;">👉 Click to Pay Now</button></a>', unsafe_allow_html=True)
 
 def _handle_draft_creation(email, tier, price):
