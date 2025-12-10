@@ -9,6 +9,7 @@ from PIL import Image
 import io
 import time
 import logging
+import traceback # Added for robust error reporting
 
 # --- 1. CRITICAL UI IMPORTS ---
 try: import ui_splash
@@ -151,7 +152,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.1.7 Fixed Button")
+        st.caption("v3.1.8 Fixed Inputs")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -352,54 +353,81 @@ def render_workspace_page():
     
     with c_mic:
         st.write("🎤 **Input**")
-        t1, t2 = st.tabs(["Record", "Upload"])
+        st.info("Record audio or upload a file, then click Transcribe")
         
-        # --- FIXED: Explicit Button Logic ---
-        with t1:
-            audio_val = st.audio_input("Record")
-            
-            # Button will ONLY show up if audio is recorded
-            if audio_val:
-                if st.button("✨ Transcribe Recording", type="primary", key="btn_transcribe_rec"):
-                    # 1. Check if AI Engine failed to load
+        tab_record, tab_upload = st.tabs(["🎙️ Record", "📁 Upload"])
+        
+        with tab_record:
+            audio_recorded = st.audio_input("Record your message")
+            if audio_recorded:
+                st.success(f"✅ Recording captured ({len(audio_recorded.getvalue())} bytes)")
+                
+                if st.button("🔄 Transcribe Recording", type="primary", use_container_width=True):
                     if not ai_engine:
                         err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
-                        st.error(f"⚠️ Critical Error: AI Engine unavailable.\n\nReason: {err_msg}")
-                        st.stop()
-                    
-                    # 2. Proceed if Engine exists
-                    with st.spinner("Processing recording..."): 
-                        try:
-                            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                                tmp.write(audio_val.getvalue())
-                                tpath = tmp.name
-                            
-                            st.session_state.transcribed_text = ai_engine.transcribe_audio(tpath)
-                            st.session_state.app_mode = "review"
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Transcription Failed: {e}")
-                        finally:
-                            if 'tpath' in locals() and os.path.exists(tpath):
-                                try: os.remove(tpath)
-                                except: pass
+                        st.error(f"⚠️ AI Engine not available. Reason: {err_msg}")
+                    else:
+                        with st.spinner("🎧 Transcribing... This may take 10-30 seconds"):
+                            try:
+                                # --- SAFE FILE HANDLING WRAPPER ---
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                                    tmp.write(audio_recorded.getvalue())
+                                    tpath = tmp.name
+                                
+                                result = ai_engine.transcribe_audio(tpath)
+                                
+                                # Clean up immediately
+                                if os.path.exists(tpath):
+                                    try: os.remove(tpath)
+                                    except: pass
 
-        with t2:
-            up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
-            if up and st.button("Transcribe"):
-                if not ai_engine:
-                    st.error(f"AI Engine Missing: {dependency_errors.get('ai_engine','Unknown')}")
-                else:
-                    with st.spinner("Processing file..."):
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{up.name.split('.')[-1]}") as tmp:
-                            tmp.write(up.getvalue()); tpath=tmp.name
-                        try:
-                            st.session_state.transcribed_text = ai_engine.transcribe_audio(tpath)
-                            st.session_state.app_mode = "review"; st.rerun()
-                        finally:
-                            if os.path.exists(tpath): 
-                                try: os.remove(tpath)
-                                except: pass
+                                if result and str(result).startswith("Error:"):
+                                    st.error(result)
+                                else:
+                                    st.session_state.transcribed_text = result
+                                    st.success(f"✅ Transcribed {len(result)} characters!")
+                                    st.session_state.app_mode = "review"
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Transcription failed: {str(e)}")
+                                st.code(traceback.format_exc())
+        
+        with tab_upload:
+            st.caption("Supported: MP3, WAV, M4A (Max 25MB)")
+            uploaded_file = st.file_uploader("Choose audio file", type=['mp3', 'wav', 'm4a'])
+            
+            if uploaded_file:
+                st.success(f"✅ File uploaded: {uploaded_file.name} ({len(uploaded_file.getvalue()) / 1024 / 1024:.2f} MB)")
+                
+                if st.button("🔄 Transcribe File", type="primary", use_container_width=True):
+                    if not ai_engine:
+                        err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
+                        st.error(f"⚠️ AI Engine not available. Reason: {err_msg}")
+                    else:
+                        with st.spinner("🎧 Transcribing... This may take 10-30 seconds"):
+                            try:
+                                # --- SAFE FILE HANDLING WRAPPER ---
+                                with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp:
+                                    tmp.write(uploaded_file.getvalue())
+                                    tpath = tmp.name
+                                
+                                result = ai_engine.transcribe_audio(tpath)
+                                
+                                # Clean up immediately
+                                if os.path.exists(tpath):
+                                    try: os.remove(tpath)
+                                    except: pass
+
+                                if result and str(result).startswith("Error:"):
+                                    st.error(result)
+                                else:
+                                    st.session_state.transcribed_text = result
+                                    st.success(f"✅ Transcribed {len(result)} characters!")
+                                    st.session_state.app_mode = "review"
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Transcription failed: {str(e)}")
+                                st.code(traceback.format_exc())
 
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
