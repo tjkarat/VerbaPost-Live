@@ -76,6 +76,7 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
+    # Removed "auto_open" variables to prevent loops
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
@@ -227,7 +228,7 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- STRIPE PAYMENT LOGIC ---
+            # --- STRIPE PAYMENT LOGIC (FIXED) ---
             
             # Show any errors from previous attempt
             if "checkout_error" in st.session_state:
