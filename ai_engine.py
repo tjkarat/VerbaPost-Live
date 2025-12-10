@@ -18,8 +18,8 @@ def load_whisper_model():
     # CRITICAL FIX: Import inside function to prevent 'torch.classes' reload errors
     import whisper
     
-    logger.info("🧠 Loading Whisper AI model (base)...")
-    return whisper.load_model("base")
+    logger.info("🧠 Loading Whisper AI model (tiny)...")
+    return whisper.load_model("tiny")
 
 def transcribe_audio(audio_input):
     """

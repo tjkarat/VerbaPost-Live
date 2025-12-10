@@ -105,7 +105,27 @@ def get_user_profile(email):
         with get_db_session() as db:
             return db.query(UserProfile).filter(UserProfile.email == email).first()
     except Exception: return None
-
+def fetch_all_drafts():
+    try:
+        with get_db_session() as db:
+            drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
+            return [
+                {
+                    "ID": d.id,
+                    "Date": d.created_at,
+                    "Email": d.user_email,
+                    "Tier": d.tier,
+                    "Status": d.status,
+                    "Price": d.price,
+                    "Recipient": d.recipient_json,
+                    "Sender": d.sender_json,
+                    "Content": d.transcription
+                }
+                for d in drafts
+            ]
+    except Exception as e:
+        logger.error(f"Fetch Drafts Error: {e}")
+        return []
 def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=None, status="Draft"):
     try:
         with get_db_session() as db:
