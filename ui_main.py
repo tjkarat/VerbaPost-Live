@@ -159,7 +159,7 @@ def render_sidebar():
                 st.error("Modules failed to load:")
                 st.json(dependency_errors)
         
-        st.caption("v3.2.8 Link Button Fix")
+        st.caption("v3.2.9 Link Button Restoration")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -225,7 +225,7 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- PAYMENT LOGIC (FIXED) ---
+            # --- PAYMENT LOGIC (RESTORED) ---
             # 1. State: Payment Link NOT Generated
             if "checkout_url" not in st.session_state:
                 btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
@@ -248,18 +248,20 @@ def render_store_page():
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
                         if payment_engine:
+                            # Generate URL and store it
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
                                 st.session_state.checkout_url = url
-                                st.rerun() # Force re-run to show the link button
+                                st.rerun() # Force re-run to display the link button
             
-            # 2. State: Payment Link READY (Correct Implementation)
+            # 2. State: Payment Link READY (Stable state)
             else:
                 url = st.session_state.checkout_url
                 st.success("✅ **Invoice Created!**")
+                st.info("Click the button below to pay securely on Stripe.")
                 
-                # CRITICAL FIX: Using native Streamlit component as requested.
-                # This handles the iframe escape automatically.
+                # CORRECT IMPLEMENTATION: Using st.link_button
+                # This native component correctly handles new tab/window behavior
                 st.link_button("👉 Pay Now on Stripe", url, type="primary", use_container_width=True)
                 
                 if st.button("Cancel Order", type="secondary", use_container_width=True):
