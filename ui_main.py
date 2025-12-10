@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components # Required for JS Auto-Open
 from streamlit_drawable_canvas import st_canvas
 import os
 import tempfile
@@ -77,12 +76,13 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
+    # Removed "auto_open" variables to prevent loops
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "checkout_url", "auto_open_triggered"] 
+            "checkout_url", "checkout_error"] 
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     
@@ -95,7 +95,7 @@ def reset_app(full_logout=False):
         if recovered:
             st.session_state.current_draft_id = recovered
             st.session_state.app_mode = "workspace" 
-            st.success("🔄 Session Restored!")
+            st.success("📄 Session Restored!")
         elif u_email: 
             st.session_state.app_mode = "store"
         else: 
@@ -159,7 +159,7 @@ def render_sidebar():
             with st.expander("⚠️ System Warnings"):
                 st.json(dependency_errors)
         
-        st.caption("v3.3.2 Manual Anchor Fix")
+        st.caption("v3.3.2 Stripe Redirect Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -188,8 +188,10 @@ def render_store_page():
             
             # Helper to clear session if options change
             def _clear_checkout():
-                if "checkout_url" in st.session_state: del st.session_state.checkout_url
-                if "auto_open_triggered" in st.session_state: del st.session_state.auto_open_triggered
+                if "checkout_url" in st.session_state: 
+                    del st.session_state.checkout_url
+                if "checkout_error" in st.session_state:
+                    del st.session_state.checkout_error
                 
             sel = st.radio("Select Tier", list(tier_labels.keys()), format_func=lambda x: tier_labels[x], on_change=_clear_checkout)
             tier_code = sel
@@ -226,16 +228,25 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- STRIPE PAYMENT LOGIC (HTML ANCHOR FALLBACK) ---
+            # --- STRIPE PAYMENT LOGIC (FIXED) ---
             
-            # 1. State: Payment Link NOT Generated
+            # Show any errors from previous attempt
+            if "checkout_error" in st.session_state:
+                st.error(st.session_state.checkout_error)
+            
+            # STATE 1: Payment Link NOT Generated Yet
             if "checkout_url" not in st.session_state:
                 btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
                 
                 if st.button(btn_txt, type="primary", use_container_width=True):
+                    # Clear any previous errors
+                    if "checkout_error" in st.session_state:
+                        del st.session_state.checkout_error
+                    
                     d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
                     if discounted:
+                        # Free tier - skip payment
                         if promo_engine: promo_engine.log_usage(code, u_email)
                         st.session_state.payment_complete = True
                         st.session_state.locked_tier = tier_code
@@ -243,61 +254,64 @@ def render_store_page():
                         st.session_state.app_mode = "workspace"
                         st.rerun()
                     else:
+                        # Paid tier - create Stripe checkout
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
                         if is_certified: link += "&certified=1"
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
-                        if payment_engine:
-                            # Generate URL and store it
-                            url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
-                            if url: 
-                                st.session_state.checkout_url = url
-                                st.session_state.auto_open_triggered = False # Reset trigger
-                                st.rerun() # Force re-run to display the link button
+                        if not payment_engine:
+                            st.session_state.checkout_error = "⚠️ Payment system unavailable. Please contact support."
+                            st.rerun()
+                        else:
+                            with st.spinner("Creating secure checkout..."):
+                                try:
+                                    url, session_id = payment_engine.create_checkout_session(
+                                        f"VerbaPost {tier_code}", 
+                                        int(final_price * 100), 
+                                        link, 
+                                        YOUR_APP_URL
+                                    )
+                                    
+                                    if url:
+                                        # Store URL and force immediate rerun to show link button
+                                        st.session_state.checkout_url = url
+                                        st.session_state.current_stripe_id = session_id
+                                        st.rerun()
+                                    else:
+                                        st.session_state.checkout_error = "❌ Failed to create checkout. Please try again."
+                                        st.rerun()
+                                        
+                                except Exception as e:
+                                    st.session_state.checkout_error = f"❌ Error: {str(e)}"
+                                    st.rerun()
             
-            # 2. State: Payment Link READY (Stable state)
+            # STATE 2: Payment Link READY (Show link button)
             else:
                 url = st.session_state.checkout_url
-                st.success("✅ **Invoice Created!**")
                 
-                # A. HTML Link Button (The Rock-Solid Fix from Documentation)
-                # We use HTML/Markdown because st.link_button was reported unreliable in this specific iframe context.
-                st.markdown(f'''
-                    <a href="{url}" target="_blank" style="text-decoration:none;">
-                        <div style="
-                            width:100%;
-                            background-color: #ff4b4b;
-                            color: white;
-                            padding: 12px;
-                            text-align: center;
-                            border-radius: 8px;
-                            font-weight: bold;
-                            font-size: 16px;
-                            cursor: pointer;
-                            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                        ">
-                            👉 Click Here to Pay (New Tab)
-                        </div>
-                    </a>
-                ''', unsafe_allow_html=True)
+                st.success("✅ **Payment Link Ready!**")
+                st.info("🔒 You'll be redirected to Stripe's secure checkout")
                 
-                # B. Auto-Open Javascript (Restored as requested)
-                if not st.session_state.get("auto_open_triggered", False):
-                    js = f"""
-                    <script>
-                        setTimeout(function() {{
-                            window.open('{url}', '_blank');
-                        }}, 500);
-                    </script>
-                    """
-                    components.html(js, height=0, width=0)
-                    st.session_state.auto_open_triggered = True
-
-                if st.button("Cancel Order", type="secondary", use_container_width=True):
+                # CRITICAL: Use st.link_button to escape iframe
+                # This opens in a NEW TAB, which escapes Streamlit's iframe
+                st.link_button(
+                    "👉 Continue to Payment", 
+                    url, 
+                    type="primary", 
+                    use_container_width=True
+                )
+                
+                st.caption("⚠️ Click above to complete payment. The page will open in a new tab.")
+                
+                if st.button("❌ Cancel Order", type="secondary", use_container_width=True):
+                    # Clear checkout state
                     del st.session_state.checkout_url
-                    if "auto_open_triggered" in st.session_state: del st.session_state.auto_open_triggered
+                    if "current_stripe_id" in st.session_state:
+                        del st.session_state.current_stripe_id
+                    if "checkout_error" in st.session_state:
+                        del st.session_state.checkout_error
                     st.rerun()
 
 def _handle_draft_creation(email, tier, price):
@@ -425,7 +439,7 @@ def render_workspace_page():
             if audio_recorded:
                 st.success(f"✅ Recording captured ({len(audio_recorded.getvalue())} bytes)")
                 
-                if st.button("🔄 Transcribe Recording", type="primary", key="btn_transcribe_rec"):
+                if st.button("📄 Transcribe Recording", type="primary", key="btn_transcribe_rec"):
                     # Explicit Debug Logging
                     print("DEBUG: Transcribe button clicked")
                     
@@ -469,7 +483,7 @@ def render_workspace_page():
             if uploaded_file:
                 st.success(f"✅ File uploaded: {uploaded_file.name} ({len(uploaded_file.getvalue()) / 1024 / 1024:.2f} MB)")
                 
-                if st.button("🔄 Transcribe File", type="primary", use_container_width=True):
+                if st.button("📄 Transcribe File", type="primary", use_container_width=True):
                     if not ai_engine:
                         err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
                         st.error(f"⚠️ AI Engine not available. Reason: {err_msg}")
@@ -674,3 +688,6 @@ def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
     res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
     if res and res.user: st.success("Created! Please Log In."); st.session_state.app_mode = "login"
     else: st.error(err)
+
+if __name__ == "__main__":
+    show_main_app()
