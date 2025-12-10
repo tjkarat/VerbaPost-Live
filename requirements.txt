@@ -1,13 +1,15 @@
 streamlit==1.40.0
-streamlit-drawable-canvas==0.9.3
-supabase
+streamlit-drawable-canvas
 stripe
-openai-whisper
+supabase
 sqlalchemy
 psycopg2-binary
 requests
 resend
-pandas
-fpdf2
+fpdf
 python-dotenv
 openai
+# CRITICAL: Whisper compatibility
+openai-whisper
+numpy<2.0.0
+torch
