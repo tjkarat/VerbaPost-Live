@@ -354,6 +354,8 @@ def render_workspace_page():
 
             with c2: # TO
                 st.markdown("**To**")
+                if tier != "Civic":
+                    st.info("⚠️ Note: If using browser autofill, please click outside the text box to ensure the address is saved.")
                 
                 # --- ADDRESS BOOK ---
                 if tier != "Civic" and database and u_email:

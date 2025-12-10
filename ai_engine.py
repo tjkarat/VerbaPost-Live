@@ -5,6 +5,7 @@ import shutil
 import contextlib
 import logging
 import streamlit as st
+# We only use OpenAI for refinement, not transcription
 from openai import OpenAI
 
 # Try to import secrets for GPT refinement
@@ -52,7 +53,7 @@ def safe_temp_file(file_obj, suffix=".wav"):
     try:
         # Create temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=tempfile.gettempdir()) as tmp:
-            # CRITICAL: Reset pointer
+            # CRITICAL: Reset pointer to start of file
             file_obj.seek(0)
             data = file_obj.getvalue()
             if len(data) == 0:

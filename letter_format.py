@@ -18,12 +18,12 @@ FONT_MAP = {
 }
 
 def ensure_fonts():
-    """Downloads fonts if missing."""
+    """Downloads fonts if missing. Returns list of available fonts."""
     available = []
     for filename, url in FONT_MAP.items():
         if not os.path.exists(filename):
             try:
-                r = requests.get(url, allow_redirects=True, timeout=10)
+                r = requests.get(url, allow_redirects=True, timeout=5)
                 if r.status_code == 200:
                     with open(filename, "wb") as f: f.write(r.content)
             except Exception as e:
@@ -34,19 +34,21 @@ def ensure_fonts():
     return available
 
 def detect_language(text):
-    if not text: return ('Caveat', 'Caveat-Regular.ttf') # Default to Caveat
+    if not text: return ('Helvetica', None)
     if re.search(r'[\u3040-\u30ff]', text): return ('NotoSansJP', 'NotoSansJP-Regular.ttf')
     if re.search(r'[\uac00-\ud7af]', text): return ('NotoSansKR', 'NotoSansKR-Regular.ttf')
     if re.search(r'[\u4e00-\u9fff]', text): return ('NotoSansSC', 'NotoSansSC-Regular.ttf')
-    return ('Caveat', 'Caveat-Regular.ttf')
+    return ('Helvetica', None)
 
 def sanitize_text(text, is_cjk=False):
     if not isinstance(text, str): return str(text)
+    # Smart quotes to standard
     replacements = {'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-'}
     for k, v in replacements.items(): text = text.replace(k, v)
     
     if is_cjk: return text 
     else:
+        # FPDF (latin-1) handling
         try: return text.encode('latin-1', 'ignore').decode('latin-1')
         except: return text
 
@@ -82,33 +84,35 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf = LetterPDF(is_santa=is_santa, format='Letter')
         pdf.set_auto_page_break(True, margin=20)
         
-        # --- FONT LOADING LOGIC ---
-        # 1. Add Caveat (Primary)
-        if "Caveat-Regular.ttf" in available_fonts:
+        # --- SAFE FONT LOADING ---
+        # Only add font if it definitely exists
+        has_caveat = "Caveat-Regular.ttf" in available_fonts
+        if has_caveat: 
             pdf.add_font('Caveat', '', 'Caveat-Regular.ttf')
-        
-        # 2. Check for Asian Language
+
         target_font_name, target_font_file = detect_language(content)
         is_cjk = target_font_name.startswith("Noto")
         
-        if is_cjk and target_font_file in available_fonts:
+        if is_cjk and target_font_file and (target_font_file in available_fonts):
             pdf.add_font(target_font_name, '', target_font_file)
-            body_font = target_font_name
-        else:
+        else: 
+            # Fallback to Helvetica if CJK font missing
+            target_font_name = 'Helvetica'
             is_cjk = False
-            # 3. FORCE CAVEAT if not CJK
-            if "Caveat-Regular.ttf" in available_fonts:
-                body_font = 'Caveat'
-            else:
-                # Emergency Fallback only
-                body_font = 'Helvetica'
 
-        body_size = 14 if is_cjk else (18 if is_santa else 14) # Increased for Caveat readability
+        # Select Body Font (With Fallbacks)
+        if is_cjk: 
+            body_font = target_font_name
+        elif (is_heirloom or is_santa) and has_caveat: 
+            body_font = 'Caveat'
+        else: 
+            body_font = 'Helvetica'
+            
+        body_size = 14 if is_cjk else (18 if is_santa else 12)
         
         pdf.add_page(); pdf.set_text_color(0, 0, 0)
         
         # --- LAYOUT ---
-        # Use Helvetica for address block for readability/scanning
         is_standard = not (is_heirloom or is_santa)
         if is_standard:
             pdf.set_xy(20, 100); pdf.set_xy(140, 15); pdf.set_font('Helvetica', '', 10)
@@ -128,7 +132,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             pdf.multi_cell(0, 6, sanitize_text(recipient_addr, is_cjk))
             pdf.set_xy(20, recip_y + 30)
 
-        # --- BODY (Caveat) ---
+        # --- BODY ---
         pdf.set_font(body_font, '', body_size)
         safe_content = sanitize_text(content, is_cjk)
         if not safe_content or len(safe_content.strip()) == 0:
@@ -140,7 +144,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         # --- SIGNATURE ---
         if is_santa:
             pdf.set_x(pdf.l_margin) 
-            sig_font = 'Caveat' if (not is_cjk and "Caveat-Regular.ttf" in available_fonts) else 'Helvetica' 
+            sig_font = 'Caveat' if (not is_cjk and has_caveat) else 'Helvetica' 
             pdf.set_font(sig_font, '', 32); pdf.set_text_color(180, 20, 20) 
             pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
         elif signature_path and os.path.exists(signature_path):
