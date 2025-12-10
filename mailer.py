@@ -30,8 +30,13 @@ class AddressVerificationCircuitBreaker:
 
 circuit_breaker = AddressVerificationCircuitBreaker()
 
-def get_postgrid_key(): return secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
-def get_resend_key(): return secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
+def get_postgrid_key(): 
+    key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
+    return key.strip() if key else None
+
+def get_resend_key(): 
+    key = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
+    return key.strip() if key else None
 
 def verify_address_data(line1, line2, city, state, zip_code, country_code):
     api_key = get_postgrid_key()
@@ -65,7 +70,7 @@ def verify_address_data(line1, line2, city, state, zip_code, country_code):
             circuit_breaker.failure_count += 1
             circuit_breaker.last_failure = datetime.now()
             logger.error(f"PostGrid API Error: {r.status_code} - {r.text}")
-            return False, f"Address verification failed (API Error)"
+            return False, f"Address verification failed ({r.status_code})"
 
     except Exception as e:
         circuit_breaker.failure_count += 1
@@ -83,6 +88,7 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
     api_key = get_postgrid_key()
     if not api_key: return False, "Missing API Key"
 
+    # Use the Print & Mail Endpoint
     url = "https://api.postgrid.com/print-mail/v1/letters"
     
     data = {
@@ -107,6 +113,7 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
     try:
         with open(pdf_path, 'rb') as f_pdf:
             files = {'pdf': f_pdf}
+            # Sending as multipart/form-data
             response = requests.post(url, headers=headers, data=data, files=files, timeout=30)
             
         if response.status_code in [200, 201]:
@@ -118,9 +125,11 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
             except: pass
             return True, res
         else:
-            logger.error(f"PostGrid Error: {response.text}")
-            return False, f"API Error: {response.status_code}"
+            # Log the specific error text from PostGrid (likely "Invalid API Key" or similar)
+            err_msg = response.text
+            logger.error(f"PostGrid Error: {err_msg}")
+            return False, f"API Error {response.status_code}: {err_msg}"
 
     except Exception as e:
         logger.error(f"Connection Error: {e}")
-        raise # Allow tenacity to retry
+        raise

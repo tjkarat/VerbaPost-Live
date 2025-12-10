@@ -1,153 +1,135 @@
-from openai import OpenAI, APIConnectionError, APITimeoutError
+import whisper
 import os
 import tempfile
 import shutil
 import contextlib
 import logging
-import secrets_manager
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import streamlit as st
+from openai import OpenAI
+
+# Try to import secrets for GPT refinement
+try: import secrets_manager
+except ImportError: secrets_manager = None
 
 # --- CONFIGURATION ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_client():
-    """Safely creates OpenAI Client"""
+# --- 1. LOAD LOCAL WHISPER MODEL (Cached) ---
+@st.cache_resource
+def load_whisper_model():
+    """
+    Loads the local Whisper model once and caches it in memory.
+    This prevents reloading the 1GB+ model on every button click.
+    """
+    logger.info("🧠 Loading Whisper AI model (base)...")
+    return whisper.load_model("base")
+
+def get_openai_client():
+    """Safely creates OpenAI Client for text refinement only"""
+    if not secrets_manager: return None
     key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
     if key:
         return OpenAI(api_key=key)
-    logger.error("OpenAI API Key not found in secrets.")
     return None
 
-# --- 1. SAFE TEMP FILE CONTEXT MANAGER ---
+# --- 2. SAFE TEMP FILE CONTEXT MANAGER ---
 @contextlib.contextmanager
 def safe_temp_file(file_obj, suffix=".wav"):
     """
     Context manager for safe temp file handling.
-    1. Checks for available disk space.
-    2. Writes the file.
-    3. Yields the path.
-    4. GUARANTEES deletion in the 'finally' block.
+    Checks disk space and guarantees cleanup.
     """
-    # Safety Check: Require at least 50MB free space
+    # Check disk space (50MB min)
     try:
         if shutil.disk_usage('/tmp').free < 50 * 1024 * 1024:
-            logger.error("Insufficient disk space for processing audio.")
-            raise RuntimeError("Server busy (storage full). Please try again later.")
+            logger.error("Insufficient disk space.")
+            raise RuntimeError("Server storage full.")
     except Exception:
-        pass # If disk check fails (e.g. windows/permissions), proceed with caution
+        pass 
 
     tmp_path = None
     try:
-        # Create temp file, delete=False so we can close it and let other libs open it by path
+        # Create temp file
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=tempfile.gettempdir()) as tmp:
-            # CRITICAL FIX: Ensure we are at the start of the file stream
+            # CRITICAL: Reset pointer
             file_obj.seek(0)
             data = file_obj.getvalue()
-            
-            # Debug Log: Check if we actually have data
-            data_size = len(data)
-            logger.info(f"Writing audio to temp file. Size: {data_size} bytes")
-            
-            if data_size == 0:
-                raise ValueError("Audio file is empty (0 bytes).")
-                
+            if len(data) == 0:
+                raise ValueError("Audio file is empty.")
             tmp.write(data)
             tmp_path = tmp.name
         
         yield tmp_path
 
     finally:
-        # Cleanup guarantees
         if tmp_path and os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-                logger.info(f"Cleaned up temp file: {tmp_path}")
             except OSError as e:
-                logger.error(f"Failed to cleanup temp file {tmp_path}: {e}")
+                logger.error(f"Cleanup failed: {e}")
 
-# --- 2. TRANSCRIPTION (v1.0 Syntax) ---
+# --- 3. LOCAL TRANSCRIPTION ---
 def transcribe_audio(file_obj):
     """
-    Transcribes audio using OpenAI Whisper (v1.0 Syntax).
+    Transcribes audio using the LOCAL Whisper model.
+    No API keys required for this part.
     """
-    client = get_client()
-    if not client:
-        return "[Error: OpenAI API Key missing]"
-
-    # Determine suffix from name if available, else default to .wav
+    # Determine suffix
     suffix = f".{file_obj.name.split('.')[-1]}" if hasattr(file_obj, 'name') else '.wav'
     
     try:
+        model = load_whisper_model()
+        
         with safe_temp_file(file_obj, suffix) as tmp_path:
-            with open(tmp_path, "rb") as audio_file:
-                logger.info("Sending audio to OpenAI Whisper...")
-                
-                # Updated v1.0 Call
-                transcript = client.audio.transcriptions.create(
-                    model="whisper-1", 
-                    file=audio_file
-                )
+            logger.info(f"🎧 Transcribing {tmp_path} locally...")
             
-            # v1.0 returns an object, access via .text
-            text = transcript.text
+            # Local Inference
+            result = model.transcribe(tmp_path)
+            text = result["text"]
             
             if not text or not text.strip():
-                logger.warning("OpenAI returned empty text.")
                 return "[No speech detected. Please try recording again.]"
             
-            logger.info(f"Transcription successful. Preview: {text[:50]}...")
+            logger.info("✅ Transcription successful.")
             return text
 
     except Exception as e:
-        logger.error(f"Transcription failed: {e}", exc_info=True)
+        logger.error(f"Local Transcription failed: {e}", exc_info=True)
         return f"[Error processing audio: {str(e)}]"
 
-# --- 3. TEXT REFINEMENT (v1.0 Syntax) ---
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((APIConnectionError, APITimeoutError)),
-    reraise=False 
-)
+# --- 4. TEXT REFINEMENT (OpenAI GPT) ---
 def refine_text(text, style="Professional"):
     """
-    Refines text using GPT-3.5/4 (v1.0 Syntax).
+    Refines text using GPT-3.5/4.
     """
     if not text or len(text.strip()) < 5:
         return text
 
-    client = get_client()
+    client = get_openai_client()
     if not client:
-        return text
+        return text # Return original if no API key
 
-    # Prompt Engineering
     prompts = {
-        "Grammar": "Correct the grammar and spelling of the following text. Do not change the tone or content, just fix errors.",
-        "Professional": "Rewrite the following text to be professional, polite, and formal suitable for business correspondence.",
-        "Friendly": "Rewrite the following text to be warm, personal, and friendly.",
-        "Concise": "Rewrite the following text to be concise and to the point, removing unnecessary fluff."
+        "Grammar": "Correct the grammar and spelling.",
+        "Professional": "Rewrite to be professional, polite, and formal.",
+        "Friendly": "Rewrite to be warm and personal.",
+        "Concise": "Rewrite to be concise and to the point."
     }
 
     system_instruction = prompts.get(style, prompts["Professional"])
 
     try:
-        # Updated v1.0 Call
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": f"You are an expert editor. {system_instruction}"},
                 {"role": "user", "content": f"Text to rewrite:\n{text}"}
             ],
-            temperature=0.7,
-            max_tokens=1000
+            temperature=0.7
         )
-        
-        # v1.0 Object Access
-        refined = response.choices[0].message.content.strip()
-        return refined
+        return response.choices[0].message.content.strip()
 
     except Exception as e:
-        logger.error(f"AI Refinement Failed: {e}")
-        # Fail safe: Return original text if AI fails
+        logger.error(f"Refinement Failed: {e}")
         return text
