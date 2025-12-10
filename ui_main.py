@@ -23,11 +23,10 @@ except ImportError: ui_legal = None
 
 # --- 2. ENGINE IMPORTS ---
 import database 
-# DEBUG: Explicit import check for AI Engine to prevent silent failures
+# DEBUG: Explicit check for AI Engine
 try: 
     import ai_engine
-except ImportError as e: 
-    logging.error(f"❌ AI Engine Import Failed: {e}")
+except ImportError: 
     ai_engine = None
 
 try: import payment_engine
@@ -272,14 +271,16 @@ def render_workspace_page():
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
-            # --- SAFE ADDRESS BOOK LOGIC (Top of Function) ---
+            # --- SAFE ADDRESS BOOK LOGIC (MOVED ABOVE FORM) ---
+            # This prevents "Widget Modified" errors by updating state before inputs are drawn
             if tier != "Civic" and database and u_email:
                 try: contacts = database.get_contacts(u_email)
                 except: contacts = []
                 
                 if contacts:
+                    # Using key helps reset the widget state cleanly
                     contact_names = ["-- Select from Address Book --"] + [c.name for c in contacts]
-                    selected_contact = st.selectbox("📖 Address Book", contact_names, key="addr_book_select")
+                    selected_contact = st.selectbox("📖 Address Book", contact_names, key="addr_book_selector")
                     
                     if selected_contact != "-- Select from Address Book --":
                         c_obj = next((x for x in contacts if x.name == selected_contact), None)
@@ -290,6 +291,7 @@ def render_workspace_page():
                             st.session_state.w_to_city = c_obj.city
                             st.session_state.w_to_state = c_obj.state
                             st.session_state.w_to_zip = c_obj.zip_code
+                            # Force rerun so values populate the form below immediately
                             st.rerun()
 
             st.subheader("📍 Addressing")
@@ -364,9 +366,9 @@ def render_workspace_page():
             audio = st.audio_input("Record")
             if audio:
                 if not ai_engine:
-                    st.error("⚠️ AI Module Failed to Load. Check logs.")
+                    st.error("⚠️ AI Engine missing or failed to load. Check logs.")
                 else:
-                    with st.spinner("Thinking..."): 
+                    with st.spinner("Transcribing..."): 
                         txt = ai_engine.transcribe_audio(audio)
                         st.session_state.transcribed_text = txt
                         st.session_state.app_mode = "review"; st.rerun()
