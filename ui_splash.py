@@ -1,11 +1,11 @@
 import streamlit as st
 
-# Helper Import
+# Robust Import
 try: import database
 except ImportError: database = None
 
 def show_splash():
-    # SCOPED CSS
+    # CSS
     st.markdown("""
     <style>
         .hero-container {
@@ -81,6 +81,10 @@ def show_splash():
                     for state, count in stats:
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
             else:
-                st.info("Leaderboard temporarily unavailable.")
+                # Connected but empty is okay
+                pass
         except Exception as e:
-            st.warning(f"Leaderboard offline: {e}")
+            # Silent fail for UI polish
+            pass
+    else:
+        st.info("Leaderboard temporarily unavailable.")
