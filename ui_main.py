@@ -125,6 +125,7 @@ def render_sidebar():
                 st.rerun()
         else:
             st.info("👤 **Guest User**")
+            # SIDEBAR CLEANUP: Primary action only
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.rerun()
@@ -344,7 +345,7 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
-                    # --- FIXED ADDRESS BOOK LOGIC ---
+                    # --- FIXED ADDRESS BOOK LOGIC (EDITABLE) ---
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
@@ -403,7 +404,7 @@ def render_workspace_page():
                     with st.spinner("🔊 Transcribing your voice... This typically takes 10-30 seconds. Please wait..."): 
                         res = ai_engine.transcribe_audio(audio)
                         
-                        # CHECK FOR BOTH ERROR TYPES
+                        # CHECK FOR BOTH ERROR TYPES TO PREVENT PREMATURE JUMP
                         if res.startswith("Error:") or res.startswith("Failed:"):
                             st.error(res)
                         else:
@@ -420,7 +421,6 @@ def render_workspace_page():
                     with st.spinner("🔊 Processing file... This may take up to a minute."):
                         res = ai_engine.transcribe_audio(up)
                         
-                        # CHECK FOR BOTH ERROR TYPES
                         if res.startswith("Error:") or res.startswith("Failed:"):
                             st.error(res)
                         else:
@@ -475,6 +475,7 @@ def render_review_page():
     st.text_area("Body", key="transcribed_text", height=300)
     
     if st.button("👁️ Preview PDF"):
+        # FIX: Check for empty text to prevent crash
         if not txt:
             st.warning("Please enter some text before previewing.")
         else:

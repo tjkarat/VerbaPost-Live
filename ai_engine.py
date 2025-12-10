@@ -53,7 +53,8 @@ def load_and_transcribe(audio_path_or_file):
         text = result.get("text", "").strip()
         
         if not text:
-            return True, "[Audio processed, but no speech was detected. Please try recording again.]"
+            # FIX: Return error prefix so UI knows to stay on page
+            return False, "Error: Audio processed, but no speech was detected. Please try recording again."
         
         return True, text
 
@@ -72,7 +73,6 @@ def transcribe_audio(audio_input):
     try:
         if isinstance(audio_input, str):
             success, result = load_and_transcribe(audio_input)
-            # Standardize return format for UI
             return result if success else f"Error: {result}"
         
         else:
@@ -87,6 +87,7 @@ def transcribe_audio(audio_input):
             
             success, result = load_and_transcribe(tmp_path)
             
+            # FIX: Ensure failures start with "Error:"
             return result if success else f"Error: {result}"
 
     except Exception as e:
