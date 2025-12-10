@@ -37,11 +37,13 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # --- A. DEEP LINKING ---
+        # --- A. DEEP LINKING (Sticky Param Fix) ---
         if "view" in q_params:
             target_view = q_params["view"]
             if target_view in ["legal", "login", "splash"]:
-                st.session_state.app_mode = target_view
+                # Only force move if we are not already somewhere else
+                if st.session_state.app_mode not in ["store", "workspace", "review"]:
+                    st.session_state.app_mode = target_view
         
         # --- B. MARKETING LINKS ---
         if "tier" in q_params and "session_id" not in q_params:
@@ -51,7 +53,6 @@ if __name__ == "__main__":
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # LAZY IMPORT PAYMENT ENGINE
             try:
                 import payment_engine
                 is_paid, session_details = payment_engine.verify_session(sess_id)
@@ -59,7 +60,6 @@ if __name__ == "__main__":
                 is_paid = False
                 session_details = None
 
-            # 2. AUDIT & CSRF CHECK
             current_user = st.session_state.get("user_email")
             payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
             
