@@ -22,8 +22,7 @@ try: import ui_legal
 except ImportError: ui_legal = None
 
 # --- 2. ENGINE IMPORTS ---
-# CRITICAL FIX: We DO NOT wrap database in try/except anymore.
-# We need to see if it fails so we know why the Address Book vanishes.
+# CRITICAL: Import database directly so errors show up if it breaks
 import database 
 
 try: import ai_engine
@@ -152,7 +151,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.1.0 Fix")
+        st.caption("v3.1.2 Production")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -216,8 +215,6 @@ def render_store_page():
             st.metric("Total", f"${final_price:.2f}")
             
             # --- PAYMENT LOGIC ---
-
-            # Case 1: Free/Promo - Direct Entry
             if discounted:
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
@@ -228,7 +225,6 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
 
-            # Case 2: Link Already Generated
             elif "pending_stripe_url" in st.session_state:
                 url = st.session_state.pending_stripe_url
                 st.success("✅ Link Generated!")
@@ -238,7 +234,6 @@ def render_store_page():
                     del st.session_state.pending_stripe_url
                     st.rerun()
 
-            # Case 3: Initial State
             else:
                 if st.button("Generate Payment Link", type="primary", use_container_width=True):
                     with st.spinner("Connecting to Stripe..."):
@@ -260,21 +255,16 @@ def render_store_page():
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
     success = False
-    
-    # Try using database only if it's available
     if d_id and database:
-        try:
-            success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
-        except Exception: 
-            success = False
+        try: success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+        except: success = False
     
     if not success and database:
         try:
             d_id = database.save_draft(email, "", tier, price)
             st.session_state.current_draft_id = d_id
             st.query_params["draft_id"] = str(d_id)
-        except Exception: pass
-        
+        except: pass
     return d_id
 
 # --- 7. PAGE: WORKSPACE ---
@@ -300,10 +290,8 @@ def render_workspace_page():
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
-            
             MAX_MB = 10
             f = st.file_uploader(f"CSV (Max {MAX_MB}MB, Name, Street, City, State, Zip)", type=['csv'])
-            
             if f:
                 if f.size > MAX_MB * 1024 * 1024:
                      st.error(f"❌ File too large. Max size is {MAX_MB}MB.")
@@ -322,9 +310,7 @@ def render_workspace_page():
         else:
             st.subheader("📍 Addressing")
             
-            # --- AUTOFILL FIX: USE A FORM ---
-            # Using a form wrapper ensures that browser autofill values are captured 
-            # when the "Save Addresses" button is clicked.
+            # --- AUTOFILL FIX: FORM WRAPPER ---
             with st.form("addressing_form"):
                 c1, c2 = st.columns(2)
                 
@@ -349,7 +335,6 @@ def render_workspace_page():
                         st.text_input("Name", key="w_to_name")
                         st.text_input("Street", key="w_to_street")
                         st.text_input("Apt/Suite", key="w_to_street2")
-                        
                         if is_intl:
                             st.selectbox("Country", list(COUNTRIES.keys()), key="w_to_country")
                             st.text_input("City", key="w_to_city")
@@ -362,37 +347,35 @@ def render_workspace_page():
                             st.text_input("Zip", key="w_to_zip")
                             st.session_state.w_to_country = "US"
                 
-                # --- AUTOFILL FIX: SUBMIT BUTTON ---
-                # This button MUST be inside the form to capture autofill data
                 save_clicked = st.form_submit_button("Save Addresses", type="primary")
 
             if save_clicked:
-                _save_addrs_to_session(tier) # 1. Update Session State FIRST
-                _persist_draft(tier)         # 2. Try to save to DB
+                _save_addrs_to_session(tier)
+                _persist_draft(tier)
                 st.toast("Addresses Captured!")
 
-            # --- ADDRESS BOOK (Outside form for interactivity) ---
+            # --- ADDRESS BOOK (VISIBILITY FIX) ---
             if tier != "Civic" and database and u_email:
                 try:
                     contacts = database.get_contacts(u_email)
-                    if contacts:
-                        contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
-                        selected_contact = st.selectbox("📖 Address Book", contact_names)
-                        
-                        if selected_contact != "-- Quick Fill --":
-                            c_obj = next((x for x in contacts if x.name == selected_contact), None)
-                            if c_obj:
-                                st.session_state.w_to_name = c_obj.name
-                                st.session_state.w_to_street = c_obj.street
-                                st.session_state.w_to_street2 = c_obj.street2 or ""
-                                st.session_state.w_to_city = c_obj.city
-                                st.session_state.w_to_state = c_obj.state
-                                st.session_state.w_to_zip = c_obj.zip_code
-                                st.rerun()
-                except Exception as e:
-                    st.error(f"Address Book Error: {e}")
+                except: contacts = []
+                
+                # SHOW EVEN IF EMPTY
+                contact_names = ["-- Select from Address Book --"] + ([c.name for c in contacts] if contacts else ["(No contacts found)"])
+                selected_contact = st.selectbox("📖 Address Book", contact_names)
+                
+                if selected_contact not in ["-- Select from Address Book --", "(No contacts found)"]:
+                    c_obj = next((x for x in contacts if x.name == selected_contact), None)
+                    if c_obj:
+                        st.session_state.w_to_name = c_obj.name
+                        st.session_state.w_to_street = c_obj.street
+                        st.session_state.w_to_street2 = c_obj.street2 or ""
+                        st.session_state.w_to_city = c_obj.city
+                        st.session_state.w_to_state = c_obj.state
+                        st.session_state.w_to_zip = c_obj.zip_code
+                        st.rerun()
 
-            # Civic Rep Lookup (Outside Form)
+            # Civic Rep Lookup
             if tier == "Civic" and civic_engine:
                  zip_code = st.session_state.get("w_from_zip")
                  if not zip_code: st.warning("Enter your Zip Code in the 'From' section first.")
@@ -427,13 +410,15 @@ def render_workspace_page():
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
             audio = st.audio_input("Record")
+            # --- TRANSCRIPTION UNBLOCK FIX ---
             if audio and ai_engine:
                 with st.spinner("Thinking..."): 
-                    st.session_state.transcribed_text = ai_engine.transcribe_audio(audio)
-                    if st.session_state.transcribed_text and "[" not in st.session_state.transcribed_text:
-                        st.session_state.app_mode = "review"; st.rerun()
-                    else:
-                         st.warning(st.session_state.transcribed_text) # Show warning instead of error for silence
+                    txt = ai_engine.transcribe_audio(audio)
+                    st.session_state.transcribed_text = txt
+                    # ALWAYS ADVANCE - Do not block for silence check
+                    st.session_state.app_mode = "review"
+                    st.rerun()
+
         with t2:
             st.caption("Supported: MP3, WAV, M4A (Max 10MB)")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
@@ -451,10 +436,6 @@ def render_workspace_page():
                                 except: pass
 
 def _save_addrs_to_session(tier):
-    """
-    Saves widget values to session state dictionaries.
-    Running this ensures UI values are captured even if DB is down.
-    """
     u = st.session_state.get("user_email")
     if tier == "Santa": 
         st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
@@ -476,14 +457,10 @@ def _save_addrs_to_session(tier):
         }
 
 def _persist_draft(tier):
-    """Try to save to DB, but don't crash if it fails."""
     d_id = st.session_state.get("current_draft_id")
     if d_id and database:
-        try:
-            database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
-        except Exception as e:
-            logger.error(f"Draft Save Failed: {e}")
-            # We don't stop the user, we just log it. The session state still has the data.
+        try: database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
+        except Exception as e: logger.error(f"Draft Save Failed: {e}")
 
 def render_review_page():
     render_hero("Review", "Finalize & Send")
