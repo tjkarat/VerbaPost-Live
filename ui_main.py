@@ -125,6 +125,7 @@ def render_sidebar():
                 st.rerun()
         else:
             st.info("👤 **Guest User**")
+            # CLEANUP: Only showing one primary action button
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.rerun()
@@ -136,11 +137,7 @@ def render_sidebar():
                  st.session_state.app_mode = "store"
                  st.rerun()
 
-        st.markdown("### Support")
-        if st.button("⚖️ Legal & Privacy", use_container_width=True):
-            st.session_state.app_mode = "legal"
-            st.rerun()
-            
+        # CLEANUP: Removed duplicate Legal button
         st.caption("v3.1.5 (Hotfix)")
 
 # --- 6. PAGE: STORE (FIXED PAYMENT FLOW) ---

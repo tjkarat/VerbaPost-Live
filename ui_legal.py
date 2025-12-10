@@ -7,9 +7,10 @@ def show_legal():
     </div>
     """, unsafe_allow_html=True)
 
+    # FIX: Clear params to break the loop
     if st.button("⬅️ Return to Home", use_container_width=True):
         st.session_state.app_mode = "splash"
-        st.query_params.clear()  # FIX: Clears the ?view=legal param
+        st.query_params.clear()
         st.rerun()
 
     with st.expander("Privacy Policy", expanded=True):
