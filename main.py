@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import logging
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -37,23 +38,20 @@ if __name__ == "__main__":
     try:
         q_params = st.query_params
         
-        # --- A. DEEP LINKING (Sticky Param Fix) ---
+        # --- A. DEEP LINKING ---
         if "view" in q_params:
             target_view = q_params["view"]
             if target_view in ["legal", "login", "splash"]:
-                # Only force move if we are not already somewhere else
                 if st.session_state.app_mode not in ["store", "workspace", "review"]:
                     st.session_state.app_mode = target_view
         
-        # --- B. MARKETING LINKS ---
         if "tier" in q_params and "session_id" not in q_params:
             st.session_state.target_marketing_tier = q_params["tier"]
 
-        # --- C. SECURE STRIPE RETURN LOGIC ---
+        # --- B. STRIPE RETURN LOGIC ---
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # Lazy Import Engines
             try:
                 import payment_engine
                 import audit_engine 
@@ -65,20 +63,18 @@ if __name__ == "__main__":
             current_user = st.session_state.get("user_email")
             payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
             
-            # 1. CSRF Check
             if is_paid and current_user and payer_email:
                 if current_user.lower().strip() != payer_email.lower().strip():
                     if audit_engine: audit_engine.log_event(current_user, "PAYMENT_MISMATCH", sess_id, {"payer": payer_email})
                     st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
                     st.stop()
 
-            # 2. Success Handling
             if is_paid:
                 st.session_state.app_mode = "workspace"
                 st.session_state.payment_complete = True
                 st.session_state.current_stripe_id = sess_id 
                 
-                # Clear pending URL so we don't show the Pay button again
+                # Clear pending URL
                 if "pending_stripe_url" in st.session_state:
                     del st.session_state.pending_stripe_url
                 
@@ -87,7 +83,6 @@ if __name__ == "__main__":
                 if not current_user and payer_email:
                     st.session_state.user_email = payer_email
 
-                # Recover Params
                 if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                 if "intl" in q_params: st.session_state.is_intl = True
                 if "certified" in q_params: st.session_state.is_certified = True
@@ -95,16 +90,16 @@ if __name__ == "__main__":
                 
                 st.success("✅ Payment Verified! Welcome.")
                 
-                # --- MANUAL BRAKE: PREVENTS REDIRECT LOOPS ---
+                # --- MANUAL BRAKE ---
                 st.markdown("---")
                 if st.button("👉 Click here to Compose Letter", type="primary", use_container_width=True):
                     st.query_params.clear()
                     st.rerun()
                 
-                st.stop() # HALT HERE TO WAIT FOR USER CLICK
+                st.stop()
             else:
                 if audit_engine: audit_engine.log_event(current_user, "PAYMENT_FAILED", sess_id, {"reason": "Verification returned false"})
-                st.error("❌ Payment Verification Failed or Expired.")
+                st.error("❌ Payment Verification Failed.")
                 st.session_state.app_mode = "store"
                 time.sleep(1)
                 st.query_params.clear()

@@ -76,7 +76,7 @@ def reset_app(full_logout=False):
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "pending_stripe_url"] # Added pending_stripe_url to clear list
+            "pending_stripe_url"] 
             
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
@@ -224,7 +224,6 @@ def render_store_page():
                     st.rerun()
             else:
                 # --- STRIPE TWO-STEP FLOW (FIXED) ---
-                # Check if we have a pending URL in session
                 if "pending_stripe_url" in st.session_state:
                     url = st.session_state.pending_stripe_url
                     st.success("✅ Link Generated!")
@@ -264,7 +263,6 @@ def render_store_page():
                             
                             if url:
                                 if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
-                                # 3. Save to Session and Rerun to show HTML button
                                 st.session_state.pending_stripe_url = url
                                 st.rerun()
                             else:
