@@ -78,8 +78,9 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.set_auto_page_break(True, margin=20)
         
         # --- FIX: Use Variable Font File ---
-        if os.path.exists("Caveat-VariableFont_wght.ttf"): 
-            pdf.add_font('Caveat', '', 'Caveat-VariableFont_wght.ttf')
+        font_filename = "Caveat-VariableFont_wght.ttf"
+        if os.path.exists(font_filename): 
+            pdf.add_font('Caveat', '', font_filename)
         
         target_font_name, target_font_file = detect_language(content)
         is_cjk = target_font_name.startswith("Noto")
@@ -88,8 +89,10 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             pdf.add_font(target_font_name, '', target_font_file)
         else: target_font_name = 'Helvetica'; is_cjk = False
 
-        if is_cjk: body_font = target_font_name
-        elif (is_heirloom or is_santa) and os.path.exists("Caveat-VariableFont_wght.ttf"): 
+        # Apply Font Logic
+        if is_cjk: 
+            body_font = target_font_name
+        elif (is_heirloom or is_santa) and os.path.exists(font_filename): 
             body_font = 'Caveat'
         else: 
             body_font = 'Helvetica'
@@ -126,7 +129,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.ln(20) 
         
         if is_santa:
-            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if (not is_cjk and os.path.exists("Caveat-VariableFont_wght.ttf")) else 'Helvetica' 
+            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if (not is_cjk and os.path.exists(font_filename)) else 'Helvetica' 
             pdf.set_font(sig_font, '', 32); pdf.set_text_color(180, 20, 20) 
             pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
         elif signature_path and os.path.exists(signature_path):
