@@ -76,7 +76,7 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
-    # Removed "auto_open" variables
+    # Removed "auto_open" variables to prevent loops
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
@@ -159,7 +159,7 @@ def render_sidebar():
             with st.expander("⚠️ System Warnings"):
                 st.json(dependency_errors)
         
-        st.caption("v3.2.12 HTML Anchor Fix")
+        st.caption("v3.3.1 Clean Native Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -225,7 +225,8 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- PAYMENT LOGIC (HTML ANCHOR FIX) ---
+            # --- STRIPE PAYMENT LOGIC ---
+            
             # 1. State: Payment Link NOT Generated
             if "checkout_url" not in st.session_state:
                 btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
@@ -248,7 +249,6 @@ def render_store_page():
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
                         if payment_engine:
-                            # Generate URL and store it
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
                                 st.session_state.checkout_url = url
@@ -259,26 +259,8 @@ def render_store_page():
                 url = st.session_state.checkout_url
                 st.success("✅ **Invoice Created!**")
                 
-                # CORRECT IMPLEMENTATION: Raw HTML Anchor Tag
-                # This explicitly sets target="_blank" which Streamlit Cloud respects
-                st.markdown(f'''
-                    <a href="{url}" target="_blank" style="text-decoration:none; display:block; margin: 10px 0;">
-                        <div style="
-                            width: 100%; 
-                            background: linear-gradient(135deg, #635bff 0%, #4b47ea 100%); 
-                            color: white; 
-                            padding: 14px; 
-                            text-align: center; 
-                            border-radius: 8px; 
-                            font-weight: bold; 
-                            font-size: 16px; 
-                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                            transition: transform 0.1s;
-                        ">
-                            👉 Pay Now on Stripe (New Tab)
-                        </div>
-                    </a>
-                ''', unsafe_allow_html=True)
+                # NATIVE STREAMLIT BUTTON (Reliable Iframe Breakout)
+                st.link_button("👉 Pay Now on Stripe", url, type="primary", use_container_width=True)
                 
                 if st.button("Cancel Order", type="secondary", use_container_width=True):
                     del st.session_state.checkout_url
