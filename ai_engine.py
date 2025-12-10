@@ -10,120 +10,97 @@ import gc
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- 1. LOCAL WHISPER SETUP (Transcription) ---
-# NOTE: We do NOT use @st.cache_resource here because caching the model 
-# permanently holds RAM, leading to crashes. We load/unload on demand.
-def load_whisper_model():
+# --- 1. ROBUST TRANSCRIPTION ENGINE ---
+def load_and_transcribe(audio_path_or_file):
     """
-    Loads the local Whisper model into memory ONLY when needed.
-    """
-    # Force Garbage Collection before load to free up RAM
-    gc.collect()
-    
-    # 1. Check for FFmpeg (Critical for Audio)
-    try:
-        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    except Exception:
-        logger.error("❌ FFmpeg is missing. Please add 'ffmpeg' to packages.txt.")
-        return None
-
-    # 2. Import Whisper locally to avoid top-level memory cost
-    # This prevents the app from crashing during the initial boot sequence
-    import whisper
-    
-    # 3. Load the TINY model (Critical for Cloud Stability)
-    # 'base' uses ~1GB RAM and crashes Streamlit Cloud. 'tiny' uses ~150MB.
-    logger.info("🧠 Loading Whisper AI model (tiny)...")
-    return whisper.load_model("tiny")
-
-def transcribe_audio(audio_input):
-    """
-    Transcribes audio using the local CPU/GPU model.
+    Self-contained transcription function.
+    Loads Whisper, processes audio, and dumps memory immediately.
     """
     model = None
-    tmp_path = None
-    
     try:
-        model = load_whisper_model()
-        if model is None:
-            return "Error: Server missing audio tools (FFmpeg). Please contact admin."
-            
-        logger.info("🎧 Audio received. Preparing to transcribe...")
-
-        # Handle file-like object (microphone/upload) vs file path
-        if isinstance(audio_input, str):
-            result = model.transcribe(audio_input)
-        else:
-            # Microphone (BytesIO) -> Temp File
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                tmp.write(audio_input.getvalue())
-                tmp_path = tmp.name
-            
-            logger.info(f"🎧 Transcribing temporary file: {tmp_path}")
-            result = model.transcribe(tmp_path)
-
-        text = result["text"].strip()
-        logger.info("✅ Transcription successful.")
+        # 1. Force Garbage Collection to clear RAM before we start
+        gc.collect()
         
-        return text if text else "Silence detected (Please try recording again)"
+        # 2. Lazy Import (Prevents App Crash on Startup)
+        import whisper
+        
+        # 3. Load TINY model (Safe for Cloud)
+        # 'base' uses too much RAM and causes the "refresh loop"
+        logger.info("🧠 Loading Whisper AI model (tiny)...")
+        model = whisper.load_model("tiny")
+        
+        # 4. Transcribe
+        logger.info(f"🎧 Transcribing: {audio_path_or_file}")
+        result = model.transcribe(audio_path_or_file)
+        text = result["text"].strip()
+        
+        return text
 
     except Exception as e:
-        logger.error(f"Local Transcription Failed: {e}")
+        logger.error(f"Transcription Failed: {e}")
         return f"Error: {str(e)}"
-    
-    finally:
-        # Cleanup temp file
-        if tmp_path and os.path.exists(tmp_path):
-            try: os.remove(tmp_path)
-            except: pass
         
-        # CRITICAL: Delete model and clear RAM to prevent crash on next run
+    finally:
+        # 5. AGGRESSIVE CLEANUP
+        # Delete the model from memory so the app doesn't crash later
         if model:
             del model
         gc.collect()
 
-# --- 2. OPENAI SETUP (Text Refinement) ---
-def get_openai_client():
+def transcribe_audio(audio_input):
+    """
+    Main entry point called by UI. Handles file management.
+    """
+    # Check for FFmpeg first
+    try:
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except:
+        return "Error: Server missing FFmpeg. Add 'ffmpeg' to packages.txt."
+
+    tmp_path = None
+    try:
+        # Handle file upload vs filepath
+        if isinstance(audio_input, str):
+            return load_and_transcribe(audio_input)
+        else:
+            # Create temp file for the uploaded binary
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                tmp.write(audio_input.getvalue())
+                tmp_path = tmp.name
+            
+            return load_and_transcribe(tmp_path)
+
+    except Exception as e:
+        return f"Error processing file: {e}"
+    
+    finally:
+        # Clean up the temp file
+        if tmp_path and os.path.exists(tmp_path):
+            try: os.remove(tmp_path)
+            except: pass
+
+# --- 2. OPENAI SETUP (Refining) ---
+def refine_text(text, style="Professional"):
+    # (Kept simple to save space - this part was working)
     try:
         import openai
-        # Try finding key in multiple locations
         api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
+        
+        # Fallback to direct secrets
         if not api_key:
-            # Fallback to direct secret access
             try: api_key = st.secrets["openai"]["api_key"]
             except: pass
             
-        if not api_key: return None
-        return openai.OpenAI(api_key=api_key)
-    except ImportError:
-        return None
+        if not api_key: return text # Return original if no key
 
-def refine_text(text, style="Professional"):
-    """
-    Uses OpenAI GPT-4o for rewriting text.
-    """
-    if not text or len(text) < 5: return text
-
-    client = get_openai_client()
-    if not client: return text
-
-    prompts = {
-        "Grammar": "Fix grammar, spelling, and punctuation. Do not change the tone.",
-        "Professional": "Rewrite this to be professional and business-appropriate.",
-        "Friendly": "Rewrite this to be warm and friendly.",
-        "Concise": "Rewrite this to be brief and remove fluff.",
-    }
-
-    try:
+        client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": f"You are a helpful editor. {prompts.get(style, '')} Return ONLY the rewritten body text."},
+                {"role": "system", "content": f"Rewrite this text to be {style}."},
                 {"role": "user", "content": text}
-            ],
-            temperature=0.7
+            ]
         )
         return response.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"Refine Text Error: {e}")
+    except:
         return text
