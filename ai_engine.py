@@ -11,11 +11,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- 1. LOCAL WHISPER SETUP (Transcription) ---
-@st.cache_resource
+# We do NOT use @st.cache_resource here because caching the model 
+# permanently holds 500MB+ RAM, leading to crashes on subsequent runs.
 def load_whisper_model():
     """
-    Loads the local Whisper model into memory.
-    Cached so it only loads once per session.
+    Loads the local Whisper model into memory ONLY when needed.
     """
     # Force Garbage Collection before load to free up RAM
     gc.collect()
@@ -39,17 +39,16 @@ def transcribe_audio(audio_input):
     """
     Transcribes audio using the local CPU/GPU model.
     """
+    model = None
+    tmp_path = None
+    
     try:
         model = load_whisper_model()
         if model is None:
             return "Error: Server missing audio tools (FFmpeg). Please contact admin."
             
         logger.info("🎧 Audio received. Preparing to transcribe...")
-    except Exception as e:
-        return f"Error loading Whisper: {e}"
 
-    tmp_path = None
-    try:
         # Handle file-like object (microphone/upload) vs file path
         if isinstance(audio_input, str):
             result = model.transcribe(audio_input)
@@ -76,7 +75,10 @@ def transcribe_audio(audio_input):
         if tmp_path and os.path.exists(tmp_path):
             try: os.remove(tmp_path)
             except: pass
-        # Force GC again after heavy work
+        
+        # CRITICAL: Delete model and clear RAM to prevent crash on next run
+        if model:
+            del model
         gc.collect()
 
 # --- 2. OPENAI SETUP (Text Refinement) ---
