@@ -76,7 +76,6 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
-    # Removed "auto_open" variables to prevent loops
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
@@ -95,7 +94,7 @@ def reset_app(full_logout=False):
         if recovered:
             st.session_state.current_draft_id = recovered
             st.session_state.app_mode = "workspace" 
-            st.success("📄 Session Restored!")
+            st.success("🔄 Session Restored!")
         elif u_email: 
             st.session_state.app_mode = "store"
         else: 
@@ -159,7 +158,7 @@ def render_sidebar():
             with st.expander("⚠️ System Warnings"):
                 st.json(dependency_errors)
         
-        st.caption("v3.3.2 Stripe Redirect Fix")
+        st.caption("v3.3.3 Claude Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -228,7 +227,7 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- STRIPE PAYMENT LOGIC (FIXED) ---
+            # --- STRIPE PAYMENT LOGIC ---
             
             # Show any errors from previous attempt
             if "checkout_error" in st.session_state:
@@ -439,7 +438,7 @@ def render_workspace_page():
             if audio_recorded:
                 st.success(f"✅ Recording captured ({len(audio_recorded.getvalue())} bytes)")
                 
-                if st.button("📄 Transcribe Recording", type="primary", key="btn_transcribe_rec"):
+                if st.button("🔄 Transcribe Recording", type="primary", key="btn_transcribe_rec"):
                     # Explicit Debug Logging
                     print("DEBUG: Transcribe button clicked")
                     
@@ -483,7 +482,7 @@ def render_workspace_page():
             if uploaded_file:
                 st.success(f"✅ File uploaded: {uploaded_file.name} ({len(uploaded_file.getvalue()) / 1024 / 1024:.2f} MB)")
                 
-                if st.button("📄 Transcribe File", type="primary", use_container_width=True):
+                if st.button("🔄 Transcribe File", type="primary", use_container_width=True):
                     if not ai_engine:
                         err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
                         st.error(f"⚠️ AI Engine not available. Reason: {err_msg}")
@@ -688,6 +687,3 @@ def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
     res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
     if res and res.user: st.success("Created! Please Log In."); st.session_state.app_mode = "login"
     else: st.error(err)
-
-if __name__ == "__main__":
-    show_main_app()
