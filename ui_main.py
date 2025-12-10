@@ -12,7 +12,6 @@ import time
 import logging
 
 # --- 0. LOGGING SETUP ---
-# Ensure we see UI logs
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -123,6 +122,12 @@ def render_sidebar():
             st.info("👤 **Guest User**")
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"; st.rerun()
+        
+        # --- NEW DEBUG PANEL ---
+        with st.expander("🛠️ Debug Info"):
+            st.write(f"Mode: {st.session_state.get('app_mode')}")
+            st.write(f"Draft: {st.session_state.get('current_draft_id')}")
+            st.write(f"AI Loaded: {ai_engine is not None}")
 
         st.markdown("---")
         mode = st.session_state.get("app_mode", "splash")
@@ -132,7 +137,7 @@ def render_sidebar():
         st.markdown("### Support")
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"; st.rerun()
-        st.caption("v3.1.5 Debug")
+        st.caption("v3.1.5 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -275,7 +280,7 @@ def render_workspace_page():
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
-            # --- SAFE ADDRESS BOOK LOGIC ---
+            # --- ADDRESS BOOK (SAFE) ---
             if tier != "Civic" and database and u_email:
                 try: contacts = database.get_contacts(u_email)
                 except: contacts = []
@@ -367,20 +372,16 @@ def render_workspace_page():
         with t1:
             audio_val = st.audio_input("Record")
             
-            # --- FIXED: EXPLICIT BUTTON ---
-            # We ONLY run AI if the user clicks this button.
+            # SHOW BUTTON IF AUDIO EXISTS
             if audio_val:
-                st.audio(audio_val) # Playback for user check
-                if st.button("✨ Transcribe Recording", type="primary"):
-                    if not ai_engine:
-                         st.error("❌ AI Engine failed to load (Check logs).")
+                st.success("✅ Recording captured!")
+                st.audio(audio_val)
+                if st.button("✨ Transcribe Recording", type="primary", key="transcribe_mic"):
+                    if not ai_engine: st.error("❌ AI Engine Failed")
                     else:
-                        logger.info("🎤 [UI] Starting Microphone Transcription...")
-                        with st.spinner("Transcribing..."): 
+                        with st.spinner("Transcribing..."):
                             txt = ai_engine.transcribe_audio(audio_val)
-                            
-                            if "Error" in txt:
-                                st.error(txt)
+                            if "Error" in txt: st.error(txt)
                             else:
                                 st.session_state.transcribed_text = txt
                                 st.session_state.app_mode = "review"
@@ -390,23 +391,17 @@ def render_workspace_page():
         with t2:
             st.caption("Supported: MP3, WAV, M4A (Max 10MB)")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
-            if up and st.button("Transcribe Upload"):
+            if up and st.button("Transcribe Upload", key="transcribe_file"):
                 if ai_engine:
-                    logger.info(f"📂 [UI] Starting File Transcription: {up.name} ({up.size} bytes)")
                     with st.spinner("Processing..."):
                         with tempfile.NamedTemporaryFile(delete=False, suffix=f".{up.name.split('.')[-1]}") as tmp:
                             tmp.write(up.getvalue()); tpath=tmp.name
                         try:
                             txt = ai_engine.transcribe_audio(tpath)
-                            if "Error" in txt:
-                                st.error(txt)
-                            else:
-                                st.session_state.transcribed_text = txt
-                                st.session_state.app_mode = "review"; st.rerun()
+                            st.session_state.transcribed_text = txt
+                            st.session_state.app_mode = "review"; st.rerun()
                         finally:
                             if os.path.exists(tpath): os.remove(tpath)
-                else:
-                    st.error("❌ AI Engine failed to load.")
 
 def _save_addrs_to_session(tier):
     u = st.session_state.get("user_email")
