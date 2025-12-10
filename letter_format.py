@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.ERROR)
 logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-# UPDATED: Matches the variable font filename in your repo
+# FIX: Updated to match the actual file in your repo: "Caveat-VariableFont_wght.ttf"
 FONT_MAP = {
     "Caveat-VariableFont_wght.ttf": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-VariableFont_wght.ttf",
     "NotoSansSC-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC-Regular.ttf",
@@ -77,10 +77,10 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf = LetterPDF(is_santa=is_santa, format='Letter')
         pdf.set_auto_page_break(True, margin=20)
         
-        # --- FIXED FONT LOADING ---
-        font_file = "Caveat-VariableFont_wght.ttf"
-        if os.path.exists(font_file): 
-            pdf.add_font('Caveat', '', font_file)
+        # --- FIX: Use Variable Font File ---
+        font_filename = "Caveat-VariableFont_wght.ttf"
+        if os.path.exists(font_filename): 
+            pdf.add_font('Caveat', '', font_filename)
         
         target_font_name, target_font_file = detect_language(content)
         is_cjk = target_font_name.startswith("Noto")
@@ -90,7 +90,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         else: target_font_name = 'Helvetica'; is_cjk = False
 
         if is_cjk: body_font = target_font_name
-        elif (is_heirloom or is_santa) and os.path.exists(font_file): 
+        elif (is_heirloom or is_santa) and os.path.exists(font_filename): 
             body_font = 'Caveat'
         else: body_font = 'Helvetica'
             
@@ -126,7 +126,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf.ln(20) 
         
         if is_santa:
-            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if (not is_cjk and os.path.exists(font_file)) else 'Helvetica' 
+            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if (not is_cjk and os.path.exists(font_filename)) else 'Helvetica' 
             pdf.set_font(sig_font, '', 32); pdf.set_text_color(180, 20, 20) 
             pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
         elif signature_path and os.path.exists(signature_path):
