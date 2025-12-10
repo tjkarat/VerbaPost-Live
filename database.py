@@ -11,7 +11,7 @@ import logging
 logger = logging.getLogger(__name__)
 Base = declarative_base()
 
-# --- MODELS ---
+# --- MODELS (Do not change) ---
 class UserProfile(Base):
     __tablename__ = "user_profiles"
     id = Column(String, primary_key=True, index=True)
@@ -62,28 +62,29 @@ class PromoCode(Base):
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
+    # 1. Try to get the real Supabase URL
     db_url = secrets_manager.get_secret("DATABASE_URL")
+    
     if db_url:
+        # Fix for SQLAlchemy compatibility with Supabase/Postgres
         db_url = db_url.replace("postgres://", "postgresql://")
+        logger.info("✅ Connected to Remote Database (Supabase)")
     else:
+        # Fallback to local with a WARNING
+        logger.warning("⚠️ DATABASE_URL not found! Using temporary local DB. Data will be lost on restart.")
         db_url = "sqlite:///local_dev.db"
         
     try:
-        # pool_pre_ping checks connections before using them (prevents stale connection errors)
         engine = create_engine(db_url, pool_pre_ping=True)
         Base.metadata.create_all(bind=engine)
         return engine
     except Exception as e:
-        logger.error(f"DB Error: {e}")
+        logger.error(f"DB Connection Error: {e}")
         return None
 
-# --- CONTEXT MANAGER (The Fix) ---
+# --- CONTEXT MANAGER ---
 @contextmanager
 def get_db_session():
-    """
-    Provides a transactional scope around a series of operations.
-    Automatically commits on success, rollbacks on error, and closes always.
-    """
     engine = get_engine()
     if not engine:
         raise RuntimeError("Database engine could not be initialized")
@@ -99,13 +100,11 @@ def get_db_session():
         session.close()
 
 # --- CORE FUNCTIONS ---
-
 def get_user_profile(email):
     try:
         with get_db_session() as db:
             return db.query(UserProfile).filter(UserProfile.email == email).first()
-    except Exception:
-        return None
+    except Exception: return None
 
 def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=None, status="Draft"):
     try:
@@ -118,7 +117,6 @@ def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=
                 recipient_json=r_json, sender_json=s_json, signature_data=str(sig_data) if sig_data else None
             )
             db.add(draft)
-            # Flush sends SQL to DB to generate ID without closing transaction yet
             db.flush() 
             db.refresh(draft)
             return draft.id
@@ -151,28 +149,10 @@ def update_user_profile(email, name, street, street2, city, state, zip_code, cou
                 user.full_name = name; user.address_line1 = street; user.address_line2 = street2
                 user.address_city = city; user.address_state = state; user.address_zip = zip_code
                 user.country = country
-                # Commit handled by context manager
     except Exception as e:
         logger.error(f"Update Profile Error: {e}")
 
-def fetch_all_drafts():
-    try:
-        with get_db_session() as db:
-            results = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).all()
-            data = []
-            for r in results:
-                data.append({
-                    "ID": r.id, "Email": r.user_email, "Tier": r.tier, "Status": r.status,
-                    "Date": r.created_at, "Price": r.price, "Content": r.transcription,
-                    "Recipient": r.recipient_json, "Sender": r.sender_json, "Signature": r.signature_data
-                })
-            return data
-    except Exception as e:
-        logger.error(f"Fetch Drafts Error: {e}")
-        return []
-
 # --- ADDRESS BOOK ---
-
 def add_contact(user_email, name, street, street2, city, state, zip_code, country="US"):
     try:
         with get_db_session() as db:
@@ -195,38 +175,11 @@ def get_contacts(user_email):
     try:
         with get_db_session() as db:
             return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
-    except Exception:
-        return []
+    except Exception: return []
 
 def delete_contact(contact_id):
     try:
         with get_db_session() as db:
             db.query(SavedContact).filter(SavedContact.id == contact_id).delete()
             return True
-    except Exception:
-        return False
-
-# --- GAMIFICATION ---
-def get_civic_leaderboard():
-    try:
-        with get_db_session() as db:
-            results = db.query(LetterDraft).filter(
-                LetterDraft.tier == 'Civic',
-                LetterDraft.status.in_(['Completed', 'Pending Admin'])
-            ).order_by(LetterDraft.created_at.desc()).limit(500).all()
-            
-            state_counts = {}
-            for r in results:
-                try:
-                    if r.recipient_json:
-                        data = json.loads(r.recipient_json)
-                        state = data.get('state', '').upper()
-                        if state and len(state) == 2:
-                            state_counts[state] = state_counts.get(state, 0) + 1
-                except: continue
-                    
-            sorted_stats = sorted(state_counts.items(), key=lambda item: item[1], reverse=True)
-            return sorted_stats[:5]
-    except Exception as e:
-        logger.error(f"Leaderboard Error: {e}")
-        return []
+    except Exception: return False
