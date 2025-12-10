@@ -22,8 +22,10 @@ try: import ui_legal
 except ImportError: ui_legal = None
 
 # --- 2. ENGINE IMPORTS ---
-try: import database
-except ImportError: database = None
+# CRITICAL FIX: We DO NOT wrap database in try/except anymore.
+# We need to see if it fails so we know why the Address Book vanishes.
+import database 
+
 try: import ai_engine
 except ImportError: ai_engine = None
 try: import payment_engine
@@ -150,7 +152,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.14 Stable")
+        st.caption("v3.1.0 Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -226,39 +228,17 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
 
-            # Case 2: Link Already Generated - Show HTML Button
+            # Case 2: Link Already Generated
             elif "pending_stripe_url" in st.session_state:
                 url = st.session_state.pending_stripe_url
                 st.success("✅ Link Generated!")
-                
-                # --- FIXED: Explicit White Text Color ---
-                st.markdown(f'''
-                <a href="{url}" target="_blank" style="text-decoration: none;">
-                    <div style="
-                        width: 100%;
-                        background-color: #28a745; 
-                        color: #FFFFFF !important; 
-                        padding: 14px; 
-                        text-align: center; 
-                        border-radius: 8px; 
-                        font-weight: bold; 
-                        font-family: sans-serif;
-                        font-size: 16px;
-                        cursor: pointer;
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                        transition: background-color 0.2s;
-                    ">
-                        👉 Pay Now on Stripe (New Tab)
-                    </div>
-                </a>
-                ''', unsafe_allow_html=True)
-                
+                st.markdown(f'''<a href="{url}" target="_blank" style="text-decoration: none;"><div style="width: 100%; background-color: #28a745; color: #FFFFFF !important; padding: 14px; text-align: center; border-radius: 8px; font-weight: bold;">👉 Pay Now on Stripe</div></a>''', unsafe_allow_html=True)
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("Cancel / Start Over", use_container_width=True):
                     del st.session_state.pending_stripe_url
                     st.rerun()
 
-            # Case 3: Initial State - Generate Link
+            # Case 3: Initial State
             else:
                 if st.button("Generate Payment Link", type="primary", use_container_width=True):
                     with st.spinner("Connecting to Stripe..."):
@@ -281,13 +261,19 @@ def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
     success = False
     
+    # Try using database only if it's available
     if d_id and database:
-        success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+        try:
+            success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+        except Exception: 
+            success = False
     
     if not success and database:
-        d_id = database.save_draft(email, "", tier, price)
-        st.session_state.current_draft_id = d_id
-        st.query_params["draft_id"] = str(d_id)
+        try:
+            d_id = database.save_draft(email, "", tier, price)
+            st.session_state.current_draft_id = d_id
+            st.query_params["draft_id"] = str(d_id)
+        except Exception: pass
         
     return d_id
 
@@ -335,6 +321,7 @@ def render_workspace_page():
         
         else:
             st.subheader("📍 Addressing")
+            
             # --- AUTOFILL FIX: USE A FORM ---
             # Using a form wrapper ensures that browser autofill values are captured 
             # when the "Save Addresses" button is clicked.
@@ -358,7 +345,6 @@ def render_workspace_page():
                     st.markdown("**To**")
                     if tier == "Civic":
                         st.info("🏛️ **Auto-Detect Representatives**")
-                        # Civic doesn't use standard to-fields here
                     else:
                         st.text_input("Name", key="w_to_name")
                         st.text_input("Street", key="w_to_street")
@@ -376,30 +362,35 @@ def render_workspace_page():
                             st.text_input("Zip", key="w_to_zip")
                             st.session_state.w_to_country = "US"
                 
-                # The Submit Button inside the form
+                # --- AUTOFILL FIX: SUBMIT BUTTON ---
+                # This button MUST be inside the form to capture autofill data
                 save_clicked = st.form_submit_button("Save Addresses", type="primary")
 
             if save_clicked:
-                _save_addrs(tier)
-                st.toast("Addresses Saved!")
+                _save_addrs_to_session(tier) # 1. Update Session State FIRST
+                _persist_draft(tier)         # 2. Try to save to DB
+                st.toast("Addresses Captured!")
 
             # --- ADDRESS BOOK (Outside form for interactivity) ---
             if tier != "Civic" and database and u_email:
-                contacts = database.get_contacts(u_email)
-                if contacts:
-                    contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
-                    selected_contact = st.selectbox("📖 Address Book", contact_names)
-                    
-                    if selected_contact != "-- Quick Fill --":
-                        c_obj = next((x for x in contacts if x.name == selected_contact), None)
-                        if c_obj:
-                            st.session_state.w_to_name = c_obj.name
-                            st.session_state.w_to_street = c_obj.street
-                            st.session_state.w_to_street2 = c_obj.street2 or ""
-                            st.session_state.w_to_city = c_obj.city
-                            st.session_state.w_to_state = c_obj.state
-                            st.session_state.w_to_zip = c_obj.zip_code
-                            st.rerun()
+                try:
+                    contacts = database.get_contacts(u_email)
+                    if contacts:
+                        contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
+                        selected_contact = st.selectbox("📖 Address Book", contact_names)
+                        
+                        if selected_contact != "-- Quick Fill --":
+                            c_obj = next((x for x in contacts if x.name == selected_contact), None)
+                            if c_obj:
+                                st.session_state.w_to_name = c_obj.name
+                                st.session_state.w_to_street = c_obj.street
+                                st.session_state.w_to_street2 = c_obj.street2 or ""
+                                st.session_state.w_to_city = c_obj.city
+                                st.session_state.w_to_state = c_obj.state
+                                st.session_state.w_to_zip = c_obj.zip_code
+                                st.rerun()
+                except Exception as e:
+                    st.error(f"Address Book Error: {e}")
 
             # Civic Rep Lookup (Outside Form)
             if tier == "Civic" and civic_engine:
@@ -431,7 +422,7 @@ def render_workspace_page():
     
     with c_mic:
         st.write("🎤 **Input**")
-        st.info("Tap microphone, speak clearly, then tap stop. A new window will open to edit your text.")
+        st.info("Tap microphone, speak clearly, then tap stop.")
         
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
@@ -459,7 +450,11 @@ def render_workspace_page():
                                 try: os.remove(tpath)
                                 except: pass
 
-def _save_addrs(tier):
+def _save_addrs_to_session(tier):
+    """
+    Saves widget values to session state dictionaries.
+    Running this ensures UI values are captured even if DB is down.
+    """
     u = st.session_state.get("user_email")
     if tier == "Santa": 
         st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
@@ -469,6 +464,7 @@ def _save_addrs(tier):
             "address_line2": st.session_state.get("w_from_street2"), "city": st.session_state.get("w_from_city"),
             "state": st.session_state.get("w_from_state"), "zip": st.session_state.get("w_from_zip"), "country": "US", "email": u
         }
+    
     if tier == "Civic":
         st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
     else:
@@ -478,16 +474,27 @@ def _save_addrs(tier):
             "state": st.session_state.get("w_to_state"), "zip": st.session_state.get("w_to_zip"),
             "country": st.session_state.get("w_to_country", "US")
         }
-    
+
+def _persist_draft(tier):
+    """Try to save to DB, but don't crash if it fails."""
     d_id = st.session_state.get("current_draft_id")
-    if d_id and database: database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
+    if d_id and database:
+        try:
+            database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
+        except Exception as e:
+            logger.error(f"Draft Save Failed: {e}")
+            # We don't stop the user, we just log it. The session state still has the data.
 
 def render_review_page():
     render_hero("Review", "Finalize & Send")
     if st.button("⬅️ Edit"): st.session_state.app_mode = "workspace"; st.rerun()
     
     tier = st.session_state.get("locked_tier", "Standard")
-    if tier != "Campaign" and not st.session_state.get("to_addr"): _save_addrs(tier)
+    is_intl = st.session_state.get("is_intl", False)
+    
+    # Safety Check: If user came here without saving addresses
+    if tier != "Campaign" and (not st.session_state.get("to_addr") or not st.session_state.get("from_addr")):
+        _save_addrs_to_session(tier)
 
     c1, c2, c3, c4 = st.columns(4)
     txt = st.session_state.get("transcribed_text", "")
