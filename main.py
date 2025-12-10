@@ -53,8 +53,10 @@ if __name__ == "__main__":
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
+            # Lazy Import Engines
             try:
                 import payment_engine
+                import audit_engine # Added for logging
                 is_paid, session_details = payment_engine.verify_session(sess_id)
             except ImportError:
                 is_paid = False
@@ -65,6 +67,7 @@ if __name__ == "__main__":
             
             if is_paid and current_user and payer_email:
                 if current_user.lower().strip() != payer_email.lower().strip():
+                    if audit_engine: audit_engine.log_event(current_user, "PAYMENT_MISMATCH", sess_id, {"payer": payer_email})
                     st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
                     st.stop()
 
@@ -73,6 +76,9 @@ if __name__ == "__main__":
                 st.session_state.payment_complete = True
                 st.session_state.current_stripe_id = sess_id 
                 
+                # Log Success
+                if audit_engine: audit_engine.log_event(current_user, "PAYMENT_VERIFIED", sess_id, {})
+
                 if not current_user and payer_email:
                     st.session_state.user_email = payer_email
 
@@ -91,6 +97,7 @@ if __name__ == "__main__":
                 
                 st.stop() # HALT HERE TO WAIT FOR USER CLICK
             else:
+                if audit_engine: audit_engine.log_event(current_user, "PAYMENT_FAILED", sess_id, {"reason": "Verification returned false"})
                 st.error("❌ Payment Verification Failed or Expired.")
                 st.session_state.app_mode = "store"
                 time.sleep(1)

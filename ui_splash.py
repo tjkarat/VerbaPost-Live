@@ -78,7 +78,6 @@ def show_splash():
 
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
-        # Added a key here just to be absolutely safe
         if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True, key="splash_cta_main"):
             st.session_state.app_mode = "login"
             st.session_state.auth_view = "signup" 
@@ -112,7 +111,6 @@ def show_splash():
     # --- 4. PRICING CARDS ---
     p1, p2, p3, p4 = st.columns(4)
     with p1:
-        # Added a blank <li> to ensure height matches 3-line cards
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li><li>&nbsp;</li></ul></div>""", unsafe_allow_html=True)
     with p2:
         st.markdown("""<div class="price-card"><div class="price-title">🏺 Heirloom</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
@@ -123,11 +121,8 @@ def show_splash():
 
     # --- 5. LEADERBOARD ---
     if database:
-        # Wrapped in Try/Except to prevent crashes if DB tables are missing
         try:
             stats = database.get_civic_leaderboard()
-            
-            # Render container regardless of stats so the box appears
             st.markdown("<br>", unsafe_allow_html=True)
             with st.container(border=True):
                 st.subheader("📢 Civic Leaderboard")
@@ -137,4 +132,4 @@ def show_splash():
                 else:
                     st.info("No letters sent yet. Be the first to start the movement!")
         except Exception:
-            pass # Fail silently if DB is not ready
+            pass
