@@ -76,7 +76,6 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
-    # Removed "auto_open" to prevent JS loops
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
@@ -155,7 +154,12 @@ def render_sidebar():
             st.session_state.app_mode = "legal"
             st.rerun()
         
-        st.caption("v3.2.7 Golden Fix")
+        if dependency_errors:
+            with st.expander("⚠️ System Warnings", expanded=False):
+                st.error("Modules failed to load:")
+                st.json(dependency_errors)
+        
+        st.caption("v3.2.8 Link Button Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -182,7 +186,7 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
-            # Use on_change to clear checkout url if tier changes
+            # Helper to clear session if options change
             def _clear_checkout():
                 if "checkout_url" in st.session_state: del st.session_state.checkout_url
                 
@@ -221,7 +225,7 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
-            # --- PAYMENT LOGIC (Golden Fix) ---
+            # --- PAYMENT LOGIC (FIXED) ---
             # 1. State: Payment Link NOT Generated
             if "checkout_url" not in st.session_state:
                 btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
@@ -249,32 +253,14 @@ def render_store_page():
                                 st.session_state.checkout_url = url
                                 st.rerun() # Force re-run to show the link button
             
-            # 2. State: Payment Link READY (Stable state)
+            # 2. State: Payment Link READY (Correct Implementation)
             else:
                 url = st.session_state.checkout_url
                 st.success("✅ **Invoice Created!**")
-                st.info("The payment page will open in a new tab to ensure security.")
                 
-                # CRITICAL: This is the ONLY button that should appear now.
-                # target="_blank" is mandatory to escape the iframe.
-                st.markdown(f'''
-                    <a href="{url}" target="_blank" style="text-decoration:none;">
-                        <button style="
-                            width:100%;
-                            padding:12px;
-                            background:linear-gradient(135deg, #00C853 0%, #009624 100%);
-                            color:white;
-                            border:none;
-                            border-radius:5px;
-                            cursor:pointer;
-                            font-weight:bold;
-                            font-size:18px;
-                            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                        ">
-                            👉 Click Here to Pay
-                        </button>
-                    </a>
-                ''', unsafe_allow_html=True)
+                # CRITICAL FIX: Using native Streamlit component as requested.
+                # This handles the iframe escape automatically.
+                st.link_button("👉 Pay Now on Stripe", url, type="primary", use_container_width=True)
                 
                 if st.button("Cancel Order", type="secondary", use_container_width=True):
                     del st.session_state.checkout_url
@@ -406,9 +392,13 @@ def render_workspace_page():
                 st.success(f"✅ Recording captured ({len(audio_recorded.getvalue())} bytes)")
                 
                 if st.button("🔄 Transcribe Recording", type="primary", key="btn_transcribe_rec"):
+                    # Explicit Debug Logging
+                    print("DEBUG: Transcribe button clicked")
+                    
                     if not ai_engine:
                         err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
                         st.error(f"⚠️ AI Engine not available. Reason: {err_msg}")
+                        print(f"DEBUG: AI Engine failed load: {err_msg}")
                     else:
                         with st.spinner("🎧 Transcribing... This may take 10-30 seconds"):
                             try:
@@ -416,8 +406,10 @@ def render_workspace_page():
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                                     tmp.write(audio_recorded.getvalue())
                                     tpath = tmp.name
+                                print(f"DEBUG: Audio saved to {tpath}")
                                 
                                 result = ai_engine.transcribe_audio(tpath)
+                                print(f"DEBUG: Transcription result len: {len(str(result))}")
                                 
                                 # Clean up immediately
                                 if os.path.exists(tpath):
@@ -434,6 +426,7 @@ def render_workspace_page():
                             except Exception as e:
                                 st.error(f"Transcription failed: {str(e)}")
                                 st.code(traceback.format_exc())
+                                print(f"DEBUG EXCEPTION: {e}")
         
         with tab_upload:
             st.caption("Supported: MP3, WAV, M4A (Max 25MB)")
