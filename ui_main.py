@@ -234,26 +234,9 @@ def render_store_page():
                 if payment_engine:
                     url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                     
-                    # --- CRITICAL FIX: HTML BUTTON FOR NEW TAB ---
+                    # --- CRITICAL FIX: USE ST.LINK_BUTTON TO FORCE NEW TAB ---
                     if url:
-                        st.markdown(f'''
-                        <a href="{url}" target="_blank" style="text-decoration: none;">
-                            <div style="
-                                width: 100%;
-                                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-                                color: white;
-                                padding: 12px;
-                                text-align: center;
-                                border-radius: 5px;
-                                cursor: pointer;
-                                font-weight: bold;
-                                margin-top: 10px;
-                                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-                            ">
-                                👉 Pay Now (Opens New Tab)
-                            </div>
-                        </a>
-                        ''', unsafe_allow_html=True)
+                        st.link_button("👉 Pay Now (Opens New Window)", url, type="primary", use_container_width=True)
                     else:
                         st.error("⚠️ Stripe Config Missing (Check API Keys)")
 
