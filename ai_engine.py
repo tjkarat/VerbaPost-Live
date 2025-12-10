@@ -20,26 +20,20 @@ logger = logging.getLogger(__name__)
 # --- CACHED MODEL LOADER ---
 @st.cache_resource(show_spinner=False)
 def load_whisper_model_cached():
-    """
-    Loads the Whisper model ONCE and keeps it in memory.
-    Forces download to /tmp to avoid permission issues.
-    """
     try:
         import whisper
         logger.info("[CACHE] Downloading/Loading Whisper 'tiny' model to /tmp...")
-        # FIX: Explicit download root to guarantee write access
         return whisper.load_model("tiny", download_root="/tmp")
     except Exception as e:
         logger.error(f"[CACHE] Failed to load model: {e}")
         return None
 
-# --- 1. TRANSCRIPTION ENGINE ---
+# --- TRANSCRIPTION ENGINE ---
 def load_and_transcribe(audio_path_or_file):
     try:
         logger.info("[TRANSCRIBE] Step 1: Garbage collection")
         gc.collect()
         
-        # Check FFmpeg
         if not shutil.which("ffmpeg"):
              return False, "Error: 'ffmpeg' command not found. Please ensure it is installed in packages.txt."
 
@@ -49,10 +43,8 @@ def load_and_transcribe(audio_path_or_file):
         if not model:
             return False, "Error: AI Model failed to initialize. Please check logs."
 
-        # Transcribe
-        logger.info(f"[TRANSCRIBE] Step 3: Transcribing...")
+        logger.info("[TRANSCRIBE] Step 3: Transcribing...")
         
-        # fp16=False is crucial for CPU stability
         result = model.transcribe(
             audio_path_or_file,
             fp16=False
@@ -73,35 +65,29 @@ def load_and_transcribe(audio_path_or_file):
         gc.collect()
 
 def transcribe_audio(audio_input):
-    """
-    Main entry point called by UI. Handles file management.
-    """
     logger.info("="*60)
     logger.info("[TRANSCRIBE REQUEST]")
     
     tmp_path = None
     try:
-        # Handle file upload vs filepath
         if isinstance(audio_input, str):
             success, result = load_and_transcribe(audio_input)
-            return result if success else f"Failed: {result}"
+            # Standardize return format for UI
+            return result if success else f"Error: {result}"
         
         else:
-            # Streamlit UploadedFile object
             suffix = ".wav"
             if hasattr(audio_input, "name") and audio_input.name:
                 if audio_input.name.endswith(".mp3"): suffix = ".mp3"
                 elif audio_input.name.endswith(".m4a"): suffix = ".m4a"
             
-            # Create temp file
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode='wb') as tmp:
                 tmp.write(audio_input.getvalue())
                 tmp_path = tmp.name
             
-            # Transcribe
             success, result = load_and_transcribe(tmp_path)
             
-            return result if success else f"Failed: {result}"
+            return result if success else f"Error: {result}"
 
     except Exception as e:
         logger.error(f"[TRANSCRIBE AUDIO] ERROR: {e}")
@@ -112,7 +98,6 @@ def transcribe_audio(audio_input):
             try: os.remove(tmp_path)
             except: pass
 
-# --- 2. TEXT REFINEMENT ---
 def refine_text(text, style="Professional"):
     try:
         import openai

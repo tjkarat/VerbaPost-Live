@@ -76,7 +76,7 @@ def reset_app(full_logout=False):
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "pending_stripe_url"] 
+            "pending_stripe_url", "last_selected_contact"] 
             
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
@@ -125,7 +125,6 @@ def render_sidebar():
                 st.rerun()
         else:
             st.info("👤 **Guest User**")
-            # SIDEBAR CLEANUP: Primary action only
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.rerun()
@@ -137,10 +136,9 @@ def render_sidebar():
                  st.session_state.app_mode = "store"
                  st.rerun()
 
-        # SIDEBAR CLEANUP: Removed duplicate Legal button
-        st.caption("v3.1.6 (Instructions Added)")
+        st.caption("v3.1.7 (Fixes Applied)")
 
-# --- 6. PAGE: STORE (FIXED PAYMENT FLOW) ---
+# --- 6. PAGE: STORE ---
 def render_store_page():
     # --- AUTH GUARD ---
     u_email = st.session_state.get("user_email", "")
@@ -166,6 +164,7 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
+            # Keep selection sticky if returning from elsewhere
             default_idx = 0
             stored_tier = st.session_state.get("locked_tier")
             if stored_tier and stored_tier in list(tier_labels.keys()):
@@ -206,6 +205,7 @@ def render_store_page():
             
             st.metric("Total", f"${final_price:.2f}")
             
+            # --- PAYMENT LOGIC START ---
             if discounted:
                 if st.button("🚀 Start (Free)", type="primary", use_container_width=True):
                     _handle_draft_creation(u_email, tier_code, final_price)
@@ -218,6 +218,7 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
+                # --- STRIPE TWO-STEP FLOW ---
                 if "pending_stripe_url" in st.session_state:
                     url = st.session_state.pending_stripe_url
                     st.success("✅ Link Generated!")
@@ -241,7 +242,10 @@ def render_store_page():
                         st.rerun()
                 else:
                     if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
+                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
+                        
+                        # 2. Build Return URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
@@ -272,7 +276,7 @@ def _handle_draft_creation(email, tier, price):
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE (UPDATED INSTRUCTIONS) ---
+# --- 7. PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -340,14 +344,23 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
+                    # --- FIXED ADDRESS BOOK LOGIC ---
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
-                            sel = st.selectbox("Address Book", ["-- Quick Fill --"] + [x.name for x in cons])
-                            if sel != "-- Quick Fill --":
+                            # Use key to persist selection state
+                            sel = st.selectbox("Address Book", ["-- Quick Fill --"] + [x.name for x in cons], key="addr_book_sel")
+                            
+                            # Only update if selection CHANGED from last time
+                            if sel != "-- Quick Fill --" and sel != st.session_state.get("last_selected_contact"):
                                 c = next(x for x in cons if x.name == sel)
-                                st.session_state.w_to_name = c.name; st.session_state.w_to_street = c.street
-                                st.session_state.w_to_city = c.city; st.session_state.w_to_state = c.state; st.session_state.w_to_zip = c.zip_code
+                                st.session_state.w_to_name = c.name
+                                st.session_state.w_to_street = c.street
+                                st.session_state.w_to_city = c.city
+                                st.session_state.w_to_state = c.state
+                                st.session_state.w_to_zip = c.zip_code
+                                st.session_state.last_selected_contact = sel
+                                st.rerun() # Force refresh to show new values
 
                     st.text_input("Name", key="w_to_name")
                     st.text_input("Street", key="w_to_street")
@@ -370,6 +383,7 @@ def render_workspace_page():
                 st.toast("Saved!")
 
     st.write("---")
+    # Dictation / Signature
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
@@ -382,15 +396,15 @@ def render_workspace_page():
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
-            # INSTRUCTIONS ADDED
             st.info("🎙️ **Instructions:**\n1. Click the microphone icon to start.\n2. Speak your letter clearly.\n3. Click the square 'Stop' button when finished.")
             audio = st.audio_input("Record")
             if audio and st.button("Transcribe Recording"):
                 if ai_engine:
-                    # IMPROVED SPINNER MESSAGE
                     with st.spinner("🔊 Transcribing your voice... This typically takes 10-30 seconds. Please wait..."): 
                         res = ai_engine.transcribe_audio(audio)
-                        if res.startswith("Error:"):
+                        
+                        # CHECK FOR BOTH ERROR TYPES
+                        if res.startswith("Error:") or res.startswith("Failed:"):
                             st.error(res)
                         else:
                             st.session_state.transcribed_text = res
@@ -403,11 +417,16 @@ def render_workspace_page():
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
             if up and st.button("Transcribe File"):
                 if ai_engine:
-                    with st.spinner("🔊 Processing file... This may take up to a minute depending on file size."):
-                        text = ai_engine.transcribe_audio(up)
-                        st.session_state.transcribed_text = text
-                        st.session_state.app_mode = "review"
-                        st.rerun()
+                    with st.spinner("🔊 Processing file... This may take up to a minute."):
+                        res = ai_engine.transcribe_audio(up)
+                        
+                        # CHECK FOR BOTH ERROR TYPES
+                        if res.startswith("Error:") or res.startswith("Failed:"):
+                            st.error(res)
+                        else:
+                            st.session_state.transcribed_text = res
+                            st.session_state.app_mode = "review"
+                            st.rerun()
 
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
@@ -432,7 +451,7 @@ def _save_addrs(tier):
     d_id = st.session_state.get("current_draft_id")
     if d_id and database: database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
 
-# --- 8. PAGE: REVIEW (FIXED PDF PREVIEW) ---
+# --- 8. PAGE: REVIEW ---
 def render_review_page():
     render_hero("Review", "Finalize & Send")
     if st.button("⬅️ Edit"): st.session_state.app_mode = "workspace"; st.rerun()
@@ -456,25 +475,30 @@ def render_review_page():
     st.text_area("Body", key="transcribed_text", height=300)
     
     if st.button("👁️ Preview PDF"):
-        def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
-        to_s = _fmt(st.session_state.get("to_addr", {}))
-        from_s = _fmt(st.session_state.get("from_addr", {}))
-        
-        sig_path = None
-        if st.session_state.get("sig_data") is not None:
-            img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
-        
-        if letter_format:
-            pdf_bytes = letter_format.create_pdf(st.session_state.transcribed_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
+        if not txt:
+            st.warning("Please enter some text before previewing.")
+        else:
+            def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
+            to_s = _fmt(st.session_state.get("to_addr", {}))
+            from_s = _fmt(st.session_state.get("from_addr", {}))
             
-            if pdf_bytes:
-                b64 = base64.b64encode(pdf_bytes).decode()
-                st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
-        
-        if sig_path: 
-            try: os.remove(sig_path)
-            except: pass
+            sig_path = None
+            if st.session_state.get("sig_data") is not None:
+                img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
+            
+            if letter_format:
+                pdf_bytes = letter_format.create_pdf(txt, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
+                
+                if pdf_bytes:
+                    b64 = base64.b64encode(pdf_bytes).decode()
+                    st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
+                else:
+                    st.error("Failed to generate PDF. Please try shorter text.")
+            
+            if sig_path: 
+                try: os.remove(sig_path)
+                except: pass
 
     if st.button("🚀 Send Letter", type="primary"):
         targets = []
