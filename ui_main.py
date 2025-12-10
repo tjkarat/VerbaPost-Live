@@ -154,7 +154,14 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.2.1 Stripe Top-Fix")
+        
+        # --- DEBUG PANEL ---
+        if dependency_errors:
+            with st.expander("⚠️ System Warnings", expanded=False):
+                st.error("Missing Modules:")
+                st.json(dependency_errors)
+        
+        st.caption("v3.2.2 Stripe Blank Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -249,9 +256,9 @@ def render_store_page():
             # RENDER PAY BUTTON (Outside the if block to ensure it stays visible)
             if st.session_state.get("checkout_url"):
                 url = st.session_state.checkout_url
-                st.success("Payment Link Ready!")
-                # CRITICAL FIX: target="_top" forces the link to break out of the Streamlit iframe
-                st.markdown(f'<a href="{url}" target="_top"><button style="width:100%;padding:10px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;">👉 Click to Pay Now</button></a>', unsafe_allow_html=True)
+                st.success("Link Generated! Click below:")
+                # CRITICAL FIX: target="_blank" guarantees no iframe blocking
+                st.markdown(f'<a href="{url}" target="_blank"><button style="width:100%;padding:12px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;">👉 Pay With Stripe (New Tab)</button></a>', unsafe_allow_html=True)
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
@@ -379,9 +386,13 @@ def render_workspace_page():
                 st.success(f"✅ Recording captured ({len(audio_recorded.getvalue())} bytes)")
                 
                 if st.button("🔄 Transcribe Recording", type="primary", key="btn_transcribe_rec"):
+                    # Explicit Debug Logging
+                    print("DEBUG: Transcribe button clicked")
+                    
                     if not ai_engine:
                         err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
                         st.error(f"⚠️ AI Engine not available. Reason: {err_msg}")
+                        print(f"DEBUG: AI Engine failed load: {err_msg}")
                     else:
                         with st.spinner("🎧 Transcribing... This may take 10-30 seconds"):
                             try:
@@ -389,8 +400,10 @@ def render_workspace_page():
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                                     tmp.write(audio_recorded.getvalue())
                                     tpath = tmp.name
+                                print(f"DEBUG: Audio saved to {tpath}")
                                 
                                 result = ai_engine.transcribe_audio(tpath)
+                                print(f"DEBUG: Transcription result len: {len(str(result))}")
                                 
                                 # Clean up immediately
                                 if os.path.exists(tpath):
@@ -407,6 +420,7 @@ def render_workspace_page():
                             except Exception as e:
                                 st.error(f"Transcription failed: {str(e)}")
                                 st.code(traceback.format_exc())
+                                print(f"DEBUG EXCEPTION: {e}")
         
         with tab_upload:
             st.caption("Supported: MP3, WAV, M4A (Max 25MB)")
