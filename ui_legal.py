@@ -1,27 +1,31 @@
 import streamlit as st
 
 def show_legal():
-    st.markdown("# ⚖️ Legal & Privacy")
-    st.markdown("---")
-    
-    # --- FIX: Button now forces immediate rerun ---
-    if st.button("⬅️ Return to Home", key="legal_back_btn"):
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #2a5298;">⚖️ Legal & Privacy</h1>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("⬅️ Return to Home", use_container_width=True):
         st.session_state.app_mode = "splash"
+        st.query_params.clear()  # FIX: Clears the ?view=legal param
         st.rerun()
 
-    # --- LEGAL CONTENT (From Screenshot) ---
-    st.markdown("""
-    We respect your privacy. We do not sell your data. We only use your data to print and mail your letters.
+    with st.expander("Privacy Policy", expanded=True):
+        st.markdown("""
+        **1. Data Collection**
+        We collect audio files solely for the purpose of transcription. Files are processed and then deleted from our servers.
+        
+        **2. Third Parties**
+        We use Stripe for payments and PostGrid for physical mailing. Address data is shared with these providers strictly for fulfillment.
+        """)
 
-    **1. Data Collection:** We collect your email, name, and address to facilitate account creation and letter delivery. We also collect the content of your letters for printing purposes.
-
-    **2. Data Usage:** We use your data to:
-    * Create and manage your account.
-    * Process your payments securely via Stripe.
-    * Print and mail your letters via our third-party print partner, PostGrid.
-    * Improve our services and communicate with you about your account.
-
-    **3. Data Sharing:** We do not sell your personal data to third parties. We share data only with trusted partners (Stripe, PostGrid, OpenAI) as necessary to provide our services.
-
-    **4. Security:** We employ industry-standard security measures to protect your data. However, no method of transmission over the internet is 100% secure.
-    """)
+    with st.expander("Terms of Service"):
+        st.markdown("""
+        **1. Refunds**
+        Refunds are available if a letter is not mailed due to system error. Once mailed, no refunds are possible.
+        
+        **2. Content**
+        You are responsible for the content of your letters. We do not censor mail, but we reserve the right to refuse service for illegal content.
+        """)
