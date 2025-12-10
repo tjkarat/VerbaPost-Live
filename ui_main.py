@@ -275,7 +275,7 @@ def render_workspace_page():
                             st.success(f"✅ {len(c)} contacts loaded.")
                             if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
-            # --- SAFE ADDRESS BOOK LOGIC (MOVED ABOVE FORM) ---
+            # --- SAFE ADDRESS BOOK LOGIC ---
             if tier != "Civic" and database and u_email:
                 try: contacts = database.get_contacts(u_email)
                 except: contacts = []
@@ -329,7 +329,6 @@ def render_workspace_page():
                             st.text_input("Zip", key="w_to_zip")
                             st.session_state.w_to_country = "US"
                 
-                # --- AUTOFILL SAVE BUTTON ---
                 save_clicked = st.form_submit_button("Save Addresses", type="primary")
 
             if save_clicked:
@@ -364,13 +363,14 @@ def render_workspace_page():
         st.info("Tap microphone, speak clearly, then tap stop.")
         t1, t2 = st.tabs(["Record", "Upload"])
         
-        # --- TAB 1: RECORD (FIXED with BUTTON) ---
+        # --- TAB 1: RECORD ---
         with t1:
             audio_val = st.audio_input("Record")
             
-            # EXPLICIT BUTTON to trigger logic (Prevents auto-run glitches)
+            # --- FIXED: EXPLICIT BUTTON ---
+            # We ONLY run AI if the user clicks this button.
             if audio_val:
-                st.audio(audio_val) # Playback
+                st.audio(audio_val) # Playback for user check
                 if st.button("✨ Transcribe Recording", type="primary"):
                     if not ai_engine:
                          st.error("❌ AI Engine failed to load (Check logs).")
