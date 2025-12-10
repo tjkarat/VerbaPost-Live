@@ -116,7 +116,7 @@ def get_user_profile(email):
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
             if user:
-                # CRITICAL FIX: Expunge object so it persists after session closes
+                # FIX: Expunge to prevent DetachedInstanceError
                 db.expunge(user)
                 return user
             return None
@@ -192,8 +192,14 @@ def add_contact(user_email, name, street, street2, city, state, zip_code, countr
 def get_contacts(user_email):
     try:
         with get_db_session() as db:
-            return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
-    except Exception: return []
+            contacts = db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
+            # CRITICAL FIX: Expunge all items so list comprehension in UI doesn't crash
+            if contacts:
+                db.expunge_all()
+            return contacts
+    except Exception as e:
+        logger.error(f"Get Contacts Error: {e}")
+        return []
 
 def delete_contact(contact_id):
     try:
@@ -202,21 +208,14 @@ def delete_contact(contact_id):
             return True
     except Exception: return False
 
-# --- ADMIN CONSOLE SUPPORT (ADDED) ---
+# --- ADMIN CONSOLE ---
 def fetch_all_drafts():
-    """
-    Fetches all drafts for the Admin Console.
-    Returns a list of dictionaries.
-    """
     try:
         with get_db_session() as db:
-            # Fetch latest 100 drafts to prevent overload
             drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
-            
-            # Convert SQLAlchemy objects to simple dictionaries
-            results = []
+            data = []
             for d in drafts:
-                results.append({
+                data.append({
                     "ID": d.id,
                     "Date": d.created_at.strftime("%Y-%m-%d %H:%M"),
                     "Email": d.user_email,
@@ -227,7 +226,7 @@ def fetch_all_drafts():
                     "Recipient": d.recipient_json,
                     "Sender": d.sender_json
                 })
-            return results
+            return data
     except Exception as e:
         logger.error(f"Fetch Drafts Error: {e}")
         return []
