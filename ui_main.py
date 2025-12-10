@@ -150,7 +150,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.0.12 Stable")
+        st.caption("v3.0.13 Stable")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -231,7 +231,7 @@ def render_store_page():
                 url = st.session_state.pending_stripe_url
                 st.success("✅ Link Generated!")
                 
-                # --- FIXED: Explicit White Text Color ---
+                # Explicit White Text Color
                 st.markdown(f'''
                 <a href="{url}" target="_blank" style="text-decoration: none;">
                     <div style="
@@ -262,17 +262,14 @@ def render_store_page():
             else:
                 if st.button("Generate Payment Link", type="primary", use_container_width=True):
                     with st.spinner("Connecting to Stripe..."):
-                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
-                        # 2. Build URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
                         if is_certified: link += "&certified=1"
                         if tier_code == "Campaign": link += f"&qty={qty}"
                         
-                        # 3. Get Stripe URL
                         if payment_engine:
                             url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                             if url: 
@@ -282,7 +279,6 @@ def render_store_page():
                                 st.error("Stripe Connection Failed.")
 
 def _handle_draft_creation(email, tier, price):
-    """Helper to handle Draft Creation/Updates safely preventing Ghost Drafts."""
     d_id = st.session_state.get("current_draft_id")
     success = False
     
@@ -359,24 +355,22 @@ def render_workspace_page():
             with c2: # TO
                 st.markdown("**To**")
                 
-                # --- ADDRESS BOOK RESTORED ---
+                # --- ADDRESS BOOK ---
                 if tier != "Civic" and database and u_email:
                     contacts = database.get_contacts(u_email)
-                    if contacts:
-                        contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
-                        selected_contact = st.selectbox("📖 Address Book", contact_names)
-                        
-                        if selected_contact != "-- Quick Fill --":
-                            # Find selected contact object
-                            c_obj = next((x for x in contacts if x.name == selected_contact), None)
-                            if c_obj:
-                                st.session_state.w_to_name = c_obj.name
-                                st.session_state.w_to_street = c_obj.street
-                                st.session_state.w_to_street2 = c_obj.street2 or ""
-                                st.session_state.w_to_city = c_obj.city
-                                st.session_state.w_to_state = c_obj.state
-                                st.session_state.w_to_zip = c_obj.zip_code
-                                st.rerun()
+                    contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
+                    selected_contact = st.selectbox("📖 Address Book", contact_names)
+                    
+                    if selected_contact != "-- Quick Fill --":
+                        c_obj = next((x for x in contacts if x.name == selected_contact), None)
+                        if c_obj:
+                            st.session_state.w_to_name = c_obj.name
+                            st.session_state.w_to_street = c_obj.street
+                            st.session_state.w_to_street2 = c_obj.street2 or ""
+                            st.session_state.w_to_city = c_obj.city
+                            st.session_state.w_to_state = c_obj.state
+                            st.session_state.w_to_zip = c_obj.zip_code
+                            st.rerun()
 
                 if tier == "Civic":
                     st.info("🏛️ **Auto-Detect Representatives**")
@@ -411,10 +405,37 @@ def render_workspace_page():
                         st.text_input("Zip", key="w_to_zip")
                         st.session_state.w_to_country = "US"
 
-            # --- SAVE BUTTON ---
-            if st.button("Save Addresses", type="primary"):
-                _save_addrs(tier)
-                st.toast("Saved!")
+            # --- SAVE BUTTON & ADDRESS BOOK LOGIC ---
+            if tier != "Civic":
+                c_chk, c_btn = st.columns([1, 1])
+                with c_chk:
+                    save_contact = st.checkbox("Save to Address Book")
+                with c_btn:
+                    if st.button("Save Addresses", type="primary", use_container_width=True):
+                        _save_addrs(tier)
+                        
+                        # Actual Database Save
+                        if save_contact and database and u_email:
+                            try:
+                                database.add_contact(
+                                    u_email,
+                                    st.session_state.get("w_to_name"),
+                                    st.session_state.get("w_to_street"),
+                                    st.session_state.get("w_to_street2", ""),
+                                    st.session_state.get("w_to_city"),
+                                    st.session_state.get("w_to_state"),
+                                    st.session_state.get("w_to_zip"),
+                                    st.session_state.get("w_to_country", "US")
+                                )
+                                st.toast("Contact Saved! 📖")
+                            except Exception as e:
+                                st.error(f"Save failed: {e}")
+                        
+                        st.toast("Draft Saved!")
+            else:
+                 if st.button("Save Addresses", type="primary"):
+                    _save_addrs(tier)
+                    st.toast("Draft Saved!")
 
     st.write("---")
     
@@ -434,8 +455,7 @@ def render_workspace_page():
     with c_mic:
         st.write("🎤 **Input**")
         
-        # --- INSTRUCTIONS RESTORED ---
-        st.info("Tap microphone icon, speak clearly, then tap stop. A new window will open to edit your text.")
+        st.info("Tap microphone, speak clearly, then tap stop. A new window will open to edit your text.")
         
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
@@ -520,6 +540,9 @@ def render_review_page():
             if pdf:
                 b64 = base64.b64encode(pdf).decode()
                 st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
+                
+                # --- ADDED: Fallback Download Button ---
+                st.download_button("⬇️ Download Preview", data=pdf, file_name="preview.pdf", mime="application/pdf")
         
         if sig_path: 
             try: os.remove(sig_path)
