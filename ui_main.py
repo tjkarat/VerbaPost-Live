@@ -9,7 +9,7 @@ from PIL import Image
 import io
 import time
 import logging
-import traceback # Added for robust error reporting
+import traceback
 
 # --- 1. CRITICAL UI IMPORTS ---
 try: import ui_splash
@@ -76,11 +76,13 @@ def reset_app(full_logout=False):
     recovered = st.query_params.get("draft_id")
     u_email = st.session_state.get("user_email")
     
+    # Added "checkout_url" to clean up on reset
     keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
             "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
-            "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id"]
+            "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
+            "checkout_url"] 
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     
@@ -152,7 +154,7 @@ def render_sidebar():
         if st.button("⚖️ Legal & Privacy", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-        st.caption("v3.1.8 Fixed Inputs")
+        st.caption("v3.1.9 Stripe Fix")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -179,20 +181,24 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
-            sel = st.radio("Select Tier", list(tier_labels.keys()), format_func=lambda x: tier_labels[x])
+            # Use on_change to clear checkout url if tier changes
+            def _clear_checkout():
+                if "checkout_url" in st.session_state: del st.session_state.checkout_url
+                
+            sel = st.radio("Select Tier", list(tier_labels.keys()), format_func=lambda x: tier_labels[x], on_change=_clear_checkout)
             tier_code = sel
             st.info(tier_desc[tier_code])
             
             qty = 1
             if tier_code == "Campaign":
-                qty = st.number_input("Recipients", 10, 5000, 50, 10)
+                qty = st.number_input("Recipients", 10, 5000, 50, 10, on_change=_clear_checkout)
                 st.caption(f"Pricing: First $2.99, then $1.99/ea")
 
             is_intl = False; is_certified = False
             if tier_code in ["Standard", "Heirloom"]:
                 c_opt1, c_opt2 = st.columns(2)
-                if c_opt1.checkbox("International (+$2.00)"): is_intl = True
-                if c_opt2.checkbox("Certified Mail (+$12.00)"): is_certified = True
+                if c_opt1.checkbox("International (+$2.00)", on_change=_clear_checkout): is_intl = True
+                if c_opt2.checkbox("Certified Mail (+$12.00)", on_change=_clear_checkout): is_certified = True
 
             st.session_state.is_intl = is_intl
             st.session_state.is_certified = is_certified
@@ -215,8 +221,9 @@ def render_store_page():
             st.metric("Total", f"${final_price:.2f}")
             
             btn_txt = "🚀 Start (Free)" if discounted else f"Pay ${final_price:.2f} & Start"
+            
+            # BUTTON LOGIC
             if st.button(btn_txt, type="primary", use_container_width=True):
-                
                 d_id = _handle_draft_creation(u_email, tier_code, final_price)
 
                 if discounted:
@@ -234,8 +241,17 @@ def render_store_page():
                     if tier_code == "Campaign": link += f"&qty={qty}"
                     
                     if payment_engine:
+                        # PERSISTENCE FIX: Store the URL so it survives re-renders
                         url, _ = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
-                        if url: st.markdown(f'<a href="{url}" target="_self"><button style="width:100%;padding:10px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;">👉 Pay Now</button></a>', unsafe_allow_html=True)
+                        if url: 
+                            st.session_state.checkout_url = url
+            
+            # RENDER PAY BUTTON (Outside the if block to ensure it stays visible)
+            if st.session_state.get("checkout_url"):
+                url = st.session_state.checkout_url
+                st.success("Payment Link Ready!")
+                # Changed target to _blank to avoid iframe blocking issues
+                st.markdown(f'<a href="{url}" target="_blank"><button style="width:100%;padding:10px;background:#635bff;color:white;border:none;border-radius:5px;cursor:pointer;font-weight:bold;font-size:16px;">👉 Click to Pay Now</button></a>', unsafe_allow_html=True)
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
@@ -362,7 +378,7 @@ def render_workspace_page():
             if audio_recorded:
                 st.success(f"✅ Recording captured ({len(audio_recorded.getvalue())} bytes)")
                 
-                if st.button("🔄 Transcribe Recording", type="primary", use_container_width=True):
+                if st.button("🔄 Transcribe Recording", type="primary", key="btn_transcribe_rec"):
                     if not ai_engine:
                         err_msg = dependency_errors.get('ai_engine', 'Unknown Import Error')
                         st.error(f"⚠️ AI Engine not available. Reason: {err_msg}")
