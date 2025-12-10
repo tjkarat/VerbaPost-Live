@@ -1,18 +1,5 @@
 import streamlit as st
 import time
-import traceback
-import logging
-import sys
-
-# --- 0. LOGGING SETUP (CRITICAL FIX) ---
-# We force the level to DEBUG so 'ai_engine' logs (which are debug level) actually show up.
-logging.basicConfig(
-    level=logging.DEBUG, 
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)],
-    force=True # Force override of any other logger settings
-)
-logger = logging.getLogger(__name__)
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -44,16 +31,6 @@ def inject_global_css():
 if __name__ == "__main__":
     inject_global_css()
     
-    # 1. Early Secrets Check
-    try:
-        import secrets_manager
-    except ImportError:
-        st.error("❌ CRITICAL: secrets_manager.py file is missing.")
-        st.stop()
-    except Exception as e:
-        st.error(f"❌ CRITICAL: Secrets loading failed: {e}")
-        st.stop()
-
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
     
@@ -65,7 +42,6 @@ if __name__ == "__main__":
             target_view = q_params["view"]
             if target_view in ["legal", "login", "splash"]:
                 st.session_state.app_mode = target_view
-                st.query_params.clear()
         
         # --- B. MARKETING LINKS ---
         if "tier" in q_params and "session_id" not in q_params:
@@ -75,82 +51,62 @@ if __name__ == "__main__":
         if "session_id" in q_params:
             sess_id = q_params["session_id"]
             
-            # Placeholder for status
-            status_box = st.empty()
-            status_box.info("🔄 Verifying Payment... Please wait.")
-            
-            # 1. Verify Payment
+            # LAZY IMPORT PAYMENT ENGINE
             try:
                 import payment_engine
                 is_paid, session_details = payment_engine.verify_session(sess_id)
-            except Exception as e:
-                logger.error(f"Payment Engine Error: {e}")
+            except ImportError:
                 is_paid = False
                 session_details = None
 
             # 2. AUDIT & CSRF CHECK
-            if is_paid:
-                current_user = st.session_state.get("user_email")
-                payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
-                
-                # CRITICAL: Require both emails to exist
-                if not current_user or not payer_email:
-                     # Fallback for Guest Checkout scenarios
-                     if not current_user:
-                         st.session_state.user_email = payer_email 
-                         current_user = payer_email
-
-                # Verify they match (Case Insensitive)
+            current_user = st.session_state.get("user_email")
+            payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
+            
+            if is_paid and current_user and payer_email:
                 if current_user.lower().strip() != payer_email.lower().strip():
-                    status_box.error("⚠️ Security Alert: Payment email mismatch.")
-                    logger.warning(f"Payment email mismatch: {current_user} != {payer_email}")
+                    st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
                     st.stop()
 
-                # 3. SET STATE
+            if is_paid:
+                st.session_state.app_mode = "workspace"
                 st.session_state.payment_complete = True
                 st.session_state.current_stripe_id = sess_id 
-                st.session_state.app_mode = "workspace"
                 
-                # Restore Config
+                if not current_user and payer_email:
+                    st.session_state.user_email = payer_email
+
                 if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                 if "intl" in q_params: st.session_state.is_intl = True
                 if "certified" in q_params: st.session_state.is_certified = True
                 if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
                 
-                # 4. STOP LOOP: FORCE USER CLICK (NO AUTO-RERUN)
-                status_box.success("✅ Payment Verified!")
+                st.success("✅ Payment Verified! Welcome.")
                 
-                st.markdown("### 🚀 Payment Successful")
-                st.markdown("Your secure session is ready.")
-                
-                if st.button("👉 Click here to Write Your Letter", type="primary", use_container_width=True):
+                # --- MANUAL BRAKE: PREVENTS REDIRECT LOOPS ---
+                st.markdown("---")
+                if st.button("👉 Click here to Compose Letter", type="primary", use_container_width=True):
                     st.query_params.clear()
                     st.rerun()
                 
-                st.stop() 
-                
+                st.stop() # HALT HERE TO WAIT FOR USER CLICK
             else:
-                status_box.error("❌ Payment Verification Failed or Expired.")
-                if st.button("Return to Store"):
-                    st.session_state.app_mode = "store"
-                    st.query_params.clear()
-                    st.rerun()
-                st.stop()
-
+                st.error("❌ Payment Verification Failed or Expired.")
+                st.session_state.app_mode = "store"
+                time.sleep(1)
+                st.query_params.clear()
+                st.rerun()
+            
     except Exception as e:
-        st.error(f"Routing Error: {e}")
-        logger.error(f"Routing Error: {e}", exc_info=True)
+        print(f"Routing Error: {e}")
 
     # --- LAUNCH UI ---
     try:
         import ui_main
         ui_main.show_main_app()
     except Exception as e:
-        st.error("⚠️ Application Crash")
-        st.markdown(f"**Error:** `{e}`")
-        logger.critical(f"UI Crash: {e}", exc_info=True)
-        
-        # Hard Reset Option
-        if st.button("Hard Reset App State"):
+        st.error("⚠️ Application Error. Please refresh.")
+        print(f"Critical UI Error: {e}")
+        if st.button("Hard Reset App"):
             st.session_state.clear()
             st.rerun()
