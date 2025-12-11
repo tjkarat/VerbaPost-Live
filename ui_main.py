@@ -413,6 +413,8 @@ def render_workspace_page():
                             st.session_state.transcribed_text = res
                             st.session_state.app_mode = "review"
                             st.success("Processing Complete!")
+                            # FORCE UI REFRESH
+                            time.sleep(0.1)
                             st.rerun()
 
         with t2:
@@ -429,6 +431,7 @@ def render_workspace_page():
                         else:
                             st.session_state.transcribed_text = res
                             st.session_state.app_mode = "review"
+                            time.sleep(0.1)
                             st.rerun()
 
 def _save_addrs(tier):
@@ -499,35 +502,39 @@ def render_review_page():
 
     st.text_area("Body", key="transcribed_text", height=300)
     
+    # --- PDF PREVIEW (SAFE MODE) ---
     if st.button("👁️ Preview PDF"):
         if not txt:
             st.warning("Please enter some text before previewing.")
         else:
-            def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
-            to_s = _fmt(st.session_state.get("to_addr", {}))
-            from_s = _fmt(st.session_state.get("from_addr", {}))
-            
-            sig_path = None
-            if st.session_state.get("sig_data") is not None:
-                img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
-            
-            if letter_format:
-                pdf_bytes = letter_format.create_pdf(txt, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
+            try:
+                def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
+                to_s = _fmt(st.session_state.get("to_addr", {}))
+                from_s = _fmt(st.session_state.get("from_addr", {}))
                 
-                if pdf_bytes and len(pdf_bytes) > 100:
-                    b64 = base64.b64encode(pdf_bytes).decode()
-                    # PDF View Fallback
-                    st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
-                    # DOWNLOAD BUTTON FOR CHROME BLOCKING
-                    href = f'<a href="data:application/pdf;base64,{b64}" download="letter_preview.pdf" style="text-decoration:none;"><button style="margin-top:10px; padding:10px; background-color:#2a5298; color:white; border:none; border-radius:5px; cursor:pointer;">⬇️ Download PDF Preview</button></a>'
-                    st.markdown(href, unsafe_allow_html=True)
-                else:
-                    st.error("Failed to generate PDF. Please try shorter text.")
-            
-            if sig_path: 
-                try: os.remove(sig_path)
-                except: pass
+                sig_path = None
+                if st.session_state.get("sig_data") is not None:
+                    img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
+                
+                if letter_format:
+                    pdf_bytes = letter_format.create_pdf(txt, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
+                    
+                    if pdf_bytes and len(pdf_bytes) > 100:
+                        b64 = base64.b64encode(pdf_bytes).decode()
+                        # 1. Fallback Iframe (Chrome might block this)
+                        st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
+                        # 2. DOWNLOAD BUTTON (Always Works)
+                        href = f'<a href="data:application/pdf;base64,{b64}" download="letter_preview.pdf" style="text-decoration:none;"><button style="margin-top:10px; padding:12px; background-color:#2a5298; color:white; border:none; border-radius:5px; cursor:pointer; width:100%;">⬇️ Download PDF (If Preview Blocked)</button></a>'
+                        st.markdown(href, unsafe_allow_html=True)
+                    else:
+                        st.error("Failed to generate PDF content.")
+                
+                if sig_path: 
+                    try: os.remove(sig_path)
+                    except: pass
+            except Exception as e:
+                st.error(f"Preview Failed: {e}")
 
     if st.button("🚀 Send Letter", type="primary"):
         # PRE-FLIGHT CHECK
