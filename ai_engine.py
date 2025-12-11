@@ -60,7 +60,8 @@ def load_and_transcribe(audio_path_or_file):
         text = result.get("text", "").strip()
         
         if not text:
-            return True, "[Audio processed, but no speech was detected. Please try recording again.]"
+            # Return failure if silence, so UI can warn user
+            return True, "" 
         
         return True, text
 
@@ -96,6 +97,10 @@ def transcribe_audio(audio_input):
                 tmp.write(audio_input.getvalue())
                 tmp_path = tmp.name
             
+            # Check for empty files
+            if os.path.getsize(tmp_path) < 100:
+                return "Error: Audio file is empty or too small."
+            
             success, result = load_and_transcribe(tmp_path)
             
             # Standardize error return
@@ -110,22 +115,45 @@ def transcribe_audio(audio_input):
             try: os.remove(tmp_path)
             except: pass
 
+# --- TEXT REFINEMENT ENGINE (Restored) ---
 def refine_text(text, style="Professional"):
+    """
+    Uses OpenAI API to rewrite text styles (Grammar, Friendly, etc).
+    Gracefully degrades if API key is missing.
+    """
     try:
+        # Lazy import to prevent startup crash if library missing
         import openai
+        
         api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-        if not api_key: return text 
+        if not api_key: 
+            logger.warning("[REFINE] No OpenAI API Key found. Returning original text.")
+            return text 
 
         client = openai.OpenAI(api_key=api_key)
+        
+        prompt_map = {
+            "Grammar": "Fix grammar and spelling only. Keep tone.",
+            "Professional": "Rewrite to be formal and professional. Keep meaning.",
+            "Friendly": "Rewrite to be warm and friendly. Keep meaning.",
+            "Concise": "Summarize and shorten. Keep key points."
+        }
+        
+        sys_prompt = prompt_map.get(style, "Rewrite this text.")
+
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": f"Rewrite to be {style}. Preserve meaning. No preamble."},
+                {"role": "system", "content": f"{sys_prompt} Do not add conversational filler."},
                 {"role": "user", "content": text}
             ],
             temperature=0.7
         )
         return response.choices[0].message.content.strip()
+        
+    except ImportError:
+        logger.error("[REFINE] openai library not installed.")
+        return text
     except Exception as e:
         logger.error(f"[REFINE] Error: {e}")
         return text
