@@ -84,19 +84,36 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             pdf.add_font(target_font_name, '', target_font_file)
         else: target_font_name = 'Helvetica'; is_cjk = False
 
+        # --- FONT SELECTION ---
         if is_cjk: body_font = target_font_name
         elif is_heirloom or is_santa: body_font = 'Caveat'
-        else: body_font = 'Helvetica'
+        else: body_font = 'Helvetica' # Standard Font
             
         body_size = 14 if is_cjk else (18 if is_santa else 12)
         
         pdf.add_page(); pdf.set_text_color(0, 0, 0)
         
+        # --- ADDRESS PLACEMENT LOGIC ---
         is_standard = not (is_heirloom or is_santa)
+        
         if is_standard:
-            pdf.set_xy(20, 100); pdf.set_xy(140, 15); pdf.set_font('Helvetica', '', 10)
-            pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1); pdf.set_xy(20, 100)
+            # 1. Return Address (Top Left)
+            pdf.set_xy(15, 15); pdf.set_font('Helvetica', '', 10)
+            pdf.multi_cell(0, 5, sanitize_text(return_addr, is_cjk))
+            
+            # 2. Date (Top Right)
+            pdf.set_xy(140, 15)
+            pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
+            
+            # 3. Recipient Address (Window Position: ~50mm down)
+            pdf.set_xy(20, 50); pdf.set_font('Helvetica', 'B', 12)
+            pdf.multi_cell(0, 6, sanitize_text(recipient_addr, is_cjk))
+            
+            # 4. Reset for Body
+            pdf.set_xy(20, 100)
+            
         else:
+            # Heirloom / Santa Logic (Keep existing)
             date_y = 50 if is_santa else 15
             pdf.set_xy(140, date_y); pdf.set_font('Helvetica', '', 10)
             pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
@@ -111,14 +128,16 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             pdf.multi_cell(0, 6, sanitize_text(recipient_addr, is_cjk))
             pdf.set_xy(20, recip_y + 30)
 
+        # --- BODY CONTENT ---
         pdf.set_font(body_font, '', body_size)
         safe_content = sanitize_text(content, is_cjk)
         if not safe_content or len(safe_content.strip()) == 0:
-            safe_content = "[ERROR: No Content Provided. Please return to editor.]"; pdf.set_text_color(255, 0, 0) 
+            safe_content = "[Content Empty]"; pdf.set_text_color(255, 0, 0) 
             
         pdf.multi_cell(170, 8, safe_content); pdf.set_text_color(0, 0, 0)
         pdf.ln(20) 
         
+        # --- SIGNATURE ---
         if is_santa:
             pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if not is_cjk else 'Helvetica' 
             pdf.set_font(sig_font, '', 32); pdf.set_text_color(180, 20, 20) 
@@ -127,7 +146,6 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             try: pdf.image(signature_path, x=20, w=40)
             except: pass
         
-        # --- FIXED PDF OUTPUT ---
         try:
             return bytes(pdf.output())
         except Exception:
