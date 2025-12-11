@@ -5,74 +5,126 @@ import tempfile
 import secrets_manager
 import subprocess
 import gc
+import traceback
+import sys
 import shutil
 
 # Configure Logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger(__name__)
 
-# --- CACHED MODEL LOADER (The Critical Fix) ---
+# --- CACHED MODEL LOADER ---
 @st.cache_resource(show_spinner=False)
 def load_whisper_model_cached():
+    """
+    Loads the Whisper model ONCE and keeps it in memory.
+    Forces download to /tmp to avoid "Read-only file system" errors.
+    """
     try:
         import whisper
-        # FIX: Force download to /tmp to prevent "Read-only file system" errors
-        logger.info("[CACHE] Loading Whisper 'tiny' model to /tmp...")
+        logger.info("[CACHE] Downloading/Loading Whisper 'tiny' model to /tmp...")
+        # CRITICAL FIX: download_root="/tmp"
         return whisper.load_model("tiny", download_root="/tmp")
     except Exception as e:
         logger.error(f"[CACHE] Failed to load model: {e}")
         return None
 
-def transcribe_audio(audio_input):
-    """
-    Robust transcription that handles Streamlit Audio objects.
-    """
-    tmp_path = None
+# --- TRANSCRIPTION ENGINE ---
+def load_and_transcribe(audio_path_or_file):
     try:
-        # 1. FFmpeg Check
+        logger.info("[TRANSCRIBE] Step 1: Garbage collection")
+        gc.collect()
+        
         if not shutil.which("ffmpeg"):
-            return "Error: FFmpeg is missing. Please check packages.txt."
+             return False, "Error: 'ffmpeg' command not found. Please ensure it is installed in packages.txt."
 
-        # 2. Handle Input
-        suffix = ".wav"
-        if hasattr(audio_input, "name") and audio_input.name:
-            if audio_input.name.endswith(".mp3"): suffix = ".mp3"
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode='wb') as tmp:
-            tmp.write(audio_input.getvalue())
-            tmp_path = tmp.name
-        
-        # 3. Load Model & Transcribe
+        logger.info("[TRANSCRIBE] Step 2: Fetching Cached Model")
         model = load_whisper_model_cached()
+        
         if not model:
-            return "Error: AI Model failed to load."
-            
-        result = model.transcribe(tmp_path, fp16=False)
+            return False, "Error: AI Model failed to initialize. Check logs."
+
+        logger.info("[TRANSCRIBE] Step 3: Transcribing...")
+        
+        # fp16=False is crucial for CPU stability
+        result = model.transcribe(
+            audio_path_or_file,
+            fp16=False
+        )
+        
         text = result.get("text", "").strip()
         
         if not text:
-            return "Error: Audio processed, but no speech detected."
-            
-        return text
+            return True, "[Audio processed, but no speech was detected. Please try recording again.]"
+        
+        return True, text
 
     except Exception as e:
-        return f"Error: {str(e)}"
+        logger.error(f"[TRANSCRIBE] ERROR: {e}")
+        return False, f"Error: {str(e)}"
+        
+    finally:
+        gc.collect()
+
+def transcribe_audio(audio_input):
+    """
+    Main entry point. Handles Streamlit Audio objects.
+    """
+    logger.info("="*60)
+    logger.info("[TRANSCRIBE REQUEST]")
+    
+    tmp_path = None
+    try:
+        # Handle file upload vs filepath
+        if isinstance(audio_input, str):
+            success, result = load_and_transcribe(audio_input)
+            return result if success else f"Error: {result}"
+        
+        else:
+            # Streamlit UploadedFile object
+            suffix = ".wav"
+            if hasattr(audio_input, "name") and audio_input.name:
+                if audio_input.name.endswith(".mp3"): suffix = ".mp3"
+                elif audio_input.name.endswith(".m4a"): suffix = ".m4a"
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode='wb') as tmp:
+                tmp.write(audio_input.getvalue())
+                tmp_path = tmp.name
+            
+            success, result = load_and_transcribe(tmp_path)
+            
+            # Standardize error return
+            return result if success else f"Error: {result}"
+
+    except Exception as e:
+        logger.error(f"[TRANSCRIBE AUDIO] ERROR: {e}")
+        return f"Error: File processing failed - {str(e)}"
     
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try: os.remove(tmp_path)
             except: pass
 
-# Keep your existing refine_text function if you have one
 def refine_text(text, style="Professional"):
     try:
         import openai
-        api_key = secrets_manager.get_secret("openai.api_key")
+        api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
         if not api_key: return text 
+
         client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
             model="gpt-4o-mini",
-            messages=[{"role": "system", "content": f"Rewrite to be {style}."},{"role": "user", "content": text}]
+            messages=[
+                {"role": "system", "content": f"Rewrite to be {style}. Preserve meaning. No preamble."},
+                {"role": "user", "content": text}
+            ],
+            temperature=0.7
         )
         return response.choices[0].message.content.strip()
-    except: return text
+    except Exception as e:
+        logger.error(f"[REFINE] Error: {e}")
+        return text

@@ -1,13 +1,13 @@
 import streamlit as st
 import logging
 
-# Robust Import
-try: import database
-except ImportError: database = None
-
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Robust Import
+try: import database
+except ImportError: database = None
 
 def show_splash():
     # CSS
@@ -75,22 +75,31 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # LEADERBOARD
+    # LEADERBOARD (Restored & Fixed)
+    st.markdown("<br><hr>", unsafe_allow_html=True)
     if database:
         try:
+            # Explicitly fetch to debug
             stats = database.get_civic_leaderboard()
-            if stats:
-                st.markdown("<br>", unsafe_allow_html=True)
-                with st.container(border=True):
-                    st.subheader("📢 Civic Leaderboard")
+            
+            with st.container(border=True):
+                st.subheader("📢 Civic Leaderboard")
+                if stats:
                     for state, count in stats:
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
-            else:
-                # Database connected but empty - show nothing or placeholder
-                pass
+                else:
+                    # FIX: Show encouragement instead of hiding
+                    st.info("No letters sent yet this month. Be the first!")
         except Exception as e:
-            # Log error but don't break UI
+            st.warning(f"Leaderboard unavailable: {e}")
             logger.error(f"Leaderboard Error: {e}")
-            pass
     else:
-        st.info("Leaderboard temporarily unavailable.")
+        st.warning("⚠️ Database connection missing. Leaderboard disabled.")
+
+    # LEGAL FOOTER (Restored)
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    c_foot1, c_foot2, c_foot3 = st.columns([1, 1, 1])
+    with c_foot2:
+        if st.button("⚖️ View Legal & Privacy", type="secondary", use_container_width=True):
+            st.session_state.app_mode = "legal"
+            st.rerun()
