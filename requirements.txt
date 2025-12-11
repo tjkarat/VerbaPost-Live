@@ -3,8 +3,10 @@ streamlit-drawable-canvas==0.9.3
 supabase
 stripe
 openai-whisper
+# Use standard torch (CPU will be selected automatically by pip in most linux envs, 
+# or we let it grab the default but rely on the app code to force CPU)
 torch
-numpy
+numpy<2.0.0
 sqlalchemy
 psycopg2-binary
 requests
@@ -15,3 +17,4 @@ python-dotenv
 openai
 tenacity
 ffmpeg-python
+geocodio
