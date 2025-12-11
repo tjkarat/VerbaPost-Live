@@ -122,11 +122,12 @@ def reset_app(full_logout=False):
     """
     Resets the session state to clear sensitive data between orders.
     """
-    # CRITICAL FIX: Clear URL params so we don't accidentally "recover" the old draft
+    # 1. Clear the URL params immediately so we don't 'recover' the old draft
     st.query_params.clear()
     
     u_email = st.session_state.get("user_email")
     
+    # 2. List of keys to clear
     keys = [
         "audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
         "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
@@ -142,11 +143,13 @@ def reset_app(full_logout=False):
     
     st.session_state.to_addr = {}
     
+    # 3. Routing Logic
     if full_logout:
         if "user_email" in st.session_state: 
             del st.session_state.user_email
         st.session_state.app_mode = "splash"
     else:
+        # "Start New" logic: If logged in, go to Store. Else, Splash.
         if u_email: 
             st.session_state.app_mode = "store"
         else: 
@@ -154,11 +157,10 @@ def reset_app(full_logout=False):
 
 # --- 5. SHARED UI COMPONENTS ---
 def render_hero(title, subtitle):
-    # CSS FIX: Added responsive clamp() font sizing
     st.markdown(f"""
-    <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); max-width: 100%; box-sizing: border-box;">
-        <h1 style="margin: 0; font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; color: white !important;">{title}</h1>
-        <div style="font-size: clamp(1rem, 3vw, 1.2rem); opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
+    <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 30px 20px; border-radius: 15px; text-align: center; margin-bottom: 25px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); max-width: 100%; box-sizing: border-box;">
+        <h1 style="margin: 0; font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 700; color: white !important; line-height: 1.1;">{title}</h1>
+        <div style="font-size: clamp(0.9rem, 3vw, 1.2rem); opacity: 0.9; margin-top: 8px; color: white !important;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -202,6 +204,7 @@ def render_sidebar():
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
+    # --- AUTH GUARD ---
     u_email = st.session_state.get("user_email", "")
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
@@ -364,8 +367,7 @@ def render_workspace_page():
     with st.container(border=True):
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
-            if not bulk_engine: 
-                st.error("Bulk Engine Missing")
+            if not bulk_engine: st.error("Bulk Engine Missing")
             f = st.file_uploader("CSV (Name, Street, City, State, Zip)", type=['csv'])
             if f:
                 c, err = bulk_engine.parse_csv(f)
@@ -437,6 +439,10 @@ def render_workspace_page():
                             cb.text_input("State", key="w_to_state")
                             st.text_input("Zip", key="w_to_zip")
                             st.session_state.w_to_country = "US"
+                
+                # USER OPTION TO SAVE CONTACT
+                st.checkbox("Save recipient to Address Book", key="save_contact_opt", value=True)
+                
                 if st.form_submit_button("Save Addresses"):
                     _save_addrs(tier)
                     st.toast("Saved!")
@@ -451,25 +457,22 @@ def render_workspace_page():
                                 st.session_state.civic_targets = reps
                                 st.success(f"Found {len(reps)} Reps!")
                                 st.rerun()
-                            else: 
-                                st.error("No representatives found.")
+                            else: st.error("No representatives found.")
 
     st.write("---")
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
-        if tier == "Santa": 
-            st.info("Signed by Santa")
-        else: 
+        if tier == "Santa": st.info("Signed by Santa")
+        else:
             canvas = st_canvas(stroke_width=2, height=150, width=300, key="sig")
-            if canvas.image_data is not None: 
-                st.session_state.sig_data = canvas.image_data
+            if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     
     with c_mic:
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
-            st.info("🎙️ **Instructions:**\n1. Click the microphone icon to start.\n2. Speak your letter clearly.\n3. Click the square 'Stop' button when finished.")
+            st.info("Instructions: Click mic, speak, click stop.")
             audio = st.audio_input("Record")
             if audio:
                 if st.button("Transcribe Recording", key="btn_rec"):
@@ -488,7 +491,7 @@ def render_workspace_page():
                                 st.rerun()
 
         with t2:
-            st.info("📂 Upload MP3, WAV, or M4A audio files.")
+            st.info("Upload MP3, WAV, or M4A.")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
             if up:
                 if st.button("Transcribe File", key="btn_up"):
@@ -508,47 +511,26 @@ def render_workspace_page():
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
     if tier == "Santa": 
-        st.session_state.from_addr = {
-            "name": "Santa Claus", 
-            "street": "123 Elf Road", 
-            "city": "North Pole", 
-            "state": "NP", 
-            "zip": "88888", 
-            "country": "NP"
-        }
+        st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
     else:
         st.session_state.from_addr = {
-            "name": st.session_state.get("w_from_name"), 
-            "street": st.session_state.get("w_from_street"),
-            "address_line2": st.session_state.get("w_from_street2"), 
-            "city": st.session_state.get("w_from_city"),
-            "state": st.session_state.get("w_from_state"), 
-            "zip": st.session_state.get("w_from_zip"), 
-            "country": "US", 
-            "email": u
+            "name": st.session_state.get("w_from_name"), "street": st.session_state.get("w_from_street"),
+            "address_line2": st.session_state.get("w_from_street2"), "city": st.session_state.get("w_from_city"),
+            "state": st.session_state.get("w_from_state"), "zip": st.session_state.get("w_from_zip"), "country": "US", "email": u
         }
 
     if tier == "Civic":
-        st.session_state.to_addr = {
-            "name": "Civic Action", 
-            "street": "Capitol", 
-            "city": "DC", 
-            "state": "DC", 
-            "zip": "20000", 
-            "country": "US"
-        }
+        st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
     else:
         st.session_state.to_addr = {
-            "name": st.session_state.get("w_to_name"), 
-            "street": st.session_state.get("w_to_street"),
-            "address_line2": st.session_state.get("w_to_street2"), 
-            "city": st.session_state.get("w_to_city"),
-            "state": st.session_state.get("w_to_state"), 
-            "zip": st.session_state.get("w_to_zip"),
-            "country": st.session_state.get("w_to_country", "US")
+            "name": st.session_state.get("w_to_name"), "street": st.session_state.get("w_to_street"),
+            "address_line2": st.session_state.get("w_to_street2"), "city": st.session_state.get("w_to_city"),
+            "state": st.session_state.get("w_to_state"), "zip": st.session_state.get("w_to_zip"), "country": st.session_state.get("w_to_country", "US")
         }
     
-    if database and tier != "Civic" and st.session_state.get("w_to_name"):
+    # Save Contact ONLY if user opted in
+    should_save = st.session_state.get("save_contact_opt", True)
+    if should_save and database and tier != "Civic" and st.session_state.get("w_to_name"):
         try:
             database.add_contact(
                 u, 
@@ -569,8 +551,7 @@ def _save_addrs(tier):
         except: pass
 
     d_id = st.session_state.get("current_draft_id")
-    if d_id and database: 
-        database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
+    if d_id and database: database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
 
 # --- 8. PAGE: REVIEW ---
 def render_review_page():
@@ -687,7 +668,12 @@ def render_review_page():
                             tpdf.write(pdf)
                             tpath = tpdf.name
                         
-                        send_ok, send_res = mailer.send_letter(tpath, pg_to, pg_from, st.session_state.get("is_certified", False))
+                        send_ok, send_res = mailer.send_letter(
+                            tpath, 
+                            pg_to, 
+                            pg_from, 
+                            st.session_state.get("is_certified", False)
+                        )
                         
                         if send_ok: is_ok = True
                         else: errs.append(f"Failed {tgt.get('name')}: {send_res}")
