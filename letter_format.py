@@ -76,7 +76,12 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         pdf = LetterPDF(is_santa=is_santa, format='Letter')
         pdf.set_auto_page_break(True, margin=20)
         
-        if os.path.exists("Caveat-Regular.ttf"): pdf.add_font('Caveat', '', 'Caveat-Regular.ttf')
+        # Load Caveat
+        has_caveat = False
+        if os.path.exists("Caveat-Regular.ttf"): 
+            pdf.add_font('Caveat', '', 'Caveat-Regular.ttf')
+            has_caveat = True
+            
         target_font_name, target_font_file = detect_language(content)
         is_cjk = target_font_name.startswith("Noto")
         
@@ -85,35 +90,40 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         else: target_font_name = 'Helvetica'; is_cjk = False
 
         # --- FONT SELECTION ---
-        if is_cjk: body_font = target_font_name
-        elif is_heirloom or is_santa: body_font = 'Caveat'
-        else: body_font = 'Helvetica' # Standard Font
+        # UPDATED: Use Caveat for ALL tiers (Standard included) unless it's CJK or missing
+        if is_cjk: 
+            body_font = target_font_name
+        elif has_caveat: 
+            body_font = 'Caveat'
+        else: 
+            body_font = 'Helvetica'
             
-        body_size = 14 if is_cjk else (18 if is_santa else 12)
+        # Font Sizes: Caveat looks smaller, so we bump it to 14/18. Helvetica stays 12.
+        if body_font == 'Caveat':
+            body_size = 18 if is_santa else 14
+        else:
+            body_size = 14 if is_cjk else 12
         
         pdf.add_page(); pdf.set_text_color(0, 0, 0)
         
-        # --- ADDRESS PLACEMENT LOGIC ---
+        # --- ADDRESS PLACEMENT ---
         is_standard = not (is_heirloom or is_santa)
         
         if is_standard:
-            # 1. Return Address (Top Left)
+            # Standard: Use Helvetica for addresses (USPS readability)
             pdf.set_xy(15, 15); pdf.set_font('Helvetica', '', 10)
             pdf.multi_cell(0, 5, sanitize_text(return_addr, is_cjk))
             
-            # 2. Date (Top Right)
             pdf.set_xy(140, 15)
             pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
             
-            # 3. Recipient Address (Window Position: ~50mm down)
             pdf.set_xy(20, 50); pdf.set_font('Helvetica', 'B', 12)
             pdf.multi_cell(0, 6, sanitize_text(recipient_addr, is_cjk))
             
-            # 4. Reset for Body
             pdf.set_xy(20, 100)
             
         else:
-            # Heirloom / Santa Logic (Keep existing)
+            # Heirloom/Santa: Use formatted headers
             date_y = 50 if is_santa else 15
             pdf.set_xy(140, date_y); pdf.set_font('Helvetica', '', 10)
             pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
@@ -139,7 +149,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         
         # --- SIGNATURE ---
         if is_santa:
-            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if not is_cjk else 'Helvetica' 
+            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if (has_caveat and not is_cjk) else 'Helvetica' 
             pdf.set_font(sig_font, '', 32); pdf.set_text_color(180, 20, 20) 
             pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
         elif signature_path and os.path.exists(signature_path):
