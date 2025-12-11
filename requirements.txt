@@ -3,7 +3,7 @@ streamlit-drawable-canvas==0.9.3
 supabase
 stripe
 openai-whisper
-# -- CRITICAL FIX: Point to CPU-only index for Torch --
+# --- CRITICAL: FORCE CPU VERSION ---
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 numpy<2.0.0

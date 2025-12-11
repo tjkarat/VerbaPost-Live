@@ -361,7 +361,7 @@ def render_sidebar():
 
         st.caption("v3.1.12 (Standard Imports)")
 
-# --- 6. PAGE: STORE ---
+# --- 6. PAGE: STORE (Safe Version) ---
 def render_store_page():
     u_email = st.session_state.get("user_email", "")
     if not u_email:
@@ -371,7 +371,7 @@ def render_store_page():
             st.rerun()
         return
 
-    render_hero("Select Service", "Choose your letter type")
+    _render_hero("Select Service", "Choose your letter type")
     
     c1, c2 = st.columns([2, 1])
     with c1:
@@ -381,6 +381,7 @@ def render_store_page():
                 "Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", 
                 "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)", "Campaign": "📢 Campaign (Bulk)"
             }
+            # Descriptions handled here...
             tier_desc = {
                 "Standard": "Professional print on standard paper. Mailed USPS First Class.",
                 "Heirloom": "Heavyweight archival stock with wet-ink style font.",
@@ -401,10 +402,7 @@ def render_store_page():
             qty = 1
             if tier_code == "Campaign":
                 qty = st.number_input("Recipients", 10, 5000, 50, 10)
-                st.caption(f"Pricing: First $2.99, then $1.99/ea")
-
-            is_intl = False
-            is_certified = False
+            is_intl = False; is_certified = False
             if tier_code in ["Standard", "Heirloom"]:
                 c_opt1, c_opt2 = st.columns(2)
                 if c_opt1.checkbox("International (+$2.00)"): is_intl = True
@@ -451,20 +449,32 @@ def render_store_page():
                         st.rerun()
                 else:
                     if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
-                        d_id = _handle_draft_creation(u_email, tier_code, final_price)
-                        link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
-                        if d_id: link += f"&draft_id={d_id}"
-                        if is_intl: link += "&intl=1"
-                        if is_certified: link += "&certified=1"
-                        if tier_code == "Campaign": link += f"&qty={qty}"
-                        
-                        if payment_engine:
-                            url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
-                            if url:
-                                if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
-                                st.session_state.pending_stripe_url = url
-                                st.rerun()
-                            else: st.error("⚠️ Stripe Config Missing")
+                        # --- SAFE PAYMENT GENERATION BLOCK ---
+                        try:
+                            # 1. Create Draft
+                            d_id = _handle_draft_creation(u_email, tier_code, final_price)
+                            
+                            # 2. Build Return URL
+                            link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
+                            if d_id: link += f"&draft_id={d_id}"
+                            if is_intl: link += "&intl=1"
+                            if is_certified: link += "&certified=1"
+                            if tier_code == "Campaign": link += f"&qty={qty}"
+                            
+                            if payment_engine:
+                                url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
+                                if url:
+                                    if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
+                                    st.session_state.pending_stripe_url = url
+                                    st.rerun()
+                                else:
+                                    st.error("⚠️ Stripe Error: Could not generate link. Check API keys.")
+                            else:
+                                st.error("⚠️ Payment Engine Missing")
+                        except Exception as e:
+                            st.error(f"❌ System Crash: {str(e)}")
+                            # Log full error for debugging
+                            print(f"CRITICAL PAYMENT ERROR: {e}")
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
