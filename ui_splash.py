@@ -15,7 +15,7 @@ def show_splash():
     <style>
         .hero-container {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            padding: 40px 15px; /* Reduced padding for mobile */
+            padding: 40px 15px;
             border-radius: 15px;
             color: white !important;
             text-align: center;
@@ -24,14 +24,14 @@ def show_splash():
             max-width: 100%; 
             box-sizing: border-box;
         }
-        /* RESPONSIVE FONT SIZE FIX - Smaller minimum to fit mobile */
+        /* RESPONSIVE FONT SIZE FIX */
         .hero-title { 
             font-size: clamp(2.2rem, 5vw, 3.5rem); 
             font-weight: 700; 
             margin: 0; 
             color: white !important; 
             line-height: 1.1;
-            word-wrap: break-word; /* Prevents overflow */
+            word-wrap: break-word;
         }
         .hero-subtitle { 
             font-size: clamp(1.1rem, 3vw, 1.8rem); 
@@ -46,15 +46,14 @@ def show_splash():
         }
         .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
         
-        /* CARDS: Shorter and tighter */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-            padding: 10px; /* Tighter padding */
+            padding: 10px;
             border-radius: 10px; border: 1px solid #4a90e2;
             text-align: center; height: 100%; display: flex;
             flex-direction: column; justify-content: flex-start;
             color: white !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            min-height: 200px; /* Reduced height */
+            min-height: 200px;
         }
         .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.0rem; margin-bottom: 2px; }
         .price-tag { font-size: 1.6rem; font-weight: 800; color: #ffeb3b !important; margin: 2px 0; }
@@ -78,7 +77,13 @@ def show_splash():
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
         if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
-            st.session_state.app_mode = "store"
+            # --- SMART ROUTING FIX ---
+            # If logged in -> Go to Store
+            # If guest -> Go to Login (Avoids "Session Expired" error)
+            if st.session_state.get("user_email"):
+                st.session_state.app_mode = "store"
+            else:
+                st.session_state.app_mode = "login"
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
