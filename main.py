@@ -70,6 +70,7 @@ if __name__ == "__main__":
                     st.stop()
 
             if is_paid:
+                # 1. Update State
                 st.session_state.app_mode = "workspace"
                 st.session_state.payment_complete = True
                 st.session_state.current_stripe_id = sess_id 
@@ -83,25 +84,23 @@ if __name__ == "__main__":
                 if not current_user and payer_email:
                     st.session_state.user_email = payer_email
 
+                # Restore tier/settings from URL params
                 if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
                 if "intl" in q_params: st.session_state.is_intl = True
                 if "certified" in q_params: st.session_state.is_certified = True
                 if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
                 
-                st.success("✅ Payment Verified! Welcome.")
+                # 2. AUTO-FORWARD (No button required)
+                st.toast("✅ Payment Verified! Preparing workspace...", icon="📮")
+                time.sleep(0.5) # Brief pause for toast visibility
+                st.query_params.clear()
+                st.rerun()
                 
-                # --- MANUAL BRAKE ---
-                st.markdown("---")
-                if st.button("👉 Click here to Compose Letter", type="primary", use_container_width=True):
-                    st.query_params.clear()
-                    st.rerun()
-                
-                st.stop()
             else:
                 if audit_engine: audit_engine.log_event(current_user, "PAYMENT_FAILED", sess_id, {"reason": "Verification returned false"})
                 st.error("❌ Payment Verification Failed.")
                 st.session_state.app_mode = "store"
-                time.sleep(1)
+                time.sleep(2)
                 st.query_params.clear()
                 st.rerun()
             
