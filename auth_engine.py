@@ -5,9 +5,10 @@ import re
 from datetime import datetime, timedelta
 import logging
 
+# Configure Logging
 logger = logging.getLogger(__name__)
 
-# Simple in-memory rate limiting for reset attempts
+# --- RESTORED: In-memory rate limiting for reset attempts ---
 reset_attempts = {}
 
 def get_client():
@@ -37,21 +38,20 @@ def sign_in(email, password):
         res = client.auth.sign_in_with_password({"email": email, "password": password})
         return res, None
     except Exception as e:
-        # CRITICAL FIX: Log the actual error instead of hiding it
+        # --- FIXED: Explicit Error Logging ---
         err_msg = str(e)
         logger.error(f"Login Failed: {err_msg}")
-        
         if "Invalid login credentials" in err_msg:
             return None, "Incorrect email or password."
         elif "Email not confirmed" in err_msg:
-            return None, "Please confirm your email address before logging in."
-        else:
-            return None, f"Login Failed: {err_msg}"
+            return None, "Please confirm your email address."
+        return None, f"Login Failed: {err_msg}"
 
 def sign_up(email, password, name, street, street2, city, state, zip_code, country, language):
     client, err = get_client()
     if err: return None, err
     
+    # Check password strength first
     valid, msg = validate_password_strength(password)
     if not valid: return None, msg
     
@@ -71,28 +71,60 @@ def sign_up(email, password, name, street, street2, city, state, zip_code, count
                 profile_data_template["id"] = res.user.id
                 client.table("user_profiles").upsert(profile_data_template).execute()
             except Exception as e:
-                logger.error(f"Profile Create Error: {e}")
-                # Don't fail the whole signup if just profile table fails, but warn
-                return res, None
+                logger.error(f"Profile Error: {e}")
+                # Don't fail auth just because profile sync failed
+                pass 
         return res, None
 
     except Exception as e:
         error_msg = str(e)
         if "User already registered" in error_msg:
-            return None, "This email is already registered. Please Log In."
+            # Attempt recovery login if needed, or just warn
+            return None, "Account already exists. Please log in."
         return None, f"Signup Failed: {error_msg}"
 
 def send_password_reset(email):
-    """
-    Sends a password reset email via Supabase.
-    Ensure your Redirect URL in Supabase Auth Settings matches your app URL.
-    """
     client, err = get_client()
     if err: return False, err
     try:
-        # This triggers the Supabase 'Reset Password' email template
         client.auth.reset_password_email(email)
         return True, None
     except Exception as e:
         logger.error(f"Reset Email Error: {e}")
-        return False, "Could not send reset email. Please check the address."
+        return False, "Error sending reset email."
+
+# --- RESTORED: Token Verification Function ---
+def reset_password_with_token(email, token, new_password):
+    # Rate Limiting Logic
+    now = datetime.now()
+    attempts = reset_attempts.get(email, [])
+    # Filter attempts in the last 15 mins
+    recent_attempts = [t for t, _ in attempts if now - t < timedelta(minutes=15)]
+    
+    if len(recent_attempts) >= 5:
+        return False, "Too many attempts. Please wait 15 minutes."
+    
+    # Validate Password
+    valid, msg = validate_password_strength(new_password)
+    if not valid: return False, msg
+
+    client, err = get_client()
+    if err: return False, err
+    
+    try:
+        # Verify the OTP (Token)
+        res = client.auth.verify_otp({"email": email, "token": token, "type": "recovery"})
+        
+        if res.user and res.session:
+            reset_attempts.setdefault(email, []).append((now, True))
+            # Set session and update password
+            client.auth.set_session(res.session.access_token, res.session.refresh_token)
+            client.auth.update_user({"password": new_password})
+            return True, None
+        else:
+            reset_attempts.setdefault(email, []).append((now, False))
+            return False, "Invalid or expired token."
+    except Exception as e:
+        reset_attempts.setdefault(email, []).append((now, False))
+        logger.error(f"Reset Error: {e}")
+        return False, f"Reset failed: {str(e)}"
