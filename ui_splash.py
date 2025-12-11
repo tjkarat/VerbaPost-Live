@@ -24,8 +24,20 @@ def show_splash():
             max-width: 100%; 
             box-sizing: border-box;
         }
-        .hero-title { font-size: 3.5rem; font-weight: 700; margin: 0; color: white !important; }
-        .hero-subtitle { font-size: 1.8rem; font-weight: 600; margin-top: 10px; color: #a8c0ff !important; }
+        /* RESPONSIVE FONT SIZE FIX */
+        .hero-title { 
+            font-size: clamp(2.5rem, 6vw, 3.5rem); 
+            font-weight: 700; 
+            margin: 0; 
+            color: white !important; 
+            line-height: 1.2;
+        }
+        .hero-subtitle { 
+            font-size: clamp(1.2rem, 4vw, 1.8rem); 
+            font-weight: 600; 
+            margin-top: 10px; 
+            color: #a8c0ff !important; 
+        }
         .hero-subtext {
             margin-top: 20px; font-size: 1.15rem; line-height: 1.6;
             opacity: 0.95; color: #ffffff !important;
@@ -33,14 +45,14 @@ def show_splash():
         }
         .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
         
-        /* FIX: Added min-height to equalize card sizes */
+        /* Reduced min-height to 250px per previous request */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
             padding: 15px; border-radius: 10px; border: 1px solid #4a90e2;
             text-align: center; height: 100%; display: flex;
             flex-direction: column; justify-content: flex-start;
             color: white !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            min-height: 300px; 
+            min-height: 250px; 
         }
         .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
         .price-tag { font-size: 1.8rem; font-weight: 800; color: #ffeb3b !important; margin: 5px 0; }

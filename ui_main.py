@@ -147,7 +147,6 @@ def reset_app(full_logout=False):
             del st.session_state.user_email
         st.session_state.app_mode = "splash"
     else:
-        # If logged in, go to Store to start new. If not, Splash.
         if u_email: 
             st.session_state.app_mode = "store"
         else: 
@@ -155,10 +154,11 @@ def reset_app(full_logout=False):
 
 # --- 5. SHARED UI COMPONENTS ---
 def render_hero(title, subtitle):
+    # CSS FIX: Added responsive clamp() font sizing
     st.markdown(f"""
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 40px; border-radius: 15px; text-align: center; margin-bottom: 30px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); max-width: 100%; box-sizing: border-box;">
-        <h1 style="margin: 0; font-size: 3rem; font-weight: 700; color: white !important;">{title}</h1>
-        <div style="font-size: 1.2rem; opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; color: white !important;">{title}</h1>
+        <div style="font-size: clamp(1rem, 3vw, 1.2rem); opacity: 0.9; margin-top: 10px; color: white !important;">{subtitle}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -469,7 +469,7 @@ def render_workspace_page():
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
-            st.info("Instructions: Click mic, speak, click stop.")
+            st.info("🎙️ **Instructions:**\n1. Click the microphone icon to start.\n2. Speak your letter clearly.\n3. Click the square 'Stop' button when finished.")
             audio = st.audio_input("Record")
             if audio:
                 if st.button("Transcribe Recording", key="btn_rec"):
@@ -488,7 +488,7 @@ def render_workspace_page():
                                 st.rerun()
 
         with t2:
-            st.info("Upload MP3, WAV, or M4A.")
+            st.info("📂 Upload MP3, WAV, or M4A audio files.")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
             if up:
                 if st.button("Transcribe File", key="btn_up"):
@@ -508,7 +508,14 @@ def render_workspace_page():
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
     if tier == "Santa": 
-        st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
+        st.session_state.from_addr = {
+            "name": "Santa Claus", 
+            "street": "123 Elf Road", 
+            "city": "North Pole", 
+            "state": "NP", 
+            "zip": "88888", 
+            "country": "NP"
+        }
     else:
         st.session_state.from_addr = {
             "name": st.session_state.get("w_from_name"), 
@@ -522,7 +529,14 @@ def _save_addrs(tier):
         }
 
     if tier == "Civic":
-        st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
+        st.session_state.to_addr = {
+            "name": "Civic Action", 
+            "street": "Capitol", 
+            "city": "DC", 
+            "state": "DC", 
+            "zip": "20000", 
+            "country": "US"
+        }
     else:
         st.session_state.to_addr = {
             "name": st.session_state.get("w_to_name"), 
