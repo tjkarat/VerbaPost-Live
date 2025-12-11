@@ -43,7 +43,7 @@ class LetterDraft(Base):
 class SavedContact(Base):
     __tablename__ = "saved_contacts"
     id = Column(Integer, primary_key=True, index=True)
-    user_email = Column(String, index=True) 
+    user_email = Column(String, index=True, nullable=False) # Enforce Not Null
     name = Column(String)
     street = Column(String)
     street2 = Column(String, nullable=True) 
@@ -63,25 +63,19 @@ class PromoCode(Base):
 # --- ENGINE ---
 @st.cache_resource
 def get_engine():
-    # 1. Try to get the real Supabase URL via Manager
     db_url = secrets_manager.get_secret("DATABASE_URL")
     
-    # 2. EMERGENCY FALLBACK: Check Streamlit secrets directly
     if not db_url:
         try:
             db_url = st.secrets.get("DATABASE_URL")
-            if db_url:
-                logger.info("✅ Found DATABASE_URL in direct secrets (Fallback)")
-        except:
-            pass
+        except: pass
 
     if db_url:
-        # Fix for SQLAlchemy compatibility with Supabase/Postgres
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://")
         logger.info("✅ Connected to Remote Database (Supabase)")
     else:
-        logger.warning("⚠️ DATABASE_URL not found! Using temporary local DB.")
+        logger.warning("⚠️ DATABASE_URL not found! Using local SQLite.")
         db_url = "sqlite:///local_dev.db"
         
     try:
@@ -99,8 +93,6 @@ def get_db_session():
     if not engine:
         raise RuntimeError("Database engine could not be initialized")
     
-    # CRITICAL FIX: expire_on_commit=False keeps objects alive after session closes
-    # This prevents DetachedInstanceError in the UI
     session = sessionmaker(autocommit=False, autoflush=False, expire_on_commit=False, bind=engine)()
     try:
         yield session
@@ -113,6 +105,7 @@ def get_db_session():
 
 # --- CORE FUNCTIONS ---
 def get_user_profile(email):
+    if not email: return None
     try:
         with get_db_session() as db:
             return db.query(UserProfile).filter(UserProfile.email == email).first()
@@ -154,6 +147,7 @@ def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, stat
         return False
 
 def update_user_profile(email, name, street, street2, city, state, zip_code, country="US"):
+    if not email: return
     try:
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
@@ -164,11 +158,21 @@ def update_user_profile(email, name, street, street2, city, state, zip_code, cou
     except Exception as e:
         logger.error(f"Update Profile Error: {e}")
 
-# --- ADDRESS BOOK ---
+# --- ADDRESS BOOK (SECURED) ---
 def add_contact(user_email, name, street, street2, city, state, zip_code, country="US"):
+    # SECURITY FIX: Do not allow saving contacts for None/Guest users
+    if not user_email: 
+        logger.warning("Attempted to save contact without user_email. Blocked.")
+        return False
+
     try:
         with get_db_session() as db:
-            exists = db.query(SavedContact).filter(SavedContact.user_email == user_email, SavedContact.name == name).first()
+            # Check if exists for THIS user only
+            exists = db.query(SavedContact).filter(
+                SavedContact.user_email == user_email, 
+                SavedContact.name == name
+            ).first()
+            
             if exists:
                 exists.street = street; exists.street2 = street2; exists.city = city
                 exists.state = state; exists.zip_code = zip_code; exists.country = country
@@ -184,6 +188,10 @@ def add_contact(user_email, name, street, street2, city, state, zip_code, countr
         return False
 
 def get_contacts(user_email):
+    # SECURITY FIX: Return empty list if no user_email provided (Guests see nothing)
+    if not user_email: 
+        return []
+        
     try:
         with get_db_session() as db:
             return db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
@@ -196,72 +204,42 @@ def delete_contact(contact_id):
             return True
     except Exception: return False
 
-# --- ADMIN CONSOLE SUPPORT ---
-def fetch_all_drafts():
-    """
-    Fetches all drafts for the Admin Console.
-    Returns a list of dictionaries.
-    """
-    try:
-        with get_db_session() as db:
-            # Fetch latest 100 drafts to prevent overload
-            drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
-            
-            # Convert SQLAlchemy objects to simple dictionaries
-            results = []
-            for d in drafts:
-                results.append({
-                    "ID": d.id,
-                    "Date": d.created_at.strftime("%Y-%m-%d %H:%M"),
-                    "Email": d.user_email,
-                    "Tier": d.tier,
-                    "Status": d.status,
-                    "Price": d.price,
-                    "Content": d.transcription,
-                    "Recipient": d.recipient_json,
-                    "Sender": d.sender_json
-                })
-            return results
-    except Exception as e:
-        logger.error(f"Fetch Drafts Error: {e}")
-        return []
-    # --- ADD TO database.py ---
+# --- LEADERBOARD & ADMIN ---
 def get_civic_leaderboard():
-    """
-    Fetches top states by Civic letters sent.
-    Parses JSON in Python to maintain SQLite/Postgres compatibility.
-    """
     try:
         with get_db_session() as db:
-            # Fetch all completed Civic drafts
             drafts = db.query(LetterDraft).filter(
                 LetterDraft.tier == 'Civic',
                 LetterDraft.status.in_(['Completed', 'PAID'])
             ).all()
-            
-            # Aggregate by State in Python
             counts = {}
             for d in drafts:
                 try:
-                    # Parse JSON to find State
                     if d.recipient_json:
                         data = json.loads(d.recipient_json)
-                        # Handle various address formats
-                        state = (
-                            data.get('state') or 
-                            data.get('address_state') or 
-                            data.get('provinceOrState')
-                        )
+                        state = (data.get('state') or data.get('address_state') or data.get('provinceOrState'))
                         if state:
-                            # Normalize state (e.g., "TX" vs "Texas") could happen here
                             st_norm = state.strip().upper()[:2] 
                             counts[st_norm] = counts.get(st_norm, 0) + 1
-                except Exception:
-                    continue
-            
-            # Sort by count descending and take top 5
+                except: continue
             return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
-            
     except Exception as e:
         logger.error(f"Leaderboard Error: {e}")
+        return []
+
+def fetch_all_drafts():
+    try:
+        with get_db_session() as db:
+            drafts = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
+            results = []
+            for d in drafts:
+                results.append({
+                    "ID": d.id, "Date": d.created_at.strftime("%Y-%m-%d %H:%M"),
+                    "Email": d.user_email, "Tier": d.tier, "Status": d.status,
+                    "Price": d.price, "Content": d.transcription,
+                    "Recipient": d.recipient_json, "Sender": d.sender_json
+                })
+            return results
+    except Exception as e:
+        logger.error(f"Fetch Drafts Error: {e}")
         return []
