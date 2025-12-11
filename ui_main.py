@@ -136,7 +136,7 @@ def render_sidebar():
                  st.session_state.app_mode = "store"
                  st.rerun()
 
-        st.caption("v3.1.9 (Stabilized)")
+        st.caption("v3.1.10 (Full Feature)")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -164,7 +164,7 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
-            # Keep selection sticky
+            # Keep selection sticky if returning from elsewhere
             default_idx = 0
             stored_tier = st.session_state.get("locked_tier")
             if stored_tier and stored_tier in list(tier_labels.keys()):
@@ -218,11 +218,12 @@ def render_store_page():
                     st.session_state.app_mode = "workspace"
                     st.rerun()
             else:
-                # --- STRIPE TWO-STEP FLOW ---
+                # --- STRIPE TWO-STEP FLOW (FIXED) ---
                 if "pending_stripe_url" in st.session_state:
                     url = st.session_state.pending_stripe_url
                     st.success("✅ Link Generated!")
                     
+                    # HTML BUTTON (New Tab Escape)
                     st.markdown(f'''
                     <a href="{url}" target="_blank" style="text-decoration: none;">
                         <div style="
@@ -242,7 +243,10 @@ def render_store_page():
                         st.rerun()
                 else:
                     if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
+                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
+                        
+                        # 2. Build Return URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
@@ -273,12 +277,14 @@ def _handle_draft_creation(email, tier, price):
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE (Address Book & Transcribe Fix) ---
+# --- 7. PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
+    
     render_hero("Compose Letter", f"{tier} Edition")
     
+    # 1. User Profile Loading
     u_email = st.session_state.get("user_email")
     if database and u_email:
         p = database.get_user_profile(u_email)
@@ -290,6 +296,7 @@ def render_workspace_page():
             st.session_state.w_from_zip = p.address_zip
 
     with st.container(border=True):
+        # 2. Campaign Logic
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
@@ -306,6 +313,7 @@ def render_workspace_page():
                         st.success(f"✅ {len(c)} contacts loaded.")
                         if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
+            # 3. Standard Addressing
             st.subheader("📍 Addressing")
             c1, c2 = st.columns(2)
             
@@ -325,6 +333,7 @@ def render_workspace_page():
             with c2: # TO
                 st.markdown("**To**")
                 if tier == "Civic":
+                    # Civic Engine Logic
                     st.info("🏛️ **Auto-Detect Representatives**")
                     zip_code = st.session_state.get("w_from_zip")
                     if not zip_code: st.warning("Enter your Zip Code in the 'From' section first.")
@@ -341,7 +350,7 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
-                    # --- ADDRESS BOOK LOGIC (Fixed for Editing) ---
+                    # Address Book Logic (FIXED: Uses on_change to allow editing)
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
@@ -358,7 +367,6 @@ def render_workspace_page():
                                         st.session_state.w_to_state = c_obj.state
                                         st.session_state.w_to_zip = c_obj.zip_code
 
-                            # Callback pattern decouples selection from the text fields
                             st.selectbox("Address Book", contact_names, key="addr_book_sel", on_change=on_contact_select)
 
                     st.text_input("Name", key="w_to_name")
@@ -388,6 +396,7 @@ def render_workspace_page():
         st.write("✍️ **Signature**")
         if tier == "Santa": st.info("Signed by Santa")
         else: 
+            # FIXED WIDTH 300
             canvas = st_canvas(stroke_width=2, height=150, width=300, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     
@@ -399,12 +408,12 @@ def render_workspace_page():
             audio = st.audio_input("Record")
             if audio and st.button("Transcribe Recording"):
                 if ai_engine:
-                    with st.spinner("🔊 Transcribing... This typically takes 10-30 seconds."): 
+                    with st.spinner("🔊 Transcribing your voice... This typically takes 10-30 seconds."): 
                         res = ai_engine.transcribe_audio(audio)
                         
-                        # FIX: Check for error strings AND valid length
-                        if res.startswith("Error:") or res.startswith("Failed:") or len(res) < 5:
-                            st.error(f"Transcription Failed: {res}")
+                        # FIX: Logic to catch errors
+                        if res.startswith("Error:") or res.startswith("Failed:"):
+                            st.error(res)
                         else:
                             st.session_state.transcribed_text = res
                             st.session_state.app_mode = "review"
@@ -445,7 +454,7 @@ def _save_addrs(tier):
             "country": st.session_state.get("w_to_country", "US")
         }
     
-    # Address Verification Logic
+    # Address Verification Logic (Restored)
     if mailer and st.session_state.to_addr.get('country') == "US":
         with st.spinner("Verifying Address..."):
             valid, data = mailer.verify_address_data(
@@ -520,9 +529,10 @@ def render_review_page():
                 except: pass
 
     if st.button("🚀 Send Letter", type="primary"):
-        # PRE-FLIGHT CHECK to stop PostGrid 404s
+        # PRE-FLIGHT CHECK
         to_check = st.session_state.get("to_addr", {})
         if tier != "Campaign" and tier != "Civic":
+            # Strict check for essential fields
             if not to_check.get("city") or not to_check.get("zip"):
                 st.error("❌ Recipient Address Incomplete! Please provide City and Zip.")
                 return
