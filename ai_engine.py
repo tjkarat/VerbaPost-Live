@@ -28,7 +28,7 @@ def load_whisper_model_cached():
         import whisper
         logger.info("[CACHE] Downloading/Loading Whisper 'tiny' model to /tmp...")
         
-        # CRITICAL FIX 1: Force CPU to prevent Cloud Run crashes
+        # CRITICAL FIX: Force CPU to prevent Cloud Run crashes
         device = "cpu"
         
         # CRITICAL FIX 2: download_root="/tmp" for Read-Only filesystems
@@ -43,7 +43,6 @@ def load_and_transcribe(audio_path_or_file):
         logger.info("[TRANSCRIBE] Step 1: Garbage collection")
         gc.collect()
         
-        # CRITICAL FIX: Explicit check for FFmpeg dependency
         if not shutil.which("ffmpeg"):
              return False, "Error: 'ffmpeg' command not found. Please ensure it is installed in packages.txt."
 
@@ -67,8 +66,6 @@ def load_and_transcribe(audio_path_or_file):
         logger.info(f"[TRANSCRIBE] Finished. Text length: {len(text)}")
         
         if not text:
-            # Return a visible error string if silence is detected, 
-            # so the UI knows to warn the user instead of showing blank.
             return True, "[Error: No speech detected. Please speak closer to the microphone.]" 
         
         return True, text
@@ -110,8 +107,6 @@ def transcribe_audio(audio_input):
                 return "Error: Audio file is empty or too small."
             
             success, result = load_and_transcribe(tmp_path)
-            
-            # Standardize error return
             return result if success else f"Error: {result}"
 
     except Exception as e:
@@ -123,20 +118,12 @@ def transcribe_audio(audio_input):
             try: os.remove(tmp_path)
             except: pass
 
-# --- TEXT REFINEMENT ENGINE (Restored) ---
+# --- TEXT REFINEMENT ENGINE ---
 def refine_text(text, style="Professional"):
-    """
-    Uses OpenAI API to rewrite text styles (Grammar, Friendly, etc).
-    Gracefully degrades if API key is missing.
-    """
     try:
-        # Lazy import to prevent startup crash if library missing
         import openai
-        
         api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-        if not api_key: 
-            logger.warning("[REFINE] No OpenAI API Key found. Returning original text.")
-            return text 
+        if not api_key: return text 
 
         client = openai.OpenAI(api_key=api_key)
         
@@ -158,10 +145,6 @@ def refine_text(text, style="Professional"):
             temperature=0.7
         )
         return response.choices[0].message.content.strip()
-        
-    except ImportError:
-        logger.error("[REFINE] openai library not installed.")
-        return text
     except Exception as e:
         logger.error(f"[REFINE] Error: {e}")
         return text
