@@ -225,3 +225,43 @@ def fetch_all_drafts():
     except Exception as e:
         logger.error(f"Fetch Drafts Error: {e}")
         return []
+    # --- ADD TO database.py ---
+def get_civic_leaderboard():
+    """
+    Fetches top states by Civic letters sent.
+    Parses JSON in Python to maintain SQLite/Postgres compatibility.
+    """
+    try:
+        with get_db_session() as db:
+            # Fetch all completed Civic drafts
+            drafts = db.query(LetterDraft).filter(
+                LetterDraft.tier == 'Civic',
+                LetterDraft.status.in_(['Completed', 'PAID'])
+            ).all()
+            
+            # Aggregate by State in Python
+            counts = {}
+            for d in drafts:
+                try:
+                    # Parse JSON to find State
+                    if d.recipient_json:
+                        data = json.loads(d.recipient_json)
+                        # Handle various address formats
+                        state = (
+                            data.get('state') or 
+                            data.get('address_state') or 
+                            data.get('provinceOrState')
+                        )
+                        if state:
+                            # Normalize state (e.g., "TX" vs "Texas") could happen here
+                            st_norm = state.strip().upper()[:2] 
+                            counts[st_norm] = counts.get(st_norm, 0) + 1
+                except Exception:
+                    continue
+            
+            # Sort by count descending and take top 5
+            return sorted(counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            
+    except Exception as e:
+        logger.error(f"Leaderboard Error: {e}")
+        return []

@@ -21,6 +21,8 @@ def show_splash():
             text-align: center;
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
             margin-bottom: 30px;
+            max-width: 100%; 
+            box-sizing: border-box;
         }
         .hero-title { font-size: 3.5rem; font-weight: 700; margin: 0; color: white !important; }
         .hero-subtitle { font-size: 1.8rem; font-weight: 600; margin-top: 10px; color: #a8c0ff !important; }
@@ -30,12 +32,15 @@ def show_splash():
             max-width: 700px; margin-left: auto; margin-right: auto;
         }
         .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
+        
+        /* FIX: Added min-height to equalize card sizes */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
             padding: 15px; border-radius: 10px; border: 1px solid #4a90e2;
             text-align: center; height: 100%; display: flex;
             flex-direction: column; justify-content: flex-start;
             color: white !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            min-height: 300px; 
         }
         .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
         .price-tag { font-size: 1.8rem; font-weight: 800; color: #ffeb3b !important; margin: 5px 0; }
@@ -67,7 +72,7 @@ def show_splash():
     # PRICING
     p1, p2, p3, p4 = st.columns(4)
     with p1:
-        st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li><li><br></li></ul></div>""", unsafe_allow_html=True)
     with p2:
         st.markdown("""<div class="price-card"><div class="price-title">🏺 Heirloom</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
     with p3:
@@ -75,12 +80,14 @@ def show_splash():
     with p4:
         st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # LEADERBOARD (Restored & Fixed)
+    # LEADERBOARD (Safe Mode)
     st.markdown("<br><hr>", unsafe_allow_html=True)
     if database:
         try:
             # Explicitly fetch to debug
-            stats = database.get_civic_leaderboard()
+            # Using getattr to safely check if function exists, preventing crash if old DB file
+            func = getattr(database, 'get_civic_leaderboard', None)
+            stats = func() if func else []
             
             with st.container(border=True):
                 st.subheader("📢 Civic Leaderboard")
@@ -88,10 +95,9 @@ def show_splash():
                     for state, count in stats:
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
                 else:
-                    # FIX: Show encouragement instead of hiding
                     st.info("No letters sent yet this month. Be the first!")
         except Exception as e:
-            st.warning(f"Leaderboard unavailable: {e}")
+            # Silently fail so Legal button still renders
             logger.error(f"Leaderboard Error: {e}")
     else:
         st.warning("⚠️ Database connection missing. Leaderboard disabled.")

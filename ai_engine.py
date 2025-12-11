@@ -39,6 +39,7 @@ def load_and_transcribe(audio_path_or_file):
         logger.info("[TRANSCRIBE] Step 1: Garbage collection")
         gc.collect()
         
+        # CRITICAL FIX: Explicit check for FFmpeg dependency
         if not shutil.which("ffmpeg"):
              return False, "Error: 'ffmpeg' command not found. Please ensure it is installed in packages.txt."
 
