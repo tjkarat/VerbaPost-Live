@@ -15,49 +15,51 @@ def show_splash():
     <style>
         .hero-container {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            padding: 60px 20px;
+            padding: 40px 15px; /* Reduced padding for mobile */
             border-radius: 15px;
             color: white !important;
             text-align: center;
             box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-            margin-bottom: 30px;
+            margin-bottom: 20px;
             max-width: 100%; 
             box-sizing: border-box;
         }
-        /* RESPONSIVE FONT SIZE FIX */
+        /* RESPONSIVE FONT SIZE FIX - Smaller minimum to fit mobile */
         .hero-title { 
-            font-size: clamp(2.5rem, 6vw, 3.5rem); 
+            font-size: clamp(2.2rem, 5vw, 3.5rem); 
             font-weight: 700; 
             margin: 0; 
             color: white !important; 
-            line-height: 1.2;
+            line-height: 1.1;
+            word-wrap: break-word; /* Prevents overflow */
         }
         .hero-subtitle { 
-            font-size: clamp(1.2rem, 4vw, 1.8rem); 
+            font-size: clamp(1.1rem, 3vw, 1.8rem); 
             font-weight: 600; 
             margin-top: 10px; 
             color: #a8c0ff !important; 
         }
         .hero-subtext {
-            margin-top: 20px; font-size: 1.15rem; line-height: 1.6;
+            margin-top: 15px; font-size: 1.0rem; line-height: 1.5;
             opacity: 0.95; color: #ffffff !important;
             max-width: 700px; margin-left: auto; margin-right: auto;
         }
         .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
         
-        /* Reduced min-height to 250px per previous request */
+        /* CARDS: Shorter and tighter */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-            padding: 15px; border-radius: 10px; border: 1px solid #4a90e2;
+            padding: 10px; /* Tighter padding */
+            border-radius: 10px; border: 1px solid #4a90e2;
             text-align: center; height: 100%; display: flex;
             flex-direction: column; justify-content: flex-start;
-            color: white !important; box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            min-height: 250px; 
+            color: white !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 200px; /* Reduced height */
         }
-        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
-        .price-tag { font-size: 1.8rem; font-weight: 800; color: #ffeb3b !important; margin: 5px 0; }
-        .price-card ul { list-style: none; padding: 0; margin-top: 10px; }
-        .price-card li { color: #e0e0e0 !important; font-size: 0.85rem; margin-bottom: 4px; }
+        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.0rem; margin-bottom: 2px; }
+        .price-tag { font-size: 1.6rem; font-weight: 800; color: #ffeb3b !important; margin: 2px 0; }
+        .price-card ul { list-style: none; padding: 0; margin-top: 5px; }
+        .price-card li { color: #e0e0e0 !important; font-size: 0.8rem; margin-bottom: 2px; line-height: 1.2; }
     </style>
     """, unsafe_allow_html=True)
 
