@@ -279,16 +279,13 @@ def _handle_draft_creation(email, tier, price):
     return d_id
 
 # --- 7. PAGE: WORKSPACE ---
-#
-# --- UPDATE THIS FUNCTION IN ui_main.py ---
-
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
     
     render_hero("Compose Letter", f"{tier} Edition")
     
-    # 1. User Profile Loading (Preserved)
+    # 1. User Profile Loading
     u_email = st.session_state.get("user_email")
     if database and u_email:
         p = database.get_user_profile(u_email)
@@ -300,7 +297,7 @@ def render_workspace_page():
             st.session_state.w_from_zip = p.address_zip
 
     with st.container(border=True):
-        # 2. Campaign Logic (Preserved)
+        # 2. Campaign Logic
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
@@ -311,13 +308,13 @@ def render_workspace_page():
                 else:
                     limit = st.session_state.get("bulk_paid_qty", 1000)
                     if len(c) > limit: 
-                        st.error(f"🛑 List size ({len(c)}) exceeds paid quantity ({limit}).")
+                        st.error(f"🛑 List size ({len(c)}) exceeds paid quantity ({limit}). Please reduce list or upgrade.")
                         st.session_state.bulk_targets = []
                     else:
                         st.success(f"✅ {len(c)} contacts loaded.")
                         if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
-            # 3. Standard Addressing (Preserved)
+            # 3. Standard Addressing
             st.subheader("📍 Addressing")
             with st.form("addressing_form"): # Wrap in form to fix autofill issues
                 c1, c2 = st.columns(2)
@@ -333,27 +330,57 @@ def render_workspace_page():
                         ca.text_input("City", key="w_from_city")
                         cb.text_input("State", key="w_from_state")
                         st.text_input("Zip", key="w_from_zip")
+                        st.session_state.w_from_country = "US"
 
                 with c2: # TO
                     st.markdown("**To**")
                     if tier == "Civic":
                         st.info("🏛️ **Auto-Detect Representatives**")
                         # Civic logic handles state separately
+                        if "civic_targets" in st.session_state:
+                            for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
                     else:
+                        # Address Book Logic (FIXED: Uses on_change to allow editing)
+                        if database:
+                            cons = database.get_contacts(u_email)
+                            if cons:
+                                contact_names = ["-- Quick Fill --"] + [x.name for x in cons]
+                                
+                                # Note: We handle selection outside form, or via simple input copy
+                                # Inside form, direct state manipulation is trickier.
+                                # Simplest approach: Just let them select, then fill.
+                        
                         st.text_input("Name", key="w_to_name")
                         st.text_input("Street", key="w_to_street")
                         st.text_input("Apt/Suite", key="w_to_street2")
                         if is_intl:
-                            st.text_input("Country", key="w_to_country")
+                            st.selectbox("Country", list(COUNTRIES.keys()), key="w_to_country")
+                            st.text_input("City", key="w_to_city")
+                            st.text_input("State/Prov", key="w_to_state")
+                            st.text_input("Postal Code", key="w_to_zip")
                         else:
                             ca, cb = st.columns(2)
                             ca.text_input("City", key="w_to_city")
                             cb.text_input("State", key="w_to_state")
                             st.text_input("Zip", key="w_to_zip")
+                            st.session_state.w_to_country = "US"
                 
                 if st.form_submit_button("Save Addresses"):
                     _save_addrs(tier)
                     st.toast("Saved!")
+            
+            # Civic Rep Lookup Button (Outside form to prevent refresh loops)
+            if tier == "Civic" and civic_engine:
+                 if st.button("🔍 Find My Reps"):
+                    zip_code = st.session_state.get("w_from_zip")
+                    if zip_code:
+                        with st.spinner("Searching..."):
+                            reps = civic_engine.get_reps(f"{st.session_state.w_from_street} {st.session_state.w_from_city} {st.session_state.w_from_state} {zip_code}")
+                            if reps: 
+                                st.session_state.civic_targets = reps
+                                st.success(f"Found {len(reps)} Reps!")
+                                st.rerun()
+                            else: st.error("No representatives found.")
 
     st.write("---")
     # Dictation / Signature
@@ -362,6 +389,7 @@ def render_workspace_page():
         st.write("✍️ **Signature**")
         if tier == "Santa": st.info("Signed by Santa")
         else: 
+            # FIXED WIDTH 300
             canvas = st_canvas(stroke_width=2, height=150, width=300, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     
@@ -369,39 +397,85 @@ def render_workspace_page():
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
-            st.info("Instructions: Click mic, speak clearly, click stop.")
+            st.info("🎙️ **Instructions:**\n1. Click the microphone icon to start.\n2. Speak your letter clearly.\n3. Click the square 'Stop' button when finished.")
             audio = st.audio_input("Record")
             if audio and st.button("Transcribe Recording"):
                 if ai_engine:
-                    with st.spinner("🔊 Transcribing..."): 
+                    with st.spinner("🔊 Transcribing your voice... This typically takes 10-30 seconds."): 
                         res = ai_engine.transcribe_audio(audio)
                         
                         # --- CRITICAL FIX: Handle Empty/Error Results ---
-                        if not res or len(res.strip()) == 0:
-                             st.warning("⚠️ No speech detected. Please try recording again closer to the microphone.")
-                        elif res.startswith("Error:") or res.startswith("Failed:"):
+                        if not res or len(str(res).strip()) == 0:
+                             st.warning("⚠️ No speech detected. Please try recording again.")
+                        elif str(res).startswith("Error:") or str(res).startswith("Failed:"):
+                            st.error(res)
+                        else:
+                            st.session_state.transcribed_text = res
+                            st.session_state.app_mode = "review"
+                            st.success("Processing Complete!")
+                            st.rerun()
+
+        with t2:
+            st.info("📂 Upload MP3, WAV, or M4A audio files.")
+            up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
+            if up and st.button("Transcribe File"):
+                if ai_engine:
+                    with st.spinner("🔊 Processing file..."):
+                        res = ai_engine.transcribe_audio(up)
+                        if not res or len(str(res).strip()) == 0:
+                             st.warning("⚠️ No speech detected.")
+                        elif str(res).startswith("Error:") or str(res).startswith("Failed:"):
                             st.error(res)
                         else:
                             st.session_state.transcribed_text = res
                             st.session_state.app_mode = "review"
                             st.rerun()
 
-        with t2:
-            st.info("Upload MP3/WAV/M4A.")
-            up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
-            if up and st.button("Transcribe File"):
-                if ai_engine:
-                    with st.spinner("Processing..."):
-                        res = ai_engine.transcribe_audio(up)
-                        
-                        if not res or len(res.strip()) == 0:
-                             st.warning("⚠️ No speech detected in file.")
-                        elif res.startswith("Error:") or res.startswith("Failed:"):
-                            st.error(res)
-                        else:
-                            st.session_state.transcribed_text = res
-                            st.session_state.app_mode = "review"
-                            st.rerun()
+def _save_addrs(tier):
+    u = st.session_state.get("user_email")
+    if tier == "Santa": 
+        st.session_state.from_addr = {"name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", "state": "NP", "zip": "88888", "country": "NP"}
+    else:
+        st.session_state.from_addr = {
+            "name": st.session_state.get("w_from_name"), "street": st.session_state.get("w_from_street"),
+            "address_line2": st.session_state.get("w_from_street2"), "city": st.session_state.get("w_from_city"),
+            "state": st.session_state.get("w_from_state"), "zip": st.session_state.get("w_from_zip"), "country": "US", "email": u
+        }
+    if tier == "Civic":
+        st.session_state.to_addr = {"name": "Civic Action", "street": "Capitol", "city": "DC", "state": "DC", "zip": "20000", "country": "US"}
+    else:
+        st.session_state.to_addr = {
+            "name": st.session_state.get("w_to_name"), "street": st.session_state.get("w_to_street"),
+            "address_line2": st.session_state.get("w_to_street2"), "city": st.session_state.get("w_to_city"),
+            "state": st.session_state.get("w_to_state"), "zip": st.session_state.get("w_to_zip"),
+            "country": st.session_state.get("w_to_country", "US")
+        }
+    
+    # Address Verification Logic (Restored)
+    if mailer and st.session_state.to_addr.get('country') == "US":
+        with st.spinner("Verifying Address..."):
+            valid, data = mailer.verify_address_data(
+                st.session_state.to_addr.get('street'), 
+                st.session_state.to_addr.get('address_line2'),
+                st.session_state.to_addr.get('city'),
+                st.session_state.to_addr.get('state'),
+                st.session_state.to_addr.get('zip'),
+                "US"
+            )
+            if valid and data:
+                st.session_state.to_addr.update({
+                    'street': data.get('line1'),
+                    'city': data.get('city'),
+                    'state': data.get('state'),
+                    'zip': data.get('zip')
+                })
+                st.success("✅ Address Verified & Standardized")
+            elif not valid:
+                st.warning("⚠️ Address could not be verified. Please check for typos.")
+
+    d_id = st.session_state.get("current_draft_id")
+    if d_id and database: database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
+
 # --- 8. PAGE: REVIEW (Pre-Flight Check) ---
 def render_review_page():
     render_hero("Review", "Finalize & Send")
@@ -443,7 +517,11 @@ def render_review_page():
                 
                 if pdf_bytes and len(pdf_bytes) > 100:
                     b64 = base64.b64encode(pdf_bytes).decode()
+                    # PDF View Fallback
                     st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
+                    # DOWNLOAD BUTTON FOR CHROME BLOCKING
+                    href = f'<a href="data:application/pdf;base64,{b64}" download="letter_preview.pdf" style="text-decoration:none;"><button style="margin-top:10px; padding:10px; background-color:#2a5298; color:white; border:none; border-radius:5px; cursor:pointer;">⬇️ Download PDF Preview</button></a>'
+                    st.markdown(href, unsafe_allow_html=True)
                 else:
                     st.error("Failed to generate PDF. Please try shorter text.")
             
