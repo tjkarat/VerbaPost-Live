@@ -24,7 +24,6 @@ def show_splash():
             max-width: 100%; 
             box-sizing: border-box;
         }
-        /* RESPONSIVE FONT SIZE FIX */
         .hero-title { 
             font-size: clamp(2.2rem, 5vw, 3.5rem); 
             font-weight: 700; 
@@ -46,16 +45,27 @@ def show_splash():
         }
         .hero-subtext b, .hero-subtext strong { color: #ffffff !important; font-weight: 800; }
         
+        /* CARD STYLING */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-            padding: 10px;
+            padding: 12px;
             border-radius: 10px; border: 1px solid #4a90e2;
             text-align: center; height: 100%; display: flex;
             flex-direction: column; justify-content: flex-start;
             color: white !important; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            min-height: 200px;
+            min-height: 220px; /* Slight bump to fit subtitle comfortably */
         }
-        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.0rem; margin-bottom: 2px; }
+        .price-title { color: #ffffff !important; font-weight: bold; font-size: 1.1rem; margin-bottom: 0px; }
+        
+        /* NEW: SUBTITLE STYLE */
+        .price-subtitle { 
+            color: #a8c0ff !important; 
+            font-size: 0.85rem; 
+            font-style: italic; 
+            margin-bottom: 5px; 
+            font-weight: 500;
+        }
+        
         .price-tag { font-size: 1.6rem; font-weight: 800; color: #ffeb3b !important; margin: 2px 0; }
         .price-card ul { list-style: none; padding: 0; margin-top: 5px; }
         .price-card li { color: #e0e0e0 !important; font-size: 0.8rem; margin-bottom: 2px; line-height: 1.2; }
@@ -80,23 +90,22 @@ def show_splash():
             if st.session_state.get("user_email"):
                 st.session_state.app_mode = "store"
             else:
-                # FIX: Set view to 'signup' so it defaults to the New User tab
                 st.session_state.app_mode = "login"
                 st.session_state.auth_view = "signup"
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # PRICING
+    # PRICING WITH SUBTITLES
     p1, p2, p3, p4 = st.columns(4)
     with p1:
-        st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li><li><br></li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
     with p2:
-        st.markdown("""<div class="price-card"><div class="price-title">🏺 Heirloom</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">🏺 Heirloom</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
     with p3:
-        st.markdown("""<div class="price-card"><div class="price-title">🏛️ Civic</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">🏛️ Civic</div><div class="price-subtitle">Three Letters</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
     with p4:
-        st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
     # LEADERBOARD (Safe Mode)
     st.markdown("<br><hr>", unsafe_allow_html=True)
