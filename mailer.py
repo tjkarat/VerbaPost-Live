@@ -78,6 +78,28 @@ def verify_address_data(line1, line2, city, state, zip_code, country_code):
         logger.error(f"Address Verify Fail: {e}")
         return False, "Address verification system error"
 
+def flatten_contact(prefix, data):
+    """
+    Converts internal snake_case dict to PostGrid camelCase bracket syntax.
+    Example: {'address_line1': '123 Main'} -> {'to[addressLine1]': '123 Main'}
+    """
+    # Map internal keys to PostGrid API keys
+    key_map = {
+        'name': 'firstName', # PostGrid requires firstName/lastName or companyName. Mapping full name to firstName is usually safe.
+        'address_line1': 'addressLine1',
+        'address_line2': 'addressLine2',
+        'address_city': 'city',
+        'address_state': 'provinceOrState',
+        'address_zip': 'postalOrZip',
+        'country_code': 'countryCode'
+    }
+    
+    flat = {}
+    for k, v in data.items():
+        pg_key = key_map.get(k, k) # Use mapped key or fallback to original
+        flat[f"{prefix}[{pg_key}]"] = v
+    return flat
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -88,21 +110,27 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
     api_key = get_postgrid_key()
     if not api_key: return False, "Missing API Key"
 
-    # Use the Print & Mail Endpoint
     url = "https://api.postgrid.com/print-mail/v1/letters"
     
+    # Base Options
     data = {
-        'to': json.dumps(to_addr),
-        'from': json.dumps(from_addr),
         'express': 'true' if certified else 'false',
         'addressPlacement': 'top_first_page',
-        'color': 'false'
+        'color': 'false',
+        'doubleSided': 'true' # Often a good default
     }
     
     if certified: data['extraService'] = 'certified'
 
+    # --- CRITICAL FIX: FLATTEN CONTACT OBJECTS ---
+    # We merge the flattened dictionaries into the main data payload
+    data.update(flatten_contact("to", to_addr))
+    data.update(flatten_contact("from", from_addr))
+
+    # Idempotency
     try:
         with open(pdf_path, 'rb') as f: pdf_content = f.read()
+        # Sort keys to ensure consistent signature
         payload_sig = json.dumps(data, sort_keys=True).encode() + pdf_content
         idempotency_key = hashlib.sha256(payload_sig).hexdigest()
         headers = {"x-api-key": api_key, "Idempotency-Key": idempotency_key}
@@ -119,13 +147,8 @@ def send_letter(pdf_path, to_addr, from_addr, certified=False):
         if response.status_code in [200, 201]:
             res = response.json()
             logger.info(f"Mail Sent! ID: {res.get('id')}")
-            try:
-                if certified and res.get('trackingNumber'):
-                    send_tracking_email(from_addr.get('email'), res.get('trackingNumber'))
-            except: pass
             return True, res
         else:
-            # Log the specific error text from PostGrid (likely "Invalid API Key" or similar)
             err_msg = response.text
             logger.error(f"PostGrid Error: {err_msg}")
             return False, f"API Error {response.status_code}: {err_msg}"
