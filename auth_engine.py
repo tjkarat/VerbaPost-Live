@@ -16,10 +16,11 @@ def get_client():
         key = secrets_manager.get_secret("SUPABASE_KEY") or secrets_manager.get_secret("supabase.key")
         
         if not url or not key: 
-            return None, "Missing Supabase Credentials"
+            return None, "Missing Supabase Credentials in secrets.toml"
         
         return create_client(url, key), None
     except Exception as e:
+        logger.error(f"Supabase Connection Error: {e}")
         return None, "Database Connection Error"
 
 def validate_password_strength(password):
@@ -35,14 +36,22 @@ def sign_in(email, password):
     try:
         res = client.auth.sign_in_with_password({"email": email, "password": password})
         return res, None
-    except Exception:
-        return None, "Login Failed. Please check your email and password."
+    except Exception as e:
+        # CRITICAL FIX: Log the actual error instead of hiding it
+        err_msg = str(e)
+        logger.error(f"Login Failed: {err_msg}")
+        
+        if "Invalid login credentials" in err_msg:
+            return None, "Incorrect email or password."
+        elif "Email not confirmed" in err_msg:
+            return None, "Please confirm your email address before logging in."
+        else:
+            return None, f"Login Failed: {err_msg}"
 
 def sign_up(email, password, name, street, street2, city, state, zip_code, country, language):
     client, err = get_client()
     if err: return None, err
     
-    # Check password strength first
     valid, msg = validate_password_strength(password)
     if not valid: return None, msg
     
@@ -62,60 +71,28 @@ def sign_up(email, password, name, street, street2, city, state, zip_code, count
                 profile_data_template["id"] = res.user.id
                 client.table("user_profiles").upsert(profile_data_template).execute()
             except Exception as e:
-                return None, f"Auth Success, but Profile Error: {e}"
+                logger.error(f"Profile Create Error: {e}")
+                # Don't fail the whole signup if just profile table fails, but warn
+                return res, None
         return res, None
 
     except Exception as e:
         error_msg = str(e)
         if "User already registered" in error_msg:
-            try:
-                login_res = client.auth.sign_in_with_password({"email": email, "password": password})
-                if login_res.user:
-                    profile_data_template["id"] = login_res.user.id
-                    client.table("user_profiles").upsert(profile_data_template).execute()
-                    st.toast("🔄 Account recovered and profile updated!")
-                    return login_res, None 
-            except Exception:
-                return None, "Account exists, but password incorrect."
+            return None, "This email is already registered. Please Log In."
         return None, f"Signup Failed: {error_msg}"
 
 def send_password_reset(email):
+    """
+    Sends a password reset email via Supabase.
+    Ensure your Redirect URL in Supabase Auth Settings matches your app URL.
+    """
     client, err = get_client()
     if err: return False, err
     try:
+        # This triggers the Supabase 'Reset Password' email template
         client.auth.reset_password_email(email)
         return True, None
-    except Exception:
-        return False, "Error sending reset email."
-
-def reset_password_with_token(email, token, new_password):
-    # Rate Limiting
-    now = datetime.now()
-    attempts = reset_attempts.get(email, [])
-    recent_attempts = [t for t, _ in attempts if now - t < timedelta(minutes=15)]
-    
-    if len(recent_attempts) >= 5:
-        return False, "Too many attempts. Please try again later."
-    
-    # Validate
-    valid, msg = validate_password_strength(new_password)
-    if not valid: return False, msg
-
-    client, err = get_client()
-    if err: return False, err
-    
-    try:
-        res = client.auth.verify_otp({"email": email, "token": token, "type": "recovery"})
-        
-        if res.user and res.session:
-            reset_attempts.setdefault(email, []).append((now, True))
-            client.auth.set_session(res.session.access_token, res.session.refresh_token)
-            client.auth.update_user({"password": new_password})
-            return True, None
-        else:
-            reset_attempts.setdefault(email, []).append((now, False))
-            return False, "Invalid or expired token."
     except Exception as e:
-        reset_attempts.setdefault(email, []).append((now, False))
-        logger.error(f"Reset Error: {e}")
-        return False, "Password reset failed."
+        logger.error(f"Reset Email Error: {e}")
+        return False, "Could not send reset email. Please check the address."

@@ -1,189 +1,118 @@
 import streamlit as st
-try: import mailer
-except ImportError: mailer = None
+import time
 
-COUNTRIES = {
-    "US": "United States", "CA": "Canada", "GB": "United Kingdom", "FR": "France",
-    "DE": "Germany", "IT": "Italy", "ES": "Spain", "AU": "Australia", "MX": "Mexico",
-    "JP": "Japan", "BR": "Brazil", "IN": "India"
-}
-
-LANGUAGES = [
-    "English", "Spanish", "French", "German", "Italian", 
-    "Japanese", "Korean", "Chinese", "Portuguese"
-]
-
-def validate_address(street, city, state, zip_code, country_code):
-    errors = []
-    if country_code == "US":
-        if len(zip_code) != 5 or not zip_code.isdigit():
-            errors.append("US Zip code must be exactly 5 digits.")
-        if len(state) != 2:
-            errors.append("US State must be a 2-letter abbreviation.")
-    else:
-        if len(str(zip_code)) < 3: errors.append("Postal code looks too short.")
-        if len(str(state)) < 2: errors.append("State/Province required.")
-    if len(street) < 5: errors.append("Street address looks too short.")
-    return errors
+# Robust import for Auth Engine
+try: import auth_engine
+except ImportError: auth_engine = None
 
 def show_login(login_func, signup_func):
-    # --- CSS: INPUT FIELD STYLING ---
+    # CSS for centering and styling
     st.markdown("""
     <style>
-        div[data-testid="stForm"] input, div[data-testid="stForm"] select {
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 10px;
-            transition: all 0.2s ease;
+        .auth-container {
+            max-width: 400px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            text-align: center;
         }
-        div[data-testid="stForm"] input:focus {
-            border-color: #2a5298 !important;
-            box-shadow: 0 0 0 3px rgba(42, 82, 152, 0.15) !important;
-            outline: none;
-        }
-        .stAlert {
-            background-color: #f0f9ff;
-            border: 1px solid #bae6fd;
-            color: #0c4a6e;
-        }
+        .auth-header { color: #1e3c72; font-weight: 700; margin-bottom: 20px; }
     </style>
     """, unsafe_allow_html=True)
 
-    c1, c2, c3 = st.columns([1, 3, 1])
-    
-    with c2:
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 20px;">
-            <h1 style="color: #2a5298 !important; margin-bottom: 0;">VerbaPost 📮</h1>
-            <p style="font-size: 1.1em; color: #666 !important;">Member Access</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # Initialize sub-view state if not present
+    if "auth_view" not in st.session_state:
+        st.session_state.auth_view = "login"
 
-        # --- SYSTEM RESET NOTICE (NEW) ---
-        st.warning("⚠️ **System Notice:** All user accounts were reset during our latest update. If you had an account previously, please **Create a New Account** below.")
-
-        with st.container(border=True):
-            if "auth_error" in st.session_state:
-                st.error(st.session_state.auth_error)
-                del st.session_state.auth_error
-            
-            active_tab = st.session_state.get("auth_view", "login")
-            if active_tab == "signup": t_signup, t_login = st.tabs(["📝 Create Account", "🔑 Log In"])
-            else: t_login, t_signup = st.tabs(["🔑 Log In", "📝 Create Account"])
-            
-            # --- LOGIN TAB ---
-            with t_login:
-                with st.form("login_form"):
-                    email = st.text_input("Email Address", key="login_email")
-                    password = st.text_input("Password", type="password", key="login_pass")
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.form_submit_button("Log In", type="primary", use_container_width=True):
-                        if email and password:
-                            with st.spinner("Verifying..."): login_func(email, password)
-                        else: st.warning("Enter email & password")
-                if st.button("🔑 Lost Password?", type="secondary", use_container_width=True):
-                    st.session_state.app_mode = "forgot_password"; st.rerun()
-            
-            # --- SIGNUP TAB ---
-            with t_signup:
-                st.caption("Please fill out your details below.")
-                with st.form("signup_form"):
-                    new_email = st.text_input("Email")
-                    new_pass = st.text_input("Password", type="password")
-                    confirm_pass = st.text_input("Confirm Password", type="password")
-                    
-                    st.markdown("---")
-                    st.markdown("### 🏠 Your Return Address")
-                    st.info("ℹ️ We verify addresses to ensure deliverability.")
-                    
-                    name = st.text_input("Full Legal Name")
-                    
-                    c_cntry, c_lang = st.columns([1, 1])
-                    country_code = c_cntry.selectbox("Country", list(COUNTRIES.keys()), index=0)
-                    language = c_lang.selectbox("Preferred Language", LANGUAGES, index=0)
-                    
-                    addr = st.text_input("Street Address")
-                    addr2 = st.text_input("Apt / Suite / Unit (Optional)")
-                    
-                    c_city, c_state, c_zip = st.columns([2, 1, 1.2])
-                    city = c_city.text_input("City")
-                    state = c_state.text_input("State")
-                    zip_code = c_zip.text_input("Zip Code")
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.form_submit_button("Create Account", type="primary", use_container_width=True):
-                        
-                        if not name or not addr or not city or not state or not zip_code:
-                             st.error("⚠️ **Missing Info:** Some fields appear empty. If you used autofill, please click inside the boxes to ensure they are saved.")
-                        elif new_pass != confirm_pass: 
-                             st.error("❌ Passwords do not match")
-                        else:
-                            clean_addr, clean_addr2 = addr, addr2
-                            clean_city, clean_state, clean_zip = city, state, zip_code
-                            
-                            if mailer and country_code == "US":
-                                with st.spinner("Verifying Address..."):
-                                    is_valid, data = mailer.verify_address_data(addr, addr2, city, state, zip_code, country_code)
-                                    
-                                    if not is_valid:
-                                        st.error(f"❌ {data}")
-                                        st.stop()
-                                    elif data:
-                                        clean_addr = data['line1']
-                                        clean_addr2 = data['line2']
-                                        clean_city = data['city']
-                                        clean_state = data['state']
-                                        clean_zip = data['zip']
-                                        if clean_addr.lower() != addr.lower():
-                                            st.toast(f"✨ Address standardized to: {clean_addr}")
-
-                            with st.spinner("Creating account..."):
-                                res, err = signup_func(
-                                    new_email, new_pass, name, 
-                                    clean_addr, clean_addr2, clean_city, clean_state, clean_zip, country_code, 
-                                    language
-                                )
-                                
-                                if res:
-                                    st.success("✅ Account created! Please check your email or log in.")
-                                elif err:
-                                    st.error(f"❌ Signup Failed: {err}")
-
-    f1, f2, f3 = st.columns([1, 2, 1])
-    with f2:
-        if st.button("← Back to Home", type="secondary", use_container_width=True):
-            st.session_state.app_mode = "splash"; st.rerun()
-
-def show_forgot_password(send_code_func):
-    c1, c2, c3 = st.columns([1, 1.5, 1])
-    with c2:
-        st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Recovery 🔐</h2>", unsafe_allow_html=True)
-        with st.container(border=True):
-            st.info("Enter your email. We will send you a verification token.")
-            email = st.text_input("Email Address", key="reset_email_input")
-            if st.button("Send Token", type="primary", use_container_width=True):
-                if email and send_code_func:
-                    success, msg = send_code_func(email)
-                    if success: st.session_state.reset_email = email; st.session_state.app_mode = "reset_verify"; st.rerun()
-                    else: st.error(f"Error: {msg}")
-                else: st.warning("Please enter your email")
-            if st.button("Cancel", type="secondary", use_container_width=True):
-                st.session_state.app_mode = "login"; st.rerun()
-
-def show_reset_verify(verify_func):
-    c1, c2, c3 = st.columns([1, 1.5, 1])
-    with c2:
-        st.markdown("<h2 style='text-align: center; color: #2a5298 !important;'>Set Password 🔑</h2>", unsafe_allow_html=True)
-        with st.container(border=True):
-            email = st.session_state.get("reset_email", "")
-            st.success(f"Token sent to: **{email}**")
-            token = st.text_input("Enter Token (from email)")
-            new_pass = st.text_input("New Password", type="password")
-            if st.button("Update Password", type="primary", use_container_width=True):
-                if token and new_pass and verify_func:
-                    success, msg = verify_func(email, token, new_pass)
+    # --- VIEW: FORGOT PASSWORD ---
+    if st.session_state.auth_view == "forgot":
+        st.markdown("<div class='auth-container'><h2 class='auth-header'>↺ Reset Password</h2>", unsafe_allow_html=True)
+        st.info("Enter your email address. We will send you a link to reset your password.")
+        
+        email = st.text_input("Email Address", key="reset_email")
+        
+        if st.button("📩 Send Reset Link", type="primary", use_container_width=True):
+            if auth_engine:
+                with st.spinner("Sending..."):
+                    success, msg = auth_engine.send_password_reset(email)
                     if success:
-                        st.success("✅ Password Updated! Please log in.")
-                        if st.button("Go to Login"): st.session_state.app_mode = "login"; st.rerun()
-                    else: st.error(f"Failed: {msg}")
-                else: st.warning("Please enter token and new password")
+                        st.success("✅ Check your email! A reset link has been sent.")
+                    else:
+                        st.error(f"❌ {msg}")
+            else:
+                st.error("Auth Engine missing.")
+
+        if st.button("⬅️ Back to Login"):
+            st.session_state.auth_view = "login"
+            st.rerun()
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
+    # --- VIEW: LOGIN & SIGNUP ---
+    st.markdown("<div class='auth-container'>", unsafe_allow_html=True)
+    
+    tab1, tab2 = st.tabs(["🔑 Log In", "📝 Sign Up"])
+
+    # LOGIN TAB
+    with tab1:
+        st.markdown("<h3 class='auth-header'>Welcome Back</h3>", unsafe_allow_html=True)
+        with st.form("login_form"):
+            email = st.text_input("Email", key="login_email")
+            password = st.text_input("Password", type="password", key="login_pass")
+            submit = st.form_submit_button("Log In", type="primary", use_container_width=True)
+        
+        if submit:
+            if not email or not password:
+                st.warning("Please enter both email and password.")
+            else:
+                with st.spinner("Verifying..."):
+                    user, err = login_func(email, password)
+                    if user:
+                        st.success("✅ Success!")
+                        st.session_state.user_email = user.user.email
+                        st.session_state.app_mode = "store"
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {err}")
+
+        # "Forgot Password" Button - Now functional
+        if st.button("❓ Forgot Password?", type="secondary", use_container_width=True):
+            st.session_state.auth_view = "forgot"
+            st.rerun()
+
+    # SIGNUP TAB
+    with tab2:
+        st.markdown("<h3 class='auth-header'>Create Account</h3>", unsafe_allow_html=True)
+        with st.form("signup_form"):
+            new_email = st.text_input("Email", key="signup_email")
+            new_pass = st.text_input("Password", type="password", help="Min 8 chars, 1 uppercase, 1 lowercase, 1 number", key="signup_pass")
+            full_name = st.text_input("Full Name")
+            
+            st.caption("Address (Required for Mailing)")
+            street = st.text_input("Street Address")
+            street2 = st.text_input("Apt / Suite")
+            c1, c2, c3 = st.columns([2, 1, 1])
+            city = c1.text_input("City")
+            state = c2.text_input("State")
+            zip_code = c3.text_input("Zip")
+            
+            signup_submit = st.form_submit_button("Create Account", type="primary", use_container_width=True)
+
+        if signup_submit:
+            if not all([new_email, new_pass, full_name, street, city, state, zip_code]):
+                st.error("Please fill in all required fields.")
+            else:
+                with st.spinner("Creating account..."):
+                    res, err = signup_func(new_email, new_pass, full_name, street, street2, city, state, zip_code, "US", "English")
+                    if res:
+                        st.success("✅ Account Created! Please check your email to confirm, then Log In.")
+                        time.sleep(2)
+                        st.session_state.auth_view = "login"
+                        st.rerun()
+                    else:
+                        st.error(f"❌ {err}")
+
+    st.markdown("</div>", unsafe_allow_html=True)
