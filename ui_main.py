@@ -10,7 +10,7 @@ import io
 import time
 import logging
 
-# --- 1. UI IMPORTS ---
+# --- 1. CRITICAL UI IMPORTS ---
 try: import ui_splash
 except ImportError: ui_splash = None
 try: import ui_login
@@ -76,7 +76,7 @@ def reset_app(full_logout=False):
             "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
             "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
             "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-            "pending_stripe_url", "last_selected_contact"] 
+            "pending_stripe_url", "last_selected_contact", "addr_book_sel"] 
             
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
@@ -125,7 +125,6 @@ def render_sidebar():
                 st.rerun()
         else:
             st.info("👤 **Guest User**")
-            # SIDEBAR CLEANUP: Primary action only
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.rerun()
@@ -137,7 +136,7 @@ def render_sidebar():
                  st.session_state.app_mode = "store"
                  st.rerun()
 
-        st.caption("v3.1.8 (Full Features)")
+        st.caption("v3.1.9 (Stabilized)")
 
 # --- 6. PAGE: STORE ---
 def render_store_page():
@@ -165,7 +164,7 @@ def render_store_page():
                 "Campaign": "Upload CSV. We mail everyone at once."
             }
             
-            # Keep selection sticky if returning from elsewhere
+            # Keep selection sticky
             default_idx = 0
             stored_tier = st.session_state.get("locked_tier")
             if stored_tier and stored_tier in list(tier_labels.keys()):
@@ -243,10 +242,7 @@ def render_store_page():
                         st.rerun()
                 else:
                     if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
-                        # 1. Create Draft
                         d_id = _handle_draft_creation(u_email, tier_code, final_price)
-                        
-                        # 2. Build Return URL
                         link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                         if d_id: link += f"&draft_id={d_id}"
                         if is_intl: link += "&intl=1"
@@ -277,7 +273,7 @@ def _handle_draft_creation(email, tier, price):
         
     return d_id
 
-# --- 7. PAGE: WORKSPACE (RESTORED FEATURES) ---
+# --- 7. PAGE: WORKSPACE (Address Book & Transcribe Fix) ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
@@ -304,7 +300,7 @@ def render_workspace_page():
                 else:
                     limit = st.session_state.get("bulk_paid_qty", 1000)
                     if len(c) > limit: 
-                        st.error(f"🛑 List size ({len(c)}) exceeds paid quantity ({limit}).")
+                        st.error(f"🛑 List size ({len(c)}) exceeds paid quantity ({limit}). Please reduce list or upgrade.")
                         st.session_state.bulk_targets = []
                     else:
                         st.success(f"✅ {len(c)} contacts loaded.")
@@ -345,8 +341,7 @@ def render_workspace_page():
                         for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
 
                 else:
-                    # --- RESTORED & FIXED ADDRESS BOOK ---
-                    # Uses 'on_change' callback to allow editing after selection
+                    # --- ADDRESS BOOK LOGIC (Fixed for Editing) ---
                     if database:
                         cons = database.get_contacts(u_email)
                         if cons:
@@ -363,6 +358,7 @@ def render_workspace_page():
                                         st.session_state.w_to_state = c_obj.state
                                         st.session_state.w_to_zip = c_obj.zip_code
 
+                            # Callback pattern decouples selection from the text fields
                             st.selectbox("Address Book", contact_names, key="addr_book_sel", on_change=on_contact_select)
 
                     st.text_input("Name", key="w_to_name")
@@ -403,12 +399,12 @@ def render_workspace_page():
             audio = st.audio_input("Record")
             if audio and st.button("Transcribe Recording"):
                 if ai_engine:
-                    with st.spinner("🔊 Transcribing... This typically takes 10-30 seconds. Please wait..."): 
+                    with st.spinner("🔊 Transcribing... This typically takes 10-30 seconds."): 
                         res = ai_engine.transcribe_audio(audio)
                         
-                        # FIX: Check for error string BEFORE navigation
-                        if res.startswith("Error:") or res.startswith("Failed:"):
-                            st.error(res)
+                        # FIX: Check for error strings AND valid length
+                        if res.startswith("Error:") or res.startswith("Failed:") or len(res) < 5:
+                            st.error(f"Transcription Failed: {res}")
                         else:
                             st.session_state.transcribed_text = res
                             st.session_state.app_mode = "review"
@@ -449,7 +445,7 @@ def _save_addrs(tier):
             "country": st.session_state.get("w_to_country", "US")
         }
     
-    # RESTORED: Validate Address on Save to prevent PostGrid 404s
+    # Address Verification Logic
     if mailer and st.session_state.to_addr.get('country') == "US":
         with st.spinner("Verifying Address..."):
             valid, data = mailer.verify_address_data(
@@ -469,12 +465,12 @@ def _save_addrs(tier):
                 })
                 st.success("✅ Address Verified & Standardized")
             elif not valid:
-                st.warning("⚠️ Address could not be verified. Please double check for typos.")
+                st.warning("⚠️ Address could not be verified. Please check for typos.")
 
     d_id = st.session_state.get("current_draft_id")
     if d_id and database: database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
 
-# --- 8. PAGE: REVIEW ---
+# --- 8. PAGE: REVIEW (Pre-Flight Check) ---
 def render_review_page():
     render_hero("Review", "Finalize & Send")
     if st.button("⬅️ Edit"): st.session_state.app_mode = "workspace"; st.rerun()
@@ -517,14 +513,14 @@ def render_review_page():
                     b64 = base64.b64encode(pdf_bytes).decode()
                     st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
                 else:
-                    st.error("Failed to generate PDF preview.")
+                    st.error("Failed to generate PDF. Please try shorter text.")
             
             if sig_path: 
                 try: os.remove(sig_path)
                 except: pass
 
     if st.button("🚀 Send Letter", type="primary"):
-        # PRE-FLIGHT CHECK
+        # PRE-FLIGHT CHECK to stop PostGrid 404s
         to_check = st.session_state.get("to_addr", {})
         if tier != "Campaign" and tier != "Civic":
             if not to_check.get("city") or not to_check.get("zip"):
@@ -561,7 +557,6 @@ def render_review_page():
 
                 is_ok = False
                 if mailer:
-                    # Explicit mapping to ensure PostGrid receives valid fields
                     pg_to = {
                         'name': tgt.get('name'), 
                         'address_line1': tgt.get('street'),
@@ -607,27 +602,14 @@ def show_main_app():
     if analytics: analytics.inject_ga()
     render_sidebar()
     mode = st.session_state.get("app_mode", "splash")
-    
-    if mode == "splash": 
-        if ui_splash: ui_splash.show_splash()
-        else: st.error("Splash Missing")
-    elif mode == "login":
-        if ui_login: 
-            import auth_engine
-            ui_login.show_login(
-                lambda e,p: _h_login(auth_engine, e,p), 
-                lambda e,p,n,a,a2,c,s,z,cn,l: _h_signup(auth_engine, e,p,n,a,a2,c,s,z,cn,l)
-            )
+    if mode == "splash" and ui_splash: ui_splash.show_splash()
+    elif mode == "login" and ui_login and auth_engine: ui_login.show_login(auth_engine.sign_in, auth_engine.sign_up)
     elif mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
-    elif mode == "admin": 
-        if ui_admin: ui_admin.show_admin()
-    elif mode == "legal":
-        try: import ui_legal; ui_legal.show_legal()
-        except: st.info("Legal unavailable")
-    else:
-        st.session_state.app_mode = "store"; st.rerun()
+    elif mode == "admin" and ui_admin: ui_admin.show_admin()
+    elif mode == "legal" and ui_legal: ui_legal.show_legal()
+    else: st.session_state.app_mode = "store"; st.rerun()
 
 def _h_login(auth, e, p):
     res, err = auth.sign_in(e, p)

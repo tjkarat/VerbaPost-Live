@@ -1,8 +1,13 @@
 import streamlit as st
+import logging
 
 # Robust Import
 try: import database
 except ImportError: database = None
+
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def show_splash():
     # CSS
@@ -81,10 +86,11 @@ def show_splash():
                     for state, count in stats:
                         st.progress(min(count * 5, 100), text=f"**{state}**: {count} letters sent")
             else:
-                # Connected but empty is okay
+                # Database connected but empty - show nothing or placeholder
                 pass
         except Exception as e:
-            # Silent fail for UI polish
+            # Log error but don't break UI
+            logger.error(f"Leaderboard Error: {e}")
             pass
     else:
         st.info("Leaderboard temporarily unavailable.")
