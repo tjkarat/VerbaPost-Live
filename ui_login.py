@@ -125,8 +125,8 @@ def show_login(login_func, signup_func):
                     st.markdown("---")
                     st.caption("Mailing Address (Required)")
                     
-                    # Warning for autofill
-                    st.info("💡 Tip: If using browser autofill (blue fields), verify values are correct before clicking 'Sign Up'.")
+                    # UPDATED WARNING MESSAGE
+                    st.warning("⚠️ Browser Autofill (Light Blue fields) may not save correctly. Please verify all fields are filled before clicking 'Sign Up'.")
                     
                     s_addr = st.text_input("Street Address")
                     s_addr2 = st.text_input("Apt / Suite")
