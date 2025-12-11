@@ -12,8 +12,6 @@ def show_login(login_func, signup_func):
             padding-top: 1rem !important;
             padding-bottom: 1rem !important;
         }
-        /* Style the native container to look like a card if desired, 
-           or rely on default Streamlit look which is cleaner */
     </style>
     """, unsafe_allow_html=True)
 
@@ -85,11 +83,10 @@ def show_login(login_func, signup_func):
             return
 
         # --- VIEW 1: LOGIN / SIGNUP ---
-        # REMOVED: The st.markdown div wrapper that caused the white spot.
-        # ADDED: st.container(border=True) for a clean UI card.
         with st.container(border=True):
             t1, t2 = st.tabs(["🔑 Log In", "📝 Sign Up"])
 
+            # --- LOGIN TAB ---
             with t1:
                 st.subheader("Welcome Back")
                 with st.form("login_form"):
@@ -115,8 +112,11 @@ def show_login(login_func, signup_func):
                     st.session_state.auth_view = "forgot"
                     st.rerun()
 
+            # --- SIGNUP TAB (Now with Autofill Protection) ---
             with t2:
                 st.subheader("Create Account")
+                
+                # CRITICAL FIX: Wrapping inputs in st.form forces browser to sync autofilled values
                 with st.form("signup_form"):
                     s_email = st.text_input("Email", key="signup_email")
                     s_pass = st.text_input("Password", type="password", help="8+ chars, Uppercase, Lowercase, Number", key="signup_pass")
@@ -124,6 +124,10 @@ def show_login(login_func, signup_func):
                     
                     st.markdown("---")
                     st.caption("Mailing Address (Required)")
+                    
+                    # Warning for autofill
+                    st.info("💡 Tip: If using browser autofill (blue fields), verify values are correct before clicking 'Sign Up'.")
+                    
                     s_addr = st.text_input("Street Address")
                     s_addr2 = st.text_input("Apt / Suite")
                     c1, c2, c3 = st.columns([2, 1, 1])
@@ -131,11 +135,12 @@ def show_login(login_func, signup_func):
                     s_state = c2.text_input("State")
                     s_zip = c3.text_input("Zip")
                     
+                    # Use form_submit_button to capture the data
                     s_btn = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
 
                 if s_btn:
                     if not all([s_email, s_pass, s_name, s_addr, s_city, s_state, s_zip]):
-                        st.error("Please complete all fields.")
+                        st.error("Please complete all required fields.")
                     else:
                         with st.spinner("Creating Account..."):
                             res, err = signup_func(s_email, s_pass, s_name, s_addr, s_addr2, s_city, s_state, s_zip, "US", "English")
