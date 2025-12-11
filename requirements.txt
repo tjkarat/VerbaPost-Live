@@ -3,8 +3,8 @@ streamlit-drawable-canvas==0.9.3
 supabase
 stripe
 openai-whisper
-# Use standard torch (CPU will be selected automatically by pip in most linux envs, 
-# or we let it grab the default but rely on the app code to force CPU)
+# -- CRITICAL FIX: Point to CPU-only index for Torch --
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch
 numpy<2.0.0
 sqlalchemy
