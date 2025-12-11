@@ -77,13 +77,12 @@ def show_splash():
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
         if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
-            # --- SMART ROUTING FIX ---
-            # If logged in -> Go to Store
-            # If guest -> Go to Login (Avoids "Session Expired" error)
             if st.session_state.get("user_email"):
                 st.session_state.app_mode = "store"
             else:
+                # FIX: Set view to 'signup' so it defaults to the New User tab
                 st.session_state.app_mode = "login"
+                st.session_state.auth_view = "signup"
             st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -103,8 +102,6 @@ def show_splash():
     st.markdown("<br><hr>", unsafe_allow_html=True)
     if database:
         try:
-            # Explicitly fetch to debug
-            # Using getattr to safely check if function exists, preventing crash if old DB file
             func = getattr(database, 'get_civic_leaderboard', None)
             stats = func() if func else []
             
@@ -116,12 +113,11 @@ def show_splash():
                 else:
                     st.info("No letters sent yet this month. Be the first!")
         except Exception as e:
-            # Silently fail so Legal button still renders
             logger.error(f"Leaderboard Error: {e}")
     else:
         st.warning("⚠️ Database connection missing. Leaderboard disabled.")
 
-    # LEGAL FOOTER (Restored)
+    # LEGAL FOOTER
     st.markdown("<br><br>", unsafe_allow_html=True)
     c_foot1, c_foot2, c_foot3 = st.columns([1, 1, 1])
     with c_foot2:

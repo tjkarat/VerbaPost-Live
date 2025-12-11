@@ -72,7 +72,6 @@ def show_login(login_func, signup_func):
                             else:
                                 st.error(f"❌ {msg}")
                 
-                # Link to manually enter code if they already have one
                 if st.button("I already have a code"):
                     st.session_state.auth_view = "update_password"
                     st.rerun()
@@ -84,10 +83,9 @@ def show_login(login_func, signup_func):
 
         # --- VIEW 1: LOGIN / SIGNUP ---
         with st.container(border=True):
-            t1, t2 = st.tabs(["🔑 Log In", "📝 Sign Up"])
-
-            # --- LOGIN TAB ---
-            with t1:
+            
+            # Helper to render Login Form
+            def _render_login_form():
                 st.subheader("Welcome Back")
                 with st.form("login_form"):
                     l_email = st.text_input("Email", key="login_email")
@@ -112,11 +110,9 @@ def show_login(login_func, signup_func):
                     st.session_state.auth_view = "forgot"
                     st.rerun()
 
-            # --- SIGNUP TAB (Now with Autofill Protection) ---
-            with t2:
+            # Helper to render Signup Form
+            def _render_signup_form():
                 st.subheader("Create Account")
-                
-                # CRITICAL FIX: Wrapping inputs in st.form forces browser to sync autofilled values
                 with st.form("signup_form"):
                     s_email = st.text_input("Email", key="signup_email")
                     s_pass = st.text_input("Password", type="password", help="8+ chars, Uppercase, Lowercase, Number", key="signup_pass")
@@ -124,9 +120,7 @@ def show_login(login_func, signup_func):
                     
                     st.markdown("---")
                     st.caption("Mailing Address (Required)")
-                    
-                    # UPDATED WARNING MESSAGE
-                    st.warning("⚠️ Browser Autofill (Light Blue fields) may not save correctly. Please verify all fields are filled before clicking 'Sign Up'.")
+                    st.warning("⚠️ Browser Autofill (Light Blue) may not save correctly. verify all fields are filled.")
                     
                     s_addr = st.text_input("Street Address")
                     s_addr2 = st.text_input("Apt / Suite")
@@ -135,7 +129,6 @@ def show_login(login_func, signup_func):
                     s_state = c2.text_input("State")
                     s_zip = c3.text_input("Zip")
                     
-                    # Use form_submit_button to capture the data
                     s_btn = st.form_submit_button("Sign Up", type="primary", use_container_width=True)
 
                 if s_btn:
@@ -151,3 +144,20 @@ def show_login(login_func, signup_func):
                                 st.rerun()
                             else:
                                 st.error(f"❌ {err}")
+
+            # --- TAB SWAPPING LOGIC ---
+            # If came from "Start a Letter", show Signup first.
+            is_signup_mode = st.session_state.get("auth_view") == "signup"
+            
+            if is_signup_mode:
+                # Signup first, Login second (Bold)
+                t1, t2 = st.tabs(["📝 New User Sign Up", "**🔑 Existing Users Log In**"])
+                with t1: _render_signup_form()
+                with t2: _render_login_form()
+            else:
+                # Login first (Default)
+                t1, t2 = st.tabs(["🔑 Log In", "📝 Sign Up"])
+                with t1: _render_login_form()
+                with t2: _render_signup_form()
+
+        st.markdown("</div>", unsafe_allow_html=True)
