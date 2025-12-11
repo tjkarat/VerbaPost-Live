@@ -6,6 +6,7 @@ import json
 import secrets_manager
 from contextlib import contextmanager
 import logging
+import numpy as np # Import numpy to check types
 
 # --- CONFIG ---
 logging.basicConfig(level=logging.INFO)
@@ -97,6 +98,13 @@ def get_db_session():
     finally:
         session.close()
 
+# --- HELPER: SAFE INT CONVERSION ---
+def _safe_int(val):
+    if val is None: return None
+    if isinstance(val, (np.integer, np.int64)):
+        return int(val)
+    return val
+
 # --- CORE FUNCTIONS ---
 def get_user_profile(email):
     if not email: return None
@@ -118,8 +126,11 @@ def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=
 
 def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, status=None, tier=None, price=None):
     try:
+        # CRITICAL FIX: Convert Numpy int to Python int
+        safe_id = _safe_int(draft_id)
+        
         with get_db_session() as db:
-            draft = db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
+            draft = db.query(LetterDraft).filter(LetterDraft.id == safe_id).first()
             if draft:
                 if to_addr: draft.recipient_json = json.dumps(to_addr)
                 if from_addr: draft.sender_json = json.dumps(from_addr)
@@ -166,17 +177,18 @@ def get_contacts(user_email):
 
 def delete_contact(contact_id):
     try:
+        safe_id = _safe_int(contact_id)
         with get_db_session() as db:
-            db.query(SavedContact).filter(SavedContact.id == contact_id).delete()
+            db.query(SavedContact).filter(SavedContact.id == safe_id).delete()
             return True
     except Exception: return False
 
-# --- NEW: DELETE DRAFT ---
+# --- DELETE DRAFT ---
 def delete_draft(draft_id):
-    """Admin: Deletes a draft by ID."""
     try:
+        safe_id = _safe_int(draft_id)
         with get_db_session() as db:
-            db.query(LetterDraft).filter(LetterDraft.id == draft_id).delete()
+            db.query(LetterDraft).filter(LetterDraft.id == safe_id).delete()
             return True
     except Exception as e:
         logger.error(f"Delete Draft Error: {e}")
