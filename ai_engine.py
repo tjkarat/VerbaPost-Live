@@ -52,16 +52,18 @@ def load_and_transcribe(audio_path_or_file):
         logger.info("[TRANSCRIBE] Step 3: Transcribing...")
         
         # fp16=False is crucial for CPU stability
+        # language='en' enforces English to prevent hallucination on silence
         result = model.transcribe(
             audio_path_or_file,
-            fp16=False
+            fp16=False,
+            language='en' 
         )
         
         text = result.get("text", "").strip()
+        logger.info(f"[TRANSCRIBE] Finished. Text length: {len(text)}")
         
         if not text:
-            # Return failure if silence, so UI can warn user
-            return True, "" 
+            return True, "[No speech detected]" 
         
         return True, text
 

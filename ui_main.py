@@ -283,6 +283,10 @@ def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
     
+    # [STATE INIT] Ensure variable exists before anything tries to bind to it
+    if "transcribed_text" not in st.session_state:
+        st.session_state.transcribed_text = ""
+
     render_hero("Compose Letter", f"{tier} Edition")
     
     # 1. User Profile Loading
@@ -340,16 +344,6 @@ def render_workspace_page():
                         if "civic_targets" in st.session_state:
                             for r in st.session_state.civic_targets: st.write(f"• {r['name']} ({r['title']})")
                     else:
-                        # Address Book Logic (FIXED: Uses on_change to allow editing)
-                        if database:
-                            cons = database.get_contacts(u_email)
-                            if cons:
-                                contact_names = ["-- Quick Fill --"] + [x.name for x in cons]
-                                
-                                # Note: We handle selection outside form, or via simple input copy
-                                # Inside form, direct state manipulation is trickier.
-                                # Simplest approach: Just let them select, then fill.
-                        
                         st.text_input("Name", key="w_to_name")
                         st.text_input("Street", key="w_to_street")
                         st.text_input("Apt/Suite", key="w_to_street2")
@@ -399,40 +393,42 @@ def render_workspace_page():
         with t1:
             st.info("🎙️ **Instructions:**\n1. Click the microphone icon to start.\n2. Speak your letter clearly.\n3. Click the square 'Stop' button when finished.")
             audio = st.audio_input("Record")
-            if audio and st.button("Transcribe Recording"):
-                if ai_engine:
-                    with st.spinner("🔊 Transcribing your voice... This typically takes 10-30 seconds."): 
-                        res = ai_engine.transcribe_audio(audio)
-                        
-                        # --- CRITICAL FIX: Handle Empty/Error Results ---
-                        if not res or len(str(res).strip()) == 0:
-                             st.warning("⚠️ No speech detected. Please try recording again.")
-                        elif str(res).startswith("Error:") or str(res).startswith("Failed:"):
-                            st.error(res)
-                        else:
-                            st.session_state.transcribed_text = res
-                            st.session_state.app_mode = "review"
-                            st.success("Processing Complete!")
-                            # FORCE UI REFRESH
-                            time.sleep(0.1)
-                            st.rerun()
+            if audio:
+                if st.button("Transcribe Recording", key="btn_rec"):
+                    if ai_engine:
+                        with st.spinner("🔊 Transcribing your voice... This typically takes 10-30 seconds."): 
+                            res = ai_engine.transcribe_audio(audio)
+                            
+                            # --- CRITICAL FIX: Handle Empty/Error Results ---
+                            if not res or len(str(res).strip()) == 0:
+                                 st.warning("⚠️ No speech detected. Please try recording again.")
+                            elif str(res).startswith("Error:") or str(res).startswith("Failed:"):
+                                st.error(res)
+                            else:
+                                st.session_state.transcribed_text = res
+                                st.session_state.app_mode = "review"
+                                st.success("Processing Complete!")
+                                # FORCE UI REFRESH
+                                time.sleep(0.1)
+                                st.rerun()
 
         with t2:
             st.info("📂 Upload MP3, WAV, or M4A audio files.")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
-            if up and st.button("Transcribe File"):
-                if ai_engine:
-                    with st.spinner("🔊 Processing file..."):
-                        res = ai_engine.transcribe_audio(up)
-                        if not res or len(str(res).strip()) == 0:
-                             st.warning("⚠️ No speech detected.")
-                        elif str(res).startswith("Error:") or str(res).startswith("Failed:"):
-                            st.error(res)
-                        else:
-                            st.session_state.transcribed_text = res
-                            st.session_state.app_mode = "review"
-                            time.sleep(0.1)
-                            st.rerun()
+            if up:
+                if st.button("Transcribe File", key="btn_up"):
+                    if ai_engine:
+                        with st.spinner("🔊 Processing file..."):
+                            res = ai_engine.transcribe_audio(up)
+                            if not res or len(str(res).strip()) == 0:
+                                 st.warning("⚠️ No speech detected.")
+                            elif str(res).startswith("Error:") or str(res).startswith("Failed:"):
+                                st.error(res)
+                            else:
+                                st.session_state.transcribed_text = res
+                                st.session_state.app_mode = "review"
+                                time.sleep(0.1)
+                                st.rerun()
 
 def _save_addrs(tier):
     u = st.session_state.get("user_email")
@@ -488,6 +484,7 @@ def render_review_page():
     if tier != "Campaign" and not st.session_state.get("to_addr"): _save_addrs(tier)
 
     c1, c2, c3, c4 = st.columns(4)
+    # Ensure text exists
     txt = st.session_state.get("transcribed_text", "")
     
     def _ai_fix(style):
@@ -502,39 +499,43 @@ def render_review_page():
 
     st.text_area("Body", key="transcribed_text", height=300)
     
-    # --- PDF PREVIEW (SAFE MODE) ---
-    if st.button("👁️ Preview PDF"):
-        if not txt:
-            st.warning("Please enter some text before previewing.")
-        else:
-            try:
-                def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
-                to_s = _fmt(st.session_state.get("to_addr", {}))
-                from_s = _fmt(st.session_state.get("from_addr", {}))
+    # --- PDF PREVIEW (NATIVE DOWNLOAD BUTTON) ---
+    st.markdown("### 📄 Letter Preview")
+    
+    if not txt:
+        st.warning("Please enter some text before generating a preview.")
+    else:
+        try:
+            def _fmt(d): return f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
+            to_s = _fmt(st.session_state.get("to_addr", {}))
+            from_s = _fmt(st.session_state.get("from_addr", {}))
+            
+            sig_path = None
+            if st.session_state.get("sig_data") is not None:
+                img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
+            
+            if letter_format:
+                pdf_bytes = letter_format.create_pdf(txt, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
                 
-                sig_path = None
-                if st.session_state.get("sig_data") is not None:
-                    img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: img.save(tmp.name); sig_path=tmp.name
-                
-                if letter_format:
-                    pdf_bytes = letter_format.create_pdf(txt, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
-                    
-                    if pdf_bytes and len(pdf_bytes) > 100:
-                        b64 = base64.b64encode(pdf_bytes).decode()
-                        # 1. Fallback Iframe (Chrome might block this)
-                        st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="500"></iframe>', unsafe_allow_html=True)
-                        # 2. DOWNLOAD BUTTON (Always Works)
-                        href = f'<a href="data:application/pdf;base64,{b64}" download="letter_preview.pdf" style="text-decoration:none;"><button style="margin-top:10px; padding:12px; background-color:#2a5298; color:white; border:none; border-radius:5px; cursor:pointer; width:100%;">⬇️ Download PDF (If Preview Blocked)</button></a>'
-                        st.markdown(href, unsafe_allow_html=True)
-                    else:
-                        st.error("Failed to generate PDF content.")
-                
-                if sig_path: 
-                    try: os.remove(sig_path)
-                    except: pass
-            except Exception as e:
-                st.error(f"Preview Failed: {e}")
+                if pdf_bytes and len(pdf_bytes) > 100:
+                    # REPLACED IFRAME WITH NATIVE BUTTON
+                    st.download_button(
+                        label="⬇️ Download PDF Proof",
+                        data=pdf_bytes,
+                        file_name="letter_preview.pdf",
+                        mime="application/pdf",
+                        type="primary",
+                        use_container_width=True
+                    )
+                else:
+                    st.error("Failed to generate PDF content.")
+            
+            if sig_path: 
+                try: os.remove(sig_path)
+                except: pass
+        except Exception as e:
+            st.error(f"Preview Failed: {e}")
 
     if st.button("🚀 Send Letter", type="primary"):
         # PRE-FLIGHT CHECK
@@ -596,9 +597,12 @@ def render_review_page():
                     try:
                         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tpdf:
                             tpdf.write(pdf); tpath=tpdf.name
-                        ok, res = mailer.send_letter(tpath, pg_to, pg_from, st.session_state.get("is_certified", False))
-                        if ok: is_ok=True
-                        else: errs.append(f"Failed {tgt.get('name')}: {res}")
+                        
+                        # Use variable to capture error message
+                        send_ok, send_res = mailer.send_letter(tpath, pg_to, pg_from, st.session_state.get("is_certified", False))
+                        
+                        if send_ok: is_ok=True
+                        else: errs.append(f"Failed {tgt.get('name')}: {send_res}")
                     finally:
                         if os.path.exists(tpath): 
                             try: os.remove(tpath)
