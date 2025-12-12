@@ -10,7 +10,7 @@ try: import database
 except ImportError: database = None
 
 def show_splash():
-    # --- CSS CONFIGURATION (Fixed for Dark Mode) ---
+    # --- CSS CONFIGURATION (Aggressive Dark Mode Fix) ---
     st.markdown("""
     <style>
         /* HERO STYLING */
@@ -18,16 +18,24 @@ def show_splash():
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             padding: 40px 20px;
             border-radius: 15px;
-            color: #FFFFFF !important;
             text-align: center;
             box-shadow: 0 10px 25px rgba(0,0,0,0.15);
             margin-bottom: 25px;
         }
+        
+        /* FORCE WHITE TEXT: Overrides Streamlit Dark Mode */
+        .hero-container h1, 
+        .hero-container div, 
+        .hero-container p, 
+        .hero-container span {
+            color: #FFFFFF !important;
+            --text-color: #FFFFFF !important; /* Streamlit variable override */
+        }
+
         .hero-title { 
             font-size: clamp(2.2rem, 5vw, 3.5rem); 
             font-weight: 800; 
             margin: 0; 
-            color: #FFFFFF !important; 
             text-shadow: 0 2px 4px rgba(0,0,0,0.3);
             line-height: 1.1;
         }
@@ -35,18 +43,17 @@ def show_splash():
             font-size: clamp(1.1rem, 3vw, 1.8rem); 
             font-weight: 600; 
             margin-top: 10px; 
-            color: #E0E0E0 !important; 
+            opacity: 0.95;
         }
         .hero-subtext {
             margin-top: 15px; 
             font-size: 1.1rem; 
             line-height: 1.6;
-            color: #F0F0F0 !important;
             max-width: 800px; 
             margin-left: auto; 
             margin-right: auto;
+            opacity: 0.9;
         }
-        .hero-subtext b { color: #FFFFFF !important; font-weight: 800; }
         
         /* PRICE CARD STYLING */
         .price-card {
@@ -60,11 +67,15 @@ def show_splash():
             flex-direction: column; 
             justify-content: flex-start;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            color: #FFFFFF !important;
             min-height: 240px;
         }
+        
+        /* Force White Text in Cards */
+        .price-card * {
+            color: #FFFFFF !important;
+        }
+        
         .price-title { 
-            color: #FFFFFF !important; 
             font-weight: 800; 
             font-size: 1.2rem; 
             margin-bottom: 2px;
@@ -72,7 +83,7 @@ def show_splash():
             letter-spacing: 1px;
         }
         .price-subtitle { 
-            color: #a8c0ff !important; 
+            color: #a8c0ff !important; /* Light blue accent */
             font-size: 0.85rem; 
             font-style: italic; 
             margin-bottom: 10px; 
@@ -81,11 +92,10 @@ def show_splash():
         .price-tag { 
             font-size: 1.8rem; 
             font-weight: 800; 
-            color: #FFEB3B !important; 
+            color: #FFEB3B !important; /* Yellow accent */
             margin: 5px 0;
             text-shadow: 0 1px 2px rgba(0,0,0,0.5);
         }
-        /* Force list items to be white even in dark mode */
         .price-card ul { 
             list-style: none; 
             padding: 0; 
@@ -93,7 +103,6 @@ def show_splash():
             text-align: center;
         }
         .price-card li { 
-            color: #F0F0F0 !important; 
             font-size: 0.9rem; 
             margin-bottom: 4px; 
             line-height: 1.3;
@@ -131,11 +140,11 @@ def show_splash():
     with p1:
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
     with p2:
-        st.markdown("""<div class="price-card"><div class="price-title">🏺 Heirloom</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Heirloom</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
     with p3:
-        st.markdown("""<div class="price-card"><div class="price-title">🏛️ Civic</div><div class="price-subtitle">Three Letters</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Civic</div><div class="price-subtitle">Three Letters</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
     with p4:
-        st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">Santa</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
     # --- LEADERBOARD (Safe Mode) ---
     st.markdown("<br><hr>", unsafe_allow_html=True)
@@ -154,9 +163,7 @@ def show_splash():
                     st.info("No letters sent yet this month. Be the first!")
         except Exception as e:
             logger.error(f"Leaderboard Error: {e}")
-            st.warning("Leaderboard temporarily unavailable.")
     else:
-        # Graceful degradation if DB is down
         pass
 
     # --- LEGAL FOOTER ---
