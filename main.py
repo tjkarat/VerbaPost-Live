@@ -2,19 +2,15 @@ import streamlit as st
 import time
 import logging
 
-# --- MODULE IMPORTS ---
-try: import ui_main
-except ImportError: ui_main = None
-try: import payment_engine
-except ImportError: payment_engine = None
-try: import audit_engine
-except ImportError: audit_engine = None
-try: import database
-except ImportError: database = None
+# --- DIRECT IMPORTS (To prevent KeyError masking) ---
+import ui_main
+import payment_engine
+import audit_engine
+import database
 
 # --- CONFIGURATION ---
 st.set_page_config(
-    page_title="VerbaPost", 
+    page_title="VerbaPost | Send Real Mail from Audio", 
     page_icon="📮",
     layout="centered",
     initial_sidebar_state="collapsed"
@@ -32,11 +28,11 @@ if "payment_complete" not in st.session_state:
 
 # --- MAIN ROUTER ---
 def main():
-    # 1. HANDLE PAYMENT RETURN (SECURITY CRITICAL)
+    # 1. HANDLE PAYMENT RETURN
     if "session_id" in st.query_params:
         sess_id = st.query_params["session_id"]
         
-        # Prevent re-verification loop
+        # Prevent re-verification loop if already verified
         if sess_id != st.session_state.get("last_verified_session"):
             try:
                 if payment_engine:
@@ -44,33 +40,37 @@ def main():
                         is_paid, session_obj = payment_engine.verify_session(sess_id)
                     
                     if is_paid:
-                        # --- SECURITY FIX: ENFORCE AUTH & IDENTITY ---
-                        current_user = st.session_state.get("user_email")
+                        # --- CRITICAL FIX: SESSION RECOVERY ---
+                        # Streamlit forgets the user during redirect. 
+                        # We trust Stripe's data to tell us who this user is.
+                        stripe_email = session_obj.customer_details.email if (session_obj and session_obj.customer_details) else None
                         
-                        # A. Force Login if Guest
+                        if not st.session_state.get("user_email") and stripe_email:
+                            st.session_state.user_email = stripe_email
+                            logger.info(f"✅ Session recovered via Stripe email: {stripe_email}")
+                        
+                        current_user = st.session_state.get("user_email")
+
+                        # A. If we still don't have a user, we can't proceed
                         if not current_user:
-                            st.error("⚠️ Session Expired. Please log in to claim this payment.")
+                            logger.error("❌ Session Recovery Failed: No email found in Stripe session.")
+                            st.error("⚠️ Error: Could not verify identity. Please log in again to claim your order.")
                             st.session_state.app_mode = "login"
-                            st.session_state.pending_payment_id = sess_id # Save for post-login claim
                             st.stop()
 
-                        # B. CSRF / Identity Check (The Fix)
-                        # Ensure the person who paid is the person logged in
-                        payer_email = session_obj.customer_details.email if (session_obj and session_obj.customer_details) else None
-                        
-                        if payer_email and current_user:
-                            if current_user.lower().strip() != payer_email.lower().strip():
-                                # Log the attack/mismatch
+                        # B. CSRF / Identity Check
+                        # Ensure the Stripe payer matches the current session (if session existed)
+                        if stripe_email and current_user:
+                            if current_user.lower().strip() != stripe_email.lower().strip():
                                 if audit_engine:
                                     audit_engine.log_event(
                                         current_user, 
                                         "PAYMENT_MISMATCH_BLOCK", 
                                         sess_id, 
-                                        {"payer": payer_email, "logged_in": current_user}
+                                        {"payer": stripe_email, "logged_in": current_user}
                                     )
-                                
                                 st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
-                                st.stop() # HALT EXECUTION
+                                st.stop()
 
                         # C. Success State
                         st.success("✅ Payment Verified!")
@@ -89,8 +89,8 @@ def main():
                         if "qty" in st.query_params:
                             st.session_state.bulk_paid_qty = int(st.query_params["qty"])
                         
-                        # Cleanup URL
-                        time.sleep(1) # Allow UI to show success
+                        # Cleanup URL and Enter Workspace
+                        time.sleep(1)
                         st.query_params.clear()
                         st.session_state.app_mode = "workspace"
                         st.rerun()

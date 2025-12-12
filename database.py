@@ -8,6 +8,7 @@ from contextlib import contextmanager
 import logging
 import numpy as np
 
+# --- CONFIG ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 Base = declarative_base()
@@ -53,12 +54,13 @@ class SavedContact(Base):
     country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# --- FIX: Updated to match your Supabase Schema ---
+# --- FIX: MATCHING YOUR SUPABASE SCHEMA ---
 class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True, index=True)
     max_uses = Column(Integer, default=1)
-    active = Column(Boolean, default=True) # Changed from current_uses
+    # Replaces 'current_uses' with 'active' to match your DB
+    active = Column(Boolean, default=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class PromoLog(Base):
@@ -90,6 +92,7 @@ def get_engine():
         logger.error(f"DB Connection Error: {e}")
         return None
 
+# --- CONTEXT MANAGER ---
 @contextmanager
 def get_db_session():
     engine = get_engine()
@@ -104,9 +107,11 @@ def get_db_session():
     finally:
         session.close()
 
+# --- HELPER: SAFE INT CONVERSION ---
 def _safe_int(val):
     if val is None: return None
-    if isinstance(val, (np.integer, np.int64)): return int(val)
+    if isinstance(val, (np.integer, np.int64)):
+        return int(val)
     return val
 
 # --- CORE FUNCTIONS ---
