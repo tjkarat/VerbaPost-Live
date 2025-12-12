@@ -7,12 +7,14 @@ COMMON_COUNTRIES = [
     "Germany", "France", "Japan", "Mexico", "Other"
 ]
 
-def show_login(auth_engine, *args, **kwargs):
+def show_login(sign_in_func, sign_up_func, *args, **kwargs):
     """
     Renders the main authentication interface.
     
-    *args, **kwargs added to prevent TypeError if ui_main.py passes 
-    unexpected arguments (like session state or config flags).
+    Arguments:
+    - sign_in_func: The actual function to call for signing in.
+    - sign_up_func: The actual function to call for signing up.
+    - *args, **kwargs: Catch-alls to prevent crashes if extra data is passed.
     """
     
     # Container to keep the form centered and neat
@@ -36,8 +38,8 @@ def show_login(auth_engine, *args, **kwargs):
                     st.error("Please enter both email and password.")
                 else:
                     with st.spinner("Logging in..."):
-                        # Call Auth Engine
-                        user, error = auth_engine.sign_in(email, password)
+                        # FIXED: Call the passed function directly
+                        user, error = sign_in_func(email, password)
                         
                         if error:
                             st.error(f"❌ {error}")
@@ -58,7 +60,7 @@ def show_login(auth_engine, *args, **kwargs):
         st.markdown("")
         col_space, col_link = st.columns([2, 1])
         with col_link:
-            # FIXED: Changed 'tertiary' to 'secondary' to prevent API Exception
+            # FIXED: Changed 'tertiary' to 'secondary'
             if st.button("Forgot Password?", type="secondary"):
                 st.session_state.app_mode = "password_reset"
                 st.rerun()
@@ -111,8 +113,8 @@ def show_login(auth_engine, *args, **kwargs):
                     st.error("Password must be at least 8 characters long.")
                 else:
                     with st.spinner("Creating account..."):
-                        # Call the backend engine
-                        user, error = auth_engine.sign_up(
+                        # FIXED: Call the passed function directly
+                        user, error = sign_up_func(
                             email=new_email, 
                             password=new_password, 
                             name=new_name, 
