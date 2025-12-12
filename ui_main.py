@@ -154,22 +154,35 @@ def _save_addresses_to_state(tier):
 def _render_address_book_selector(u_email):
     if not database: return
     contacts = database.get_contacts(u_email)
+    
+    # UX IMPROVEMENT: Only show if contacts exist
     if contacts:
-        contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
+        # Create a more readable label list
+        contact_map = {f"👤 {c.name}": c for c in contacts}
+        options = ["-- Quick Fill from Address Book --"] + list(contact_map.keys())
+        
         def on_contact_change():
             selected = st.session_state.get("addr_book_sel")
-            if selected and selected != "-- Quick Fill --":
-                match = next((c for c in contacts if c.name == selected), None)
-                if match:
-                    st.session_state.w_to_name = match.name
-                    st.session_state.w_to_street = match.street
-                    st.session_state.w_to_street2 = match.street2 or ""
-                    st.session_state.w_to_city = match.city
-                    st.session_state.w_to_state = match.state
-                    st.session_state.w_to_zip = match.zip_code
-                    st.session_state.w_to_country = match.country
+            if selected and selected != "-- Quick Fill from Address Book --":
+                match = contact_map[selected]
+                # Auto-fill session state variables
+                st.session_state.w_to_name = match.name
+                st.session_state.w_to_street = match.street
+                st.session_state.w_to_street2 = match.street2 or ""
+                st.session_state.w_to_city = match.city
+                st.session_state.w_to_state = match.state
+                st.session_state.w_to_zip = match.zip_code
+                st.session_state.w_to_country = match.country
 
-        st.selectbox("📒 Address Book", contact_names, key="addr_book_sel", on_change=on_contact_change)
+        st.selectbox(
+            "📒 Saved Contacts", 
+            options, 
+            key="addr_book_sel", 
+            on_change=on_contact_change,
+            label_visibility="collapsed" # Cleaner look
+        )
+        st.caption("👆 Select a contact above to auto-fill the 'To' section below.")
+        st.markdown("---")
 
 def _render_address_form(tier, is_intl):
     with st.form("addressing_form"):
@@ -362,7 +375,7 @@ def render_sidebar():
              if st.button("🛒 Store (New Letter)", use_container_width=True):
                  st.session_state.app_mode = "store"
                  st.rerun()
-        st.caption("v3.1.13 (Secure)")
+        st.caption("v3.2.0 (UX Phase 1)")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
@@ -473,26 +486,36 @@ def render_workspace_page():
     is_intl = st.session_state.get("is_intl", False)
     if "transcribed_text" not in st.session_state: st.session_state.transcribed_text = ""
     _render_hero("Compose Letter", f"{tier} Edition")
+    
     u_email = st.session_state.get("user_email")
+    
+    # --- PHASE 1: SMART AUTO-FILL (Robust) ---
     if database and u_email:
-        p = database.get_user_profile(u_email)
-        if p and "w_from_name" not in st.session_state:
-            st.session_state.w_from_name = p.full_name
-            st.session_state.w_from_street = p.address_line1
-            st.session_state.w_from_city = p.address_city
-            st.session_state.w_from_state = p.address_state
-            st.session_state.w_from_zip = p.address_zip
+        # Only fetch if we suspect fields are empty
+        fields_to_check = ["w_from_name", "w_from_street", "w_from_city", "w_from_state", "w_from_zip"]
+        if any(f not in st.session_state or not st.session_state[f] for f in fields_to_check):
+            p = database.get_user_profile(u_email)
+            if p:
+                # Helper to set only empty fields
+                def _set_if_empty(k, v):
+                    if k not in st.session_state or not st.session_state[k]:
+                        st.session_state[k] = v or ""
+                
+                _set_if_empty("w_from_name", p.full_name)
+                _set_if_empty("w_from_street", p.address_line1)
+                _set_if_empty("w_from_street2", p.address_line2) # Added support
+                _set_if_empty("w_from_city", p.address_city)
+                _set_if_empty("w_from_state", p.address_state)
+                _set_if_empty("w_from_zip", p.address_zip)
+                # Country usually defaults to US, but good practice to have logic ready
 
     with st.container(border=True):
         if tier == "Campaign":
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             f = st.file_uploader("CSV (Name, Street, City, State, Zip)", type=['csv'])
-            
-            # --- SECURITY FIX: FILE SIZE LIMIT ---
             if f:
-                if f.size > 5 * 1024 * 1024:
-                     st.error("❌ File too large. Maximum 5MB allowed.")
+                if f.size > 5 * 1024 * 1024: st.error("❌ File too large. Maximum 5MB allowed.")
                 elif bulk_engine:
                     c, err = bulk_engine.parse_csv(f)
                     if err: st.error(err)
@@ -500,9 +523,13 @@ def render_workspace_page():
                         st.success(f"✅ {len(c)} contacts loaded.")
                         if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
+            # --- PHASE 1: ADDRESS BOOK FIRST ---
             st.subheader("📍 Addressing")
-            if database and tier != "Civic": _render_address_book_selector(u_email)
+            if database and tier != "Civic":
+                _render_address_book_selector(u_email) # Renders above manual forms
+            
             _render_address_form(tier, is_intl)
+            
             if tier == "Civic" and civic_engine:
                  if st.button("🔍 Find My Reps"):
                     zip_code = st.session_state.get("w_from_zip")
