@@ -1,88 +1,89 @@
 import requests
 import streamlit as st
+import secrets_manager
 
 def get_reps(address):
     """
-    Production Mode: Queries Geocodio v1.9 and returns Federal Legislators.
+    Queries Geocodio to find Federal Legislators.
+    Returns list of dicts with address_obj ready for PostGrid.
     """
-    # 1. Load Key
-    try:
-        api_key = st.secrets["geocodio"]["api_key"]
-    except:
-        st.error("❌ Missing API Key.")
+    api_key = secrets_manager.get_secret("geocodio.api_key")
+    if not api_key:
+        st.error("❌ Missing Geocodio API Key.")
         return []
 
-    # 2. Request (Updated to v1.9)
-    url = "https://api.geocod.io/v1.9/geocode"
-    params = {
-        'q': address,
-        'fields': 'cd', # 'cd' includes congressional district & legislator data
-        'api_key': api_key
-    }
+    url = "https://api.geocod.io/v1.7/geocode"
+    params = {'q': address, 'fields': 'cd', 'api_key': api_key}
 
     try:
         r = requests.get(url, params=params)
         data = r.json()
 
-        if r.status_code != 200:
-            st.error(f"Address Lookup Failed: {data.get('error')}")
+        if r.status_code != 200 or not data.get('results'):
+            st.warning("Address not found or invalid.")
             return []
 
-        if not data.get('results'):
-            st.warning("Address not found.")
-            return []
-
-        # 3. Parse Results
+        # Parse First Result
         result = data['results'][0]
-        fields = result.get('fields', {})
-        
-        # Geocodio v1.9 structure for 'cd' field
-        districts = fields.get('congressional_districts', [])
+        districts = result.get('fields', {}).get('congressional_districts', [])
         
         if not districts:
-            st.warning("No congressional district found for this address.")
+            st.warning("No congressional district data found.")
             return []
 
-        # 4. Get Legislators
-        # We grab the first district (correct for 99% of residential addresses)
-        current_legislators = districts[0].get('current_legislators', [])
-        
+        # Get Legislators
+        legislators = districts[0].get('current_legislators', [])
         targets = []
         
-        for leg in current_legislators:
-            # FIX: Normalize to lowercase for comparison
+        for leg in legislators:
             role = leg.get('type', '').lower()
-            
-            # Accept 'senator' or 'representative' (case-insensitive)
             if role in ['senator', 'representative']:
                 
-                # Extract Name
-                bio = leg.get('bio', {})
-                first = bio.get('first_name', 'Unknown')
-                last = bio.get('last_name', 'Official')
-                full_name = f"{first} {last}"
+                # Name
+                first = leg.get('bio', {}).get('first_name', '')
+                last = leg.get('bio', {}).get('last_name', '')
+                full_name = f"{first} {last}".strip()
                 
-                # Assign Title
+                # Title
                 title = "U.S. Senator" if role == 'senator' else "U.S. Representative"
                 
-                # Extract Address
+                # Address Parsing
                 contact = leg.get('contact', {})
-                addr_raw = contact.get('address') or "United States Capitol, Washington DC 20510"
+                addr_lines = contact.get('address', '').split(',')
                 
+                # Fallback Address if API is empty
+                if not addr_lines or not addr_lines[0]:
+                    street = "United States Capitol"
+                    city = "Washington"
+                    state = "DC"
+                    zip_code = "20510"
+                else:
+                    # Robust parsing attempt
+                    street = addr_lines[0].strip()
+                    city = "Washington" # Federal reps are always DC
+                    state = "DC"
+                    zip_code = "20510" # Default Capitol Zip if missing
+                    
+                    # Try to find zip in raw string
+                    import re
+                    zip_match = re.search(r'\b205\d{2}\b', contact.get('address', ''))
+                    if zip_match: zip_code = zip_match.group(0)
+
                 targets.append({
-                    'name': full_name,
+                    'name': f"{title} {full_name}",
                     'title': title,
                     'address_obj': {
-                        'name': full_name, 
-                        'street': addr_raw, 
-                        'city': "Washington", 
-                        'state': "DC", 
-                        'zip': "20510"
+                        'name': f"{title} {full_name}", 
+                        'street': street,
+                        'city': city, 
+                        'state': state, 
+                        'zip': zip_code,
+                        'country': 'US'
                     }
                 })
 
         return targets
 
     except Exception as e:
-        st.error(f"Connection Error: {e}")
+        st.error(f"Civic Lookup Error: {e}")
         return []
