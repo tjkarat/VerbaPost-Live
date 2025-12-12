@@ -18,6 +18,7 @@ FONT_MAP = {
 }
 
 def ensure_fonts():
+    """Downloads required fonts if they are missing."""
     for filename, url in FONT_MAP.items():
         if not os.path.exists(filename):
             try:
@@ -28,6 +29,7 @@ def ensure_fonts():
                 logger.error(f"Font Download Error: {e}")
 
 def detect_language(text):
+    """Detects CJK characters to switch fonts."""
     if not text: return ('Helvetica', None)
     if re.search(r'[\u3040-\u30ff]', text): return ('NotoSansJP', 'NotoSansJP-Regular.ttf')
     if re.search(r'[\uac00-\ud7af]', text): return ('NotoSansKR', 'NotoSansKR-Regular.ttf')
@@ -35,6 +37,7 @@ def detect_language(text):
     return ('Helvetica', None)
 
 def sanitize_text(text, is_cjk=False):
+    """Cleans text encoding issues."""
     if not isinstance(text, str): return str(text)
     replacements = {'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-'}
     for k, v in replacements.items(): text = text.replace(k, v)
@@ -45,6 +48,7 @@ def sanitize_text(text, is_cjk=False):
         except: return text
 
 class LetterPDF(FPDF):
+    """Custom PDF class to handle Headers/Footers for Santa/Heirloom tiers."""
     def __init__(self, is_santa=False, **kwargs):
         super().__init__(**kwargs)
         self.is_santa = is_santa
@@ -90,7 +94,6 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         else: target_font_name = 'Helvetica'; is_cjk = False
 
         # --- FONT SELECTION ---
-        # UPDATED: Use Caveat for ALL tiers (Standard included) unless it's CJK or missing
         if is_cjk: 
             body_font = target_font_name
         elif has_caveat: 
@@ -98,7 +101,7 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
         else: 
             body_font = 'Helvetica'
             
-        # Font Sizes: Caveat looks smaller, so we bump it to 14/18. Helvetica stays 12.
+        # Font Sizes
         if body_font == 'Caveat':
             body_size = 18 if is_santa else 14
         else:
@@ -120,7 +123,8 @@ def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language
             pdf.set_xy(20, 50); pdf.set_font('Helvetica', 'B', 12)
             pdf.multi_cell(0, 6, sanitize_text(recipient_addr, is_cjk))
             
-            pdf.set_xy(20, 100)
+            # --- FIX: MOVED FROM 100 TO 120 TO CLEAR POSTGRID SAFE ZONE ---
+            pdf.set_xy(20, 120) 
             
         else:
             # Heirloom/Santa: Use formatted headers
