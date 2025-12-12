@@ -2,7 +2,6 @@ import streamlit as st
 import auth_engine
 import time
 
-# Function renamed to match ui_main.py call
 def show_login(*args, **kwargs):
     """
     Renders the Authentication Interface (Login, Signup, Forgot Password).
@@ -55,7 +54,6 @@ def show_login(*args, **kwargs):
     """, unsafe_allow_html=True)
 
     # --- PASSWORD RESET FLOW HANDLER ---
-    # If user clicks email link, Supabase sends them back with ?type=recovery
     q_params = st.query_params
     if q_params.get("type") == "recovery":
         render_reset_password_interface()
@@ -85,7 +83,6 @@ def show_login(*args, **kwargs):
             email = st.text_input("Email Address", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
             
-            # Submit
             if st.form_submit_button("Log In", type="primary"):
                 if not email or not password:
                     st.error("Please enter both email and password.")
@@ -95,7 +92,9 @@ def show_login(*args, **kwargs):
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
                         st.session_state.user_id = res.user.id
-                        st.success("Login successful! Loading...")
+                        st.session_state.app_mode = "store"  # Force redirect
+                        
+                        st.success("Login successful! Redirecting...")
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -114,24 +113,22 @@ def show_login(*args, **kwargs):
             st.markdown("---")
             st.caption("📍 Return Address (Required for USPS)")
             
-            # Address Row 1: Street gets more space than Apt
+            # Row 1: Street and Apt
             c1, c2 = st.columns([3, 1]) 
             street = c1.text_input("Street Address")
             street2 = c2.text_input("Apt / Suite")
             
-            # Address Row 2: City, State, Zip, Country nicely spaced
+            # Row 2: City, State, Zip, Country (Restored & Spaced Nicely)
             c3, c4, c5, c6 = st.columns([3, 2, 2, 3])
             city = c3.text_input("City")
             state = c4.text_input("State")
             zip_code = c5.text_input("Zip")
             country = c6.selectbox("Country", ["United States", "Canada", "United Kingdom", "Australia", "Other"], index=0)
             
-            # Submit
             if st.form_submit_button("Sign Up & Create Account", type="primary"):
                 if not new_email or not new_pass or not street or not city or not state or not zip_code:
                     st.error("Please fill in all required fields.")
                 else:
-                    # Pass country to auth engine
                     res, err = auth_engine.sign_up(
                         new_email, new_pass, full_name, 
                         street, street2, city, state, zip_code, country, "English"
@@ -139,10 +136,11 @@ def show_login(*args, **kwargs):
                     if res:
                         st.balloons()
                         st.success("Account created! Please check your email to confirm.")
+                        # Optional auto-login logic could go here if supported by auth_engine
                     else:
                         st.error(err)
 
-    # --- TAB 3: FORGOT PASSWORD (RESTORED) ---
+    # --- TAB 3: FORGOT PASSWORD ---
     with tab3:
         st.write("")
         st.warning("🔒 Reset Password")
@@ -150,9 +148,7 @@ def show_login(*args, **kwargs):
         
         with st.form("forgot_pass_form"):
             reset_email = st.text_input("Email Address", key="reset_email")
-            submitted = st.form_submit_button("Send Reset Link")
-            
-            if submitted:
+            if st.form_submit_button("Send Reset Link"):
                 if not reset_email:
                     st.error("Please enter your email.")
                 else:
@@ -163,8 +159,6 @@ def show_login(*args, **kwargs):
                         st.error(msg)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Manual fallback
         with st.expander("Have a code to enter manually?"):
             st.caption("If the link didn't work automatically, paste the token from the email here.")
             m_token = st.text_input("Token / Code")
@@ -185,7 +179,6 @@ def show_login(*args, **kwargs):
 def render_reset_password_interface():
     """
     Renders ONLY when user clicks the email link and returns to the app.
-    Prevents the user from seeing the login screen.
     """
     st.markdown("<h2 style='text-align: center; color: #FF4B4B;'>Set New Password</h2>", unsafe_allow_html=True)
     st.info("Please set a new password for your account.")
@@ -202,6 +195,7 @@ def render_reset_password_interface():
                 st.success("Password Changed Successfully! Redirecting to login...")
                 st.query_params.clear()
                 time.sleep(2)
+                st.session_state.app_mode = "login"
                 st.rerun()
             else:
                 st.error(msg)
