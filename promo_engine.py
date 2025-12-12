@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def validate_code(code):
     """
-    Checks if a promo code exists, is active, and has remaining uses.
+    Checks if a promo code exists and has remaining uses.
     Returns True if valid, False otherwise.
     """
     if not code: 
@@ -30,8 +30,8 @@ def validate_code(code):
             if not promo:
                 return False
 
-            # Check active status if the column exists (handled by new database.py model)
-            if hasattr(promo, 'active') and not promo.active:
+            # Check active status
+            if not promo.active:
                 return False
 
             # 2. Check usage count via logs
@@ -116,7 +116,7 @@ def get_all_codes_with_usage():
                     "Used": usage_count,
                     "Max Limit": p.max_uses,
                     "Remaining": p.max_uses - usage_count,
-                    "Active": getattr(p, 'active', True),
+                    "Active": p.active,
                     "Created At": p.created_at.strftime("%Y-%m-%d")
                 })
             return results

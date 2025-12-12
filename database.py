@@ -58,8 +58,8 @@ class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True, index=True)
     max_uses = Column(Integer, default=1)
-    # Removed 'current_uses' as it doesn't exist in your DB
-    active = Column(Boolean, default=True) # Added to match your DB
+    # FIX: Replaced 'current_uses' with 'active' to match Supabase
+    active = Column(Boolean, default=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class PromoLog(Base):
