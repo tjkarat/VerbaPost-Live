@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def validate_code(code):
     """
-    Checks if a promo code exists and has remaining uses.
+    Checks if a promo code exists, is active, and has remaining uses.
     Returns True if valid, False otherwise.
     """
     if not code: 
@@ -24,17 +24,24 @@ def validate_code(code):
 
     try:
         with database.get_db_session() as db:
-            # Query the PromoCode table defined in database.py
+            # 1. Check if code exists and is active
             promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
             
-            if promo:
-                # Check if usage limit is reached
-                # The schema uses 'current_uses' vs 'max_uses'
-                if promo.current_uses < promo.max_uses:
-                    return True
-                else:
-                    logger.warning(f"Promo code {code} exhausted ({promo.current_uses}/{promo.max_uses})")
-            return False
+            if not promo:
+                return False
+
+            # Check active status if the column exists (handled by new database.py model)
+            if hasattr(promo, 'active') and not promo.active:
+                return False
+
+            # 2. Check usage count via logs
+            usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
+            
+            if usage_count < promo.max_uses:
+                return True
+            else:
+                logger.warning(f"Promo code {code} exhausted ({usage_count}/{promo.max_uses})")
+                return False
             
     except Exception as e:
         logger.error(f"Error validating code {code}: {e}")
@@ -42,7 +49,7 @@ def validate_code(code):
 
 def log_usage(code, user_email):
     """
-    Increments the usage count for a specific code.
+    Records usage by inserting a record into promo_logs.
     """
     if not code: return
     
@@ -50,14 +57,15 @@ def log_usage(code, user_email):
     
     try:
         with database.get_db_session() as db:
-            promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
-            if promo:
-                promo.current_uses += 1
-                # The session manager in database.py auto-commits on exit
-                logger.info(f"💰 Promo {code} used by {user_email}. Count: {promo.current_uses}")
-            else:
-                logger.warning(f"Attempted to log usage for non-existent code: {code}")
-                
+            # Create a log entry
+            log_entry = database.PromoLog(
+                code=code,
+                user_email=user_email,
+                used_at=datetime.utcnow()
+            )
+            db.add(log_entry)
+            logger.info(f"💰 Promo {code} used by {user_email}.")
+            
     except Exception as e:
         logger.error(f"Failed to log usage for {code}: {e}")
 
@@ -79,7 +87,7 @@ def create_code(code, max_uses=1):
             new_promo = database.PromoCode(
                 code=code,
                 max_uses=max_uses,
-                current_uses=0,
+                active=True,
                 created_at=datetime.utcnow()
             )
             db.add(new_promo)
@@ -98,16 +106,21 @@ def get_all_codes_with_usage():
         with database.get_db_session() as db:
             promos = db.query(database.PromoCode).order_by(database.PromoCode.created_at.desc()).all()
             
-            return [
-                {
+            results = []
+            for p in promos:
+                # Calculate current usage on the fly
+                usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == p.code).scalar()
+                
+                results.append({
                     "Code": p.code,
-                    "Used": p.current_uses,
+                    "Used": usage_count,
                     "Max Limit": p.max_uses,
-                    "Remaining": p.max_uses - p.current_uses,
+                    "Remaining": p.max_uses - usage_count,
+                    "Active": getattr(p, 'active', True),
                     "Created At": p.created_at.strftime("%Y-%m-%d")
-                }
-                for p in promos
-            ]
+                })
+            return results
+            
     except Exception as e:
         logger.error(f"Fetch Promos Error: {e}")
         return []

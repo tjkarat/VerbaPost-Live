@@ -1,12 +1,12 @@
 import streamlit as st
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime
 import json
 import secrets_manager
 from contextlib import contextmanager
 import logging
-import numpy as np # Import numpy to check types
+import numpy as np
 
 # --- CONFIG ---
 logging.basicConfig(level=logging.INFO)
@@ -58,8 +58,16 @@ class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True, index=True)
     max_uses = Column(Integer, default=1)
-    current_uses = Column(Integer, default=0)
+    # Removed 'current_uses' as it doesn't exist in your DB
+    active = Column(Boolean, default=True) # Added to match your DB
     created_at = Column(DateTime, default=datetime.utcnow)
+
+class PromoLog(Base):
+    __tablename__ = "promo_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, index=True)
+    user_email = Column(String)
+    used_at = Column(DateTime, default=datetime.utcnow)
 
 # --- ENGINE ---
 @st.cache_resource
@@ -126,9 +134,7 @@ def save_draft(email, text, tier, price, to_addr=None, from_addr=None, sig_data=
 
 def update_draft_data(draft_id, to_addr=None, from_addr=None, content=None, status=None, tier=None, price=None):
     try:
-        # CRITICAL FIX: Convert Numpy int to Python int
         safe_id = _safe_int(draft_id)
-        
         with get_db_session() as db:
             draft = db.query(LetterDraft).filter(LetterDraft.id == safe_id).first()
             if draft:
