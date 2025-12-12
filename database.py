@@ -54,13 +54,11 @@ class SavedContact(Base):
     country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-# --- FIX: MATCHING YOUR SUPABASE SCHEMA ---
 class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True, index=True)
     max_uses = Column(Integer, default=1)
-    # Replaces 'current_uses' with 'active' to match your DB
-    active = Column(Boolean, default=True) 
+    active = Column(Boolean, default=True) # Matches DB
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class PromoLog(Base):
@@ -160,6 +158,7 @@ def update_user_profile(email, name, street, street2, city, state, zip_code, cou
                 user.country = country
     except Exception as e: logger.error(f"Update Profile Error: {e}")
 
+# --- ADDRESS BOOK ---
 def add_contact(user_email, name, street, street2, city, state, zip_code, country="US"):
     if not user_email: return False
     try:
@@ -189,6 +188,7 @@ def delete_contact(contact_id):
             return True
     except Exception: return False
 
+# --- DELETE DRAFT ---
 def delete_draft(draft_id):
     try:
         safe_id = _safe_int(draft_id)
@@ -199,6 +199,7 @@ def delete_draft(draft_id):
         logger.error(f"Delete Draft Error: {e}")
         return False
 
+# --- ADMIN SUPPORT ---
 def get_civic_leaderboard():
     try:
         with get_db_session() as db:

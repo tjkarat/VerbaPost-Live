@@ -10,10 +10,10 @@ try: import database
 except ImportError: database = None
 
 def show_splash():
-    # --- CSS CONFIGURATION (Aggressive Dark Mode Fix) ---
+    # --- CSS CONFIGURATION (Aggressive White Text Force) ---
     st.markdown("""
     <style>
-        /* HERO STYLING */
+        /* HERO CONTAINER */
         .hero-container {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
             padding: 40px 20px;
@@ -23,21 +23,18 @@ def show_splash():
             margin-bottom: 25px;
         }
         
-        /* FORCE WHITE TEXT: Overrides Streamlit Dark Mode */
-        .hero-container h1, 
-        .hero-container div, 
-        .hero-container p, 
-        .hero-container span {
+        /* Force ALL text inside hero to be white */
+        .hero-container, .hero-container * {
             color: #FFFFFF !important;
-            --text-color: #FFFFFF !important; /* Streamlit variable override */
+            --text-color: #FFFFFF !important;
         }
 
         .hero-title { 
             font-size: clamp(2.2rem, 5vw, 3.5rem); 
             font-weight: 800; 
             margin: 0; 
-            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
             line-height: 1.1;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
         }
         .hero-subtitle { 
             font-size: clamp(1.1rem, 3vw, 1.8rem); 
@@ -55,10 +52,10 @@ def show_splash():
             opacity: 0.9;
         }
         
-        /* PRICE CARD STYLING */
+        /* PRICE CARDS */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-            padding: 15px;
+            padding: 20px;
             border-radius: 12px; 
             border: 1px solid #4a90e2;
             text-align: center; 
@@ -69,31 +66,32 @@ def show_splash():
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             min-height: 240px;
         }
-        
-        /* Force White Text in Cards */
-        .price-card * {
+
+        /* CRITICAL: Force every element inside price-card to be white */
+        .price-card, .price-card div, .price-card h3, .price-card p, .price-card li, .price-card span {
             color: #FFFFFF !important;
+            --text-color: #FFFFFF !important;
         }
         
         .price-title { 
             font-weight: 800; 
             font-size: 1.2rem; 
-            margin-bottom: 2px;
+            margin-bottom: 5px;
             text-transform: uppercase;
             letter-spacing: 1px;
         }
         .price-subtitle { 
-            color: #a8c0ff !important; /* Light blue accent */
+            opacity: 0.9;
             font-size: 0.85rem; 
             font-style: italic; 
-            margin-bottom: 10px; 
+            margin-bottom: 15px; 
             font-weight: 500;
         }
         .price-tag { 
-            font-size: 1.8rem; 
+            font-size: 2rem; 
             font-weight: 800; 
-            color: #FFEB3B !important; /* Yellow accent */
-            margin: 5px 0;
+            color: #FFEB3B !important; /* Force Yellow for Price */
+            margin: 10px 0;
             text-shadow: 0 1px 2px rgba(0,0,0,0.5);
         }
         .price-card ul { 
@@ -103,14 +101,15 @@ def show_splash():
             text-align: center;
         }
         .price-card li { 
-            font-size: 0.9rem; 
-            margin-bottom: 4px; 
+            font-size: 0.95rem; 
+            margin-bottom: 6px; 
             line-height: 1.3;
+            opacity: 0.95;
         }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- HERO SECTION ---
+    # --- HERO ---
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost 📮</div>
@@ -122,7 +121,6 @@ def show_splash():
     </div>
     """, unsafe_allow_html=True)
 
-    # Call to Action
     c_pad, c_btn, c_pad2 = st.columns([1, 2, 1])
     with c_btn:
         if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
@@ -135,22 +133,21 @@ def show_splash():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- PRICING CARDS ---
+    # --- PRICING ---
     p1, p2, p3, p4 = st.columns(4)
     with p1:
         st.markdown("""<div class="price-card"><div class="price-title">Standard</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$2.99</div><ul><li>🇺🇸 USPS First Class</li><li>📄 Standard Paper</li><li>🤖 AI Transcription</li></ul></div>""", unsafe_allow_html=True)
     with p2:
-        st.markdown("""<div class="price-card"><div class="price-title">Heirloom</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">🏺 Heirloom</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$5.99</div><ul><li>🖋️ Wet-Ink Style</li><li>📜 Archival Stock</li><li>👋 Hand-Addressed</li></ul></div>""", unsafe_allow_html=True)
     with p3:
-        st.markdown("""<div class="price-card"><div class="price-title">Civic</div><div class="price-subtitle">Three Letters</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">🏛️ Civic</div><div class="price-subtitle">Three Letters</div><div class="price-tag">$6.99</div><ul><li>🏛️ Write Congress</li><li>📍 Auto-Rep Lookup</li><li>📜 Formal Layout</li></ul></div>""", unsafe_allow_html=True)
     with p4:
-        st.markdown("""<div class="price-card"><div class="price-title">Santa</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
+        st.markdown("""<div class="price-card"><div class="price-title">🎅 Santa</div><div class="price-subtitle">Single Letter</div><div class="price-tag">$9.99</div><ul><li>❄️ North Pole Mark</li><li>📜 Festive Paper</li><li>✍️ Signed by Santa</li></ul></div>""", unsafe_allow_html=True)
 
-    # --- LEADERBOARD (Safe Mode) ---
+    # --- LEADERBOARD ---
     st.markdown("<br><hr>", unsafe_allow_html=True)
     if database:
         try:
-            # Safely check if function exists to prevent crash if database.py is outdated
             func = getattr(database, 'get_civic_leaderboard', None)
             stats = func() if func else []
             
@@ -163,10 +160,9 @@ def show_splash():
                     st.info("No letters sent yet this month. Be the first!")
         except Exception as e:
             logger.error(f"Leaderboard Error: {e}")
-    else:
-        pass
+            pass
 
-    # --- LEGAL FOOTER ---
+    # --- FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
     c_foot1, c_foot2, c_foot3 = st.columns([1, 1, 1])
     with c_foot2:
