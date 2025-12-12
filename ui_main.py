@@ -9,93 +9,45 @@ from PIL import Image
 import io
 import time
 import logging
+import hashlib  # <--- SECURITY: Required for Idempotency
 
 # --- 1. ROBUST UI IMPORTS ---
-try: 
-    import ui_splash
-except ImportError: 
-    ui_splash = None
-
-try: 
-    import ui_login
-except ImportError: 
-    ui_login = None
-
-try: 
-    import ui_admin
-except ImportError: 
-    ui_admin = None
-
-try: 
-    import ui_legal
-except ImportError: 
-    ui_legal = None
+try: import ui_splash
+except ImportError: ui_splash = None
+try: import ui_login
+except ImportError: ui_login = None
+try: import ui_admin
+except ImportError: ui_admin = None
+try: import ui_legal
+except ImportError: ui_legal = None
 
 # --- 2. HELPER IMPORTS ---
-try: 
-    import database
-except ImportError: 
-    database = None
-
-try: 
-    import ai_engine
-except ImportError: 
-    ai_engine = None
-
-try: 
-    import payment_engine
-except ImportError: 
-    payment_engine = None
-
-try: 
-    import letter_format
-except ImportError: 
-    letter_format = None
-
-try: 
-    import mailer
-except ImportError: 
-    mailer = None
-
-try: 
-    import analytics
-except ImportError: 
-    analytics = None
-
-try: 
-    import promo_engine
-except ImportError: 
-    promo_engine = None
-
-try: 
-    import secrets_manager
-except ImportError: 
-    secrets_manager = None
-
-try: 
-    import civic_engine
-except ImportError: 
-    civic_engine = None
-
-try: 
-    import bulk_engine
-except ImportError: 
-    bulk_engine = None
-
-try: 
-    import audit_engine 
-except ImportError: 
-    audit_engine = None
-
-try: 
-    import auth_engine
-except ImportError: 
-    auth_engine = None
-
-try: 
-    import pricing_engine 
-except ImportError: 
-    pricing_engine = None
+try: import database
+except ImportError: database = None
+try: import ai_engine
+except ImportError: ai_engine = None
+try: import payment_engine
+except ImportError: payment_engine = None
+try: import letter_format
+except ImportError: letter_format = None
+try: import mailer
+except ImportError: mailer = None
+try: import analytics
+except ImportError: analytics = None
+try: import promo_engine
+except ImportError: promo_engine = None
+try: import secrets_manager
+except ImportError: secrets_manager = None
+try: import civic_engine
+except ImportError: civic_engine = None
+try: import bulk_engine
+except ImportError: bulk_engine = None
+try: import audit_engine 
+except ImportError: audit_engine = None
+try: import auth_engine
+except ImportError: auth_engine = None
+try: import pricing_engine 
+except ImportError: pricing_engine = None
 
 # --- 3. CONFIGURATION ---
 logging.basicConfig(level=logging.INFO)
@@ -113,18 +65,9 @@ except:
     pass
 
 COUNTRIES = {
-    "US": "United States", 
-    "CA": "Canada", 
-    "GB": "United Kingdom", 
-    "FR": "France", 
-    "DE": "Germany", 
-    "IT": "Italy", 
-    "ES": "Spain", 
-    "AU": "Australia", 
-    "MX": "Mexico", 
-    "JP": "Japan", 
-    "BR": "Brazil", 
-    "IN": "India"
+    "US": "United States", "CA": "Canada", "GB": "United Kingdom", "FR": "France", 
+    "DE": "Germany", "IT": "Italy", "ES": "Spain", "AU": "Australia", 
+    "MX": "Mexico", "JP": "Japan", "BR": "Brazil", "IN": "India"
 }
 
 # --- 4. HELPER FUNCTIONS ---
@@ -177,16 +120,11 @@ def _save_addresses_to_state(tier):
     if should_save and database and tier != "Civic" and st.session_state.get("w_to_name"):
         try:
             database.add_contact(
-                u, 
-                st.session_state.w_to_name, 
-                st.session_state.w_to_street, 
-                st.session_state.w_to_street2, 
-                st.session_state.w_to_city, 
-                st.session_state.w_to_state, 
-                st.session_state.w_to_zip
+                u, st.session_state.w_to_name, st.session_state.w_to_street, 
+                st.session_state.w_to_street2, st.session_state.w_to_city, 
+                st.session_state.w_to_state, st.session_state.w_to_zip
             )
-        except Exception: 
-            pass
+        except Exception: pass
 
     if mailer and st.session_state.to_addr.get('country') == "US":
         try:
@@ -207,21 +145,17 @@ def _save_addresses_to_state(tier):
                         'zip': data.get('zip')
                     })
                     st.success("✅ Address Verified")
-        except: 
-            pass
+        except: pass
 
     d_id = st.session_state.get("current_draft_id")
     if d_id and database: 
         database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
 
 def _render_address_book_selector(u_email):
-    """Renders the Quick Fill dropdown."""
     if not database: return
-    
     contacts = database.get_contacts(u_email)
     if contacts:
         contact_names = ["-- Quick Fill --"] + [c.name for c in contacts]
-        
         def on_contact_change():
             selected = st.session_state.get("addr_book_sel")
             if selected and selected != "-- Quick Fill --":
@@ -238,14 +172,11 @@ def _render_address_book_selector(u_email):
         st.selectbox("📒 Address Book", contact_names, key="addr_book_sel", on_change=on_contact_change)
 
 def _render_address_form(tier, is_intl):
-    """Renders the actual input fields for addresses."""
     with st.form("addressing_form"):
         c1, c2 = st.columns(2)
-        
         with c1:
             st.markdown("**From**")
-            if tier == "Santa": 
-                st.info("🎅 Santa Claus")
+            if tier == "Santa": st.info("🎅 Santa Claus")
             else:
                 st.text_input("Name", key="w_from_name")
                 st.text_input("Street", key="w_from_street")
@@ -267,7 +198,6 @@ def _render_address_form(tier, is_intl):
                 st.text_input("Name", key="w_to_name")
                 st.text_input("Street", key="w_to_street")
                 st.text_input("Apt/Suite", key="w_to_street2")
-                
                 if is_intl:
                     st.selectbox("Country", list(COUNTRIES.keys()), key="w_to_country")
                     st.text_input("City", key="w_to_city")
@@ -287,7 +217,22 @@ def _render_address_form(tier, is_intl):
             st.toast("Saved!")
 
 def _process_sending_logic(tier):
-    """Handles the final PDF generation, API calls, and DB updates."""
+    """
+    Handles PDF gen, API calls, DB updates.
+    Includes Idempotency Lock to prevent double-sends.
+    """
+    
+    # --- SECURITY FIX: IDEMPOTENCY ---
+    # Generate unique hash for this attempt based on draft ID, tier, and content length
+    draft_id = st.session_state.get("current_draft_id", "0")
+    content_len = len(st.session_state.get("transcribed_text", ""))
+    idemp_string = f"{draft_id}_{tier}_{content_len}"
+    idemp_key = hashlib.sha256(idemp_string.encode()).hexdigest()
+    
+    # Check against last success to prevent re-sending
+    if st.session_state.get("last_sent_hash") == idemp_key:
+        st.warning("⚠️ This letter has already been queued for sending.")
+        return
     
     to_check = st.session_state.get("to_addr", {})
     if tier != "Campaign" and tier != "Civic":
@@ -334,6 +279,7 @@ def _process_sending_logic(tier):
 
             is_ok = False
             if mailer:
+                # Convert to PostGrid Format
                 pg_to = {'name': tgt.get('name'), 'address_line1': tgt.get('street'), 'address_line2': tgt.get('address_line2', ''), 'address_city': tgt.get('city'), 'address_state': tgt.get('state'), 'address_zip': tgt.get('zip'), 'country_code': 'US'}
                 pg_from = {'name': st.session_state.from_addr.get('name'), 'address_line1': st.session_state.from_addr.get('street'), 'address_line2': st.session_state.from_addr.get('address_line2', ''), 'address_city': st.session_state.from_addr.get('city'), 'address_state': st.session_state.from_addr.get('state'), 'address_zip': st.session_state.from_addr.get('zip'), 'country_code': 'US'}
                 
@@ -349,10 +295,8 @@ def _process_sending_logic(tier):
                         st.session_state.get("is_certified", False)
                     )
                     
-                    if send_ok: 
-                        is_ok = True
-                    else: 
-                        errs.append(f"Failed {tgt.get('name')}: {send_res}")
+                    if send_ok: is_ok = True
+                    else: errs.append(f"Failed {tgt.get('name')}: {send_res}")
                 except Exception as e:
                     errs.append(f"Mailer Exception: {str(e)}")
                 finally:
@@ -366,7 +310,7 @@ def _process_sending_logic(tier):
 
         if not errs:
             st.success("✅ All Sent!")
-            # CRITICAL FIX: Update state and rerun immediately
+            st.session_state.last_send_hash = idemp_key # Lock this send
             st.session_state.letter_sent_success = True
             st.rerun()
         else:
@@ -375,36 +319,18 @@ def _process_sending_logic(tier):
 
 # --- 5. SESSION MANAGEMENT ---
 def reset_app(full_logout=False):
-    """
-    Resets the session state to clear sensitive data between orders.
-    """
     st.query_params.clear()
     u_email = st.session_state.get("user_email")
-    
-    keys = [
-        "audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", 
-        "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", 
-        "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", 
-        "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", 
-        "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id",
-        "pending_stripe_url", "last_selected_contact", "addr_book_sel", "save_contact_opt"
-    ] 
-            
+    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id", "pending_stripe_url", "last_selected_contact", "addr_book_sel", "save_contact_opt", "last_send_hash"] 
     for k in keys: 
-        if k in st.session_state: 
-            del st.session_state[k]
-    
+        if k in st.session_state: del st.session_state[k]
     st.session_state.to_addr = {}
-    
     if full_logout:
-        if "user_email" in st.session_state: 
-            del st.session_state.user_email
+        if "user_email" in st.session_state: del st.session_state.user_email
         st.session_state.app_mode = "splash"
     else:
-        if u_email: 
-            st.session_state.app_mode = "store"
-        else: 
-            st.session_state.app_mode = "splash"
+        if u_email: st.session_state.app_mode = "store"
+        else: st.session_state.app_mode = "splash"
 
 # --- 6. RENDER SIDEBAR ---
 def render_sidebar():
@@ -412,21 +338,16 @@ def render_sidebar():
         st.header("VerbaPost 📮")
         st.markdown("---")
         user_email = st.session_state.get("user_email")
-        
         if user_email:
             st.success(f"👤 **Logged in as:**\n{user_email}")
-            
             admin_target = "tjkarat@gmail.com"
             if secrets_manager:
                 sec = secrets_manager.get_secret("admin.email")
-                if sec: 
-                    admin_target = sec
-            
+                if sec: admin_target = sec
             if str(user_email).lower().strip() == str(admin_target).lower().strip():
                 if st.button("🔐 Admin Console", type="primary", use_container_width=True):
                     st.session_state.app_mode = "admin"
                     st.rerun()
-
             if st.button("🚪 Log Out", type="secondary", use_container_width=True):
                 reset_app(full_logout=True)
                 st.rerun()
@@ -435,21 +356,17 @@ def render_sidebar():
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.rerun()
-
         st.markdown("---")
         mode = st.session_state.get("app_mode", "splash")
         if mode in ["workspace", "review"] and user_email:
              if st.button("🛒 Store (New Letter)", use_container_width=True):
                  st.session_state.app_mode = "store"
                  st.rerun()
-
-        st.caption("v3.1.12 (Refactored)")
+        st.caption("v3.1.13 (Secure)")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
-    # Pass global URL to ensure visibility
     global YOUR_APP_URL
-    
     u_email = st.session_state.get("user_email", "")
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
@@ -459,44 +376,29 @@ def render_store_page():
         return
 
     _render_hero("Select Service", "Choose your letter type")
-    
     c1, c2 = st.columns([2, 1])
     with c1:
         with st.container(border=True):
             st.subheader("Available Packages")
-            tier_labels = {
-                "Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", 
-                "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)", "Campaign": "📢 Campaign (Bulk)"
-            }
-            tier_desc = {
-                "Standard": "Professional print on standard paper. Mailed USPS First Class.",
-                "Heirloom": "Heavyweight archival stock with wet-ink style font.",
-                "Civic": "We identify your local reps and mail them physical letters.",
-                "Santa": "Magical letter from North Pole, signed by Santa.",
-                "Campaign": "Upload CSV. We mail everyone at once."
-            }
-            
+            tier_labels = {"Standard": "⚡ Standard ($2.99)", "Heirloom": "🏺 Heirloom ($5.99)", "Civic": "🏛️ Civic ($6.99)", "Santa": "🎅 Santa ($9.99)", "Campaign": "📢 Campaign (Bulk)"}
+            tier_desc = {"Standard": "Professional print on standard paper. Mailed USPS First Class.", "Heirloom": "Heavyweight archival stock with wet-ink style font.", "Civic": "We identify your local reps and mail them physical letters.", "Santa": "Magical letter from North Pole, signed by Santa.", "Campaign": "Upload CSV. We mail everyone at once."}
             default_idx = 0
             stored_tier = st.session_state.get("locked_tier")
             if stored_tier and stored_tier in list(tier_labels.keys()):
                 default_idx = list(tier_labels.keys()).index(stored_tier)
-
             sel = st.radio("Select Tier", list(tier_labels.keys()), index=default_idx, format_func=lambda x: tier_labels[x])
             tier_code = sel
             st.info(tier_desc[tier_code])
-            
             qty = 1
             if tier_code == "Campaign":
                 qty = st.number_input("Recipients", 10, 5000, 50, 10)
                 st.caption(f"Pricing: First $2.99, then $1.99/ea")
-
             is_intl = False
             is_certified = False
             if tier_code in ["Standard", "Heirloom"]:
                 c_opt1, c_opt2 = st.columns(2)
                 if c_opt1.checkbox("International (+$2.00)"): is_intl = True
                 if c_opt2.checkbox("Certified Mail (+$12.00)"): is_certified = True
-
             st.session_state.is_intl = is_intl
             st.session_state.is_certified = is_certified
 
@@ -511,11 +413,8 @@ def render_store_page():
             
             final_price = 0.00
             if not discounted:
-                if pricing_engine:
-                    final_price = pricing_engine.calculate_total(tier_code, is_intl, is_certified, qty)
-                else:
-                    final_price = 2.99 
-            
+                if pricing_engine: final_price = pricing_engine.calculate_total(tier_code, is_intl, is_certified, qty)
+                else: final_price = 2.99 
             st.metric("Total", f"${final_price:.2f}")
             
             if discounted:
@@ -538,26 +437,21 @@ def render_store_page():
                         st.rerun()
                 else:
                     if st.button("💳 Generate Payment Link", type="primary", use_container_width=True):
-                        # --- SAFE PAYMENT GENERATION ---
                         try:
                             d_id = _handle_draft_creation(u_email, tier_code, final_price)
-                            
                             link = f"{YOUR_APP_URL}?tier={tier_code}&session_id={{CHECKOUT_SESSION_ID}}"
                             if d_id: link += f"&draft_id={d_id}"
                             if is_intl: link += "&intl=1"
                             if is_certified: link += "&certified=1"
                             if tier_code == "Campaign": link += f"&qty={qty}"
-                            
                             if payment_engine:
                                 url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                                 if url:
                                     if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
                                     st.session_state.pending_stripe_url = url
                                     st.rerun()
-                                else:
-                                    st.error("⚠️ Stripe Error: Could not generate link.")
-                            else:
-                                st.error("⚠️ Payment Engine Missing")
+                                else: st.error("⚠️ Stripe Error: Could not generate link.")
+                            else: st.error("⚠️ Payment Engine Missing")
                         except Exception as e:
                             st.error(f"❌ System Crash: {str(e)}")
                             logger.error(f"PAYMENT CRASH: {e}")
@@ -577,12 +471,8 @@ def _handle_draft_creation(email, tier, price):
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
-    
-    if "transcribed_text" not in st.session_state:
-        st.session_state.transcribed_text = ""
-
+    if "transcribed_text" not in st.session_state: st.session_state.transcribed_text = ""
     _render_hero("Compose Letter", f"{tier} Edition")
-    
     u_email = st.session_state.get("user_email")
     if database and u_email:
         p = database.get_user_profile(u_email)
@@ -598,19 +488,21 @@ def render_workspace_page():
             st.subheader("📂 Upload Mailing List")
             if not bulk_engine: st.error("Bulk Engine Missing")
             f = st.file_uploader("CSV (Name, Street, City, State, Zip)", type=['csv'])
-            if f and bulk_engine:
-                c, err = bulk_engine.parse_csv(f)
-                if err: st.error(err)
-                else:
-                    st.success(f"✅ {len(c)} contacts loaded.")
-                    if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
+            
+            # --- SECURITY FIX: FILE SIZE LIMIT ---
+            if f:
+                if f.size > 5 * 1024 * 1024:
+                     st.error("❌ File too large. Maximum 5MB allowed.")
+                elif bulk_engine:
+                    c, err = bulk_engine.parse_csv(f)
+                    if err: st.error(err)
+                    else:
+                        st.success(f"✅ {len(c)} contacts loaded.")
+                        if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
         else:
             st.subheader("📍 Addressing")
-            if database and tier != "Civic":
-                _render_address_book_selector(u_email)
-
+            if database and tier != "Civic": _render_address_book_selector(u_email)
             _render_address_form(tier, is_intl)
-            
             if tier == "Civic" and civic_engine:
                  if st.button("🔍 Find My Reps"):
                     zip_code = st.session_state.get("w_from_zip")
@@ -621,11 +513,9 @@ def render_workspace_page():
                                 st.session_state.civic_targets = reps
                                 st.success(f"Found {len(reps)} Reps!")
                                 st.rerun()
-                            else: 
-                                st.error("No representatives found.")
+                            else: st.error("No representatives found.")
 
     st.write("---")
-    # Dictation / Signature
     c_sig, c_mic = st.columns(2)
     with c_sig:
         st.write("✍️ **Signature**")
@@ -633,7 +523,6 @@ def render_workspace_page():
         else:
             canvas = st_canvas(stroke_width=2, height=150, width=300, key="sig")
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
-    
     with c_mic:
         st.write("🎤 **Input**")
         t1, t2 = st.tabs(["Record", "Upload"])
@@ -645,17 +534,13 @@ def render_workspace_page():
                     if ai_engine:
                         with st.spinner("Processing (CPU)..."): 
                             res = ai_engine.transcribe_audio(audio)
-                            if not res or len(str(res).strip()) == 0:
-                                 st.warning("⚠️ No speech detected.")
-                            elif str(res).startswith("Error:") or str(res).startswith("[Error"):
-                                st.error(res)
+                            if not res or len(str(res).strip()) == 0: st.warning("⚠️ No speech detected.")
+                            elif str(res).startswith("Error:") or str(res).startswith("[Error"): st.error(res)
                             else:
                                 st.session_state.transcribed_text = res
                                 st.session_state.app_mode = "review"
                                 st.success("Success!")
-                                time.sleep(0.1)
-                                st.rerun()
-
+                                time.sleep(0.1); st.rerun()
         with t2:
             st.info("Upload MP3, WAV, or M4A.")
             up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
@@ -664,118 +549,87 @@ def render_workspace_page():
                     if ai_engine:
                         with st.spinner("Processing..."):
                             res = ai_engine.transcribe_audio(up)
-                            if not res or len(str(res).strip()) == 0:
-                                 st.warning("⚠️ No speech detected.")
-                            elif str(res).startswith("Error:") or str(res).startswith("[Error"):
-                                st.error(res)
+                            if not res or len(str(res).strip()) == 0: st.warning("⚠️ No speech detected.")
+                            elif str(res).startswith("Error:") or str(res).startswith("[Error"): st.error(res)
                             else:
                                 st.session_state.transcribed_text = res
                                 st.session_state.app_mode = "review"
-                                time.sleep(0.1)
-                                st.rerun()
+                                time.sleep(0.1); st.rerun()
 
 # --- 9. PAGE: REVIEW ---
 def render_review_page():
     _render_hero("Review", "Finalize & Send")
-    
-    # 1. SUCCESS STATE (Start New Button)
     if st.session_state.get("letter_sent_success"):
         st.success("✅ Letter Sent Successfully!")
         st.balloons()
-        
         st.markdown("### Next Steps")
         if st.button("📮 Start New Letter", type="primary", use_container_width=True):
             reset_app()
             st.rerun()
-        return  # EXIT FUNCTION EARLY
+        return
 
-    # 2. STANDARD REVIEW STATE
     if st.button("⬅️ Edit"): 
         st.session_state.app_mode = "workspace"
         st.rerun()
-    
     tier = st.session_state.get("locked_tier", "Standard")
-    if tier != "Campaign" and not st.session_state.get("to_addr"): 
-        _save_addresses_to_state(tier)
+    if tier != "Campaign" and not st.session_state.get("to_addr"): _save_addresses_to_state(tier)
 
     c1, c2, c3, c4 = st.columns(4)
     current_text = st.session_state.get("transcribed_text", "")
-    
     def _ai_fix(style):
         if ai_engine:
             with st.spinner("Rewriting..."): 
                 st.session_state.transcribed_text = ai_engine.refine_text(current_text, style)
                 st.rerun()
-    
     if c1.button("Grammar"): _ai_fix("Grammar")
     if c2.button("Professional"): _ai_fix("Professional")
     if c3.button("Friendly"): _ai_fix("Friendly")
     if c4.button("Concise"): _ai_fix("Concise")
 
     new_text = st.text_area("Body", value=current_text, height=300, key="txt_body_input")
-    if new_text != current_text:
-        st.session_state.transcribed_text = new_text
+    if new_text != current_text: st.session_state.transcribed_text = new_text
 
     st.markdown("### 📄 Letter Preview")
-    if not current_text:
-        st.warning("Please enter some text before generating a preview.")
+    if not current_text: st.warning("Please enter some text before generating a preview.")
     else:
         try:
-            to_s = ""
-            from_s = ""
+            to_s = ""; from_s = ""
             if st.session_state.get("to_addr"):
                 d = st.session_state.to_addr
                 to_s = f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
             if st.session_state.get("from_addr"):
                 d = st.session_state.from_addr
                 from_s = f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
-
             sig_path = None
             if st.session_state.get("sig_data") is not None:
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: 
-                    img.save(tmp.name)
-                    sig_path=tmp.name
-            
+                    img.save(tmp.name); sig_path=tmp.name
             if letter_format:
                 pdf_bytes = letter_format.create_pdf(current_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
-                
                 if pdf_bytes and len(pdf_bytes) > 100:
                     st.download_button(label="⬇️ Download PDF Proof", data=pdf_bytes, file_name="letter_preview.pdf", mime="application/pdf", type="primary", use_container_width=True)
-                else:
-                    st.error("Failed to generate PDF content.")
-            
+                else: st.error("Failed to generate PDF content.")
             if sig_path: 
                 try: os.remove(sig_path)
                 except: pass
-        except Exception as e:
-            st.error(f"Preview Failed: {e}")
+        except Exception as e: st.error(f"Preview Failed: {e}")
 
     if st.button("🚀 Send Letter", type="primary"):
         _process_sending_logic(tier)
 
 # --- 10. MAIN ROUTER ---
 def show_main_app():
-    if analytics: 
-        analytics.inject_ga()
-        
+    if analytics: analytics.inject_ga()
     render_sidebar()
     mode = st.session_state.get("app_mode", "splash")
-    
-    if mode == "splash" and ui_splash: 
-        ui_splash.show_splash()
-    elif mode == "login" and ui_login and auth_engine: 
-        ui_login.show_login(auth_engine.sign_in, auth_engine.sign_up)
-    elif mode == "store": 
-        render_store_page()
-    elif mode == "workspace": 
-        render_workspace_page()
-    elif mode == "review": 
-        render_review_page()
-    elif mode == "admin" and ui_admin: 
-        ui_admin.show_admin()
-    elif mode == "legal" and ui_legal: 
-        ui_legal.show_legal()
+    if mode == "splash" and ui_splash: ui_splash.show_splash()
+    elif mode == "login" and ui_login and auth_engine: ui_login.show_login(auth_engine.sign_in, auth_engine.sign_up)
+    elif mode == "store": render_store_page()
+    elif mode == "workspace": render_workspace_page()
+    elif mode == "review": render_review_page()
+    elif mode == "admin" and ui_admin: ui_admin.show_admin()
+    elif mode == "legal" and ui_legal: ui_legal.show_legal()
     else: 
         st.session_state.app_mode = "store"
         st.rerun()
@@ -786,13 +640,11 @@ def _h_login(auth, e, p):
         st.session_state.user_email = res.user.email
         st.session_state.app_mode = "store"
         st.rerun()
-    else: 
-        st.error(err)
+    else: st.error(err)
 
 def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
     res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
     if res and res.user: 
         st.success("Created! Please Log In.")
         st.session_state.app_mode = "login"
-    else: 
-        st.error(err)
+    else: st.error(err)

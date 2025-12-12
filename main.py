@@ -2,118 +2,111 @@ import streamlit as st
 import time
 import logging
 
-# --- 1. CONFIG ---
+# --- MODULE IMPORTS ---
+try: import ui_main
+except ImportError: ui_main = None
+try: import payment_engine
+except ImportError: payment_engine = None
+try: import audit_engine
+except ImportError: audit_engine = None
+try: import database
+except ImportError: database = None
+
+# --- CONFIGURATION ---
 st.set_page_config(
-    page_title="VerbaPost | Send Real Mail from Audio",
+    page_title="VerbaPost", 
     page_icon="📮",
     layout="centered",
-    initial_sidebar_state="collapsed" 
+    initial_sidebar_state="collapsed"
 )
 
-# --- 2. CSS ---
-def inject_global_css():
-    st.markdown("""
-    <style>
-        .stApp { background-color: #f8f9fc; }
-        h1, h2, h3, h4, h5, h6, .stMarkdown, p, li, span, div { color: #2d3748 !important; }
-        label, .stTextInput label, .stSelectbox label { color: #2a5298 !important; font-weight: 600 !important; }
-        .custom-hero h1, .custom-hero div { color: white !important; }
-        button p { color: #2a5298 !important; }
-        button[kind="primary"] { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important; border: none !important; }
-        button[kind="primary"] p { color: white !important; }
-        [data-testid="stFormSubmitButton"] button { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%) !important; border: none !important; }
-        [data-testid="stFormSubmitButton"] button p { color: #FFFFFF !important; }
-        button:hover { transform: scale(1.02); }
-        [data-testid="stSidebar"] { background-color: white !important; border-right: 1px solid #e2e8f0; }
-    </style>
-    """, unsafe_allow_html=True)
+# Configure Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# --- 3. RUN ---
-if __name__ == "__main__":
-    inject_global_css()
-    
-    if "app_mode" not in st.session_state:
-        st.session_state.app_mode = "splash"
-    
-    try:
-        q_params = st.query_params
-        
-        # --- A. DEEP LINKING ---
-        if "view" in q_params:
-            target_view = q_params["view"]
-            if target_view in ["legal", "login", "splash"]:
-                if st.session_state.app_mode not in ["store", "workspace", "review"]:
-                    st.session_state.app_mode = target_view
-        
-        if "tier" in q_params and "session_id" not in q_params:
-            st.session_state.target_marketing_tier = q_params["tier"]
+# --- SESSION STATE INIT ---
+if "app_mode" not in st.session_state:
+    st.session_state.app_mode = "splash"
+if "payment_complete" not in st.session_state:
+    st.session_state.payment_complete = False
 
-        # --- B. STRIPE RETURN LOGIC ---
-        if "session_id" in q_params:
-            sess_id = q_params["session_id"]
-            
+# --- MAIN ROUTER ---
+def main():
+    # 1. HANDLE PAYMENT RETURN (SECURITY CRITICAL)
+    if "session_id" in st.query_params:
+        sess_id = st.query_params["session_id"]
+        
+        # Prevent re-verification loop
+        if sess_id != st.session_state.get("last_verified_session"):
             try:
-                import payment_engine
-                import audit_engine 
-                is_paid, session_details = payment_engine.verify_session(sess_id)
-            except ImportError:
-                is_paid = False
-                session_details = None
+                if payment_engine:
+                    with st.spinner("Verifying Payment..."):
+                        is_paid, session_obj = payment_engine.verify_session(sess_id)
+                    
+                    if is_paid:
+                        # --- SECURITY FIX: ENFORCE AUTH & IDENTITY ---
+                        current_user = st.session_state.get("user_email")
+                        
+                        # A. Force Login if Guest
+                        if not current_user:
+                            st.error("⚠️ Session Expired. Please log in to claim this payment.")
+                            st.session_state.app_mode = "login"
+                            st.session_state.pending_payment_id = sess_id # Save for post-login claim
+                            st.stop()
 
-            current_user = st.session_state.get("user_email")
-            payer_email = session_details.get("customer_details", {}).get("email") if session_details else None
-            
-            if is_paid and current_user and payer_email:
-                if current_user.lower().strip() != payer_email.lower().strip():
-                    if audit_engine: audit_engine.log_event(current_user, "PAYMENT_MISMATCH", sess_id, {"payer": payer_email})
-                    st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
-                    st.stop()
+                        # B. CSRF / Identity Check (The Fix)
+                        # Ensure the person who paid is the person logged in
+                        payer_email = session_obj.customer_details.email if (session_obj and session_obj.customer_details) else None
+                        
+                        if payer_email and current_user:
+                            if current_user.lower().strip() != payer_email.lower().strip():
+                                # Log the attack/mismatch
+                                if audit_engine:
+                                    audit_engine.log_event(
+                                        current_user, 
+                                        "PAYMENT_MISMATCH_BLOCK", 
+                                        sess_id, 
+                                        {"payer": payer_email, "logged_in": current_user}
+                                    )
+                                
+                                st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
+                                st.stop() # HALT EXECUTION
 
-            if is_paid:
-                # 1. Update State
-                st.session_state.app_mode = "workspace"
-                st.session_state.payment_complete = True
-                st.session_state.current_stripe_id = sess_id 
-                
-                # Clear pending URL
-                if "pending_stripe_url" in st.session_state:
-                    del st.session_state.pending_stripe_url
-                
-                if audit_engine: audit_engine.log_event(current_user, "PAYMENT_VERIFIED", sess_id, {})
+                        # C. Success State
+                        st.success("✅ Payment Verified!")
+                        st.session_state.payment_complete = True
+                        st.session_state.last_verified_session = sess_id
+                        
+                        # Log Success
+                        if audit_engine:
+                            audit_engine.log_event(current_user, "PAYMENT_SUCCESS", sess_id)
 
-                if not current_user and payer_email:
-                    st.session_state.user_email = payer_email
+                        # Restore State from URL Params
+                        if "tier" in st.query_params:
+                            st.session_state.locked_tier = st.query_params["tier"]
+                        if "draft_id" in st.query_params:
+                            st.session_state.current_draft_id = st.query_params["draft_id"]
+                        if "qty" in st.query_params:
+                            st.session_state.bulk_paid_qty = int(st.query_params["qty"])
+                        
+                        # Cleanup URL
+                        time.sleep(1) # Allow UI to show success
+                        st.query_params.clear()
+                        st.session_state.app_mode = "workspace"
+                        st.rerun()
+                    else:
+                        st.error("❌ Payment Verification Failed or Unpaid.")
+                        if audit_engine:
+                             audit_engine.log_event(None, "PAYMENT_FAILED", sess_id)
+            except Exception as e:
+                st.error(f"System Error: {e}")
+                logger.error(f"Router Error: {e}")
 
-                # Restore tier/settings from URL params
-                if "tier" in q_params: st.session_state.locked_tier = q_params["tier"]
-                if "intl" in q_params: st.session_state.is_intl = True
-                if "certified" in q_params: st.session_state.is_certified = True
-                if "qty" in q_params: st.session_state.bulk_paid_qty = int(q_params["qty"])
-                
-                # 2. AUTO-FORWARD (No button required)
-                st.toast("✅ Payment Verified! Preparing workspace...", icon="📮")
-                time.sleep(0.5) # Brief pause for toast visibility
-                st.query_params.clear()
-                st.rerun()
-                
-            else:
-                if audit_engine: audit_engine.log_event(current_user, "PAYMENT_FAILED", sess_id, {"reason": "Verification returned false"})
-                st.error("❌ Payment Verification Failed.")
-                st.session_state.app_mode = "store"
-                time.sleep(2)
-                st.query_params.clear()
-                st.rerun()
-            
-    except Exception as e:
-        print(f"Routing Error: {e}")
-
-    # --- LAUNCH UI ---
-    try:
-        import ui_main
+    # 2. LOAD UI CONTROLLER
+    if ui_main:
         ui_main.show_main_app()
-    except Exception as e:
-        st.error("⚠️ Application Error. Please refresh.")
-        print(f"Critical UI Error: {e}")
-        if st.button("Hard Reset App"):
-            st.session_state.clear()
-            st.rerun()
+    else:
+        st.error("CRITICAL: UI Module not found.")
+
+if __name__ == "__main__":
+    main()
