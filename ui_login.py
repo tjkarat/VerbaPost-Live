@@ -1,4 +1,5 @@
 import streamlit as st
+import auth_engine
 import time
 
 # --- CONSTANTS ---
@@ -7,10 +8,12 @@ COMMON_COUNTRIES = [
     "Germany", "France", "Japan", "Mexico", "Other"
 ]
 
-def show_login(auth_engine):
+def show_login(auth_engine, *args, **kwargs):
     """
-    Renders the main authentication interface with tabs for Login and Sign Up.
-    Argument 'auth_engine' is passed from ui_main.py to avoid circular imports.
+    Renders the main authentication interface.
+    
+    *args, **kwargs added to prevent TypeError if ui_main.py passes 
+    unexpected arguments (like session state or config flags).
     """
     
     # Container to keep the form centered and neat
@@ -81,7 +84,7 @@ def show_login(auth_engine):
             street = st.text_input("Street Address", placeholder="123 Main St")
             street2 = st.text_input("Apt / Suite (Optional)", placeholder="Apt 4B")
 
-            # 3. Compact Address Grid (The "Pretty" Fix)
+            # 3. Compact Address Grid (Includes Country)
             # Row 1: City & State
             c1, c2 = st.columns([2, 1]) 
             with c1:
@@ -103,12 +106,12 @@ def show_login(auth_engine):
             if submitted:
                 # Basic Validation
                 if not new_email or not new_password or not new_name or not street:
-                    st.error("Please fill in all required fields (Name, Email, Password, Address).")
+                    st.error("Please fill in all required fields.")
                 elif len(new_password) < 8:
                     st.error("Password must be at least 8 characters long.")
                 else:
                     with st.spinner("Creating account..."):
-                        # Call the backend engine with the new country parameter
+                        # Call the backend engine
                         user, error = auth_engine.sign_up(
                             email=new_email, 
                             password=new_password, 
@@ -119,7 +122,7 @@ def show_login(auth_engine):
                             state=state, 
                             zip_code=zip_code, 
                             country=country,
-                            language="English" # Default
+                            language="English"
                         )
                         
                         if error:
@@ -128,7 +131,7 @@ def show_login(auth_engine):
                             st.success("✅ Account created! Please log in via the first tab.")
                             st.balloons()
 
-def render_password_reset(auth_engine):
+def render_password_reset(auth_engine, *args, **kwargs):
     """
     Renders the view to request a password reset email.
     """
