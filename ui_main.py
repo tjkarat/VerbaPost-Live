@@ -34,6 +34,7 @@ try: import letter_format
 except ImportError: letter_format = None
 try: import mailer
 except ImportError: mailer = None
+# PHASE 3: Analytics Import
 try: import analytics
 except ImportError: analytics = None
 try: import promo_engine
@@ -185,9 +186,7 @@ def _render_address_book_selector(u_email):
 
 def _render_address_form(tier, is_intl):
     with st.form("addressing_form"):
-        # PHASE 2: Accordion Style for Cleaner UI
-        
-        # 1. FROM ADDRESS
+        # PHASE 2: Accordion Style
         with st.expander("🏠 Return Address (From)", expanded=not st.session_state.get("w_from_name")):
             if tier == "Santa": st.info("🎅 Sender: Santa Claus (North Pole)")
             else:
@@ -200,7 +199,6 @@ def _render_address_form(tier, is_intl):
                 st.text_input("Zip", key="w_from_zip")
                 st.session_state.w_from_country = "US"
 
-        # 2. TO ADDRESS
         if tier == "Civic":
             st.info("🏛️ **Destination: Your Representatives**")
             st.caption("We will use your Return Address to find your local officials automatically.")
@@ -226,7 +224,6 @@ def _render_address_form(tier, is_intl):
                 
                 st.checkbox("Save recipient to Address Book", key="save_contact_opt", value=True)
         
-        # Submit
         st.markdown("<br>", unsafe_allow_html=True)
         if st.form_submit_button("✅ Save & Continue", type="secondary"):
             _save_addresses_to_state(tier)
@@ -310,6 +307,12 @@ def _process_sending_logic(tier):
             st.success("✅ All Sent!")
             st.session_state.last_send_hash = idemp_key
             st.session_state.letter_sent_success = True
+            
+            # PHASE 3: Analytics & Email
+            user = st.session_state.get("user_email")
+            if analytics: analytics.track_event(user, "letter_sent", {"count": len(targets), "tier": tier})
+            if mailer: mailer.send_customer_notification(user, "letter_sent", {"recipient": targets[0].get('name'), "count": len(targets)})
+            
             st.rerun()
         else: st.error("Errors occurred"); st.write(errs)
 
@@ -317,7 +320,7 @@ def _process_sending_logic(tier):
 def reset_app(full_logout=False):
     st.query_params.clear()
     u_email = st.session_state.get("user_email")
-    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id", "pending_stripe_url", "last_selected_contact", "addr_book_sel", "save_contact_opt", "last_send_hash"] 
+    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id", "pending_stripe_url", "last_selected_contact", "addr_book_sel", "save_contact_opt", "last_send_hash", "tracked_payment_success"] 
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     st.session_state.to_addr = {}
@@ -331,7 +334,7 @@ def reset_app(full_logout=False):
 # --- 6. RENDER SIDEBAR ---
 def render_sidebar():
     with st.sidebar:
-        # BROKEN IMAGE FIXED: Replaced with Text Logo
+        # FIXED LOGO
         st.markdown("""
         <div style="text-align: center; padding-bottom: 20px;">
             <h1 style="margin:0; font-size: 2.5rem;">📮</h1>
@@ -340,15 +343,11 @@ def render_sidebar():
         """, unsafe_allow_html=True)
         
         st.markdown("---")
-        
-        # HELP BUTTON (Always Visible)
         if st.button("❓ Help & FAQ", use_container_width=True):
             st.session_state.app_mode = "help"
             st.rerun()
-            
         st.markdown("---")
         
-        # USER STATUS
         user_email = st.session_state.get("user_email")
         if user_email:
             st.success(f"👤 **Logged in as:**\n{user_email}")
@@ -369,14 +368,12 @@ def render_sidebar():
                 st.session_state.app_mode = "login"
                 st.rerun()
         
-        # NAVIGATION SHORTCUTS
         mode = st.session_state.get("app_mode", "splash")
         if mode in ["workspace", "review", "help"] and user_email:
              if st.button("🛒 Store (New Letter)", use_container_width=True):
                  st.session_state.app_mode = "store"
                  st.rerun()
         
-        # PROGRESS TRACKER
         if mode in ["store", "workspace", "review"]:
             st.markdown("### 🚦 Progress")
             steps = ["1. Select Tier", "2. Write & Edit", "3. Review & Send"]
@@ -389,22 +386,7 @@ def render_sidebar():
                 elif i < curr: st.markdown(f"✅ ~~{step}~~")
                 else: st.markdown(f"<span style='opacity:0.5'>{step}</span>", unsafe_allow_html=True)
             
-        st.caption("v3.4.1 (Phase 2)")
-        
-        # PROGRESS TRACKER
-        if mode in ["store", "workspace", "review"]:
-            st.markdown("### 🚦 Progress")
-            steps = ["1. Select Tier", "2. Write & Edit", "3. Review & Send"]
-            curr = 0
-            if mode == "workspace": curr = 1
-            if mode == "review": curr = 2
-            
-            for i, step in enumerate(steps):
-                if i == curr: st.markdown(f"**👉 {step}**")
-                elif i < curr: st.markdown(f"✅ ~~{step}~~")
-                else: st.markdown(f"<span style='opacity:0.5'>{step}</span>", unsafe_allow_html=True)
-            
-        st.caption("v3.4.0 (Phase 2)")
+        st.caption("v3.5.0 (Phase 3)")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
@@ -464,6 +446,9 @@ def render_store_page():
                     _handle_draft_creation(u_email, tier_code, final_price)
                     if promo_engine: promo_engine.log_usage(code, u_email)
                     if audit_engine: audit_engine.log_event(u_email, "PROMO_USED", "FREE", {"code": code})
+                    # Phase 3: Analytics
+                    if analytics: analytics.track_event(u_email, "checkout_free", {"tier": tier_code})
+                    
                     st.session_state.payment_complete = True
                     st.session_state.locked_tier = tier_code
                     st.session_state.bulk_paid_qty = qty
@@ -497,6 +482,8 @@ def render_store_page():
                                     url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                                     if url:
                                         if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
+                                        # Phase 3: Analytics
+                                        if analytics: analytics.track_event(u_email, "checkout_started", {"tier": tier_code})
                                         st.session_state.pending_stripe_url = url
                                         st.rerun()
                                     else: st.error("⚠️ Stripe Error: Could not generate link.")
@@ -518,6 +505,23 @@ def _handle_draft_creation(email, tier, price):
 
 # --- 8. PAGE: WORKSPACE ---
 def render_workspace_page():
+    # PHASE 3: Success Banner Logic
+    if st.session_state.get("payment_complete"):
+        # We check if we already tracked this success to avoid dupes on re-render
+        if not st.session_state.get("tracked_payment_success"):
+            st.session_state.tracked_payment_success = True
+            
+            # 1. Show Banner
+            st.success("✅ Payment Confirmed! You can now transcribe and send your letter.")
+            
+            # 2. Track Event
+            tier = st.session_state.get("locked_tier", "Standard")
+            user = st.session_state.get("user_email")
+            if analytics: analytics.track_event(user, "payment_success", {"tier": tier})
+            
+            # 3. Send Email Receipt
+            if mailer: mailer.send_customer_notification(user, "order_confirmed", {"tier": tier, "amount": "Paid"})
+
     tier = st.session_state.get("locked_tier", "Standard")
     is_intl = st.session_state.get("is_intl", False)
     if "transcribed_text" not in st.session_state: st.session_state.transcribed_text = ""
@@ -573,7 +577,6 @@ def render_workspace_page():
     with c_mic:
         st.write("🎤 **Input**")
         
-        # PHASE 2: Improved Audio Instructions
         st.markdown("""
         <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-left: 5px solid #2a5298; margin-bottom: 10px;">
             <p style="margin:0; font-weight:bold;">🎙️ How to Dictate</p>
@@ -674,15 +677,11 @@ def render_review_page():
         try:
             to_s = ""; from_s = ""
             
-            # PHASE 2 FIX: Smart Civic Preview
-            # If Civic mode, show the FIRST Rep address instead of the placeholder
+            # PHASE 2: Smart Civic Preview
             if tier == "Civic" and st.session_state.get("civic_targets"):
                 first_rep = st.session_state.civic_targets[0]
-                # Use the formatted address object from civic_engine
                 d = first_rep.get('address_obj', st.session_state.to_addr)
                 to_s = f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
-            
-            # Standard logic for everyone else
             elif st.session_state.get("to_addr"):
                 d = st.session_state.to_addr
                 to_s = f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"

@@ -1,158 +1,166 @@
-import streamlit as st
 import requests
-import resend
-import secrets_manager
-import hashlib
-import json
-import time
 import logging
 import os
-from datetime import datetime, timedelta
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import json
+import secrets_manager
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- CIRCUIT BREAKER ---
-class AddressVerificationCircuitBreaker:
-    def __init__(self):
-        self.failure_count = 0
-        self.last_failure = None
-        self.threshold = 3
-        self.timeout = timedelta(minutes=5)
+# --- CONFIGURATION ---
+# We try to fetch keys for both PostGrid (Physical) and SendGrid (Digital)
+POSTGRID_KEY = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
+SENDGRID_KEY = secrets_manager.get_secret("sendgrid.api_key") or secrets_manager.get_secret("SENDGRID_API_KEY")
+FROM_EMAIL = secrets_manager.get_secret("admin.email") or "noreply@verbapost.com"
 
-    def is_open(self):
-        if self.last_failure and datetime.now() - self.last_failure < self.timeout:
-            return self.failure_count >= self.threshold
-        self.failure_count = 0  # Reset after timeout
-        return False
+# --- 1. PHYSICAL MAIL (PostGrid) ---
 
-circuit_breaker = AddressVerificationCircuitBreaker()
+def verify_address_data(line1, line2, city, state, zip_code, country_code="US"):
+    """
+    Validates address with PostGrid/USPS CASS.
+    Returns: (is_valid, corrected_data)
+    """
+    if not POSTGRID_KEY:
+        logger.warning("⚠️ PostGrid Key missing. Skipping verification.")
+        return True, {'line1': line1, 'city': city, 'state': state, 'zip': zip_code}
 
-def get_postgrid_key(): 
-    key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
-    return key.strip() if key else None
-
-def get_resend_key(): 
-    key = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
-    return key.strip() if key else None
-
-def verify_address_data(line1, line2, city, state, zip_code, country_code):
-    api_key = get_postgrid_key()
-    if not api_key: return True, None 
-
-    if circuit_breaker.is_open():
-        logger.error("Circuit breaker open - PostGrid unavailable")
-        return False, "Address verification temporarily unavailable. Please try again later."
-
-    url = "https://api.postgrid.com/v1/addver/verifications"
+    url = "https://api.postgrid.com/v1/add_ver/verifications"
     payload = {
-        "line1": line1, "line2": line2, "city": city,
-        "provinceOrState": state, "postalOrZip": zip_code, "country": country_code
+        "address": {
+            "line1": line1,
+            "line2": line2,
+            "city": city,
+            "provinceOrState": state,
+            "postalOrZip": zip_code,
+            "country": country_code
+        }
     }
     
     try:
-        r = requests.post(url, headers={"x-api-key": api_key}, data=payload, timeout=5)
-        
+        r = requests.post(url, auth=(POSTGRID_KEY, ""), json=payload)
         if r.status_code == 200:
-            circuit_breaker.failure_count = 0
-            res = r.json()
-            if res.get('status') in ['verified', 'corrected']:
-                data = res.get('data', {})
+            data = r.json()
+            if data.get('status') == 'verified':
+                res = data.get('data', {})
                 return True, {
-                    "line1": data.get('line1'), "line2": data.get('line2') or "",
-                    "city": data.get('city'), "state": data.get('provinceOrState'),
-                    "zip": data.get('postalOrZip'), "country": data.get('country')
+                    'line1': res.get('line1'),
+                    'line2': res.get('line2'),
+                    'city': res.get('city'),
+                    'state': res.get('provinceOrState'),
+                    'zip': res.get('postalOrZip')
                 }
-            return False, "Address not found or invalid."
-        else:
-            circuit_breaker.failure_count += 1
-            circuit_breaker.last_failure = datetime.now()
-            logger.error(f"PostGrid API Error: {r.status_code} - {r.text}")
-            return False, f"Address verification failed ({r.status_code})"
-
+        return False, None
     except Exception as e:
-        circuit_breaker.failure_count += 1
-        circuit_breaker.last_failure = datetime.now()
-        logger.error(f"Address Verify Fail: {e}")
-        return False, "Address verification system error"
+        logger.error(f"Address Verification Failed: {e}")
+        # Fail open (allow user to proceed even if API fails)
+        return True, {'line1': line1, 'city': city, 'state': state, 'zip': zip_code}
 
-def flatten_contact(prefix, data):
+def send_letter(pdf_path, to_addr, from_addr, is_certified=False):
     """
-    Converts internal snake_case dict to PostGrid camelCase bracket syntax.
-    Example: {'address_line1': '123 Main'} -> {'to[addressLine1]': '123 Main'}
+    Uploads PDF and creates Letter in PostGrid.
     """
-    # Map internal keys to PostGrid API keys
-    key_map = {
-        'name': 'firstName', # PostGrid requires firstName/lastName or companyName. Mapping full name to firstName is usually safe.
-        'address_line1': 'addressLine1',
-        'address_line2': 'addressLine2',
-        'address_city': 'city',
-        'address_state': 'provinceOrState',
-        'address_zip': 'postalOrZip',
-        'country_code': 'countryCode'
-    }
-    
-    flat = {}
-    for k, v in data.items():
-        pg_key = key_map.get(k, k) # Use mapped key or fallback to original
-        flat[f"{prefix}[{pg_key}]"] = v
-    return flat
-
-@retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((requests.Timeout, requests.ConnectionError)),
-    reraise=True
-)
-def send_letter(pdf_path, to_addr, from_addr, certified=False):
-    api_key = get_postgrid_key()
-    if not api_key: return False, "Missing API Key"
-
-    url = "https://api.postgrid.com/print-mail/v1/letters"
-    
-    # Base Options
-    data = {
-        'express': 'true' if certified else 'false',
-        'addressPlacement': 'top_first_page',
-        'color': 'false',
-        'doubleSided': 'true' # Often a good default
-    }
-    
-    if certified: data['extraService'] = 'certified'
-
-    # --- CRITICAL FIX: FLATTEN CONTACT OBJECTS ---
-    # We merge the flattened dictionaries into the main data payload
-    data.update(flatten_contact("to", to_addr))
-    data.update(flatten_contact("from", from_addr))
-
-    # Idempotency
-    try:
-        with open(pdf_path, 'rb') as f: pdf_content = f.read()
-        # Sort keys to ensure consistent signature
-        payload_sig = json.dumps(data, sort_keys=True).encode() + pdf_content
-        idempotency_key = hashlib.sha256(payload_sig).hexdigest()
-        headers = {"x-api-key": api_key, "Idempotency-Key": idempotency_key}
-    except Exception as e:
-        logger.error(f"Idempotency Gen Failed: {e}")
-        headers = {"x-api-key": api_key}
+    if not POSTGRID_KEY:
+        return False, "Missing PostGrid API Key"
 
     try:
-        with open(pdf_path, 'rb') as f_pdf:
-            files = {'pdf': f_pdf}
-            # Sending as multipart/form-data
-            response = requests.post(url, headers=headers, data=data, files=files, timeout=30)
+        # 1. Create Contact (To)
+        to_res = requests.post("https://api.postgrid.com/print/v1/contacts", auth=(POSTGRID_KEY, ""), json={
+            "firstName": to_addr.get('name'),
+            "addressLine1": to_addr.get('address_line1'),
+            "addressLine2": to_addr.get('address_line2'),
+            "city": to_addr.get('address_city'),
+            "provinceOrState": to_addr.get('address_state'),
+            "postalOrZip": to_addr.get('address_zip'),
+            "countryCode": "US"
+        })
+        if to_res.status_code not in [200, 201]: return False, f"Contact Error: {to_res.text}"
+        to_id = to_res.json().get('id')
+
+        # 2. Create Contact (From)
+        from_res = requests.post("https://api.postgrid.com/print/v1/contacts", auth=(POSTGRID_KEY, ""), json={
+            "firstName": from_addr.get('name'),
+            "addressLine1": from_addr.get('address_line1'),
+            "addressLine2": from_addr.get('address_line2'),
+            "city": from_addr.get('address_city'),
+            "provinceOrState": from_addr.get('address_state'),
+            "postalOrZip": from_addr.get('address_zip'),
+            "countryCode": "US"
+        })
+        from_id = from_res.json().get('id') if from_res.status_code in [200, 201] else None
+
+        # 3. Create Letter
+        with open(pdf_path, 'rb') as f:
+            files = {'pdf': f}
+            data = {
+                'to': to_id,
+                'from': from_id,
+                'color': True,
+                'express': is_certified,
+                'addressPlacement': 'top_first_page'
+            }
+            create_res = requests.post("https://api.postgrid.com/print/v1/letters", auth=(POSTGRID_KEY, ""), data=data, files=files)
             
-        if response.status_code in [200, 201]:
-            res = response.json()
-            logger.info(f"Mail Sent! ID: {res.get('id')}")
-            return True, res
-        else:
-            err_msg = response.text
-            logger.error(f"PostGrid Error: {err_msg}")
-            return False, f"API Error {response.status_code}: {err_msg}"
+            if create_res.status_code in [200, 201]:
+                return True, create_res.json()
+            else:
+                return False, create_res.text
 
     except Exception as e:
-        logger.error(f"Connection Error: {e}")
-        raise
+        logger.error(f"Send Letter Error: {e}")
+        return False, str(e)
+
+# --- 2. DIGITAL NOTIFICATIONS (SendGrid) ---
+
+def send_customer_notification(user_email, notification_type, data):
+    """
+    Sends transactional emails via SendGrid.
+    Types: 'order_confirmed', 'letter_sent'
+    """
+    if not SENDGRID_KEY:
+        logger.info(f"📧 [Mock Email] To: {user_email} | Subject: {notification_type} | Data: {data}")
+        return
+
+    subject_map = {
+        "order_confirmed": "Receipt: Your VerbaPost Order",
+        "letter_sent": "Success! Your letter is in the mail."
+    }
+    
+    subject = subject_map.get(notification_type, "Notification from VerbaPost")
+    
+    # Simple HTML Templates
+    html_content = f"<p>Hello,</p><p>Update regarding your order:</p><pre>{json.dumps(data, indent=2)}</pre>"
+    
+    if notification_type == "order_confirmed":
+        html_content = f"""
+        <h2>Order Confirmed! 📮</h2>
+        <p>Thanks for using VerbaPost. You have purchased the <b>{data.get('tier')}</b> package.</p>
+        <p><b>Amount:</b> ${data.get('amount')}</p>
+        <p>Please return to the app to finish recording and sending your letter.</p>
+        """
+    elif notification_type == "letter_sent":
+        html_content = f"""
+        <h2>It's on the way! 🚀</h2>
+        <p>We have successfully dispatched your letter to:</p>
+        <p><b>{data.get('recipient')}</b></p>
+        <p>Estimated Delivery: 4-6 Business Days.</p>
+        """
+
+    url = "https://api.sendgrid.com/v3/mail/send"
+    headers = {"Authorization": f"Bearer {SENDGRID_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "personalizations": [{"to": [{"email": user_email}]}],
+        "from": {"email": FROM_EMAIL},
+        "subject": subject,
+        "content": [{"type": "text/html", "value": html_content}]
+    }
+    
+    try:
+        r = requests.post(url, headers=headers, json=payload)
+        if r.status_code in [200, 202]:
+            logger.info(f"✅ Email sent to {user_email}")
+        else:
+            logger.error(f"❌ Email Failed: {r.text}")
+    except Exception as e:
+        logger.error(f"Email Exception: {e}")
+
+def get_postgrid_key():
+    return POSTGRID_KEY
