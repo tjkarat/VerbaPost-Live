@@ -58,7 +58,7 @@ class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True, index=True)
     max_uses = Column(Integer, default=1)
-    # FIX: Replaced 'current_uses' with 'active' to match Supabase
+    # Replaces 'current_uses' with 'active' to match your DB schema
     active = Column(Boolean, default=True) 
     created_at = Column(DateTime, default=datetime.utcnow)
 

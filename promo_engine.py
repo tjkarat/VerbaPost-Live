@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 def validate_code(code):
     """
-    Checks if a promo code exists and has remaining uses.
+    Checks if a promo code exists, is active, and has remaining uses.
     Returns True if valid, False otherwise.
     """
     if not code: 
