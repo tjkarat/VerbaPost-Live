@@ -1,5 +1,4 @@
 import streamlit as st
-import auth_engine
 import time
 
 # --- CONSTANTS ---
@@ -8,9 +7,10 @@ COMMON_COUNTRIES = [
     "Germany", "France", "Japan", "Mexico", "Other"
 ]
 
-def render_login():
+def show_login(auth_engine):
     """
     Renders the main authentication interface with tabs for Login and Sign Up.
+    Argument 'auth_engine' is passed from ui_main.py to avoid circular imports.
     """
     
     # Container to keep the form centered and neat
@@ -128,7 +128,7 @@ def render_login():
                             st.success("✅ Account created! Please log in via the first tab.")
                             st.balloons()
 
-def render_password_reset():
+def render_password_reset(auth_engine):
     """
     Renders the view to request a password reset email.
     """
