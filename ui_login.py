@@ -1,5 +1,4 @@
 import streamlit as st
-import auth_engine
 import time
 
 # --- CONSTANTS ---
@@ -59,7 +58,8 @@ def show_login(auth_engine, *args, **kwargs):
         st.markdown("")
         col_space, col_link = st.columns([2, 1])
         with col_link:
-            if st.button("Forgot Password?", type="tertiary"):
+            # FIXED: Changed 'tertiary' to 'secondary' to prevent API Exception
+            if st.button("Forgot Password?", type="secondary"):
                 st.session_state.app_mode = "password_reset"
                 st.rerun()
 
