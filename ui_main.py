@@ -331,7 +331,14 @@ def reset_app(full_logout=False):
 # --- 6. RENDER SIDEBAR ---
 def render_sidebar():
     with st.sidebar:
-        st.image("https://via.placeholder.com/200x60/2a5298/ffffff?text=VerbaPost", use_container_width=True)
+        # BROKEN IMAGE FIXED: Replaced with Text Logo
+        st.markdown("""
+        <div style="text-align: center; padding-bottom: 20px;">
+            <h1 style="margin:0; font-size: 2.5rem;">📮</h1>
+            <h2 style="margin:0; padding:0;">VerbaPost</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        
         st.markdown("---")
         
         # HELP BUTTON (Always Visible)
@@ -368,6 +375,21 @@ def render_sidebar():
              if st.button("🛒 Store (New Letter)", use_container_width=True):
                  st.session_state.app_mode = "store"
                  st.rerun()
+        
+        # PROGRESS TRACKER
+        if mode in ["store", "workspace", "review"]:
+            st.markdown("### 🚦 Progress")
+            steps = ["1. Select Tier", "2. Write & Edit", "3. Review & Send"]
+            curr = 0
+            if mode == "workspace": curr = 1
+            if mode == "review": curr = 2
+            
+            for i, step in enumerate(steps):
+                if i == curr: st.markdown(f"**👉 {step}**")
+                elif i < curr: st.markdown(f"✅ ~~{step}~~")
+                else: st.markdown(f"<span style='opacity:0.5'>{step}</span>", unsafe_allow_html=True)
+            
+        st.caption("v3.4.1 (Phase 2)")
         
         # PROGRESS TRACKER
         if mode in ["store", "workspace", "review"]:
