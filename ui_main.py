@@ -246,20 +246,33 @@ def _process_sending_logic(tier):
     targets = []
     if tier == "Campaign": targets = st.session_state.get("bulk_targets", [])
     elif tier == "Civic": 
-        # FIX: Ensure we use the full address object
         for r in st.session_state.get("civic_targets", []):
             if r.get('address_obj'): targets.append(r['address_obj'])
     else: targets.append(st.session_state.to_addr)
     
     if not targets: st.error("No recipients found."); return
 
-    with st.spinner("Sending..."):
-        st.markdown("""
-        <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
+    # --- LOADING UX ---
+    with st.spinner("Processing..."):
+        # We customize the message based on the method
+        if tier in ["Heirloom", "Santa"]:
+            msg = """
+            <h3 style="margin:0; color: #d35400;">🏺 Preparing Hand-Crafted Letter</h3>
+            <p>✓ Generating PDF Proof...</p>
+            <p>✓ Routing to Artisan Fulfillment Team...</p>
+            <p>✓ Queuing for Manual Assembly...</p>
+            """
+        else:
+            msg = """
             <h3 style="margin:0; color: #2a5298;">📮 Preparing Your Letter</h3>
-            <p style="margin: 5px 0;">✓ Generating PDF...</p>
-            <p style="margin: 5px 0;">✓ Uploading to print facility...</p>
-            <p style="margin: 5px 0;">✓ Scheduling USPS pickup...</p>
+            <p>✓ Generating PDF...</p>
+            <p>✓ Uploading to print facility...</p>
+            <p>✓ Scheduling USPS pickup...</p>
+            """
+            
+        st.markdown(f"""
+        <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
+            {msg}
             <p style="color: #666; font-size: 0.9em; margin-top: 10px;">Almost done! This takes about 10 seconds.</p>
         </div>
         """, unsafe_allow_html=True)
@@ -278,44 +291,67 @@ def _process_sending_logic(tier):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: 
                     img.save(tmp.name); sig_path=tmp.name
             
+            # Generate PDF (We still need this for the record/admin view)
             pdf = letter_format.create_pdf(st.session_state.transcribed_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
             if sig_path: 
                 try: os.remove(sig_path)
                 except: pass
 
             is_ok = False
-            if mailer:
-                pg_to = {'name': tgt.get('name'), 'address_line1': tgt.get('street'), 'address_line2': tgt.get('address_line2', ''), 'address_city': tgt.get('city'), 'address_state': tgt.get('state'), 'address_zip': tgt.get('zip'), 'country_code': 'US'}
-                pg_from = {'name': st.session_state.from_addr.get('name'), 'address_line1': st.session_state.from_addr.get('street'), 'address_line2': st.session_state.from_addr.get('address_line2', ''), 'address_city': st.session_state.from_addr.get('city'), 'address_state': st.session_state.from_addr.get('state'), 'address_zip': st.session_state.from_addr.get('zip'), 'country_code': 'US'}
-                
+            
+            # --- PATH A: MANUAL FULFILLMENT (Heirloom/Santa) ---
+            if tier in ["Heirloom", "Santa"]:
+                # Bypass PostGrid API
+                time.sleep(1.5) # Simulate processing time for UX consistency
+                is_ok = True
+                final_status = "Manual Queue" # Tell DB this needs human attention
+            
+            # --- PATH B: AUTOMATED FULFILLMENT (Standard/Civic/Campaign) ---
+            elif mailer:
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tpdf:
                         tpdf.write(pdf); tpath = tpdf.name
                     
+                    # Prepare PostGrid Payloads
+                    pg_to = {'name': tgt.get('name'), 'address_line1': tgt.get('street'), 'address_line2': tgt.get('address_line2', ''), 'address_city': tgt.get('city'), 'address_state': tgt.get('state'), 'address_zip': tgt.get('zip'), 'country_code': 'US'}
+                    pg_from = {'name': st.session_state.from_addr.get('name'), 'address_line1': st.session_state.from_addr.get('street'), 'address_line2': st.session_state.from_addr.get('address_line2', ''), 'address_city': st.session_state.from_addr.get('city'), 'address_state': st.session_state.from_addr.get('state'), 'address_zip': st.session_state.from_addr.get('zip'), 'country_code': 'US'}
+
                     send_ok, send_res = mailer.send_letter(tpath, pg_to, pg_from, st.session_state.get("is_certified", False))
-                    if send_ok: is_ok = True
-                    else: errs.append(f"Failed {tgt.get('name')}: {send_res}")
-                except Exception as e: errs.append(f"Mailer Exception: {str(e)}")
+                    
+                    if send_ok: 
+                        is_ok = True
+                        final_status = "Completed"
+                    else: 
+                        errs.append(f"Failed {tgt.get('name')}: {send_res}")
+                        final_status = "Failed"
+                except Exception as e: 
+                    errs.append(f"Mailer Exception: {str(e)}")
+                    final_status = "Failed"
                 finally:
                     if os.path.exists(tpath): os.remove(tpath)
+            else:
+                final_status = "Failed"
+                errs.append("Mailer module missing")
 
+            # --- SAVE TO DATABASE ---
             if database:
-                status = "Completed" if is_ok else "Failed"
-                database.save_draft(st.session_state.user_email, st.session_state.transcribed_text, tier, "PAID", tgt, st.session_state.from_addr, status)
+                database.save_draft(st.session_state.user_email, st.session_state.transcribed_text, tier, "PAID", tgt, st.session_state.from_addr, final_status)
 
         if not errs:
-            st.success("✅ All Sent!")
+            st.success("✅ Request Received!")
             st.session_state.last_send_hash = idemp_key
             st.session_state.letter_sent_success = True
             
-            # PHASE 3: Analytics & Email
+            # Analytics & Email
             user = st.session_state.get("user_email")
-            if analytics: analytics.track_event(user, "letter_sent", {"count": len(targets), "tier": tier})
-            if mailer: mailer.send_customer_notification(user, "letter_sent", {"recipient": targets[0].get('name'), "count": len(targets)})
+            if analytics: analytics.track_event(user, "letter_sent", {"count": len(targets), "tier": tier, "mode": "manual" if tier in ["Heirloom", "Santa"] else "auto"})
+            
+            # Send distinct email for manual tiers so user knows it might take longer
+            notif_type = "letter_received_manual" if tier in ["Heirloom", "Santa"] else "letter_sent"
+            if mailer: mailer.send_customer_notification(user, notif_type, {"recipient": targets[0].get('name'), "count": len(targets)})
             
             st.rerun()
         else: st.error("Errors occurred"); st.write(errs)
-
 # --- 5. SESSION MANAGEMENT ---
 def reset_app(full_logout=False):
     st.query_params.clear()
