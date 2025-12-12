@@ -7,6 +7,7 @@ import time
 import tempfile
 import os
 from datetime import datetime
+from sqlalchemy import text  # <--- ADDED THIS IMPORT TO FIX THE ERROR
 
 # --- ROBUST IMPORTS ---
 try: import database
@@ -243,7 +244,6 @@ def show_admin():
         
         for i, (name, key) in enumerate(services):
             val = secrets_manager.get_secret(key)
-            # Special check for dot notation keys if direct lookup fails
             if not val and "." in key:
                 parts = key.split(".")
                 try: val = st.secrets[parts[0]][parts[1]]
@@ -263,14 +263,15 @@ def show_admin():
                 try:
                     if database and database.get_engine():
                         with database.get_db_session() as session:
-                            session.execute(database.text("SELECT 1"))
+                            # FIX: Use text() wrapper for SQL execution
+                            session.execute(text("SELECT 1"))
                         st.success("✅ Database: Connection Active (SQLAlchemy)")
                     else:
                         st.error("❌ Database: Connection Failed")
                 except Exception as e:
                     st.error(f"❌ Database Error: {e}")
 
-                # PostGrid Test (Key Check + Import)
+                # PostGrid Test
                 if mailer:
                     pg_key = mailer.get_postgrid_key()
                     if pg_key:
