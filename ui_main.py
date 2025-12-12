@@ -20,7 +20,7 @@ try: import ui_admin
 except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
-try: import ui_help 
+try: import ui_help
 except ImportError: ui_help = None
 
 # --- 2. HELPER IMPORTS ---
@@ -185,10 +185,11 @@ def _render_address_book_selector(u_email):
 
 def _render_address_form(tier, is_intl):
     with st.form("addressing_form"):
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("**From**")
-            if tier == "Santa": st.info("🎅 Santa Claus")
+        # PHASE 2: Accordion Style for Cleaner UI
+        
+        # 1. FROM ADDRESS
+        with st.expander("🏠 Return Address (From)", expanded=not st.session_state.get("w_from_name")):
+            if tier == "Santa": st.info("🎅 Sender: Santa Claus (North Pole)")
             else:
                 st.text_input("Name", key="w_from_name")
                 st.text_input("Street", key="w_from_street")
@@ -199,14 +200,15 @@ def _render_address_form(tier, is_intl):
                 st.text_input("Zip", key="w_from_zip")
                 st.session_state.w_from_country = "US"
 
-        with c2:
-            st.markdown("**To**")
-            if tier == "Civic":
-                st.info("🏛️ **Auto-Detect Representatives**")
-                if "civic_targets" in st.session_state:
-                    for r in st.session_state.civic_targets: 
-                        st.write(f"• {r['name']} ({r['title']})")
-            else:
+        # 2. TO ADDRESS
+        if tier == "Civic":
+            st.info("🏛️ **Destination: Your Representatives**")
+            st.caption("We will use your Return Address to find your local officials automatically.")
+            if "civic_targets" in st.session_state:
+                for r in st.session_state.civic_targets: 
+                    st.write(f"• {r['name']} ({r['title']})")
+        else:
+            with st.expander("📨 Recipient Address (To)", expanded=True):
                 st.text_input("Name", key="w_to_name")
                 st.text_input("Street", key="w_to_street")
                 st.text_input("Apt/Suite", key="w_to_street2")
@@ -221,12 +223,14 @@ def _render_address_form(tier, is_intl):
                     cb.text_input("State", key="w_to_state")
                     st.text_input("Zip", key="w_to_zip")
                     st.session_state.w_to_country = "US"
+                
+                st.checkbox("Save recipient to Address Book", key="save_contact_opt", value=True)
         
-        st.checkbox("Save recipient to Address Book", key="save_contact_opt", value=True)
-        
-        if st.form_submit_button("Save Addresses"):
+        # Submit
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.form_submit_button("✅ Save & Continue", type="secondary"):
             _save_addresses_to_state(tier)
-            st.toast("Saved!")
+            st.toast("Addresses Saved!")
 
 def _process_sending_logic(tier):
     # Idempotency
@@ -330,12 +334,14 @@ def render_sidebar():
         st.image("https://via.placeholder.com/200x60/2a5298/ffffff?text=VerbaPost", use_container_width=True)
         st.markdown("---")
         
+        # HELP BUTTON (Always Visible)
         if st.button("❓ Help & FAQ", use_container_width=True):
             st.session_state.app_mode = "help"
             st.rerun()
             
         st.markdown("---")
         
+        # USER STATUS
         user_email = st.session_state.get("user_email")
         if user_email:
             st.success(f"👤 **Logged in as:**\n{user_email}")
@@ -356,12 +362,27 @@ def render_sidebar():
                 st.session_state.app_mode = "login"
                 st.rerun()
         
+        # NAVIGATION SHORTCUTS
         mode = st.session_state.get("app_mode", "splash")
         if mode in ["workspace", "review", "help"] and user_email:
              if st.button("🛒 Store (New Letter)", use_container_width=True):
                  st.session_state.app_mode = "store"
                  st.rerun()
-        st.caption("v3.3.0")
+        
+        # PROGRESS TRACKER
+        if mode in ["store", "workspace", "review"]:
+            st.markdown("### 🚦 Progress")
+            steps = ["1. Select Tier", "2. Write & Edit", "3. Review & Send"]
+            curr = 0
+            if mode == "workspace": curr = 1
+            if mode == "review": curr = 2
+            
+            for i, step in enumerate(steps):
+                if i == curr: st.markdown(f"**👉 {step}**")
+                elif i < curr: st.markdown(f"✅ ~~{step}~~")
+                else: st.markdown(f"<span style='opacity:0.5'>{step}</span>", unsafe_allow_html=True)
+            
+        st.caption("v3.4.0 (Phase 2)")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
@@ -529,9 +550,21 @@ def render_workspace_page():
             if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
     with c_mic:
         st.write("🎤 **Input**")
+        
+        # PHASE 2: Improved Audio Instructions
+        st.markdown("""
+        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-left: 5px solid #2a5298; margin-bottom: 10px;">
+            <p style="margin:0; font-weight:bold;">🎙️ How to Dictate</p>
+            <ol style="margin:5px 0 0 15px; font-size: 0.9em;">
+                <li>Click <b>Start Recording</b> below.</li>
+                <li>Speak your letter clearly.</li>
+                <li>Click <b>Stop</b>, then <b>Transcribe</b>.</li>
+            </ol>
+        </div>
+        """, unsafe_allow_html=True)
+        
         t1, t2 = st.tabs(["Record", "Upload"])
         with t1:
-            st.info("Instructions: Click mic, speak, click stop.")
             audio = st.audio_input("Record")
             if audio:
                 if st.button("Transcribe Recording", key="btn_rec"):
@@ -609,7 +642,6 @@ def render_review_page():
 
     st.markdown("### 📄 Letter Preview")
     
-    # --- CIVIC PREVIEW FIX ---
     if tier == "Civic" and st.session_state.get("civic_targets"):
         st.info("🏛️ Sending to:")
         for t in st.session_state.civic_targets:
@@ -619,17 +651,30 @@ def render_review_page():
     else:
         try:
             to_s = ""; from_s = ""
-            if st.session_state.get("to_addr"):
+            
+            # PHASE 2 FIX: Smart Civic Preview
+            # If Civic mode, show the FIRST Rep address instead of the placeholder
+            if tier == "Civic" and st.session_state.get("civic_targets"):
+                first_rep = st.session_state.civic_targets[0]
+                # Use the formatted address object from civic_engine
+                d = first_rep.get('address_obj', st.session_state.to_addr)
+                to_s = f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
+            
+            # Standard logic for everyone else
+            elif st.session_state.get("to_addr"):
                 d = st.session_state.to_addr
                 to_s = f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
+
             if st.session_state.get("from_addr"):
                 d = st.session_state.from_addr
                 from_s = f"{d.get('name','')}\n{d.get('street','')}\n{d.get('city','')}, {d.get('state','')} {d.get('zip','')}"
+            
             sig_path = None
             if st.session_state.get("sig_data") is not None:
                 img = Image.fromarray(st.session_state.sig_data.astype('uint8'), 'RGBA')
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: 
                     img.save(tmp.name); sig_path=tmp.name
+            
             if letter_format:
                 pdf_bytes = letter_format.create_pdf(current_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
                 if pdf_bytes and len(pdf_bytes) > 100:
