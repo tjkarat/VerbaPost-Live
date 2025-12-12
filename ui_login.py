@@ -60,7 +60,7 @@ def show_login(sign_in_func, sign_up_func, *args, **kwargs):
         st.markdown("")
         col_space, col_link = st.columns([2, 1])
         with col_link:
-            # FIXED: Changed 'tertiary' to 'secondary'
+            # FIXED: Used 'secondary' to prevent StreamlitAPIException
             if st.button("Forgot Password?", type="secondary"):
                 st.session_state.app_mode = "password_reset"
                 st.rerun()
@@ -136,6 +136,7 @@ def show_login(sign_in_func, sign_up_func, *args, **kwargs):
 def render_password_reset(auth_engine, *args, **kwargs):
     """
     Renders the view to request a password reset email.
+    Note: ui_main.py might pass auth_engine here correctly, so we keep it.
     """
     st.header("Reset Password")
     st.write("Enter your email address below. We'll send you a link to reset your password.")
@@ -149,6 +150,7 @@ def render_password_reset(auth_engine, *args, **kwargs):
                 st.error("Please enter your email.")
             else:
                 with st.spinner("Sending..."):
+                    # This uses the module passed in, which is correct for this specific view
                     success, msg = auth_engine.send_password_reset(email)
                     if success:
                         st.success("✅ Check your email inbox for the reset link.")
