@@ -2,13 +2,14 @@ import streamlit as st
 import auth_engine
 import time
 
-def render_login():
+# --- FIX: Renamed from render_login to show_login to match ui_main.py call ---
+def show_login(*args, **kwargs):
     """
     Renders the Authentication Interface (Login, Signup, Forgot Password).
-    Includes CSS to highlight the active tab in Red.
+    Highlights the active tab in RED (#FF4B4B) to match branding.
+    Accepts *args, **kwargs to safely handle any parameters passed by ui_main.
     """
-    # --- CSS STYLING ---
-    # Forces the selected tab to be Red (#FF4B4B) to match your branding
+    # --- CSS STYLING FOR RED TABS ---
     st.markdown("""
     <style>
         /* Main Header */
