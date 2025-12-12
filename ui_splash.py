@@ -10,7 +10,9 @@ try: import database
 except ImportError: database = None
 
 def show_splash():
-    # --- CSS CONFIGURATION (Aggressive White Text Force) ---
+    # --- CSS CONFIGURATION ---
+    # 1. Forces White Text (fixes dark mode bug)
+    # 2. Enforces Fixed Height on Cards (alignment bug)
     st.markdown("""
     <style>
         /* HERO CONTAINER */
@@ -23,8 +25,9 @@ def show_splash():
             margin-bottom: 25px;
         }
         
-        /* Force ALL text inside hero to be white */
-        .hero-container, .hero-container * {
+        /* FORCE WHITE TEXT HERO */
+        .hero-container, .hero-container h1, .hero-container p, 
+        .hero-container div, .hero-container span, .hero-container strong {
             color: #FFFFFF !important;
             --text-color: #FFFFFF !important;
         }
@@ -52,23 +55,27 @@ def show_splash():
             opacity: 0.9;
         }
         
-        /* PRICE CARDS */
+        /* PRICE CARDS - FIXED HEIGHT & WHITE TEXT */
         .price-card {
             background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
             padding: 20px;
             border-radius: 12px; 
             border: 1px solid #4a90e2;
             text-align: center; 
-            height: 100%; 
+            
+            /* ALIGNMENT FIX */
+            height: 100%;           
+            min-height: 380px;      /* Forces equal height for all cards */
             display: flex;
             flex-direction: column; 
             justify-content: flex-start;
+            
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            min-height: 240px;
         }
 
-        /* CRITICAL: Force every element inside price-card to be white */
-        .price-card, .price-card div, .price-card h3, .price-card p, .price-card li, .price-card span {
+        /* FORCE WHITE TEXT CARDS */
+        .price-card, .price-card div, .price-card h3, .price-card p, 
+        .price-card li, .price-card span, .price-card strong, .price-card b {
             color: #FFFFFF !important;
             --text-color: #FFFFFF !important;
         }
@@ -90,7 +97,7 @@ def show_splash():
         .price-tag { 
             font-size: 2rem; 
             font-weight: 800; 
-            color: #FFEB3B !important; /* Force Yellow for Price */
+            color: #FFEB3B !important; 
             margin: 10px 0;
             text-shadow: 0 1px 2px rgba(0,0,0,0.5);
         }
