@@ -22,6 +22,9 @@ try: import ui_legal
 except ImportError: ui_legal = None
 try: import ui_help
 except ImportError: ui_help = None
+# NEW: Onboarding Import
+try: import ui_onboarding
+except ImportError: ui_onboarding = None
 
 # --- 2. HELPER IMPORTS ---
 try: import database
@@ -34,7 +37,6 @@ try: import letter_format
 except ImportError: letter_format = None
 try: import mailer
 except ImportError: mailer = None
-# PHASE 3: Analytics Import
 try: import analytics
 except ImportError: analytics = None
 try: import promo_engine
@@ -75,14 +77,30 @@ COUNTRIES = {
 
 # --- 4. HELPER FUNCTIONS ---
 
+def inject_mobile_styles():
+    """
+    Mobile-first CSS Enhancements
+    """
+    st.markdown("""
+    <style>
+        /* Mobile Input Fixes */
+        @media (max-width: 768px) {
+            .stTextInput input { font-size: 16px !important; } /* Prevents iOS zoom */
+            .stButton button { width: 100% !important; padding: 12px !important; }
+            div[data-testid="stExpander"] { width: 100% !important; }
+        }
+        
+        /* Force white text in Hero */
+        .custom-hero, .custom-hero *, 
+        .price-card, .price-card * {
+            color: #FFFFFF !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
 def _render_hero(title, subtitle):
     # CSS FIX: We inject a specific style block to override Streamlit's global h1 colors
     st.markdown(f"""
-    <style>
-        .custom-hero h1, .custom-hero div, .custom-hero span, .custom-hero p {{
-            color: #FFFFFF !important;
-        }}
-    </style>
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 30px 20px; border-radius: 15px; text-align: center; margin-bottom: 25px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); max-width: 100%; box-sizing: border-box;">
         <h1 style="margin: 0; font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 700; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">{title}</h1>
         <div style="font-size: clamp(0.9rem, 3vw, 1.2rem); opacity: 0.95; margin-top: 8px;">{subtitle}</div>
@@ -136,12 +154,6 @@ def _save_addresses_to_state(tier):
     if mailer and st.session_state.to_addr.get('country') == "US":
         try:
             with st.spinner("Verifying Address..."):
-                st.markdown("""
-                <div style="text-align: center; margin-bottom: 10px;">
-                    <p>📍 Checking address with USPS database...</p>
-                    <p style="font-size: 0.85em; color: #666;">We'll auto-correct any issues</p>
-                </div>
-                """, unsafe_allow_html=True)
                 valid, data = mailer.verify_address_data(
                     st.session_state.to_addr.get('street'), 
                     st.session_state.to_addr.get('address_line2'),
@@ -186,43 +198,49 @@ def _render_address_book_selector(u_email):
 
 def _render_address_form(tier, is_intl):
     with st.form("addressing_form"):
-        # PHASE 2: Accordion Style
-        with st.expander("🏠 Return Address (From)", expanded=not st.session_state.get("w_from_name")):
-            if tier == "Santa": st.info("🎅 Sender: Santa Claus (North Pole)")
-            else:
-                st.text_input("Name", key="w_from_name")
-                st.text_input("Street", key="w_from_street")
-                st.text_input("Apt/Suite", key="w_from_street2")
-                ca, cb = st.columns(2)
-                ca.text_input("City", key="w_from_city")
-                cb.text_input("State", key="w_from_state")
-                st.text_input("Zip", key="w_from_zip")
-                st.session_state.w_from_country = "US"
+        # SMART ADDRESS FORM: No more accordions, just clean layout
+        
+        # 1. FROM ADDRESS
+        st.markdown("### 🏠 Return Address")
+        if tier == "Santa": 
+            st.info("🎅 Sender: Santa Claus (North Pole)")
+        else:
+            c1, c2 = st.columns(2)
+            with c1:
+                st.text_input("Name", key="w_from_name", placeholder="Your Name")
+                st.text_input("Street", key="w_from_street", placeholder="123 Main St")
+            with c2:
+                st.text_input("City", key="w_from_city", placeholder="City")
+                st.text_input("State", key="w_from_state", placeholder="State")
+                st.text_input("Zip", key="w_from_zip", placeholder="Zip")
+            st.session_state.w_from_country = "US"
 
+        # 2. TO ADDRESS
+        st.markdown("### 📨 Recipient")
         if tier == "Civic":
             st.info("🏛️ **Destination: Your Representatives**")
-            st.caption("We will use your Return Address to find your local officials automatically.")
+            st.caption("We use your Return Zip Code to find officials automatically.")
             if "civic_targets" in st.session_state:
                 for r in st.session_state.civic_targets: 
                     st.write(f"• {r['name']} ({r['title']})")
         else:
-            with st.expander("📨 Recipient Address (To)", expanded=True):
-                st.text_input("Name", key="w_to_name")
-                st.text_input("Street", key="w_to_street")
-                st.text_input("Apt/Suite", key="w_to_street2")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.text_input("Recipient Name", key="w_to_name", placeholder="Grandma")
+                st.text_input("Recipient Street", key="w_to_street", placeholder="456 Maple Ave")
+            with c2:
                 if is_intl:
                     st.selectbox("Country", list(COUNTRIES.keys()), key="w_to_country")
                     st.text_input("City", key="w_to_city")
                     st.text_input("State/Prov", key="w_to_state")
                     st.text_input("Postal Code", key="w_to_zip")
                 else:
-                    ca, cb = st.columns(2)
-                    ca.text_input("City", key="w_to_city")
-                    cb.text_input("State", key="w_to_state")
-                    st.text_input("Zip", key="w_to_zip")
+                    st.text_input("Recipient City", key="w_to_city")
+                    st.text_input("Recipient State", key="w_to_state")
+                    st.text_input("Recipient Zip", key="w_to_zip")
                     st.session_state.w_to_country = "US"
-                
-                st.checkbox("Save recipient to Address Book", key="save_contact_opt", value=True)
+            
+            st.checkbox("Save to Address Book", key="save_contact_opt", value=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         if st.form_submit_button("✅ Save & Continue", type="secondary"):
@@ -254,7 +272,6 @@ def _process_sending_logic(tier):
 
     # --- LOADING UX ---
     with st.spinner("Processing..."):
-        # We customize the message based on the method
         if tier in ["Heirloom", "Santa"]:
             msg = """
             <h3 style="margin:0; color: #d35400;">🏺 Preparing Hand-Crafted Letter</h3>
@@ -291,7 +308,6 @@ def _process_sending_logic(tier):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmp: 
                     img.save(tmp.name); sig_path=tmp.name
             
-            # Generate PDF (We still need this for the record/admin view)
             pdf = letter_format.create_pdf(st.session_state.transcribed_text, to_s, from_s, (tier=="Heirloom"), (tier=="Santa"), sig_path)
             if sig_path: 
                 try: os.remove(sig_path)
@@ -301,18 +317,16 @@ def _process_sending_logic(tier):
             
             # --- PATH A: MANUAL FULFILLMENT (Heirloom/Santa) ---
             if tier in ["Heirloom", "Santa"]:
-                # Bypass PostGrid API
-                time.sleep(1.5) # Simulate processing time for UX consistency
+                time.sleep(1.5) # UX Pause
                 is_ok = True
-                final_status = "Manual Queue" # Tell DB this needs human attention
+                final_status = "Manual Queue"
             
-            # --- PATH B: AUTOMATED FULFILLMENT (Standard/Civic/Campaign) ---
+            # --- PATH B: AUTOMATED (Standard/Civic) ---
             elif mailer:
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tpdf:
                         tpdf.write(pdf); tpath = tpdf.name
                     
-                    # Prepare PostGrid Payloads
                     pg_to = {'name': tgt.get('name'), 'address_line1': tgt.get('street'), 'address_line2': tgt.get('address_line2', ''), 'address_city': tgt.get('city'), 'address_state': tgt.get('state'), 'address_zip': tgt.get('zip'), 'country_code': 'US'}
                     pg_from = {'name': st.session_state.from_addr.get('name'), 'address_line1': st.session_state.from_addr.get('street'), 'address_line2': st.session_state.from_addr.get('address_line2', ''), 'address_city': st.session_state.from_addr.get('city'), 'address_state': st.session_state.from_addr.get('state'), 'address_zip': st.session_state.from_addr.get('zip'), 'country_code': 'US'}
 
@@ -333,7 +347,6 @@ def _process_sending_logic(tier):
                 final_status = "Failed"
                 errs.append("Mailer module missing")
 
-            # --- SAVE TO DATABASE ---
             if database:
                 database.save_draft(st.session_state.user_email, st.session_state.transcribed_text, tier, "PAID", tgt, st.session_state.from_addr, final_status)
 
@@ -342,21 +355,20 @@ def _process_sending_logic(tier):
             st.session_state.last_send_hash = idemp_key
             st.session_state.letter_sent_success = True
             
-            # Analytics & Email
             user = st.session_state.get("user_email")
             if analytics: analytics.track_event(user, "letter_sent", {"count": len(targets), "tier": tier, "mode": "manual" if tier in ["Heirloom", "Santa"] else "auto"})
             
-            # Send distinct email for manual tiers so user knows it might take longer
             notif_type = "letter_received_manual" if tier in ["Heirloom", "Santa"] else "letter_sent"
             if mailer: mailer.send_customer_notification(user, notif_type, {"recipient": targets[0].get('name'), "count": len(targets)})
             
             st.rerun()
         else: st.error("Errors occurred"); st.write(errs)
+
 # --- 5. SESSION MANAGEMENT ---
 def reset_app(full_logout=False):
     st.query_params.clear()
     u_email = st.session_state.get("user_email")
-    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id", "pending_stripe_url", "last_selected_contact", "addr_book_sel", "save_contact_opt", "last_send_hash", "tracked_payment_success"] 
+    keys = ["audio_path", "transcribed_text", "payment_complete", "sig_data", "to_addr", "civic_targets", "bulk_targets", "bulk_paid_qty", "is_intl", "is_certified", "letter_sent_success", "locked_tier", "w_to_name", "w_to_street", "w_to_street2", "w_to_city", "w_to_state", "w_to_zip", "w_to_country", "addr_book_idx", "last_tracking_num", "campaign_errors", "current_stripe_id", "current_draft_id", "pending_stripe_url", "last_selected_contact", "addr_book_sel", "save_contact_opt", "last_send_hash", "tracked_payment_success", "tutorial_completed", "show_tutorial", "tutorial_step"] 
     for k in keys: 
         if k in st.session_state: del st.session_state[k]
     st.session_state.to_addr = {}
@@ -422,10 +434,13 @@ def render_sidebar():
                 elif i < curr: st.markdown(f"✅ ~~{step}~~")
                 else: st.markdown(f"<span style='opacity:0.5'>{step}</span>", unsafe_allow_html=True)
             
-        st.caption("v3.5.0 (Phase 3)")
+        st.caption("v4.0.0 (UX Redesign)")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
+    # Contextual Help
+    if ui_onboarding: ui_onboarding.show_contextual_help("store")
+    
     global YOUR_APP_URL
     u_email = st.session_state.get("user_email", "")
     if not u_email:
@@ -482,7 +497,6 @@ def render_store_page():
                     _handle_draft_creation(u_email, tier_code, final_price)
                     if promo_engine: promo_engine.log_usage(code, u_email)
                     if audit_engine: audit_engine.log_event(u_email, "PROMO_USED", "FREE", {"code": code})
-                    # Phase 3: Analytics
                     if analytics: analytics.track_event(u_email, "checkout_free", {"tier": tier_code})
                     
                     st.session_state.payment_complete = True
@@ -518,7 +532,6 @@ def render_store_page():
                                     url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                                     if url:
                                         if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
-                                        # Phase 3: Analytics
                                         if analytics: analytics.track_event(u_email, "checkout_started", {"tier": tier_code})
                                         st.session_state.pending_stripe_url = url
                                         st.rerun()
@@ -541,21 +554,20 @@ def _handle_draft_creation(email, tier, price):
 
 # --- 8. PAGE: WORKSPACE ---
 def render_workspace_page():
-    # PHASE 3: Success Banner Logic
+    # 1. Onboarding Check
+    if ui_onboarding: ui_onboarding.show_onboarding_tutorial()
+
+    # 2. Contextual Help
+    if ui_onboarding: ui_onboarding.show_contextual_help("workspace")
+
+    # 3. Success Banner Logic
     if st.session_state.get("payment_complete"):
-        # We check if we already tracked this success to avoid dupes on re-render
         if not st.session_state.get("tracked_payment_success"):
             st.session_state.tracked_payment_success = True
-            
-            # 1. Show Banner
             st.success("✅ Payment Confirmed! You can now transcribe and send your letter.")
-            
-            # 2. Track Event
             tier = st.session_state.get("locked_tier", "Standard")
             user = st.session_state.get("user_email")
             if analytics: analytics.track_event(user, "payment_success", {"tier": tier})
-            
-            # 3. Send Email Receipt
             if mailer: mailer.send_customer_notification(user, "order_confirmed", {"tier": tier, "amount": "Paid"})
 
     tier = st.session_state.get("locked_tier", "Standard")
@@ -670,6 +682,9 @@ def render_workspace_page():
 
 # --- 9. PAGE: REVIEW ---
 def render_review_page():
+    # Contextual Help
+    if ui_onboarding: ui_onboarding.show_contextual_help("review")
+    
     _render_hero("Review", "Finalize & Send")
     if st.session_state.get("letter_sent_success"):
         st.success("✅ Letter Sent Successfully!")
@@ -713,7 +728,7 @@ def render_review_page():
         try:
             to_s = ""; from_s = ""
             
-            # PHASE 2: Smart Civic Preview
+            # Smart Civic Preview
             if tier == "Civic" and st.session_state.get("civic_targets"):
                 first_rep = st.session_state.civic_targets[0]
                 d = first_rep.get('address_obj', st.session_state.to_addr)
@@ -747,6 +762,7 @@ def render_review_page():
 
 # --- 10. MAIN ROUTER ---
 def show_main_app():
+    inject_mobile_styles()  # <--- NEW CSS INJECTION
     if analytics: analytics.inject_ga()
     render_sidebar()
     mode = st.session_state.get("app_mode", "splash")
