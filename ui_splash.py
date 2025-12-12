@@ -2,116 +2,135 @@ import streamlit as st
 
 def show_splash():
     # --- CSS STYLING ---
-    # Custom CSS for ultra-compact vertical layout
     st.markdown("""
     <style>
-        /* Reduce page top padding */
-        div.block-container { padding-top: 1rem; padding-bottom: 5rem; }
+        /* Global Spacing */
+        div.block-container { padding-top: 2rem; padding-bottom: 4rem; }
         
+        /* Hero Typography */
         .hero-header {
             text-align: center; 
-            padding-bottom: 5px;
+            padding-bottom: 10px;
             margin-bottom: 0px;
+            font-family: 'Source Sans Pro', sans-serif;
+        }
+        .hero-sub {
+            text-align: center; 
+            margin-bottom: 30px; 
+            color: #555;
+            font-size: 1.1rem;
         }
         
-        /* Ultra Compact Card Styling */
+        /* PRICING CARDS (Dark Theme Accent) */
         .pricing-card {
             background: linear-gradient(180deg, #203A60 0%, #152845 100%);
-            border-radius: 8px;
-            padding: 8px 4px; /* Minimal padding */
+            border-radius: 10px;
+            padding: 12px 5px;
             color: white;
             text-align: center;
             height: 100%;
             border: 1px solid #304b78;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             transition: transform 0.2s;
         }
         .pricing-card:hover {
-            transform: translateY(-2px);
-            border-color: #FF4B4B;
+            transform: translateY(-3px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.15);
         }
-        
-        /* Tight Typography */
         .card-title {
-            font-size: 1rem;
-            font-weight: 800;
+            font-size: 0.9rem;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 1px;
             margin: 0; 
-            color: #ffffff;
-            line-height: 1.1;
+            color: #e0e0e0;
         }
         .card-sub {
-            font-size: 0.7rem;
+            font-size: 0.65rem;
             color: #a0aab8;
             font-style: italic;
-            margin: 0;
-            line-height: 1.1;
+            margin-bottom: 4px;
         }
         .card-price {
-            font-size: 1.4rem;
-            font-weight: 900;
-            margin: 2px 0 4px 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            margin: 0px 0 8px 0;
             color: #ffffff;
-            line-height: 1;
         }
-        
-        /* Compact Feature List */
         .features-list {
             text-align: left;
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             margin: 0 auto;
             display: inline-block;
-            line-height: 1.2;
             color: #d1d5db;
-        }
-        .feature-row {
-            margin-bottom: 1px; /* Minimal spacing between items */
+            line-height: 1.4;
         }
         
-        /* Button Adjustments */
+        /* HOW IT WORKS CARDS (Light Theme) */
+        .work-card {
+            background-color: #ffffff;
+            border: 1px solid #f0f2f6;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            height: 100%;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .work-icon {
+            font-size: 1.5rem;
+            margin-bottom: 8px;
+            display: block;
+        }
+        .work-title {
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: #31333F;
+            margin-bottom: 5px;
+        }
+        .work-desc {
+            font-size: 0.8rem;
+            color: #666;
+            line-height: 1.3;
+        }
+
+        /* LEADERBOARD (Compact) */
+        .stat-box {
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            padding: 8px 12px;
+            border: 1px solid #eee;
+            text-align: center;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-weight: 600;
+            font-size: 0.85rem;
+            color: #31333F;
+        }
+        .stat-val {
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: #FF4B4B;
+            background: #fff0f0;
+            padding: 2px 8px;
+            border-radius: 10px;
+        }
+        
+        /* Button Override */
         .stButton button {
             width: 100%;
             border-radius: 20px;
-            font-weight: bold;
-            height: auto;
-            padding: 0.4rem 1rem;
-        }
-
-        /* FAQ Styling */
-        .faq-box {
-            background-color: #f8f9fa;
-            border-radius: 8px;
-            padding: 15px;
-            margin-top: 20px;
-            border: 1px solid #e9ecef;
-        }
-        .faq-q {
-            font-weight: 700;
-            font-size: 0.9rem;
-            color: #203A60;
-            margin-bottom: 2px;
-        }
-        .faq-a {
-            font-size: 0.85rem;
-            color: #4b5563;
-            margin-bottom: 10px;
-            line-height: 1.4;
+            font-weight: 600;
         }
     </style>
     """, unsafe_allow_html=True)
 
     # --- HERO SECTION ---
     st.markdown('<div class="hero-header"><h1>VerbaPost</h1></div>', unsafe_allow_html=True)
-    
-    st.markdown(
-        """
-        <div style='text-align: center; margin-bottom: 20px;'>
-            <h5 style='margin:0; padding:0;'>We handle transcription, printing, and USPS mailing.</h5>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    st.markdown('<div class="hero-sub">We handle transcription, printing, and USPS mailing.</div>', unsafe_allow_html=True)
 
     # --- MAIN CTA ---
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -124,22 +143,22 @@ def show_splash():
                 st.session_state.app_mode = "login"
             st.rerun()
 
-    st.write("") # Small spacer
+    st.write("") 
 
-    # --- PRICING CARDS (Ultra Compact & Icon-Free) ---
+    # --- PRICING SECTION ---
     c1, c2, c3, c4 = st.columns(4)
 
     # 1. STANDARD
     with c1:
         st.markdown("""
         <div class="pricing-card">
-            <div class="card-title">STANDARD</div>
+            <div class="card-title">Standard</div>
             <div class="card-sub">Single Letter</div>
             <div class="card-price">$2.99</div>
             <div class="features-list">
-                <div class="feature-row">🇺🇸 USPS First Class</div>
-                <div class="feature-row">📄 Standard Paper</div>
-                <div class="feature-row">🤖 AI Transcription</div>
+                <div>🇺🇸 USPS First Class</div>
+                <div>📄 Standard Paper</div>
+                <div>🤖 AI Transcription</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -148,13 +167,13 @@ def show_splash():
     with c2:
         st.markdown("""
         <div class="pricing-card">
-            <div class="card-title">HEIRLOOM</div>
+            <div class="card-title">Heirloom</div>
             <div class="card-sub">Single Letter</div>
             <div class="card-price">$5.99</div>
             <div class="features-list">
-                <div class="feature-row">🖋️ Wet-Ink Style</div>
-                <div class="feature-row">📜 Archival Stock</div>
-                <div class="feature-row">✍️ Hand-Addressed</div>
+                <div>🖋️ Wet-Ink Style</div>
+                <div>📜 Archival Stock</div>
+                <div>✍️ Hand-Addressed</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -163,13 +182,13 @@ def show_splash():
     with c3:
         st.markdown("""
         <div class="pricing-card">
-            <div class="card-title">CIVIC</div>
+            <div class="card-title">Civic</div>
             <div class="card-sub">Three Letters</div>
             <div class="card-price">$6.99</div>
             <div class="features-list">
-                <div class="feature-row">🏛️ Write Congress</div>
-                <div class="feature-row">📍 Auto-Rep Lookup</div>
-                <div class="feature-row">📦 Formal Layout</div>
+                <div>🏛️ Write Congress</div>
+                <div>📍 Auto-Rep Lookup</div>
+                <div>📦 Formal Layout</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -178,58 +197,75 @@ def show_splash():
     with c4:
         st.markdown("""
         <div class="pricing-card">
-            <div class="card-title">SANTA</div>
+            <div class="card-title">Santa</div>
             <div class="card-sub">Single Letter</div>
             <div class="card-price">$9.99</div>
             <div class="features-list">
-                <div class="feature-row">❄️ North Pole Mark</div>
-                <div class="feature-row">📜 Festive Paper</div>
-                <div class="feature-row">🎅 Signed by Santa</div>
+                <div>❄️ North Pole Mark</div>
+                <div>📜 Festive Paper</div>
+                <div>🎅 Signed by Santa</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-    # --- HELP & FAQ SECTION ---
-    # Positioned below pricing, above gamification
+    # --- HOW IT WORKS SECTION (Clean Light Mode) ---
     st.write("")
-    st.markdown("### ❓ Help & FAQ")
+    st.write("")
+    st.markdown("<h4 style='text-align: center;'>🛠️ How It Works</h4>", unsafe_allow_html=True)
     
-    faq1, faq2, faq3 = st.columns(3)
+    hw1, hw2, hw3 = st.columns(3)
     
-    with faq1:
+    with hw1:
         st.markdown("""
-        <div class="faq-q">How does it work?</div>
-        <div class="faq-a">Dictate or type your letter. We print it on real paper, envelope it, stamp it, and mail it via USPS.</div>
+        <div class="work-card">
+            <span class="work-icon">🎙️</span>
+            <div class="work-title">1. Dictate or Type</div>
+            <div class="work-desc">Use our AI tools to draft your letter quickly, or type it out manually.</div>
+        </div>
         """, unsafe_allow_html=True)
     
-    with faq2:
+    with hw2:
         st.markdown("""
-        <div class="faq-q">Is it real paper?</div>
-        <div class="faq-a">Yes! Standard uses bright white bond. Heirloom uses heavy archival stock with wet-ink robotic pen technology.</div>
+        <div class="work-card">
+            <span class="work-icon">🖨️</span>
+            <div class="work-title">2. We Print & Prep</div>
+            <div class="work-desc">We print on premium paper (Bond or Archival), fold, envelope, and stamp it.</div>
+        </div>
         """, unsafe_allow_html=True)
         
-    with faq3:
+    with hw3:
         st.markdown("""
-        <div class="faq-q">When will it arrive?</div>
-        <div class="faq-a">We mail within 24 hours. USPS First Class typically delivers in 3-5 business days across the US.</div>
+        <div class="work-card">
+            <span class="work-icon">📮</span>
+            <div class="work-title">3. USPS Delivers</div>
+            <div class="work-desc">Mailed within 24 hours via First Class. Arrives in 3-5 business days.</div>
+        </div>
         """, unsafe_allow_html=True)
 
+    st.write("")
     st.markdown("---")
 
-    # --- GAMIFICATION / LEADERBOARD ---
-    # Made clearer by removing the expander and giving it a distinct section header
-    st.subheader("🏆 Civic Impact Leaderboard")
-    st.caption("See which states are making their voices heard with our Civic tier.")
+    # --- GAMIFICATION / LEADERBOARD (Subtle) ---
+    st.markdown("<h5 style='text-align: center; color: #555;'>🏆 Civic Impact Leaderboard</h5>", unsafe_allow_html=True)
     
     try:
         import database
         leaders = database.get_civic_leaderboard()
         if leaders:
-            # Display metrics clearly in a row
-            cols = st.columns(len(leaders))
-            for idx, (state, count) in enumerate(leaders):
-                cols[idx].metric(label=f"📍 {state}", value=f"{count} Sent")
+            # Centered container for stats
+            col_spacer, col_content, col_spacer2 = st.columns([1, 2, 1])
+            with col_content:
+                # Create a grid of small stats
+                cols = st.columns(min(len(leaders), 3))
+                for idx, (state, count) in enumerate(leaders[:3]):
+                    with cols[idx]:
+                        st.markdown(f"""
+                        <div class="stat-box">
+                            <span class="stat-label">📍 {state}</span>
+                            <span class="stat-val">{count} Sent</span>
+                        </div>
+                        """, unsafe_allow_html=True)
         else:
-            st.info("No civic activity recorded yet. Be the first!")
+            st.markdown("<p style='text-align:center; font-size: 0.8rem; color: #888;'>Be the first to make your voice heard!</p>", unsafe_allow_html=True)
     except Exception:
         st.empty()
