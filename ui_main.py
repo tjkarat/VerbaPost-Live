@@ -20,6 +20,8 @@ try: import ui_admin
 except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
+try: import ui_help 
+except ImportError: ui_help = None
 
 # --- 2. HELPER IMPORTS ---
 try: import database
@@ -133,6 +135,12 @@ def _save_addresses_to_state(tier):
     if mailer and st.session_state.to_addr.get('country') == "US":
         try:
             with st.spinner("Verifying Address..."):
+                st.markdown("""
+                <div style="text-align: center; margin-bottom: 10px;">
+                    <p>📍 Checking address with USPS database...</p>
+                    <p style="font-size: 0.85em; color: #666;">We'll auto-correct any issues</p>
+                </div>
+                """, unsafe_allow_html=True)
                 valid, data = mailer.verify_address_data(
                     st.session_state.to_addr.get('street'), 
                     st.session_state.to_addr.get('address_line2'),
@@ -245,6 +253,16 @@ def _process_sending_logic(tier):
     if not targets: st.error("No recipients found."); return
 
     with st.spinner("Sending..."):
+        st.markdown("""
+        <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
+            <h3 style="margin:0; color: #2a5298;">📮 Preparing Your Letter</h3>
+            <p style="margin: 5px 0;">✓ Generating PDF...</p>
+            <p style="margin: 5px 0;">✓ Uploading to print facility...</p>
+            <p style="margin: 5px 0;">✓ Scheduling USPS pickup...</p>
+            <p style="color: #666; font-size: 0.9em; margin-top: 10px;">Almost done! This takes about 10 seconds.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
         errs = []
         for tgt in targets:
             if not tgt.get('city'): continue 
@@ -309,8 +327,15 @@ def reset_app(full_logout=False):
 # --- 6. RENDER SIDEBAR ---
 def render_sidebar():
     with st.sidebar:
-        st.header("VerbaPost 📮")
+        st.image("https://via.placeholder.com/200x60/2a5298/ffffff?text=VerbaPost", use_container_width=True)
         st.markdown("---")
+        
+        if st.button("❓ Help & FAQ", use_container_width=True):
+            st.session_state.app_mode = "help"
+            st.rerun()
+            
+        st.markdown("---")
+        
         user_email = st.session_state.get("user_email")
         if user_email:
             st.success(f"👤 **Logged in as:**\n{user_email}")
@@ -330,13 +355,13 @@ def render_sidebar():
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.rerun()
-        st.markdown("---")
+        
         mode = st.session_state.get("app_mode", "splash")
-        if mode in ["workspace", "review"] and user_email:
+        if mode in ["workspace", "review", "help"] and user_email:
              if st.button("🛒 Store (New Letter)", use_container_width=True):
                  st.session_state.app_mode = "store"
                  st.rerun()
-        st.caption("v3.2.1")
+        st.caption("v3.3.0")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
@@ -419,12 +444,19 @@ def render_store_page():
                             if is_certified: link += "&certified=1"
                             if tier_code == "Campaign": link += f"&qty={qty}"
                             if payment_engine:
-                                url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
-                                if url:
-                                    if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
-                                    st.session_state.pending_stripe_url = url
-                                    st.rerun()
-                                else: st.error("⚠️ Stripe Error: Could not generate link.")
+                                with st.spinner("Generating secure payment link..."):
+                                    st.markdown("""
+                                    <div style="text-align: center; margin-bottom: 15px;">
+                                        <p>🔒 Creating your Stripe checkout...</p>
+                                        <p style="font-size: 0.85em; color: #666;">This opens in a new tab for security</p>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
+                                    if url:
+                                        if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
+                                        st.session_state.pending_stripe_url = url
+                                        st.rerun()
+                                    else: st.error("⚠️ Stripe Error: Could not generate link.")
                             else: st.error("⚠️ Payment Engine Missing")
                         except Exception as e:
                             st.error(f"❌ System Crash: {str(e)}")
@@ -504,7 +536,14 @@ def render_workspace_page():
             if audio:
                 if st.button("Transcribe Recording", key="btn_rec"):
                     if ai_engine:
-                        with st.spinner("Processing (CPU)..."): 
+                        with st.spinner("🤖 Transcribing..."):
+                            st.markdown("""
+                            <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
+                                <p><strong>Converting your speech to text...</strong></p>
+                                <p style="color: #666;">This usually takes 30-60 seconds (CPU Mode)</p>
+                                <p style="font-size: 0.9em;">☕ Perfect time to grab a coffee!</p>
+                            </div>
+                            """, unsafe_allow_html=True)
                             res = ai_engine.transcribe_audio(audio)
                             if not res or len(str(res).strip()) == 0: st.warning("⚠️ No speech detected.")
                             elif str(res).startswith("Error:") or str(res).startswith("[Error"): st.error(res)
@@ -520,6 +559,13 @@ def render_workspace_page():
                 if st.button("Transcribe File", key="btn_up"):
                     if ai_engine:
                         with st.spinner("Processing..."):
+                            st.markdown("""
+                            <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
+                                <p><strong>Converting your speech to text...</strong></p>
+                                <p style="color: #666;">This usually takes 30-60 seconds (CPU Mode)</p>
+                                <p style="font-size: 0.9em;">☕ Perfect time to grab a coffee!</p>
+                            </div>
+                            """, unsafe_allow_html=True)
                             res = ai_engine.transcribe_audio(up)
                             if not res or len(str(res).strip()) == 0: st.warning("⚠️ No speech detected.")
                             elif str(res).startswith("Error:") or str(res).startswith("[Error"): st.error(res)
@@ -609,6 +655,7 @@ def show_main_app():
     elif mode == "review": render_review_page()
     elif mode == "admin" and ui_admin: ui_admin.show_admin()
     elif mode == "legal" and ui_legal: ui_legal.show_legal()
+    elif mode == "help" and ui_help: ui_help.show_help()
     else: 
         st.session_state.app_mode = "store"
         st.rerun()

@@ -11,10 +11,15 @@ except ImportError: database = None
 
 def show_splash():
     # --- CSS CONFIGURATION ---
-    # 1. Forces White Text (fixes dark mode bug)
-    # 2. Enforces Fixed Height on Cards (alignment bug)
     st.markdown("""
     <style>
+        /* MOBILE OPTIMIZATIONS */
+        @media (max-width: 768px) {
+            .hero-container { padding: 20px 10px !important; }
+            .hero-title { font-size: 2rem !important; }
+            .stButton button { width: 100% !important; }
+        }
+
         /* HERO CONTAINER */
         .hero-container {
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
