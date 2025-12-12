@@ -10,7 +10,7 @@ def show_splash():
         /* Hero Typography */
         .hero-header {
             text-align: center; 
-            padding-bottom: 10px;
+            padding-bottom: 5px;
             margin-bottom: 0px;
             font-family: 'Source Sans Pro', sans-serif;
         }
@@ -19,6 +19,7 @@ def show_splash():
             margin-bottom: 30px; 
             color: #555;
             font-size: 1.1rem;
+            line-height: 1.5;
         }
         
         /* PRICING CARDS (Dark Theme Accent) */
@@ -130,7 +131,19 @@ def show_splash():
 
     # --- HERO SECTION ---
     st.markdown('<div class="hero-header"><h1>VerbaPost</h1></div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-sub">We handle transcription, printing, and USPS mailing.</div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="hero-sub">
+            <div style="font-size: 1.2rem; font-weight: 600; color: #203A60; margin-bottom: 5px;">
+                Record your voice, send a letter.
+            </div>
+            <div style="font-size: 0.95rem; color: #666;">
+                Texts are trivial, emails ignored, <strong style="color: #333;">REAL MAIL GETS READ.</strong>
+            </div>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
 
     # --- MAIN CTA ---
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -208,10 +221,10 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # --- HOW IT WORKS SECTION (Clean Light Mode) ---
+    # --- HOW IT WORKS SECTION ---
     st.write("")
     st.write("")
-    st.markdown("<h4 style='text-align: center;'>🛠️ How It Works</h4>", unsafe_allow_html=True)
+    st.markdown("<h4 style='text-align: center; color: #333;'>🛠️ How It Works</h4>", unsafe_allow_html=True)
     
     hw1, hw2, hw3 = st.columns(3)
     
@@ -245,7 +258,7 @@ def show_splash():
     st.write("")
     st.markdown("---")
 
-    # --- GAMIFICATION / LEADERBOARD (Subtle) ---
+    # --- GAMIFICATION / LEADERBOARD ---
     st.markdown("<h5 style='text-align: center; color: #555;'>🏆 Civic Impact Leaderboard</h5>", unsafe_allow_html=True)
     
     try:
