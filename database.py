@@ -8,7 +8,6 @@ from contextlib import contextmanager
 import logging
 import numpy as np
 
-# --- CONFIG ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 Base = declarative_base()
@@ -54,12 +53,12 @@ class SavedContact(Base):
     country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.utcnow)
 
+# --- FIX: Updated to match your Supabase Schema ---
 class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True, index=True)
     max_uses = Column(Integer, default=1)
-    # Replaces 'current_uses' with 'active' to match your DB schema
-    active = Column(Boolean, default=True) 
+    active = Column(Boolean, default=True) # Changed from current_uses
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class PromoLog(Base):
@@ -91,7 +90,6 @@ def get_engine():
         logger.error(f"DB Connection Error: {e}")
         return None
 
-# --- CONTEXT MANAGER ---
 @contextmanager
 def get_db_session():
     engine = get_engine()
@@ -106,11 +104,9 @@ def get_db_session():
     finally:
         session.close()
 
-# --- HELPER: SAFE INT CONVERSION ---
 def _safe_int(val):
     if val is None: return None
-    if isinstance(val, (np.integer, np.int64)):
-        return int(val)
+    if isinstance(val, (np.integer, np.int64)): return int(val)
     return val
 
 # --- CORE FUNCTIONS ---
@@ -159,7 +155,6 @@ def update_user_profile(email, name, street, street2, city, state, zip_code, cou
                 user.country = country
     except Exception as e: logger.error(f"Update Profile Error: {e}")
 
-# --- ADDRESS BOOK ---
 def add_contact(user_email, name, street, street2, city, state, zip_code, country="US"):
     if not user_email: return False
     try:
@@ -189,7 +184,6 @@ def delete_contact(contact_id):
             return True
     except Exception: return False
 
-# --- DELETE DRAFT ---
 def delete_draft(draft_id):
     try:
         safe_id = _safe_int(draft_id)
@@ -200,7 +194,6 @@ def delete_draft(draft_id):
         logger.error(f"Delete Draft Error: {e}")
         return False
 
-# --- ADMIN SUPPORT ---
 def get_civic_leaderboard():
     try:
         with get_db_session() as db:
