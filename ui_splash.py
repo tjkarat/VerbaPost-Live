@@ -2,74 +2,80 @@ import streamlit as st
 
 def show_splash():
     # --- CSS STYLING ---
-    # We inject custom CSS to force the cards to be shorter and compact
+    # Custom CSS for ultra-compact vertical layout
     st.markdown("""
     <style>
-        div.block-container { padding-top: 2rem; }
+        /* Reduce page top padding */
+        div.block-container { padding-top: 1rem; padding-bottom: 2rem; }
         
         .hero-header {
             text-align: center; 
-            padding-bottom: 20px;
+            padding-bottom: 5px;
+            margin-bottom: 0px;
         }
         
-        /* Compact Card Styling */
+        /* Ultra Compact Card Styling */
         .pricing-card {
             background: linear-gradient(180deg, #203A60 0%, #152845 100%);
-            border-radius: 12px;
-            padding: 15px 10px; /* Reduced vertical padding */
+            border-radius: 8px;
+            padding: 8px 4px; /* Minimal padding */
             color: white;
             text-align: center;
             height: 100%;
             border: 1px solid #304b78;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             transition: transform 0.2s;
         }
         .pricing-card:hover {
-            transform: translateY(-3px);
+            transform: translateY(-2px);
             border-color: #FF4B4B;
         }
         
-        /* Typography adjustments for height reduction */
+        /* Tight Typography */
         .card-title {
-            font-size: 1.1rem;
+            font-size: 1rem;
             font-weight: 800;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            margin: 0 0 2px 0; /* Tight margin */
+            letter-spacing: 0.5px;
+            margin: 0; 
             color: #ffffff;
+            line-height: 1.1;
         }
         .card-sub {
-            font-size: 0.8rem;
+            font-size: 0.7rem;
             color: #a0aab8;
             font-style: italic;
-            margin-bottom: 5px;
+            margin: 0;
+            line-height: 1.1;
         }
         .card-price {
-            font-size: 1.8rem;
+            font-size: 1.4rem;
             font-weight: 900;
-            margin: 5px 0 10px 0;
+            margin: 2px 0 4px 0;
             color: #ffffff;
+            line-height: 1;
         }
         
-        /* Feature list compaction */
+        /* Compact Feature List */
         .features-list {
             text-align: left;
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             margin: 0 auto;
             display: inline-block;
-            line-height: 1.4;
+            line-height: 1.2;
             color: #d1d5db;
         }
         .feature-row {
-            margin-bottom: 4px; /* Tight spacing between items */
+            margin-bottom: 1px; /* Minimal spacing between items */
         }
         
-        /* Button Styling */
+        /* Button Adjustments */
         .stButton button {
             width: 100%;
-            border-radius: 25px;
+            border-radius: 20px;
             font-weight: bold;
-            padding: 0.5rem 1rem;
+            height: auto;
+            padding: 0.4rem 1rem;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -79,19 +85,17 @@ def show_splash():
     
     st.markdown(
         """
-        <div style='text-align: center; margin-bottom: 30px;'>
-            <h4>We handle transcription, printing, and USPS mailing.</h4>
+        <div style='text-align: center; margin-bottom: 20px;'>
+            <h5 style='margin:0; padding:0;'>We handle transcription, printing, and USPS mailing.</h5>
         </div>
         """, 
         unsafe_allow_html=True
     )
 
     # --- MAIN CTA ---
-    # Centered Start Button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("🚀 Start a Letter (Dictate or Upload)", type="primary", use_container_width=True):
-            # Intelligent Routing based on Auth Status
+        if st.button("🚀 Start a Letter", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
             else:
@@ -99,14 +103,12 @@ def show_splash():
                 st.session_state.app_mode = "login"
             st.rerun()
 
-    st.write("") # Spacer
+    st.write("") # Small spacer
 
-    # --- PRICING CARDS (COMPACT) ---
-    # We use HTML inside columns to strictly control the height/padding
-    
+    # --- PRICING CARDS (Ultra Compact & Icon-Free) ---
     c1, c2, c3, c4 = st.columns(4)
 
-    # 1. STANDARD
+    # 1. STANDARD (Clean Title)
     with c1:
         st.markdown("""
         <div class="pricing-card">
@@ -121,7 +123,7 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # 2. HEIRLOOM
+    # 2. HEIRLOOM (Clean Title)
     with c2:
         st.markdown("""
         <div class="pricing-card">
@@ -136,7 +138,7 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # 3. CIVIC
+    # 3. CIVIC (Clean Title)
     with c3:
         st.markdown("""
         <div class="pricing-card">
@@ -151,7 +153,7 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # 4. SANTA
+    # 4. SANTA (Clean Title)
     with c4:
         st.markdown("""
         <div class="pricing-card">
@@ -166,18 +168,18 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # --- LEADERBOARD (Optional, kept minimal) ---
+    # --- LEADERBOARD (Minimal) ---
     st.write("")
-    st.write("")
-    with st.expander("🏆 See where Civic letters are being sent"):
+    with st.expander("🏆 Recent Activity", expanded=False):
         try:
             import database
             leaders = database.get_civic_leaderboard()
             if leaders:
-                cols = st.columns(len(leaders))
-                for idx, (state, count) in enumerate(leaders):
-                    cols[idx].metric(state, f"{count} sent")
+                # Show top 4 to save vertical space
+                cols = st.columns(min(len(leaders), 4))
+                for idx, (state, count) in enumerate(leaders[:4]):
+                    cols[idx].caption(f"{state}: {count}")
             else:
-                st.info("No civic data yet.")
+                st.caption("No public stats yet.")
         except Exception:
             st.empty()
