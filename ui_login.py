@@ -2,12 +2,11 @@ import streamlit as st
 import auth_engine
 import time
 
-# --- FIX: Renamed from render_login to show_login to match ui_main.py call ---
+# Function renamed to match ui_main.py call
 def show_login(*args, **kwargs):
     """
     Renders the Authentication Interface (Login, Signup, Forgot Password).
     Highlights the active tab in RED (#FF4B4B) to match branding.
-    Accepts *args, **kwargs to safely handle any parameters passed by ui_main.
     """
     # --- CSS STYLING FOR RED TABS ---
     st.markdown("""
@@ -115,23 +114,27 @@ def show_login(*args, **kwargs):
             st.markdown("---")
             st.caption("📍 Return Address (Required for USPS)")
             
-            c1, c2 = st.columns(2)
+            # Address Row 1: Street gets more space than Apt
+            c1, c2 = st.columns([3, 1]) 
             street = c1.text_input("Street Address")
             street2 = c2.text_input("Apt / Suite")
             
-            c3, c4, c5 = st.columns([2, 1, 1])
+            # Address Row 2: City, State, Zip, Country nicely spaced
+            c3, c4, c5, c6 = st.columns([3, 2, 2, 3])
             city = c3.text_input("City")
             state = c4.text_input("State")
             zip_code = c5.text_input("Zip")
+            country = c6.selectbox("Country", ["United States", "Canada", "United Kingdom", "Australia", "Other"], index=0)
             
             # Submit
             if st.form_submit_button("Sign Up & Create Account", type="primary"):
                 if not new_email or not new_pass or not street or not city or not state or not zip_code:
                     st.error("Please fill in all required fields.")
                 else:
+                    # Pass country to auth engine
                     res, err = auth_engine.sign_up(
                         new_email, new_pass, full_name, 
-                        street, street2, city, state, zip_code, "US", "English"
+                        street, street2, city, state, zip_code, country, "English"
                     )
                     if res:
                         st.balloons()
@@ -161,14 +164,13 @@ def show_login(*args, **kwargs):
         
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Manual fallback in case the link redirects weirdly
+        # Manual fallback
         with st.expander("Have a code to enter manually?"):
             st.caption("If the link didn't work automatically, paste the token from the email here.")
             m_token = st.text_input("Token / Code")
             m_pass = st.text_input("New Password", type="password", key="m_reset_pass")
             
             if st.button("Update Password"):
-                # Use email from above or require re-entry
                 if not reset_email: 
                     st.error("Please enter your email in the box above first.")
                 elif not m_token or not m_pass:
@@ -190,8 +192,6 @@ def render_reset_password_interface():
     
     with st.form("final_reset_form"):
         email_confirm = st.text_input("Confirm Email Address")
-        # Token might be in URL fragment which Streamlit handles differently, 
-        # so manual paste is the most reliable fallback.
         token_input = st.text_input("Token (Paste from email if not auto-filled)")
         new_pass = st.text_input("New Password", type="password")
         
@@ -200,7 +200,6 @@ def render_reset_password_interface():
             if success:
                 st.balloons()
                 st.success("Password Changed Successfully! Redirecting to login...")
-                # Clear URL params to exit recovery mode
                 st.query_params.clear()
                 time.sleep(2)
                 st.rerun()
