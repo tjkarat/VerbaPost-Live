@@ -73,11 +73,16 @@ COUNTRIES = {
 # --- 4. HELPER FUNCTIONS ---
 
 def _render_hero(title, subtitle):
-    # CSS FIX: Force white text on blue gradient
+    # CSS FIX: We inject a specific style block to override Streamlit's global h1 colors
     st.markdown(f"""
+    <style>
+        .custom-hero h1, .custom-hero div, .custom-hero span, .custom-hero p {{
+            color: #FFFFFF !important;
+        }}
+    </style>
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 30px 20px; border-radius: 15px; text-align: center; margin-bottom: 25px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); max-width: 100%; box-sizing: border-box;">
-        <h1 style="margin: 0; font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 700; color: #FFFFFF !important; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">{title}</h1>
-        <div style="font-size: clamp(0.9rem, 3vw, 1.2rem); opacity: 0.95; margin-top: 8px; color: #F0F0F0 !important;">{subtitle}</div>
+        <h1 style="margin: 0; font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 700; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">{title}</h1>
+        <div style="font-size: clamp(0.9rem, 3vw, 1.2rem); opacity: 0.95; margin-top: 8px;">{subtitle}</div>
     </div>""", unsafe_allow_html=True)
 
 def _save_addresses_to_state(tier):
