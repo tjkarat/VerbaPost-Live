@@ -6,7 +6,7 @@ def show_splash():
     st.markdown("""
     <style>
         /* Reduce page top padding */
-        div.block-container { padding-top: 1rem; padding-bottom: 2rem; }
+        div.block-container { padding-top: 1rem; padding-bottom: 5rem; }
         
         .hero-header {
             text-align: center; 
@@ -77,6 +77,27 @@ def show_splash():
             height: auto;
             padding: 0.4rem 1rem;
         }
+
+        /* FAQ Styling */
+        .faq-box {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            border: 1px solid #e9ecef;
+        }
+        .faq-q {
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: #203A60;
+            margin-bottom: 2px;
+        }
+        .faq-a {
+            font-size: 0.85rem;
+            color: #4b5563;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -108,7 +129,7 @@ def show_splash():
     # --- PRICING CARDS (Ultra Compact & Icon-Free) ---
     c1, c2, c3, c4 = st.columns(4)
 
-    # 1. STANDARD (Clean Title)
+    # 1. STANDARD
     with c1:
         st.markdown("""
         <div class="pricing-card">
@@ -123,7 +144,7 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # 2. HEIRLOOM (Clean Title)
+    # 2. HEIRLOOM
     with c2:
         st.markdown("""
         <div class="pricing-card">
@@ -138,7 +159,7 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # 3. CIVIC (Clean Title)
+    # 3. CIVIC
     with c3:
         st.markdown("""
         <div class="pricing-card">
@@ -153,7 +174,7 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # 4. SANTA (Clean Title)
+    # 4. SANTA
     with c4:
         st.markdown("""
         <div class="pricing-card">
@@ -168,18 +189,47 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # --- LEADERBOARD (Minimal) ---
+    # --- HELP & FAQ SECTION ---
+    # Positioned below pricing, above gamification
     st.write("")
-    with st.expander("🏆 Recent Activity", expanded=False):
-        try:
-            import database
-            leaders = database.get_civic_leaderboard()
-            if leaders:
-                # Show top 4 to save vertical space
-                cols = st.columns(min(len(leaders), 4))
-                for idx, (state, count) in enumerate(leaders[:4]):
-                    cols[idx].caption(f"{state}: {count}")
-            else:
-                st.caption("No public stats yet.")
-        except Exception:
-            st.empty()
+    st.markdown("### ❓ Help & FAQ")
+    
+    faq1, faq2, faq3 = st.columns(3)
+    
+    with faq1:
+        st.markdown("""
+        <div class="faq-q">How does it work?</div>
+        <div class="faq-a">Dictate or type your letter. We print it on real paper, envelope it, stamp it, and mail it via USPS.</div>
+        """, unsafe_allow_html=True)
+    
+    with faq2:
+        st.markdown("""
+        <div class="faq-q">Is it real paper?</div>
+        <div class="faq-a">Yes! Standard uses bright white bond. Heirloom uses heavy archival stock with wet-ink robotic pen technology.</div>
+        """, unsafe_allow_html=True)
+        
+    with faq3:
+        st.markdown("""
+        <div class="faq-q">When will it arrive?</div>
+        <div class="faq-a">We mail within 24 hours. USPS First Class typically delivers in 3-5 business days across the US.</div>
+        """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # --- GAMIFICATION / LEADERBOARD ---
+    # Made clearer by removing the expander and giving it a distinct section header
+    st.subheader("🏆 Civic Impact Leaderboard")
+    st.caption("See which states are making their voices heard with our Civic tier.")
+    
+    try:
+        import database
+        leaders = database.get_civic_leaderboard()
+        if leaders:
+            # Display metrics clearly in a row
+            cols = st.columns(len(leaders))
+            for idx, (state, count) in enumerate(leaders):
+                cols[idx].metric(label=f"📍 {state}", value=f"{count} Sent")
+        else:
+            st.info("No civic activity recorded yet. Be the first!")
+    except Exception:
+        st.empty()
