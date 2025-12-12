@@ -5,12 +5,13 @@ import time
 def render_login():
     """
     Renders the Authentication Interface (Login, Signup, Forgot Password).
-    Highlights the active tab in RED (#FF4B4B) to match branding.
+    Includes CSS to highlight the active tab in Red.
     """
-    # --- CSS STYLING FOR RED TABS ---
+    # --- CSS STYLING ---
+    # Forces the selected tab to be Red (#FF4B4B) to match your branding
     st.markdown("""
     <style>
-        /* Center the main header */
+        /* Main Header */
         .auth-header {
             text-align: center;
             font-weight: 700;
@@ -18,55 +19,52 @@ def render_login():
             margin-bottom: 20px;
         }
         
-        /* STREAMLIT TAB OVERRIDES 
-           This forces the selected tab to be Red (#FF4B4B)
-        */
+        /* STREAMLIT TAB OVERRIDES */
         
-        /* The text color of the UNSELECTED tabs */
+        /* 1. Default Tab Text (Inactive) */
         .stTabs [data-baseweb="tab-list"] button {
-            color: #555;
+            color: #6b7280; /* Gray */
             font-weight: 600;
         }
 
-        /* The text color of the SELECTED tab */
+        /* 2. Active Tab Text (Selected) -> RED */
         .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] div {
             color: #FF4B4B !important;
             font-weight: 800 !important;
-            font-size: 1.1rem;
+            font-size: 1.05rem;
         }
 
-        /* The underline indicator of the selected tab */
+        /* 3. Active Tab Underline -> RED */
         .stTabs [data-baseweb="tab-highlight"] {
             background-color: #FF4B4B !important;
             height: 3px;
         }
 
-        /* Hover effect */
+        /* 4. Hover State */
         .stTabs [data-baseweb="tab-list"] button:hover {
             color: #FF4B4B !important;
         }
         
-        /* Make form buttons full width and bold */
+        /* Button Styling */
         .stButton button {
             width: 100%;
-            font-weight: 700;
             border-radius: 8px;
+            font-weight: 600;
         }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- HANDLE PASSWORD RESET RETURN ---
-    # If the user clicked a magic link in email, Supabase sends them back with params.
-    # We check for 'type=recovery' to show the actual reset form immediately.
+    # --- PASSWORD RESET FLOW HANDLER ---
+    # If user clicks email link, Supabase sends them back with ?type=recovery
     q_params = st.query_params
     if q_params.get("type") == "recovery":
         render_reset_password_interface()
         return
 
-    # --- MAIN AUTH UI ---
+    # --- MAIN UI ---
     st.markdown("<h2 class='auth-header'>Access VerbaPost</h2>", unsafe_allow_html=True)
     
-    # 1. Determine which tab to show first based on previous actions
+    # 1. Select default tab based on previous actions
     default_idx = 0
     if st.session_state.get("auth_view") == "signup":
         default_idx = 1
@@ -81,12 +79,13 @@ def render_login():
     # --- TAB 1: LOG IN ---
     with tab1:
         st.write("")
-        st.info("👋 Access your existing account.")
+        st.info("👋 Welcome back! Please log in to your account.")
+        
         with st.form("login_form"):
             email = st.text_input("Email Address", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
             
-            # Submit Button
+            # Submit
             if st.form_submit_button("Log In", type="primary"):
                 if not email or not password:
                     st.error("Please enter both email and password.")
@@ -96,7 +95,7 @@ def render_login():
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
                         st.session_state.user_id = res.user.id
-                        st.success("Login successful! Redirecting...")
+                        st.success("Login successful! Loading...")
                         time.sleep(0.5)
                         st.rerun()
                     else:
@@ -105,7 +104,8 @@ def render_login():
     # --- TAB 2: SIGN UP ---
     with tab2:
         st.write("")
-        st.success("🚀 Create a new account to start sending mail.")
+        st.success("🚀 New here? Create an account to start sending mail.")
+        
         with st.form("signup_form"):
             new_email = st.text_input("Email Address", key="signup_email")
             new_pass = st.text_input("Create Password", type="password", help="Min 8 chars, 1 uppercase, 1 lowercase, 1 number", key="signup_pass")
@@ -123,8 +123,8 @@ def render_login():
             state = c4.text_input("State")
             zip_code = c5.text_input("Zip")
             
-            # Submit Button
-            if st.form_submit_button("Create Account", type="primary"):
+            # Submit
+            if st.form_submit_button("Sign Up & Create Account", type="primary"):
                 if not new_email or not new_pass or not street or not city or not state or not zip_code:
                     st.error("Please fill in all required fields.")
                 else:
@@ -133,14 +133,15 @@ def render_login():
                         street, street2, city, state, zip_code, "US", "English"
                     )
                     if res:
+                        st.balloons()
                         st.success("Account created! Please check your email to confirm.")
                     else:
                         st.error(err)
 
-    # --- TAB 3: FORGOT PASSWORD (Recovery) ---
+    # --- TAB 3: FORGOT PASSWORD (RESTORED) ---
     with tab3:
         st.write("")
-        st.warning("🔒 Reset your password")
+        st.warning("🔒 Reset Password")
         st.write("Enter your email address below. We will send you a secure link to reset your password.")
         
         with st.form("forgot_pass_form"):
@@ -158,13 +159,19 @@ def render_login():
                         st.error(msg)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("I have a token code"):
-            st.info("If the link didn't work automatically, paste the token from the email here.")
-            m_token = st.text_input("Token / OTP")
-            m_pass = st.text_input("New Password", type="password", key="manual_reset_pass")
+        
+        # Manual fallback in case the link redirects weirdly
+        with st.expander("Have a code to enter manually?"):
+            st.caption("If the link didn't work automatically, paste the token from the email here.")
+            m_token = st.text_input("Token / Code")
+            m_pass = st.text_input("New Password", type="password", key="m_reset_pass")
+            
             if st.button("Update Password"):
-                if not reset_email or not m_token or not m_pass:
-                    st.error("Please fill in Email (above), Token, and New Password.")
+                # Use email from above or require re-entry
+                if not reset_email: 
+                    st.error("Please enter your email in the box above first.")
+                elif not m_token or not m_pass:
+                    st.error("Missing token or new password")
                 else:
                     success, msg = auth_engine.reset_password_with_token(reset_email, m_token, m_pass)
                     if success:
@@ -174,15 +181,16 @@ def render_login():
 
 def render_reset_password_interface():
     """
-    Renders the specific form when a user returns via a 'Recovery' email link.
+    Renders ONLY when user clicks the email link and returns to the app.
+    Prevents the user from seeing the login screen.
     """
     st.markdown("<h2 style='text-align: center; color: #FF4B4B;'>Set New Password</h2>", unsafe_allow_html=True)
     st.info("Please set a new password for your account.")
     
     with st.form("final_reset_form"):
         email_confirm = st.text_input("Confirm Email Address")
-        # In some flows, the token is in the hash, Streamlit might not parse it easily.
-        # We ask for it or try to find it. For now, manual paste is safest fallback if auto-detect fails.
+        # Token might be in URL fragment which Streamlit handles differently, 
+        # so manual paste is the most reliable fallback.
         token_input = st.text_input("Token (Paste from email if not auto-filled)")
         new_pass = st.text_input("New Password", type="password")
         
@@ -191,7 +199,7 @@ def render_reset_password_interface():
             if success:
                 st.balloons()
                 st.success("Password Changed Successfully! Redirecting to login...")
-                # Clear params to exit recovery mode
+                # Clear URL params to exit recovery mode
                 st.query_params.clear()
                 time.sleep(2)
                 st.rerun()
