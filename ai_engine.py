@@ -1,153 +1,138 @@
-import streamlit as st
-import logging
 import os
+import logging
 import tempfile
-import secrets_manager
 import shutil
-import gc
-import sys
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("ai_engine")
 
-# --- CACHED MODEL LOADER (Local Fallback) ---
-@st.cache_resource(show_spinner=False)
-def load_whisper_model_cached():
+# --- IMPORTS ---
+try:
+    import whisper
+except ImportError:
+    logger.error("Whisper not installed. Run: pip install openai-whisper")
+    whisper = None
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+import streamlit as st
+
+# --- CONFIGURATION ---
+# CRITICAL: Force CPU to prevent Cloud Run memory crashes
+DEVICE = "cpu"
+WHISPER_MODEL_SIZE = "tiny"  # 'tiny', 'base', 'small', 'medium', 'large'
+
+# --- MODEL CACHING ---
+@st.cache_resource
+def load_whisper_model():
     """
-    Loads the Whisper model ONCE and keeps it in memory.
-    Forces download to /tmp to avoid "Read-only file system" errors.
+    Loads and caches the Whisper model to avoid reloading on every run.
     """
+    if not whisper:
+        return None
     try:
-        import whisper
-        logger.info("[CACHE] Downloading/Loading Whisper 'tiny' model to /tmp...")
-        # Force CPU to prevent Cloud Run crashes
-        return whisper.load_model("tiny", device="cpu", download_root="/tmp")
+        logger.info(f"Loading Whisper model ({WHISPER_MODEL_SIZE}) on {DEVICE}...")
+        return whisper.load_model(WHISPER_MODEL_SIZE, device=DEVICE)
     except Exception as e:
-        logger.error(f"[CACHE] Failed to load model: {e}")
+        logger.error(f"Failed to load Whisper: {e}")
         return None
 
-# --- LOCAL TRANSCRIPTION ---
-def _transcribe_local(audio_path):
-    try:
-        logger.info("[TRANSCRIBE] Step 1: Garbage collection")
-        gc.collect()
-        
-        if not shutil.which("ffmpeg"):
-             return False, "Error: 'ffmpeg' command not found. Please ensure it is installed in packages.txt."
-
-        logger.info("[TRANSCRIBE] Step 2: Fetching Cached Model")
-        model = load_whisper_model_cached()
-        
-        if not model:
-            return False, "Error: AI Model failed to initialize. Check logs."
-
-        logger.info("[TRANSCRIBE] Step 3: Transcribing...")
-        
-        result = model.transcribe(
-            audio_path,
-            fp16=False,
-            language='en' 
-        )
-        
-        text = result.get("text", "").strip()
-        logger.info(f"[TRANSCRIBE] Finished. Text length: {len(text)}")
-        
-        if not text:
-            return True, "[Error: No speech detected. Please speak closer to the microphone.]" 
-        
-        return True, text
-
-    except Exception as e:
-        logger.error(f"[TRANSCRIBE] ERROR: {e}")
-        return False, f"Error: {str(e)}"
-    finally:
-        gc.collect()
-
-# --- MAIN TRANSCRIPTION FUNCTION ---
-def transcribe_audio(audio_input):
+# --- TRANSCRIPTION FUNCTIONS ---
+def transcribe_audio(audio_source):
     """
-    Main entry point. 
-    1. Checks for OpenAI API Key -> Uses Cloud (Fast, Stable).
-    2. Fallback -> Uses Local CPU (Free, but memory intensive).
+    Robust transcription that handles BOTH file paths (str) and Streamlit UploadedFiles.
     """
-    logger.info("="*60)
-    logger.info("[TRANSCRIBE REQUEST]")
-    
-    tmp_path = None
-    try:
-        # 1. Handle file input
-        suffix = ".wav"
-        if hasattr(audio_input, "name") and audio_input.name:
-            if audio_input.name.endswith(".mp3"): suffix = ".mp3"
-            elif audio_input.name.endswith(".m4a"): suffix = ".m4a"
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode='wb') as tmp:
-            tmp.write(audio_input.getvalue())
-            tmp_path = tmp.name
-        
-        # 2. Check File Size
-        if os.path.getsize(tmp_path) < 100:
-            return "Error: Audio file is empty or too small."
+    model = load_whisper_model()
+    if not model:
+        return "Error: AI Transcription model is not available."
 
-        # 3. Hybrid Logic: Try API First
-        api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-        
-        if api_key:
-            try:
-                import openai
-                client = openai.OpenAI(api_key=api_key)
-                logger.info("[TRANSCRIBE] Attempting OpenAI API...")
+    temp_path = None
+    path_to_transcribe = ""
+
+    try:
+        # --- SCENARIO A: Input is a File Path (String) ---
+        if isinstance(audio_source, str):
+            if os.path.exists(audio_source):
+                path_to_transcribe = audio_source
+            else:
+                return f"Error: File path not found: {audio_source}"
+
+        # --- SCENARIO B: Input is a Streamlit UploadedFile/BytesIO ---
+        elif hasattr(audio_source, 'getvalue') or hasattr(audio_source, 'read'):
+            # Create a temp file to store the bytes
+            suffix = ".wav"
+            if hasattr(audio_source, 'name'):
+                suffix = f".{audio_source.name.split('.')[-1]}"
+            
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+                # Handle 'getvalue' (Streamlit) vs 'read' (Standard Python)
+                if hasattr(audio_source, 'getvalue'):
+                    tmp_file.write(audio_source.getvalue())
+                else:
+                    tmp_file.write(audio_source.read())
                 
-                with open(tmp_path, "rb") as audio_file:
-                    transcript = client.audio.transcriptions.create(
-                        model="whisper-1", 
-                        file=audio_file,
-                        response_format="text"
-                    )
-                return transcript.strip()
-            except Exception as e:
-                logger.warning(f"[TRANSCRIBE] API failed, failing over to local: {e}")
+                path_to_transcribe = tmp_file.name
+                temp_path = tmp_file.name
+        else:
+            return "Error: Unsupported audio input format."
 
-        # 4. Fallback to Local
-        success, result = _transcribe_local(tmp_path)
-        return result if success else f"Error: {result}"
+        # --- PERFORM TRANSCRIPTION ---
+        logger.info(f"Transcribing file: {path_to_transcribe}")
+        result = model.transcribe(path_to_transcribe)
+        transcribed_text = result.get("text", "").strip()
+        
+        return transcribed_text
 
     except Exception as e:
-        logger.error(f"[TRANSCRIBE AUDIO] ERROR: {e}")
-        return f"Error: File processing failed - {str(e)}"
+        logger.error(f"Transcription Failed: {e}")
+        return f"Error during transcription: {str(e)}"
     
     finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try: os.remove(tmp_path)
-            except: pass
+        # Cleanup temp file if we created one
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
 
+# --- TEXT REFINEMENT (GPT-4o) ---
 def refine_text(text, style="Professional"):
+    """
+    Uses OpenAI API (GPT-4o) to rewrite the text.
+    Styles: Grammar, Professional, Friendly, Concise
+    """
+    api_key = st.secrets.get("openai", {}).get("api_key")
+    if not api_key:
+        return text  # Fail gracefully if no key
+
+    if not OpenAI:
+        return text
+
+    client = OpenAI(api_key=api_key)
+    
+    prompts = {
+        "Grammar": "Fix grammar and punctuation only. Keep the original tone.",
+        "Professional": "Rewrite this to be professional, polite, and clear. Suitable for business.",
+        "Friendly": "Rewrite this to be warm, personal, and engaging. Suitable for family.",
+        "Concise": "Summarize this. Remove fluff, keep the key points, make it brief."
+    }
+    
+    system_prompt = prompts.get(style, prompts["Grammar"])
+    
     try:
-        import openai
-        api_key = secrets_manager.get_secret("openai.api_key") or secrets_manager.get_secret("OPENAI_API_KEY")
-        if not api_key: return text 
-
-        client = openai.OpenAI(api_key=api_key)
-        
-        prompt_map = {
-            "Grammar": "Fix grammar and spelling only. Keep tone.",
-            "Professional": "Rewrite to be formal and professional. Keep meaning.",
-            "Friendly": "Rewrite to be warm and friendly. Keep meaning.",
-            "Concise": "Summarize and shorten. Keep key points."
-        }
-        
-        sys_prompt = prompt_map.get(style, "Rewrite this text.")
-
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": f"{sys_prompt} Do not add conversational filler."},
+                {"role": "system", "content": f"You are an expert editor. {system_prompt}"},
                 {"role": "user", "content": text}
             ],
             temperature=0.7
         )
         return response.choices[0].message.content.strip()
-        
-    except Exception:
-        return text
+    except Exception as e:
+        logger.error(f"Refinement Error: {e}")
+        return text  # Return original if API fails
