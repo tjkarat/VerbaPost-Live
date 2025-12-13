@@ -45,11 +45,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- ANALYTICS & SEO ---
-if analytics:
-    analytics.inject_ga()
-if seo_injector:
-    seo_injector.inject_meta_tags()
+# --- ANALYTICS & SEO (FIXED) ---
+# We use hasattr() to check if the function exists before calling it.
+# This fixes the AttributeError if seo_injector.py is empty.
+if analytics and hasattr(analytics, 'inject_ga'):
+    try:
+        analytics.inject_ga()
+    except Exception:
+        pass # Fail silently if analytics breaks
+
+if seo_injector and hasattr(seo_injector, 'inject_meta_tags'):
+    try:
+        seo_injector.inject_meta_tags()
+    except Exception:
+        pass # Fail silently if SEO breaks
 
 # --- SESSION STATE INIT ---
 if 'authenticated' not in st.session_state:
