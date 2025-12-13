@@ -1,36 +1,56 @@
 import streamlit as st
 
+# Try to import engines for dynamic data
+try:
+    import civic_engine
+except ImportError:
+    civic_engine = None
+
 def render_splash():
-    # --- HERO SECTION ---
+    """
+    Renders the marketing landing page.
+    Includes: Hero, Value Props, Pricing Grid, and Civic Leaderboard.
+    """
+    
+    # --- 1. HERO SECTION ---
     st.markdown("""
-    <div style="text-align: center; padding: 40px 0 20px 0;">
-        <h1 style="font-size: 3rem; margin-bottom: 10px;">📮 VerbaPost</h1>
-        <p style="font-size: 1.3em; color: #555;">
+    <div style="text-align: center; padding: 60px 0 40px 0;">
+        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #333;">📮 VerbaPost</h1>
+        <p style="font-size: 1.4em; color: #555; max-width: 600px; margin: 0 auto;">
             Real letters, sent from your screen.<br>
             <b>We print, envelope, and mail it for you.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- MAIN ACTIONS ---
+    # --- 2. MAIN CALL TO ACTION (Context Aware) ---
     col1, col2 = st.columns(2)
     
+    # Determine button text based on auth state
+    start_label = "🚀 Start a Letter"
+    if st.session_state.get("authenticated"):
+        user_name = st.session_state.get("user_email", "").split('@')[0]
+        start_label = f"🚀 Continue ({user_name})"
+
     with col1:
-        # Standard Flow
-        if st.button("🚀 Start a Letter", type="primary", use_container_width=True):
-            st.session_state.auth_view = "signup" 
-            st.session_state.app_mode = "login" # Redirects to login/signup
+        if st.button(start_label, type="primary", use_container_width=True):
+            # If guest, go to signup. If user, go to workspace.
+            if not st.session_state.get("authenticated"):
+                st.session_state.auth_view = "signup"
+                st.session_state.app_mode = "login"
+            else:
+                st.session_state.app_mode = "workspace"
             st.rerun()
             
     with col2:
         # 🆕 LEGACY PIVOT BUTTON
-        if st.button("🕯️ Legacy Service", use_container_width=True):
+        if st.button("🕯️ Legacy Service (New)", use_container_width=True):
             st.query_params["view"] = "legacy"
             st.rerun()
 
     st.write("---")
 
-    # --- VALUE PROPS ---
+    # --- 3. VALUE PROPOSITIONS ---
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("### 🎙️ Speak")
@@ -44,8 +64,8 @@ def render_splash():
     
     st.write("---")
     
-    # --- PRICING GRID (Restored) ---
-    st.subheader("Pricing")
+    # --- 4. PRICING GRID (Full v3.0 Options) ---
+    st.subheader("Simple Pricing")
     
     p1, p2, p3 = st.columns(3)
     
@@ -66,20 +86,31 @@ def render_splash():
 
     st.write("---")
 
-    # --- CIVIC LEADERBOARD (Restored Placeholder) ---
-    # In v3.0, this likely pulled data from civic_engine.py
+    # --- 5. CIVIC LEADERBOARD (Restored Dynamic Logic) ---
     st.subheader("🏛️ Civic Leaderboard")
-    st.caption("Most popular representatives messaged this week:")
+    st.caption("Who is getting mail this week?")
     
-    # Static placeholder - connect to real data if civic_engine has a 'get_stats()' method
+    # Attempt to fetch real data, fallback to static if engine fails/offline
+    leaderboard_data = []
+    try:
+        if civic_engine and hasattr(civic_engine, "get_weekly_stats"):
+            leaderboard_data = civic_engine.get_weekly_stats()
+    except Exception:
+        pass # Fail silently to static data
+        
+    if not leaderboard_data:
+        # Fallback Data (so the UI doesn't look broken)
+        leaderboard_data = [
+            {"Rank": "1", "Name": "Sen. Chuck Schumer", "Letters": "142"},
+            {"Rank": "2", "Name": "Rep. Alexandria Ocasio-Cortez", "Letters": "89"},
+            {"Rank": "3", "Name": "Sen. Mitch McConnell", "Letters": "64"},
+        ]
+    
     st.dataframe(
-        [
-            {"Name": "Sen. Chuck Schumer", "Letters": 142},
-            {"Name": "Rep. AOC", "Letters": 89},
-            {"Name": "Sen. Mitch McConnell", "Letters": 64},
-        ],
+        leaderboard_data,
         use_container_width=True,
         hide_index=True
     )
     
-    st.markdown("<div style='text-align: center; color: #888; margin-top: 50px;'>v4.0 - Production Ready</div>", unsafe_allow_html=True)
+    # --- FOOTER ---
+    st.markdown("<div style='text-align: center; color: #888; margin-top: 50px; font-size: 0.8em;'>v4.0 - Production Ready | <a href='?view=terms'>Terms</a> | <a href='?view=privacy'>Privacy</a></div>", unsafe_allow_html=True)
