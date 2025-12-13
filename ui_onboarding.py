@@ -137,4 +137,4 @@ def show_contextual_help(page):
                  st.session_state.tutorial_completed = False
                  st.session_state.show_tutorial = True
                  st.session_state.app_mode = "workspace"
-                 st.rerun()
+                 st.rerun()  # <--- CRITICAL FIX: Ensures UI refreshes immediately

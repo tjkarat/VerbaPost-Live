@@ -1,17 +1,29 @@
 import requests
 import streamlit as st
 import json
+import os
 
 # --- CONFIGURATION ---
 POSTGRID_BASE_URL = "https://api.postgrid.com/print-mail/v1"
 
 def get_api_key():
     """
-    Safely retrieves the PostGrid API key from Streamlit secrets.
+    Safely retrieves the PostGrid API key from Streamlit secrets OR OS Environment Variables.
+    Prioritizes OS variables for Production stability (Cloud Run).
     """
+    # 1. Try OS Environment Variables (PROD / Cloud Run)
+    # Cloud Run injects secrets as standard environment variables
+    env_key = os.environ.get("POSTGRID_API_KEY") or os.environ.get("postgrid_api_key")
+    if env_key:
+        return env_key.strip()
+
+    # 2. Try Streamlit Secrets (QA / Local Dev with secrets.toml)
     try:
+        # Check nested [postgrid] section
         key = st.secrets.get("postgrid", {}).get("api_key")
         if key: return key.strip()
+        
+        # Check flat key fallback
         return st.secrets.get("POSTGRID_API_KEY", "").strip()
     except Exception:
         return ""
@@ -23,9 +35,9 @@ def verify_address_details(address_dict):
     """
     api_key = get_api_key()
     if not api_key:
-        return "error", address_dict, ["PostGrid API Key is missing from secrets."]
+        return "error", address_dict, ["PostGrid API Key is missing (Check Env Vars or Secrets)."]
 
-    # FIX: Use the 'contacts' endpoint to trigger implicit CASS verification
+    # Use the 'contacts' endpoint to trigger implicit CASS verification
     endpoint = f"{POSTGRID_BASE_URL}/contacts"
     
     # Payload: Map fields to PostGrid Contact object
@@ -147,7 +159,7 @@ def send_letter(pdf_bytes, recipient_addr, sender_addr=None, description="VerbaP
             return True, response.json()
         else:
             error_msg = f"PostGrid Error {response.status_code}: {response.text}"
-            print(error_msg)
+            # print(error_msg) # Logging handled by caller
             return False, error_msg
 
     except Exception as e:
