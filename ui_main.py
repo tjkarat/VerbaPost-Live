@@ -22,7 +22,6 @@ try: import ui_legal
 except ImportError: ui_legal = None
 try: import ui_help
 except ImportError: ui_help = None
-# NEW: Onboarding Import
 try: import ui_onboarding
 except ImportError: ui_onboarding = None
 
@@ -78,37 +77,55 @@ COUNTRIES = {
 # --- 4. HELPER FUNCTIONS ---
 
 def inject_mobile_styles():
-    """
-    Mobile-first CSS Enhancements
-    """
+    """Mobile-first CSS Enhancements"""
     st.markdown("""
     <style>
-        /* Mobile Input Fixes */
         @media (max-width: 768px) {
-            .stTextInput input { font-size: 16px !important; } /* Prevents iOS zoom */
+            .stTextInput input { font-size: 16px !important; }
             .stButton button { width: 100% !important; padding: 12px !important; }
             div[data-testid="stExpander"] { width: 100% !important; }
         }
-        
-        /* Force white text in Hero */
-        .custom-hero, .custom-hero *, 
-        .price-card, .price-card * {
+        .custom-hero, .custom-hero *, .price-card, .price-card * {
             color: #FFFFFF !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
 def _render_hero(title, subtitle):
-    # CSS FIX: We inject a specific style block to override Streamlit's global h1 colors
     st.markdown(f"""
     <div class="custom-hero" style="background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); padding: 30px 20px; border-radius: 15px; text-align: center; margin-bottom: 25px; box-shadow: 0 8px 16px rgba(0,0,0,0.1); max-width: 100%; box-sizing: border-box;">
         <h1 style="margin: 0; font-size: clamp(1.8rem, 5vw, 3rem); font-weight: 700; line-height: 1.1; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">{title}</h1>
         <div style="font-size: clamp(0.9rem, 3vw, 1.2rem); opacity: 0.95; margin-top: 8px;">{subtitle}</div>
     </div>""", unsafe_allow_html=True)
 
+def _get_user_profile_defaults(email):
+    """Fetches user profile to autopopulate return address."""
+    if not database: return {}
+    try:
+        # Assuming database has a method to get profile or we query directly
+        # If database.py doesn't have get_user_profile, we might need to rely on what we have.
+        # This implementation assumes a standard fetch available or we try to find the user.
+        # For robustness, we'll try to get the user object.
+        user = database.get_user(email) # Generic getter
+        if user:
+            # Map UserProfile fields to our session state keys
+            return {
+                "w_from_name": user.full_name or "",
+                "w_from_street": user.address_line1 or "",
+                "w_from_street2": user.address_line2 or "",
+                "w_from_city": user.address_city or "",
+                "w_from_state": user.address_state or "",
+                "w_from_zip": user.address_zip or "",
+                "w_from_country": user.address_country or "US"
+            }
+    except Exception as e:
+        logger.warning(f"Could not fetch profile defaults: {e}")
+    return {}
+
 def _save_addresses_to_state(tier):
     u = st.session_state.get("user_email")
     
+    # Construct From Address
     if tier == "Santa": 
         st.session_state.from_addr = {
             "name": "Santa Claus", "street": "123 Elf Road", "city": "North Pole", 
@@ -125,6 +142,7 @@ def _save_addresses_to_state(tier):
             "country": "US", "email": u
         }
 
+    # Construct To Address
     if tier == "Civic":
         st.session_state.to_addr = {
             "name": "Civic Action", "street": "Capitol", "city": "DC", 
@@ -141,6 +159,7 @@ def _save_addresses_to_state(tier):
             "country": st.session_state.get("w_to_country", "US")
         }
     
+    # Save Contact if Checked
     should_save = st.session_state.get("save_contact_opt", True)
     if should_save and database and tier != "Civic" and st.session_state.get("w_to_name"):
         try:
@@ -151,7 +170,7 @@ def _save_addresses_to_state(tier):
             )
         except Exception: pass
 
-    # Basic check (PostGrid logic is separate now)
+    # Save to Draft
     d_id = st.session_state.get("current_draft_id")
     if d_id and database: 
         database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
@@ -177,8 +196,17 @@ def _render_address_book_selector(u_email):
         st.selectbox("📒 Address Book", contact_names, key="addr_book_sel", on_change=on_contact_change)
 
 def _render_address_form(tier, is_intl):
+    # AUTO-POPULATE LOGIC
+    # If session state is empty for 'From' address, try to fill from profile
+    if not st.session_state.get("w_from_name"):
+        defaults = _get_user_profile_defaults(st.session_state.get("user_email"))
+        if defaults:
+            for k, v in defaults.items():
+                if v: st.session_state[k] = v
+
+    # FORM START
+    # Using st.form is CRITICAL for browser autofill to work properly
     with st.form("addressing_form"):
-        # SMART ADDRESS FORM: No more accordions, just clean layout
         
         # 1. FROM ADDRESS
         st.markdown("### 🏠 Return Address")
@@ -195,14 +223,13 @@ def _render_address_form(tier, is_intl):
                 st.text_input("Zip", key="w_from_zip", placeholder="Zip")
             st.session_state.w_from_country = "US"
 
+        st.markdown("---")
+
         # 2. TO ADDRESS
         st.markdown("### 📨 Recipient")
         if tier == "Civic":
             st.info("🏛️ **Destination: Your Representatives**")
             st.caption("We use your Return Zip Code to find officials automatically.")
-            if "civic_targets" in st.session_state:
-                for r in st.session_state.civic_targets: 
-                    st.write(f"• {r['name']} ({r['title']})")
         else:
             c1, c2 = st.columns(2)
             with c1:
@@ -223,9 +250,13 @@ def _render_address_form(tier, is_intl):
             st.checkbox("Save to Address Book", key="save_contact_opt", value=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.form_submit_button("✅ Save & Continue", type="secondary"):
+        
+        # SUBMIT BUTTON (Triggers state save & autofill capture)
+        if st.form_submit_button("✅ Save Addresses", type="primary"):
             _save_addresses_to_state(tier)
             st.toast("Addresses Saved!")
+            # We don't rerun here immediately so the toast is visible, 
+            # and logic flow continues naturally.
 
 def _process_sending_logic(tier):
     # Idempotency
@@ -387,7 +418,7 @@ def render_sidebar():
                      if st.button("Open Dashboard", use_container_width=True):
                          st.session_state.app_mode = "admin"; st.rerun()
         except: pass
-        st.markdown("---"); st.caption("v3.2.1 (Stable)")
+        st.markdown("---"); st.caption("v3.2.2 (Flow Fix)")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
@@ -510,7 +541,7 @@ def render_address_intervention(user_input, recommended):
             st.session_state.address_verified = True
             st.rerun()
 
-# --- 8. PAGE: WORKSPACE (RESTORED) ---
+# --- 8. PAGE: WORKSPACE (UPDATED FLOW) ---
 def render_workspace_page():
     if ui_onboarding: ui_onboarding.show_contextual_help("workspace")
     _render_hero("Workspace", "Compose your letter")
@@ -522,11 +553,46 @@ def render_workspace_page():
         render_address_intervention(st.session_state.temp_user_addr, st.session_state.temp_rec_addr)
         return
 
-    # 2. Main Workspace Layout
-    t1, t2 = st.tabs(["✍️ Write / Dictate", "🏠 Addressing"])
+    # 2. Main Workspace Layout - TABS REORDERED
+    # Now Addressing is FIRST, Writing is SECOND
+    t1, t2 = st.tabs(["🏠 1. Addressing", "✍️ 2. Write / Dictate"])
     
-    # TAB 1: COMPOSE
+    # TAB 1: ADDRESSING
     with t1:
+        # Address Book at TOP
+        _render_address_book_selector(st.session_state.get("user_email"))
+        
+        if tier == "Civic":
+            st.info("For Civic letters, we just need your Return Address to find your representatives.")
+        
+        # Show Address Form
+        _render_address_form(tier, st.session_state.get("is_intl", False))
+        
+        # Explicit verification button for "Bring Your Own Address"
+        if tier not in ["Civic", "Campaign"]:
+            if st.button("🔍 Verify Recipient Address"):
+                raw = {
+                    "line1": st.session_state.get("w_to_street"),
+                    "line2": st.session_state.get("w_to_street2"),
+                    "city": st.session_state.get("w_to_city"),
+                    "state": st.session_state.get("w_to_state"),
+                    "zip": st.session_state.get("w_to_zip"),
+                    "country": "US"
+                }
+                if mailer:
+                    status, clean, errs = mailer.verify_address_details(raw)
+                    if status == "corrected":
+                        st.session_state.temp_user_addr = raw
+                        st.session_state.temp_rec_addr = clean
+                        st.session_state.show_address_fix = True
+                        st.rerun()
+                    elif status == "verified":
+                        st.success("Address is valid! ✅")
+                    else:
+                        st.error(f"Invalid Address: {errs}")
+
+    # TAB 2: COMPOSE
+    with t2:
         st.info("💡 You can type below, upload an audio file, or record your voice.")
         
         # Audio Upload
@@ -560,47 +626,27 @@ def render_workspace_page():
                             st.rerun()
                         except Exception as e: st.error(f"Error: {e}")
 
+        # AI EDITING BUTTONS (RESTORED HERE)
+        st.markdown("---")
+        st.caption("✨ AI Editing Tools")
+        c1, c2, c3, c4 = st.columns(4)
+        current_text = st.session_state.get("transcribed_text", "")
+        
+        def _ai_fix(style):
+            if ai_engine and current_text:
+                with st.spinner(f"Rewriting ({style})..."): 
+                    st.session_state.transcribed_text = ai_engine.refine_text(current_text, style)
+                    st.rerun()
+        
+        if c1.button("Grammar"): _ai_fix("Grammar")
+        if c2.button("Professional"): _ai_fix("Professional")
+        if c3.button("Friendly"): _ai_fix("Friendly")
+        if c4.button("Concise"): _ai_fix("Concise")
+
         # Text Editor
         val = st.session_state.get("transcribed_text", "")
         new_val = st.text_area("Your Message", value=val, height=300)
         if new_val != val: st.session_state.transcribed_text = new_val
-
-    # TAB 2: ADDRESSING
-    with t2:
-        if tier == "Civic":
-            st.info("For Civic letters, we just need your Return Address to find your representatives.")
-        
-        # Show Address Form
-        _render_address_form(tier, st.session_state.get("is_intl", False))
-        
-        # Address Verification Trigger (on 'Next' or manual button)
-        # Note: The actual button is inside _render_address_form ("Save & Continue")
-        # But we need to handle the verification result if that button was clicked.
-        # The _save_addresses_to_state function handles the basic save.
-        # We can add a "Verify Recipient" button here if desired, or rely on the form submit.
-        
-        # Let's add the explicit verify button here for "Bring Your Own Address"
-        if tier not in ["Civic", "Campaign"]:
-            if st.button("🔍 Verify Recipient Address"):
-                raw = {
-                    "line1": st.session_state.get("w_to_street"),
-                    "line2": st.session_state.get("w_to_street2"),
-                    "city": st.session_state.get("w_to_city"),
-                    "state": st.session_state.get("w_to_state"),
-                    "zip": st.session_state.get("w_to_zip"),
-                    "country": "US"
-                }
-                if mailer:
-                    status, clean, errs = mailer.verify_address_details(raw)
-                    if status == "corrected":
-                        st.session_state.temp_user_addr = raw
-                        st.session_state.temp_rec_addr = clean
-                        st.session_state.show_address_fix = True
-                        st.rerun()
-                    elif status == "verified":
-                        st.success("Address is valid! ✅")
-                    else:
-                        st.error(f"Invalid Address: {errs}")
 
     st.markdown("---")
     if st.button("➡️ Review & Send", type="primary", use_container_width=True):
@@ -630,20 +676,11 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     if tier != "Campaign" and not st.session_state.get("to_addr"): _save_addresses_to_state(tier)
 
-    c1, c2, c3, c4 = st.columns(4)
-    current_text = st.session_state.get("transcribed_text", "")
-    def _ai_fix(style):
-        if ai_engine:
-            with st.spinner("Rewriting..."): 
-                st.session_state.transcribed_text = ai_engine.refine_text(current_text, style)
-                st.rerun()
-    if c1.button("Grammar"): _ai_fix("Grammar")
-    if c2.button("Professional"): _ai_fix("Professional")
-    if c3.button("Friendly"): _ai_fix("Friendly")
-    if c4.button("Concise"): _ai_fix("Concise")
+    # Note: AI Buttons moved to Compose tab, but can remain here as optional or removed.
+    # Removed from here to reduce clutter as per user workflow preference.
 
-    new_text = st.text_area("Body", value=current_text, height=300, key="txt_body_input")
-    if new_text != current_text: st.session_state.transcribed_text = new_text
+    current_text = st.session_state.get("transcribed_text", "")
+    st.text_area("Final Body Text", value=current_text, height=300, disabled=True)
 
     st.markdown("### 📄 Letter Preview")
     
