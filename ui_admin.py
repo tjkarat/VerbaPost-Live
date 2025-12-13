@@ -7,7 +7,7 @@ import time
 import tempfile
 import os
 from datetime import datetime
-from sqlalchemy import text  # <--- ADDED THIS IMPORT TO FIX THE ERROR
+from sqlalchemy import text
 
 # --- ROBUST IMPORTS ---
 try: import database
@@ -43,7 +43,10 @@ def check_password():
     pwd = st.text_input("Enter Admin Password", type="password", key="admin_pwd")
     
     # 1. Check Secrets
-    correct_pwd = secrets_manager.get_secret("admin.password")
+    correct_pwd = None
+    if secrets_manager:
+        correct_pwd = secrets_manager.get_secret("admin.password")
+    
     # 2. Fallback default
     if not correct_pwd: correct_pwd = "admin" 
     
@@ -76,126 +79,130 @@ def show_admin():
                     st.dataframe(df[["ID", "Date", "Email", "Tier", "Status", "Price"]], use_container_width=True)
                     
                     st.markdown("### 🔍 Order Inspector")
-                    selected_id = st.selectbox("Select Order ID to Manage", df["ID"].tolist())
-                    
-                    if selected_id:
-                        row = df[df["ID"] == selected_id].iloc[0]
+                    ids = df["ID"].tolist()
+                    if ids:
+                        selected_id = st.selectbox("Select Order ID to Manage", ids)
                         
-                        # --- 1. EDIT & RESEND SECTION ---
-                        with st.expander("✏️ Edit & Resend (Fix Errors)", expanded=True):
-                            st.warning(f"Editing Order #{selected_id}")
+                        if selected_id:
+                            row = df[df["ID"] == selected_id].iloc[0]
                             
-                            # Parse JSONs
-                            try: r_json = json.loads(row['Recipient']) if row['Recipient'] else {}
-                            except: r_json = {}
-                            try: s_json = json.loads(row['Sender']) if row['Sender'] else {}
-                            except: s_json = {}
-                            
-                            with st.form(f"edit_form_{selected_id}"):
-                                c1, c2 = st.columns(2)
-                                with c1:
-                                    st.markdown("**Recipient**")
-                                    rn = st.text_input("Name", r_json.get('name',''))
-                                    ra1 = st.text_input("Street", r_json.get('street') or r_json.get('address_line1',''))
-                                    ra2 = st.text_input("Line 2", r_json.get('address_line2',''))
-                                    rc = st.text_input("City", r_json.get('city') or r_json.get('address_city',''))
-                                    rs = st.text_input("State", r_json.get('state') or r_json.get('address_state',''))
-                                    rz = st.text_input("Zip", r_json.get('zip') or r_json.get('address_zip',''))
+                            # --- 1. EDIT & RESEND SECTION ---
+                            with st.expander("✏️ Edit & Resend (Fix Errors)", expanded=True):
+                                st.warning(f"Editing Order #{selected_id}")
                                 
-                                with c2:
-                                    st.markdown("**Content**")
-                                    new_content = st.text_area("Body Text", row['Content'], height=200)
+                                # Parse JSONs
+                                try: r_json = json.loads(row['Recipient']) if row['Recipient'] else {}
+                                except: r_json = {}
+                                try: s_json = json.loads(row['Sender']) if row['Sender'] else {}
+                                except: s_json = {}
+                                
+                                with st.form(f"edit_form_{selected_id}"):
+                                    c1, c2 = st.columns(2)
+                                    with c1:
+                                        st.markdown("**Recipient**")
+                                        rn = st.text_input("Name", r_json.get('name',''))
+                                        ra1 = st.text_input("Street", r_json.get('street') or r_json.get('address_line1',''))
+                                        ra2 = st.text_input("Line 2", r_json.get('address_line2',''))
+                                        rc = st.text_input("City", r_json.get('city') or r_json.get('address_city',''))
+                                        rs = st.text_input("State", r_json.get('state') or r_json.get('address_state',''))
+                                        rz = st.text_input("Zip", r_json.get('zip') or r_json.get('address_zip',''))
                                     
-                                if st.form_submit_button("💾 Save Changes & Update DB"):
-                                    # Construct new JSON
-                                    new_r = {
-                                        'name': rn, 'street': ra1, 'address_line2': ra2,
-                                        'city': rc, 'state': rs, 'zip': rz, 'country': 'US'
-                                    }
-                                    # Standardize for DB
-                                    database.update_draft_data(
-                                        selected_id, 
-                                        to_addr=new_r, 
-                                        content=new_content
-                                    )
-                                    st.success("Database Updated!")
-                                    time.sleep(1)
-                                    st.rerun()
+                                    with c2:
+                                        st.markdown("**Content**")
+                                        new_content = st.text_area("Body Text", row['Content'], height=200)
+                                        
+                                    if st.form_submit_button("💾 Save Changes & Update DB"):
+                                        # Construct new JSON
+                                        new_r = {
+                                            'name': rn, 'street': ra1, 'address_line2': ra2,
+                                            'city': rc, 'state': rs, 'zip': rz, 'country': 'US'
+                                        }
+                                        # Standardize for DB
+                                        database.update_draft_data(
+                                            selected_id, 
+                                            to_addr=new_r, 
+                                            content=new_content
+                                        )
+                                        st.success("Database Updated!")
+                                        time.sleep(1)
+                                        st.rerun()
 
-                            # RESEND ACTION
-                            st.markdown("#### 🚀 Actions")
-                            col_resend, col_pdf = st.columns(2)
-                            
-                            with col_resend:
-                                if st.button("📨 Retry PostGrid Submission", type="primary"):
-                                    # 1. Re-fetch fresh data
-                                    r_obj = StandardAddress(rn, ra1, ra2, rc, rs, rz)
-                                    # 2. Generate PDF
-                                    to_s = r_obj.to_pdf_string() + f"\n{rc}, {rs} {rz}"
-                                    # Mock Sender string for PDF
-                                    from_s = "VerbaPost User" # Simplified for admin retry
-                                    
-                                    pdf_bytes = letter_format.create_pdf(new_content, to_s, from_s, is_heirloom=(row['Tier']=="Heirloom"))
-                                    
-                                    # 3. Send
-                                    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tpdf:
-                                        tpdf.write(pdf_bytes)
-                                        tpath = tpdf.name
-                                    
-                                    try:
-                                        # Convert StandardAddress to PostGrid Payload format
-                                        pg_to = r_obj.to_postgrid_payload()
-                                        # Admin Override Sender
-                                        pg_from = {
-                                            'name': s_json.get('name','VerbaPost'),
-                                            'address_line1': s_json.get('street',''),
-                                            'address_city': s_json.get('city',''),
-                                            'address_state': s_json.get('state',''),
-                                            'address_zip': s_json.get('zip',''),
-                                            'country_code': 'US'
+                                # RESEND ACTION
+                                st.markdown("#### 🚀 Actions")
+                                col_resend, col_pdf = st.columns(2)
+                                
+                                with col_resend:
+                                    if st.button("📨 Retry PostGrid Submission", type="primary"):
+                                        # 1. Re-fetch fresh data
+                                        # Manual construct for simplicity in admin tool
+                                        r_obj = {
+                                            'name': rn, 'line1': ra1, 'line2': ra2,
+                                            'city': rc, 'state': rs, 'zip': rz, 'country': 'US'
                                         }
                                         
-                                        ok, msg = mailer.send_letter(tpath, pg_to, pg_from)
-                                        if ok:
-                                            st.success(f"✅ Sent! ID: {msg.get('id')}")
-                                            database.update_draft_data(selected_id, status="Completed")
-                                        else:
-                                            st.error(f"❌ Failed: {msg}")
-                                    finally:
-                                        os.remove(tpath)
+                                        # 2. Generate PDF
+                                        to_s = f"{rn}\n{ra1}\n{ra2}\n{rc}, {rs} {rz}"
+                                        from_s = "VerbaPost User" 
+                                        
+                                        pdf_bytes = letter_format.create_pdf(new_content, to_s, from_s, is_heirloom=(row['Tier']=="Heirloom"))
+                                        
+                                        # 3. Send
+                                        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tpdf:
+                                            tpdf.write(pdf_bytes)
+                                            tpath = tpdf.name
+                                        
+                                        try:
+                                            # Admin Override Sender
+                                            pg_from = {
+                                                'name': s_json.get('name','VerbaPost'),
+                                                'line1': s_json.get('street',''),
+                                                'city': s_json.get('city',''),
+                                                'state': s_json.get('state',''),
+                                                'zip': s_json.get('zip',''),
+                                                'country': 'US'
+                                            }
+                                            
+                                            ok, msg = mailer.send_letter(tpath, r_obj, pg_from)
+                                            if ok:
+                                                st.success(f"✅ Sent! ID: {msg.get('id')}")
+                                                database.update_draft_data(selected_id, status="Completed")
+                                            else:
+                                                st.error(f"❌ Failed: {msg}")
+                                        finally:
+                                            if os.path.exists(tpath): os.remove(tpath)
 
-                        # --- 2. EXISTING TOOLS ---
-                        st.json(row.to_dict())
-                        
-                        # Regenerate PDF (Local Download)
-                        if st.button("📄 Download Current PDF"):
-                             try:
-                                r_json = json.loads(row['Recipient']) if row['Recipient'] else {}
-                                s_json = json.loads(row['Sender']) if row['Sender'] else {}
-                                content = row['Content'] or "[Empty]"
-                                
-                                to_addr = f"{r_json.get('name','')}\n{r_json.get('street','')}"
-                                from_addr = f"{s_json.get('name','')}\n{s_json.get('street','')}"
-                                
-                                if letter_format:
-                                    pdf_bytes = letter_format.create_pdf(content, to_addr, from_addr, is_heirloom=(row['Tier']=="Heirloom"))
-                                    if pdf_bytes:
-                                        b64 = base64.b64encode(pdf_bytes).decode()
-                                        href = f'<a href="data:application/pdf;base64,{b64}" download="order_{row["ID"]}.pdf">⬇️ Click to Download</a>'
-                                        st.markdown(href, unsafe_allow_html=True)
-                             except Exception as e: st.error(f"PDF Error: {e}")
+                            # --- 2. EXISTING TOOLS ---
+                            st.json(row.to_dict())
+                            
+                            # Regenerate PDF (Local Download)
+                            if st.button("📄 Download Current PDF"):
+                                 try:
+                                    r_json = json.loads(row['Recipient']) if row['Recipient'] else {}
+                                    s_json = json.loads(row['Sender']) if row['Sender'] else {}
+                                    content = row['Content'] or "[Empty]"
+                                    
+                                    to_addr = f"{r_json.get('name','')}\n{r_json.get('street','')}"
+                                    from_addr = f"{s_json.get('name','')}\n{s_json.get('street','')}"
+                                    
+                                    if letter_format:
+                                        pdf_bytes = letter_format.create_pdf(content, to_addr, from_addr, is_heirloom=(row['Tier']=="Heirloom"))
+                                        if pdf_bytes:
+                                            b64 = base64.b64encode(pdf_bytes).decode()
+                                            href = f'<a href="data:application/pdf;base64,{b64}" download="order_{row["ID"]}.pdf">⬇️ Click to Download</a>'
+                                            st.markdown(href, unsafe_allow_html=True)
+                                 except Exception as e: st.error(f"PDF Error: {e}")
 
-                        # Mark Sent
-                        if st.button("✅ Mark as Completed Manually"):
-                            database.update_draft_data(row['ID'], status="Completed")
-                            st.success("Updated!")
-                            time.sleep(1); st.rerun()
-
-                        # Delete
-                        if st.button("🗑️ Delete Order", key=f"del_{row['ID']}"):
-                            if database.delete_draft(row['ID']):
-                                st.success(f"Deleted #{row['ID']}")
+                            # Mark Sent
+                            if st.button("✅ Mark as Completed Manually"):
+                                database.update_draft_data(row['ID'], status="Completed")
+                                st.success("Updated!")
                                 time.sleep(1); st.rerun()
+
+                            # Delete
+                            if st.button("🗑️ Delete Order", key=f"del_{row['ID']}"):
+                                if database.delete_draft(row['ID']):
+                                    st.success(f"Deleted #{row['ID']}")
+                                    time.sleep(1); st.rerun()
 
             except Exception as e:
                 st.error(f"Error loading queue: {e}")
@@ -263,7 +270,6 @@ def show_admin():
                 try:
                     if database and database.get_engine():
                         with database.get_db_session() as session:
-                            # FIX: Use text() wrapper for SQL execution
                             session.execute(text("SELECT 1"))
                         st.success("✅ Database: Connection Active (SQLAlchemy)")
                     else:
@@ -273,7 +279,8 @@ def show_admin():
 
                 # PostGrid Test
                 if mailer:
-                    pg_key = mailer.get_postgrid_key()
+                    # FIX: Use the correct function name 'get_api_key'
+                    pg_key = mailer.get_api_key()
                     if pg_key:
                         st.success(f"✅ PostGrid: Client Initialized (Key: ...{pg_key[-4:]})")
                     else:
