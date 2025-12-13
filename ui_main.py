@@ -151,27 +151,7 @@ def _save_addresses_to_state(tier):
             )
         except Exception: pass
 
-    if mailer and st.session_state.to_addr.get('country') == "US":
-        try:
-            with st.spinner("Verifying Address..."):
-                valid, data = mailer.verify_address_data(
-                    st.session_state.to_addr.get('street'), 
-                    st.session_state.to_addr.get('address_line2'),
-                    st.session_state.to_addr.get('city'), 
-                    st.session_state.to_addr.get('state'),
-                    st.session_state.to_addr.get('zip'), 
-                    "US"
-                )
-                if valid and data:
-                    st.session_state.to_addr.update({
-                        'street': data.get('line1'), 
-                        'city': data.get('city'),
-                        'state': data.get('state'), 
-                        'zip': data.get('zip')
-                    })
-                    st.success("✅ Address Verified")
-        except: pass
-
+    # Basic check (PostGrid logic is separate now)
     d_id = st.session_state.get("current_draft_id")
     if d_id and database: 
         database.update_draft_data(d_id, st.session_state.to_addr, st.session_state.from_addr)
@@ -380,21 +360,10 @@ def reset_app(full_logout=False):
         else: st.session_state.app_mode = "splash"
 
 # --- 6. RENDER SIDEBAR ---
-# In ui_main.py
-
 def render_sidebar():
-    """
-    Renders the sidebar navigation and user status.
-    Updated: Admin Access is now hidden for non-admin users.
-    """
     with st.sidebar:
-        # 1. Logo / Branding
         st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
-        
-        # 2. Divider
         st.markdown("---")
-        
-        # 3. User Status / Login
         if st.session_state.get("authenticated"):
             u_email = st.session_state.get("user_email", "User")
             st.info(f"👤 {u_email}")
@@ -407,40 +376,28 @@ def render_sidebar():
                 st.session_state.app_mode = "login"
                 st.session_state.auth_view = "login"
                 st.rerun()
-                
-        # 4. Admin Link (SECURED)
-        # Only show if authenticated AND email matches the admin email in secrets
+        
+        # Admin Link
         try:
             admin_email = st.secrets.get("admin", {}).get("email", "").strip().lower()
             current_email = st.session_state.get("user_email", "").strip().lower()
-            
             if st.session_state.get("authenticated") and current_email == admin_email and admin_email != "":
-                st.write("")
-                st.write("")
-                st.markdown("---")
+                st.write(""); st.write(""); st.markdown("---")
                 with st.expander("🛡️ Admin Console"):
                      if st.button("Open Dashboard", use_container_width=True):
-                         st.session_state.app_mode = "admin"
-                         st.rerun()
-        except Exception:
-            # Gracefully fail if secrets are missing or structure is different
-            pass
+                         st.session_state.app_mode = "admin"; st.rerun()
+        except: pass
+        st.markdown("---"); st.caption("v3.2.1 (Stable)")
 
-        # 5. Version Info
-        st.markdown("---")
-        st.caption("v3.2.1 (Stable)")
 # --- 7. PAGE: STORE ---
 def render_store_page():
-    # Contextual Help
     if ui_onboarding: ui_onboarding.show_contextual_help("store")
-    
     global YOUR_APP_URL
     u_email = st.session_state.get("user_email", "")
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
         if st.button("Go to Login"):
-            st.session_state.app_mode = "login"
-            st.rerun()
+            st.session_state.app_mode = "login"; st.rerun()
         return
 
     _render_hero("Select Service", "Choose your letter type")
@@ -490,8 +447,6 @@ def render_store_page():
                     _handle_draft_creation(u_email, tier_code, final_price)
                     if promo_engine: promo_engine.log_usage(code, u_email)
                     if audit_engine: audit_engine.log_event(u_email, "PROMO_USED", "FREE", {"code": code})
-                    if analytics: analytics.track_event(u_email, "checkout_free", {"tier": tier_code})
-                    
                     st.session_state.payment_complete = True
                     st.session_state.locked_tier = tier_code
                     st.session_state.bulk_paid_qty = qty
@@ -516,23 +471,15 @@ def render_store_page():
                             if tier_code == "Campaign": link += f"&qty={qty}"
                             if payment_engine:
                                 with st.spinner("Generating secure payment link..."):
-                                    st.markdown("""
-                                    <div style="text-align: center; margin-bottom: 15px;">
-                                        <p>🔒 Creating your Stripe checkout...</p>
-                                        <p style="font-size: 0.85em; color: #666;">This opens in a new tab for security</p>
-                                    </div>
-                                    """, unsafe_allow_html=True)
                                     url, sess_id = payment_engine.create_checkout_session(f"VerbaPost {tier_code}", int(final_price*100), link, YOUR_APP_URL)
                                     if url:
                                         if audit_engine: audit_engine.log_event(u_email, "CHECKOUT_STARTED", sess_id, {"tier": tier_code})
-                                        if analytics: analytics.track_event(u_email, "checkout_started", {"tier": tier_code})
                                         st.session_state.pending_stripe_url = url
                                         st.rerun()
                                     else: st.error("⚠️ Stripe Error: Could not generate link.")
                             else: st.error("⚠️ Payment Engine Missing")
                         except Exception as e:
                             st.error(f"❌ System Crash: {str(e)}")
-                            logger.error(f"PAYMENT CRASH: {e}")
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
@@ -545,85 +492,126 @@ def _handle_draft_creation(email, tier, price):
         st.query_params["draft_id"] = str(d_id)
     return d_id
 
-# --- 8. PAGE: WORKSPACE ---
 def render_address_intervention(user_input, recommended):
-    """
-    Displays the side-by-side comparison.
-    """
     st.warning("⚠️ We found a better match for that address.")
-    
     c1, c2 = st.columns(2)
-    
-    # Left: What they typed
     with c1:
         st.markdown("**You Entered:**")
-        st.text(f"{user_input.get('line1')}")
-        if user_input.get('line2'): st.text(f"{user_input.get('line2')}")
-        st.text(f"{user_input.get('city')}, {user_input.get('state')} {user_input.get('zip')}")
-        
+        st.text(f"{user_input.get('line1')}\n{user_input.get('line2') or ''}\n{user_input.get('city')}, {user_input.get('state')} {user_input.get('zip')}")
         if st.button("Use My Version (Risky)", key="btn_keep_mine"):
             st.session_state.recipient_address = user_input
             st.session_state.address_verified = True
             st.rerun()
-
-    # Right: What USPS recommends
     with c2:
         st.markdown("**USPS Recommended:**")
-        st.markdown(f"<div style='background-color:#e6ffe6; padding:10px; border-radius:5px; border:1px solid #b3ffb3; color:#006600;'>{recommended.get('line1')}</div>", unsafe_allow_html=True)
-        if recommended.get('line2'):
-            st.markdown(f"<div style='background-color:#e6ffe6; padding:10px; border-radius:5px; border:1px solid #b3ffb3; color:#006600; margin-top:2px;'>{recommended.get('line2')}</div>", unsafe_allow_html=True)
-        
-        st.markdown(f"<div style='background-color:#e6ffe6; padding:10px; border-radius:5px; border:1px solid #b3ffb3; color:#006600; margin-top:2px;'>{recommended.get('city')}, {recommended.get('state')} {recommended.get('zip')}</div>", unsafe_allow_html=True)
-        
+        st.markdown(f"<div style='background-color:#e6ffe6; padding:10px; border-radius:5px; border:1px solid #b3ffb3; color:#006600;'>{recommended.get('line1')}<br>{recommended.get('line2') or ''}<br>{recommended.get('city')}, {recommended.get('state')} {recommended.get('zip')}</div>", unsafe_allow_html=True)
         if st.button("✅ Use Recommended", type="primary", key="btn_use_rec"):
             st.session_state.recipient_address = recommended
             st.session_state.address_verified = True
             st.rerun()
 
-# ... Inside render_workspace_page() ...
-
-    # 1. Address Form
-    with st.form("recipient_form"):
-        st.subheader("Recipient")
-        # ... your text inputs for r_name, r_street, etc ...
-        submitted = st.form_submit_button("Next Step")
-
-    if submitted:
-        # Build the dict
-        raw_addr = {
-            "line1": r_street, "line2": r_apt, 
-            "city": r_city, "state": r_state, "zip": r_zip, "country": "US"
-        }
-        
-        # CALL MAILER API
-        status, clean_addr, errs = mailer.verify_address_details(raw_addr)
-        
-        if status == "verified":
-            # Perfect match, just save and go
-            st.session_state.recipient_address = clean_addr
-            st.session_state.address_verified = True
-            st.success("Address Verified! ✅")
-            
-        elif status == "corrected":
-            # Store data in session state to trigger the Intervention UI
-            st.session_state.temp_user_addr = raw_addr
-            st.session_state.temp_rec_addr = clean_addr
-            st.session_state.show_address_fix = True
-            st.rerun()
-            
-        elif status == "invalid":
-            st.error(f"Address not found: {errs}")
-            
-    # 2. Check if we need to show the Intervention UI
+# --- 8. PAGE: WORKSPACE (RESTORED) ---
+def render_workspace_page():
+    if ui_onboarding: ui_onboarding.show_contextual_help("workspace")
+    _render_hero("Workspace", "Compose your letter")
+    
+    tier = st.session_state.get("locked_tier", "Standard")
+    
+    # 1. Address Verification Logic (Intervention)
     if st.session_state.get("show_address_fix"):
-        render_address_intervention(
-            st.session_state.temp_user_addr, 
-            st.session_state.temp_rec_addr
-        )
-        st.stop() # Stop rendering the rest of the page until they choose
+        render_address_intervention(st.session_state.temp_user_addr, st.session_state.temp_rec_addr)
+        return
+
+    # 2. Main Workspace Layout
+    t1, t2 = st.tabs(["✍️ Write / Dictate", "🏠 Addressing"])
+    
+    # TAB 1: COMPOSE
+    with t1:
+        st.info("💡 You can type below, upload an audio file, or record your voice.")
+        
+        # Audio Upload
+        aud_file = st.file_uploader("📂 Upload Audio (MP3, WAV, M4A)", type=["mp3", "wav", "m4a", "ogg"])
+        if aud_file:
+            if st.button("📝 Transcribe Uploaded File", type="primary"):
+                if ai_engine:
+                    with st.spinner("Transcribing..."):
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{aud_file.name.split('.')[-1]}") as tmp:
+                            tmp.write(aud_file.getvalue()); tmp_path = tmp.name
+                        try:
+                            text = ai_engine.transcribe_audio(tmp_path)
+                            st.session_state.transcribed_text = text
+                            if os.path.exists(tmp_path): os.remove(tmp_path)
+                            st.success("Done!")
+                            st.rerun()
+                        except Exception as e: st.error(f"Error: {e}")
+        
+        # Audio Recorder
+        audio_bytes = st.audio_input("🎤 Record Voice")
+        if audio_bytes:
+            if st.button("📝 Transcribe Recording"):
+                if ai_engine:
+                    with st.spinner("Transcribing..."):
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
+                            tmp.write(audio_bytes.getvalue()); tmp_path = tmp.name
+                        try:
+                            text = ai_engine.transcribe_audio(tmp_path)
+                            st.session_state.transcribed_text = text
+                            if os.path.exists(tmp_path): os.remove(tmp_path)
+                            st.rerun()
+                        except Exception as e: st.error(f"Error: {e}")
+
+        # Text Editor
+        val = st.session_state.get("transcribed_text", "")
+        new_val = st.text_area("Your Message", value=val, height=300)
+        if new_val != val: st.session_state.transcribed_text = new_val
+
+    # TAB 2: ADDRESSING
+    with t2:
+        if tier == "Civic":
+            st.info("For Civic letters, we just need your Return Address to find your representatives.")
+        
+        # Show Address Form
+        _render_address_form(tier, st.session_state.get("is_intl", False))
+        
+        # Address Verification Trigger (on 'Next' or manual button)
+        # Note: The actual button is inside _render_address_form ("Save & Continue")
+        # But we need to handle the verification result if that button was clicked.
+        # The _save_addresses_to_state function handles the basic save.
+        # We can add a "Verify Recipient" button here if desired, or rely on the form submit.
+        
+        # Let's add the explicit verify button here for "Bring Your Own Address"
+        if tier not in ["Civic", "Campaign"]:
+            if st.button("🔍 Verify Recipient Address"):
+                raw = {
+                    "line1": st.session_state.get("w_to_street"),
+                    "line2": st.session_state.get("w_to_street2"),
+                    "city": st.session_state.get("w_to_city"),
+                    "state": st.session_state.get("w_to_state"),
+                    "zip": st.session_state.get("w_to_zip"),
+                    "country": "US"
+                }
+                if mailer:
+                    status, clean, errs = mailer.verify_address_details(raw)
+                    if status == "corrected":
+                        st.session_state.temp_user_addr = raw
+                        st.session_state.temp_rec_addr = clean
+                        st.session_state.show_address_fix = True
+                        st.rerun()
+                    elif status == "verified":
+                        st.success("Address is valid! ✅")
+                    else:
+                        st.error(f"Invalid Address: {errs}")
+
+    st.markdown("---")
+    if st.button("➡️ Review & Send", type="primary", use_container_width=True):
+        if not st.session_state.get("transcribed_text"):
+            st.error("Please write or transcribe your letter first.")
+        else:
+            st.session_state.app_mode = "review"
+            st.rerun()
+
 # --- 9. PAGE: REVIEW ---
 def render_review_page():
-    # Contextual Help
     if ui_onboarding: ui_onboarding.show_contextual_help("review")
     
     _render_hero("Review", "Finalize & Send")
@@ -668,8 +656,6 @@ def render_review_page():
     else:
         try:
             to_s = ""; from_s = ""
-            
-            # Smart Civic Preview
             if tier == "Civic" and st.session_state.get("civic_targets"):
                 first_rep = st.session_state.civic_targets[0]
                 d = first_rep.get('address_obj', st.session_state.to_addr)
@@ -703,7 +689,7 @@ def render_review_page():
 
 # --- 10. MAIN ROUTER ---
 def show_main_app():
-    inject_mobile_styles()  # <--- NEW CSS INJECTION
+    inject_mobile_styles()
     if analytics: analytics.inject_ga()
     render_sidebar()
     mode = st.session_state.get("app_mode", "splash")
@@ -718,18 +704,3 @@ def show_main_app():
     else: 
         st.session_state.app_mode = "store"
         st.rerun()
-
-def _h_login(auth, e, p):
-    res, err = auth.sign_in(e, p)
-    if res and res.user: 
-        st.session_state.user_email = res.user.email
-        st.session_state.app_mode = "store"
-        st.rerun()
-    else: st.error(err)
-
-def _h_signup(auth, e, p, n, a, a2, c, s, z, cn, l):
-    res, err = auth.sign_up(e, p, n, a, a2, c, s, z, cn, l)
-    if res and res.user: 
-        st.success("Created! Please Log In.")
-        st.session_state.app_mode = "login"
-    else: st.error(err)
