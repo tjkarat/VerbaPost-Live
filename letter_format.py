@@ -1,173 +1,119 @@
 from fpdf import FPDF
 import os
-import requests
-from datetime import datetime
-import re
-import logging
 
-# Configure Logger
-logging.basicConfig(level=logging.ERROR)
-logger = logging.getLogger(__name__)
-
-# --- CONFIGURATION ---
-FONT_MAP = {
-    "Caveat-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/caveat/Caveat-Regular.ttf",
-    "NotoSansSC-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/notosanssc/NotoSansSC-Regular.ttf",
-    "NotoSansJP-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP-Regular.ttf",
-    "NotoSansKR-Regular.ttf": "https://github.com/google/fonts/raw/main/ofl/notosanskr/NotoSansKR-Regular.ttf",
+# 1. Font Configuration
+# Maps "Legacy" archetypes to physical files.
+# Ensure these .ttf files are in your root directory.
+FONT_ARCHETYPES = {
+    "The Executive": {"file": "Times-Bold.ttf", "family": "Times"},   # Strong, Serious
+    "The Poet":      {"file": "Caveat-Regular.ttf", "family": "Caveat"}, # Emotional, Flowing
+    "The Teacher":   {"file": "Schoolbell.ttf", "family": "Courier"}, # Neat, Educational
+    "The Architect": {"file": "Roboto-Mono.ttf", "family": "Arial"},   # Clean, Modern
+    "The Grandparent": {"file": "HomemadeApple.ttf", "family": "Caveat"} # Shaky, Authentic
 }
 
-def ensure_fonts():
-    """Downloads required fonts if they are missing."""
-    for filename, url in FONT_MAP.items():
-        if not os.path.exists(filename):
-            try:
-                r = requests.get(url, allow_redirects=True)
-                if r.status_code == 200:
-                    with open(filename, "wb") as f: f.write(r.content)
-            except Exception as e:
-                logger.error(f"Font Download Error: {e}")
-
-def detect_language(text):
-    """Detects CJK characters to switch fonts."""
-    if not text: return ('Helvetica', None)
-    if re.search(r'[\u3040-\u30ff]', text): return ('NotoSansJP', 'NotoSansJP-Regular.ttf')
-    if re.search(r'[\uac00-\ud7af]', text): return ('NotoSansKR', 'NotoSansKR-Regular.ttf')
-    if re.search(r'[\u4e00-\u9fff]', text): return ('NotoSansSC', 'NotoSansSC-Regular.ttf')
-    return ('Helvetica', None)
-
-def sanitize_text(text, is_cjk=False):
-    """Cleans text encoding issues."""
-    if not isinstance(text, str): return str(text)
-    replacements = {'\u2018': "'", '\u2019': "'", '\u201c': '"', '\u201d': '"', '\u2013': '-', '\u2014': '-'}
-    for k, v in replacements.items(): text = text.replace(k, v)
-    
-    if is_cjk: return text 
-    else:
-        try: return text.encode('latin-1', 'ignore').decode('latin-1')
-        except: return text
-
-class LetterPDF(FPDF):
-    """Custom PDF class to handle Headers/Footers for Santa/Heirloom tiers."""
-    def __init__(self, is_santa=False, **kwargs):
-        super().__init__(**kwargs)
-        self.is_santa = is_santa
-
+class PDF(FPDF):
     def header(self):
-        if self.is_santa:
-            self.set_auto_page_break(False)
-            self.set_fill_color(252, 247, 235) 
-            self.rect(0, 0, 215.9, 279.4, 'F')
-            self.set_line_width(2); self.set_draw_color(180, 20, 20); self.rect(5, 5, 205.9, 269.4)
-            self.set_line_width(1); self.set_draw_color(20, 100, 20); self.rect(8, 8, 199.9, 263.4)
-            
-            if self.page_no() == 1:
-                self.set_y(20); self.set_font("Helvetica", "B", 24); self.set_text_color(180, 20, 20) 
-                self.cell(0, 10, "FROM THE DESK OF SANTA CLAUS", 0, 1, 'C')
-                self.set_font("Helvetica", "I", 10); self.set_text_color(20, 100, 20) 
-                self.cell(0, 5, "Official North Pole Correspondence | List Status: NICE", 0, 1, 'C')
-                self.set_text_color(0, 0, 0)
-            self.set_auto_page_break(True, margin=20)
+        # Only add header if strictly necessary (e.g. page numbers for long letters)
+        if self.page_no() > 1:
+            self.set_font('Arial', 'I', 8)
+            self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'R')
 
     def footer(self):
-        self.set_y(-15); self.set_font('Helvetica', 'I', 8); self.set_text_color(100, 100, 100)
-        text = 'Official North Pole Mail' if self.is_santa else 'Dictated & Mailed via VerbaPost.com'
-        self.cell(0, 10, text, 0, 0, 'C')
+        # Branding (Discreet)
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.set_text_color(150)
+        self.cell(0, 10, 'VerbaPost Service', 0, 0, 'C')
 
-def create_pdf(content, recipient_addr, return_addr, is_heirloom=False, language="English", signature_path=None, is_santa=False):
+def create_pdf(text, address_data, tier="Standard", font_style=None):
+    """
+    Generates a PDF binary.
+    - Tier: Determines layout rules.
+    - Font_Style: Used only for Legacy tier archetypes.
+    """
+    pdf = PDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    # --- FONT SELECTION LOGIC ---
+    # Default: Standard Helvetica
+    primary_font = "Helvetica"
+    font_file = None
+
+    # Logic: If Legacy, look up the Archetype. If Standard/Heirloom, use Caveat if available.
+    if tier == "Legacy" and font_style:
+        style_data = FONT_ARCHETYPES.get(font_style, FONT_ARCHETYPES["The Poet"])
+        primary_font = style_data['family']
+        font_file = style_data['file']
+    elif tier in ["Heirloom", "Standard", "Campaign"]:
+        # The 'Handwritten' feel for standard tiers
+        primary_font = "Caveat"
+        font_file = "Caveat-Regular.ttf"
+
+    # Register Font (Safety Wrapper)
     try:
-        ensure_fonts()
-        pdf = LetterPDF(is_santa=is_santa, format='Letter')
-        pdf.set_auto_page_break(True, margin=20)
-        
-        # Load Caveat
-        has_caveat = False
-        if os.path.exists("Caveat-Regular.ttf"): 
-            pdf.add_font('Caveat', '', 'Caveat-Regular.ttf')
-            has_caveat = True
-            
-        target_font_name, target_font_file = detect_language(content)
-        is_cjk = target_font_name.startswith("Noto")
-        
-        if is_cjk and target_font_file and os.path.exists(target_font_file):
-            pdf.add_font(target_font_name, '', target_font_file)
-        else: target_font_name = 'Helvetica'; is_cjk = False
-
-        # --- FONT SELECTION ---
-        if is_cjk: 
-            body_font = target_font_name
-        elif has_caveat: 
-            body_font = 'Caveat'
-        else: 
-            body_font = 'Helvetica'
-            
-        # Font Sizes
-        if body_font == 'Caveat':
-            body_size = 18 if is_santa else 14
+        if font_file and os.path.exists(font_file):
+            pdf.add_font(primary_font, '', font_file, uni=True)
+            pdf.set_font(primary_font, '', 12)
         else:
-            body_size = 14 if is_cjk else 12
-        
-        pdf.add_page(); pdf.set_text_color(0, 0, 0)
-        
-        # --- ADDRESS PLACEMENT ---
-        is_standard = not (is_heirloom or is_santa)
-        
-        if is_standard:
-            # Standard: Use Helvetica for addresses (USPS readability)
-            pdf.set_xy(15, 15); pdf.set_font('Helvetica', '', 10)
-            pdf.multi_cell(0, 5, sanitize_text(return_addr, is_cjk))
-            
-            pdf.set_xy(140, 15)
-            pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
-            
-            pdf.set_xy(20, 50); pdf.set_font('Helvetica', 'B', 12)
-            pdf.multi_cell(0, 6, sanitize_text(recipient_addr, is_cjk))
-            
-            # --- FIX: MOVED FROM 100 TO 120 TO CLEAR POSTGRID SAFE ZONE ---
-            pdf.set_xy(20, 120) 
-            
-        else:
-            # Heirloom/Santa: Use formatted headers
-            date_y = 50 if is_santa else 15
-            pdf.set_xy(140, date_y); pdf.set_font('Helvetica', '', 10)
-            pdf.cell(60, 5, datetime.now().strftime("%B %d, %Y"), align='R', ln=1)
-            
-            if is_santa:
-                pdf.set_x(140); pdf.multi_cell(60, 5, "Santa Claus\n123 Elf Road\nNorth Pole, 88888", align='R')
-            else:
-                pdf.set_xy(15, 15); pdf.multi_cell(0, 5, sanitize_text(return_addr, is_cjk))
-
-            recip_y = 80 if is_santa else 45
-            pdf.set_xy(20, recip_y); pdf.set_font('Helvetica', 'B', 12)
-            pdf.multi_cell(0, 6, sanitize_text(recipient_addr, is_cjk))
-            pdf.set_xy(20, recip_y + 30)
-
-        # --- BODY CONTENT ---
-        pdf.set_font(body_font, '', body_size)
-        safe_content = sanitize_text(content, is_cjk)
-        if not safe_content or len(safe_content.strip()) == 0:
-            safe_content = "[Content Empty]"; pdf.set_text_color(255, 0, 0) 
-            
-        pdf.multi_cell(170, 8, safe_content); pdf.set_text_color(0, 0, 0)
-        pdf.ln(20) 
-        
-        # --- SIGNATURE ---
-        if is_santa:
-            pdf.set_x(pdf.l_margin); sig_font = 'Caveat' if (has_caveat and not is_cjk) else 'Helvetica' 
-            pdf.set_font(sig_font, '', 32); pdf.set_text_color(180, 20, 20) 
-            pdf.cell(0, 10, "Love, Santa", align='C', ln=1)
-        elif signature_path and os.path.exists(signature_path):
-            try: pdf.image(signature_path, x=20, w=40)
-            except: pass
-        
-        try:
-            return bytes(pdf.output())
-        except Exception:
-            return pdf.output(dest='S').encode('latin-1')
-
+            # Fallback if file missing
+            print(f"⚠️ Font file {font_file} missing. Falling back to Helvetica.")
+            pdf.set_font("Helvetica", '', 12)
     except Exception as e:
-        logger.error(f"PDF Generation Failed: {e}", exc_info=True)
-        return None
+        print(f"⚠️ Font Error: {e}")
+        pdf.set_font("Helvetica", '', 12)
 
-if __name__ == "__main__":
-    ensure_fonts()
+    # --- ADDRESS BLOCK (PostGrid Window Compliant) ---
+    # Top Left: Sender (Return Address)
+    pdf.set_font_size(10)
+    pdf.set_text_color(50) # Dark Grey
+    
+    sender = [
+        address_data.get('sender_name', ''),
+        address_data.get('sender_street', ''),
+        f"{address_data.get('sender_city', '')}, {address_data.get('sender_state', '')} {address_data.get('sender_zip', '')}"
+    ]
+    
+    for line in sender:
+        if line: pdf.cell(0, 5, line, ln=True)
+
+    # Vertical Spacer for Envelope Window
+    pdf.ln(25) 
+
+    # Left Indent: Recipient (Target Address)
+    # PostGrid requires this to be roughly at x=100mm, y=40-50mm
+    pdf.set_x(100) 
+    
+    recipient = [
+        address_data.get('recipient_name', ''),
+        address_data.get('recipient_street', ''),
+        address_data.get('recipient_city_state_zip', '') # Sometimes passed as one string
+    ]
+    
+    # Handle split city/state if passed separately
+    if not recipient[2]:
+        recipient[2] = f"{address_data.get('recipient_city', '')}, {address_data.get('recipient_state', '')} {address_data.get('recipient_zip', '')}"
+
+    for line in recipient:
+        pdf.set_x(100) # Reset X for every line
+        if line: pdf.cell(0, 6, line, ln=True)
+
+    # --- LETTER BODY ---
+    pdf.ln(35) # Space after address block
+    
+    # Restore Main Font Size
+    pdf.set_font_size(12)
+    pdf.set_text_color(0) # Black
+    
+    # Safe Rendering (UTF-8)
+    try:
+        pdf.multi_cell(0, 7, text)
+    except Exception:
+        # Emergency fallback for encoding crashes
+        pdf.set_font("Helvetica", '', 12)
+        cleaned_text = text.encode('latin-1', 'replace').decode('latin-1')
+        pdf.multi_cell(0, 7, cleaned_text)
+
+    # Return the binary buffer
+    return pdf.output(dest='S').encode('latin-1')

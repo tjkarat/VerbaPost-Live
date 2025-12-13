@@ -1,112 +1,127 @@
 import streamlit as st
-import time
-import logging
-
-# --- DIRECT IMPORTS (To prevent KeyError masking) ---
 import ui_main
-import payment_engine
+import ui_login
+import ui_admin
+import ui_legal
+import ui_legacy  # 🆕 NEW IMPORT
 import audit_engine
-import database
+import payment_engine
+import time
+
+# --- OPTIONAL MODULES (Graceful Degradation) ---
+# These prevent the app from crashing if utility files are missing
+try:
+    import analytics
+    import seo_injector
+except ImportError:
+    analytics = None
+    seo_injector = None
+
+# --- STREAMLIT QUIRK FIX ---
+# Lazy loading ui_splash can sometimes fail on Cloud Run
+try:
+    import ui_splash
+except ImportError:
+    ui_splash = None
 
 # --- CONFIGURATION ---
 st.set_page_config(
-    page_title="VerbaPost | Send Real Mail from Audio", 
+    page_title="VerbaPost | Send Real Letters",
     page_icon="📮",
     layout="centered",
     initial_sidebar_state="collapsed"
 )
 
-# Configure Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- CSS INJECTION ---
+st.markdown("""
+<style>
+    [data-testid="stSidebar"] {display: none;}
+    .main .block-container {padding-top: 2rem;}
+    /* Toast Styling */
+    div[data-testid="stToast"] {
+        background-color: #f0f2f6;
+        border-left: 5px solid #ff4b4b;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# --- ANALYTICS & SEO ---
+if analytics:
+    analytics.inject_ga()
+if seo_injector:
+    seo_injector.inject_meta_tags()
 
 # --- SESSION STATE INIT ---
-if "app_mode" not in st.session_state:
-    st.session_state.app_mode = "splash"
-if "payment_complete" not in st.session_state:
-    st.session_state.payment_complete = False
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'user_email' not in st.session_state:
+    st.session_state.user_email = None
 
-# --- MAIN ROUTER ---
-def main():
-    # 1. HANDLE PAYMENT RETURN
-    if "session_id" in st.query_params:
-        sess_id = st.query_params["session_id"]
+# --- PAYMENT RETURN HANDLER (SECURITY GATE) ---
+# Handles the ?session_id=... return from Stripe
+query_params = st.query_params
+if "session_id" in query_params:
+    session_id = query_params["session_id"]
+    with st.spinner("Verifying secure payment..."):
+        # Verify with Stripe
+        status, payer_email = payment_engine.verify_session(session_id)
         
-        # Prevent re-verification loop if already verified
-        if sess_id != st.session_state.get("last_verified_session"):
-            try:
-                if payment_engine:
-                    with st.spinner("Verifying Payment..."):
-                        is_paid, session_obj = payment_engine.verify_session(sess_id)
-                    
-                    if is_paid:
-                        # --- CRITICAL FIX: SESSION RECOVERY ---
-                        # Streamlit forgets the user during redirect. 
-                        # We trust Stripe's data to tell us who this user is.
-                        stripe_email = session_obj.customer_details.email if (session_obj and session_obj.customer_details) else None
-                        
-                        if not st.session_state.get("user_email") and stripe_email:
-                            st.session_state.user_email = stripe_email
-                            logger.info(f"✅ Session recovered via Stripe email: {stripe_email}")
-                        
-                        current_user = st.session_state.get("user_email")
+        if status == "paid":
+            # CSRF Check: Ensure the payer matches the logged-in user (if logged in)
+            current_user = st.session_state.get("user_email")
+            
+            # If user is logged in, verify emails match. 
+            # If guest checkout (no login), we trust the session ID but log it.
+            if current_user and payer_email:
+                if current_user.lower().strip() != payer_email.lower().strip():
+                    st.error("⚠️ Security Alert: Payment email does not match session.")
+                    audit_engine.log_event(current_user, "PAYMENT_CSRF_BLOCK", session_id)
+                    st.stop()
+            
+            # Success
+            st.success("✅ Payment Confirmed!")
+            st.session_state.paid_order = True
+            
+            # Log it
+            audit_engine.log_event(payer_email, "PAYMENT_SUCCESS", session_id)
+            
+            # Clear params to prevent replay attacks
+            st.query_params.clear()
+            time.sleep(0.5) # Race condition fix (as per v3.0 docs)
+            st.rerun()
+        else:
+            st.error("❌ Payment verification failed or cancelled.")
+            st.query_params.clear()
 
-                        # A. If we still don't have a user, we can't proceed
-                        if not current_user:
-                            logger.error("❌ Session Recovery Failed: No email found in Stripe session.")
-                            st.error("⚠️ Error: Could not verify identity. Please log in again to claim your order.")
-                            st.session_state.app_mode = "login"
-                            st.stop()
+# --- ROUTER ---
+view = st.query_params.get("view", "store")
 
-                        # B. CSRF / Identity Check
-                        # Ensure the Stripe payer matches the current session (if session existed)
-                        if stripe_email and current_user:
-                            if current_user.lower().strip() != stripe_email.lower().strip():
-                                if audit_engine:
-                                    audit_engine.log_event(
-                                        current_user, 
-                                        "PAYMENT_MISMATCH_BLOCK", 
-                                        sess_id, 
-                                        {"payer": stripe_email, "logged_in": current_user}
-                                    )
-                                st.error("⚠️ Security Alert: Payment email does not match logged-in user.")
-                                st.stop()
+# 1. Admin Route
+if view == "admin":
+    ui_admin.render_admin()
 
-                        # C. Success State
-                        st.success("✅ Payment Verified!")
-                        st.session_state.payment_complete = True
-                        st.session_state.last_verified_session = sess_id
-                        
-                        # Log Success
-                        if audit_engine:
-                            audit_engine.log_event(current_user, "PAYMENT_SUCCESS", sess_id)
+# 2. Legacy Route (NEW)
+elif view == "legacy":
+    ui_legacy.render_legacy_page()
 
-                        # Restore State from URL Params
-                        if "tier" in st.query_params:
-                            st.session_state.locked_tier = st.query_params["tier"]
-                        if "draft_id" in st.query_params:
-                            st.session_state.current_draft_id = st.query_params["draft_id"]
-                        if "qty" in st.query_params:
-                            st.session_state.bulk_paid_qty = int(st.query_params["qty"])
-                        
-                        # Cleanup URL and Enter Workspace
-                        time.sleep(1)
-                        st.query_params.clear()
-                        st.session_state.app_mode = "workspace"
-                        st.rerun()
-                    else:
-                        st.error("❌ Payment Verification Failed or Unpaid.")
-                        if audit_engine:
-                             audit_engine.log_event(None, "PAYMENT_FAILED", sess_id)
-            except Exception as e:
-                st.error(f"System Error: {e}")
-                logger.error(f"Router Error: {e}")
+# 3. Legal Routes
+elif view in ["terms", "privacy", "legal"]:
+    ui_legal.render_legal()
 
-    # 2. LOAD UI CONTROLLER
-    if ui_main:
-        ui_main.show_main_app()
+# 4. Auth Route (Direct Link)
+elif view == "login":
+    st.session_state.auth_view = "login"
+    ui_login.render_login()
+
+# 5. Main App Logic
+else:
+    # Logic:
+    # If Authenticated -> Show Workspace
+    # If Guest -> Show Splash (unless they just paid, then let them in)
+    if st.session_state.authenticated or st.session_state.get("paid_order"):
+        ui_main.render_main()
     else:
-        st.error("CRITICAL: UI Module not found.")
-
-if __name__ == "__main__":
-    main()
+        if ui_splash:
+            ui_splash.render_splash()
+        else:
+            st.error("System Error: Splash module failed to load. Please refresh.")
