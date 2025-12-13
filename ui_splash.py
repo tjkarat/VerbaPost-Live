@@ -221,7 +221,7 @@ def show_splash():
         </div>
         """, unsafe_allow_html=True)
 
-    # --- HOW IT WORKS SECTION ---
+    # --- HOW IT WORKS / FAQ SECTION (Moved from Sidebar) ---
     st.write("")
     st.write("")
     st.markdown("<h4 style='text-align: center; color: #333;'>🛠️ How It Works</h4>", unsafe_allow_html=True)
