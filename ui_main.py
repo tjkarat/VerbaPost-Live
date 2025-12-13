@@ -385,7 +385,7 @@ def reset_app(full_logout=False):
 def render_sidebar():
     """
     Renders the sidebar navigation and user status.
-    REMOVED: 'Help & FAQ' button (moved to splash page).
+    Updated: Admin Access is now hidden for non-admin users.
     """
     with st.sidebar:
         # 1. Logo / Branding
@@ -395,7 +395,6 @@ def render_sidebar():
         st.markdown("---")
         
         # 3. User Status / Login
-        # Logic to display Guest vs User
         if st.session_state.get("authenticated"):
             u_email = st.session_state.get("user_email", "User")
             st.info(f"👤 {u_email}")
@@ -409,18 +408,27 @@ def render_sidebar():
                 st.session_state.auth_view = "login"
                 st.rerun()
                 
-        # 4. Admin Link (Hidden/Optional)
-        st.write("")
-        st.write("")
-        with st.expander("Admin Access"):
-             if st.button("Open Console"):
-                 st.session_state.app_mode = "admin"
-                 st.rerun()
+        # 4. Admin Link (SECURED)
+        # Only show if authenticated AND email matches the admin email in secrets
+        try:
+            admin_email = st.secrets.get("admin", {}).get("email", "").strip().lower()
+            current_email = st.session_state.get("user_email", "").strip().lower()
+            
+            if st.session_state.get("authenticated") and current_email == admin_email and admin_email != "":
+                st.write("")
+                st.write("")
+                st.markdown("---")
+                with st.expander("🛡️ Admin Console"):
+                     if st.button("Open Dashboard", use_container_width=True):
+                         st.session_state.app_mode = "admin"
+                         st.rerun()
+        except Exception:
+            # Gracefully fail if secrets are missing or structure is different
+            pass
 
         # 5. Version Info
         st.markdown("---")
-        st.caption("v3.2.0 (Stable)")
-
+        st.caption("v3.2.1 (Stable)")
 # --- 7. PAGE: STORE ---
 def render_store_page():
     # Contextual Help
