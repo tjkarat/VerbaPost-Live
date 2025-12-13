@@ -380,61 +380,46 @@ def reset_app(full_logout=False):
         else: st.session_state.app_mode = "splash"
 
 # --- 6. RENDER SIDEBAR ---
+# In ui_main.py
+
 def render_sidebar():
+    """
+    Renders the sidebar navigation and user status.
+    REMOVED: 'Help & FAQ' button (moved to splash page).
+    """
     with st.sidebar:
-        # FIXED LOGO
-        st.markdown("""
-        <div style="text-align: center; padding-bottom: 20px;">
-            <h1 style="margin:0; font-size: 2.5rem;">📮</h1>
-            <h2 style="margin:0; padding:0;">VerbaPost</h2>
-        </div>
-        """, unsafe_allow_html=True)
+        # 1. Logo / Branding
+        st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
         
-        st.markdown("---")
-        if st.button("❓ Help & FAQ", use_container_width=True):
-            st.session_state.app_mode = "help"
-            st.rerun()
+        # 2. Divider
         st.markdown("---")
         
-        user_email = st.session_state.get("user_email")
-        if user_email:
-            st.success(f"👤 **Logged in as:**\n{user_email}")
-            admin_target = "tjkarat@gmail.com"
-            if secrets_manager:
-                sec = secrets_manager.get_secret("admin.email")
-                if sec: admin_target = sec
-            if str(user_email).lower().strip() == str(admin_target).lower().strip():
-                if st.button("🔐 Admin Console", type="primary", use_container_width=True):
-                    st.session_state.app_mode = "admin"
-                    st.rerun()
-            if st.button("🚪 Log Out", type="secondary", use_container_width=True):
-                reset_app(full_logout=True)
+        # 3. User Status / Login
+        # Logic to display Guest vs User
+        if st.session_state.get("authenticated"):
+            u_email = st.session_state.get("user_email", "User")
+            st.info(f"👤 {u_email}")
+            if st.button("Log Out", use_container_width=True):
+                st.session_state.clear()
                 st.rerun()
         else:
-            st.info("👤 **Guest User**")
+            st.info("👤 Guest User")
             if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
                 st.session_state.app_mode = "login"
+                st.session_state.auth_view = "login"
                 st.rerun()
-        
-        mode = st.session_state.get("app_mode", "splash")
-        if mode in ["workspace", "review", "help"] and user_email:
-             if st.button("🛒 Store (New Letter)", use_container_width=True):
-                 st.session_state.app_mode = "store"
+                
+        # 4. Admin Link (Hidden/Optional)
+        st.write("")
+        st.write("")
+        with st.expander("Admin Access"):
+             if st.button("Open Console"):
+                 st.session_state.app_mode = "admin"
                  st.rerun()
-        
-        if mode in ["store", "workspace", "review"]:
-            st.markdown("### 🚦 Progress")
-            steps = ["1. Select Tier", "2. Write & Edit", "3. Review & Send"]
-            curr = 0
-            if mode == "workspace": curr = 1
-            if mode == "review": curr = 2
-            
-            for i, step in enumerate(steps):
-                if i == curr: st.markdown(f"**👉 {step}**")
-                elif i < curr: st.markdown(f"✅ ~~{step}~~")
-                else: st.markdown(f"<span style='opacity:0.5'>{step}</span>", unsafe_allow_html=True)
-            
-        st.caption("v4.0.0 (UX Redesign)")
+
+        # 5. Version Info
+        st.markdown("---")
+        st.caption("v3.2.0 (Stable)")
 
 # --- 7. PAGE: STORE ---
 def render_store_page():
