@@ -1,172 +1,157 @@
 import requests
-import logging
-import os
+import streamlit as st
 import json
-import secrets_manager
-
-logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-POSTGRID_KEY = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
-SENDGRID_KEY = secrets_manager.get_secret("sendgrid.api_key") or secrets_manager.get_secret("SENDGRID_API_KEY")
-FROM_EMAIL = secrets_manager.get_secret("admin.email") or "noreply@verbapost.com"
+POSTGRID_BASE_URL = "https://api.postgrid.com/v1"
 
-# --- HELPER ---
-def _clean_dict(d):
-    """Removes None or empty string values to satisfy strict APIs."""
-    return {k: v for k, v in d.items() if v}
-
-# --- 1. PHYSICAL MAIL (PostGrid) ---
-
-def verify_address_data(line1, line2, city, state, zip_code, country_code="US"):
-    if not POSTGRID_KEY:
-        return True, {'line1': line1, 'city': city, 'state': state, 'zip': zip_code}
-
-    # Note: Verification uses a DIFFERENT endpoint base than Print
-    url = "https://api.postgrid.com/v1/add_ver/verifications"
-    
-    payload = _clean_dict({
-        "address": _clean_dict({
-            "line1": line1,
-            "line2": line2,
-            "city": city,
-            "provinceOrState": state,
-            "postalOrZip": zip_code,
-            "country": country_code
-        })
-    })
-    
-    try:
-        r = requests.post(url, auth=(POSTGRID_KEY, ""), json=payload)
-        if r.status_code == 200:
-            data = r.json()
-            if data.get('status') == 'verified':
-                res = data.get('data', {})
-                return True, {
-                    'line1': res.get('line1'),
-                    'line2': res.get('line2'),
-                    'city': res.get('city'),
-                    'state': res.get('provinceOrState'),
-                    'zip': res.get('postalOrZip')
-                }
-        return False, None
-    except Exception as e:
-        logger.error(f"Address Verification Failed: {e}")
-        return True, {'line1': line1, 'city': city, 'state': state, 'zip': zip_code}
-
-def send_letter(pdf_path, to_addr, from_addr, is_certified=False):
+def get_api_key():
     """
-    Uploads PDF and creates Letter in PostGrid.
+    Safely retrieves the PostGrid API key from Streamlit secrets.
     """
-    if not POSTGRID_KEY:
-        return False, "Missing PostGrid API Key"
-
-    # Base URL for Print & Mail
-    BASE_URL = "https://api.postgrid.com/print/v1"
-
     try:
-        # 1. Create Contact (To)
-        to_payload = _clean_dict({
-            "firstName": to_addr.get('name'),
-            "addressLine1": to_addr.get('address_line1'),
-            "addressLine2": to_addr.get('address_line2'),
-            "city": to_addr.get('address_city'),
-            "provinceOrState": to_addr.get('address_state'),
-            "postalOrZip": to_addr.get('address_zip'),
-            "countryCode": "US"
-        })
-        
-        logger.info(f"Creating Contact (To): {BASE_URL}/contacts")
-        to_res = requests.post(f"{BASE_URL}/contacts", auth=(POSTGRID_KEY, ""), json=to_payload)
-        
-        if to_res.status_code not in [200, 201]: 
-            logger.error(f"PostGrid Error (To): {to_res.text}")
-            return False, f"Contact Error: {to_res.text}"
-        to_id = to_res.json().get('id')
+        return st.secrets.get("postgrid", {}).get("api_key", "").strip()
+    except Exception:
+        return ""
 
-        # 2. Create Contact (From)
-        from_payload = _clean_dict({
-            "firstName": from_addr.get('name'),
-            "addressLine1": from_addr.get('address_line1'),
-            "addressLine2": from_addr.get('address_line2'),
-            "city": from_addr.get('address_city'),
-            "provinceOrState": from_addr.get('address_state'),
-            "postalOrZip": from_addr.get('address_zip'),
-            "countryCode": "US"
-        })
-        
-        from_res = requests.post(f"{BASE_URL}/contacts", auth=(POSTGRID_KEY, ""), json=from_payload)
-        from_id = from_res.json().get('id') if from_res.status_code in [200, 201] else None
-
-        # 3. Create Letter
-        with open(pdf_path, 'rb') as f:
-            files = {'pdf': f}
-            data = {
-                'to': to_id,
-                'from': from_id,
-                'color': 'true', # Must be string 'true' in multipart/form sometimes
-                'express': str(is_certified).lower(),
-                'addressPlacement': 'top_first_page'
-            }
-            logger.info(f"Creating Letter: {BASE_URL}/letters")
-            create_res = requests.post(f"{BASE_URL}/letters", auth=(POSTGRID_KEY, ""), data=data, files=files)
-            
-            if create_res.status_code in [200, 201]:
-                return True, create_res.json()
-            else:
-                return False, create_res.text
-
-    except Exception as e:
-        logger.error(f"Send Letter Error: {e}")
-        return False, str(e)
-
-# --- 2. DIGITAL NOTIFICATIONS (SendGrid) ---
-
-def send_customer_notification(user_email, notification_type, data):
-    if not SENDGRID_KEY:
-        logger.info(f"📧 [Mock Email] To: {user_email} | Subject: {notification_type} | Data: {data}")
-        return
-
-    subject_map = {
-        "order_confirmed": "Receipt: Your VerbaPost Order",
-        "letter_sent": "Success! Your letter is in the mail."
-    }
+def verify_address_details(address_dict):
+    """
+    Sends an address to PostGrid for CASS standardization/verification.
     
-    subject = subject_map.get(notification_type, "Notification from VerbaPost")
-    
-    # Simple HTML Templates
-    if notification_type == "order_confirmed":
-        html_content = f"""
-        <h2>Order Confirmed! 📮</h2>
-        <p>Thanks for using VerbaPost. You have purchased the <b>{data.get('tier')}</b> package.</p>
-        <p><b>Amount:</b> ${data.get('amount')}</p>
-        <p>Please return to the app to finish recording and sending your letter.</p>
-        """
-    elif notification_type == "letter_sent":
-        html_content = f"""
-        <h2>It's on the way! 🚀</h2>
-        <p>We have successfully dispatched your letter to:</p>
-        <p><b>{data.get('recipient')}</b></p>
-        <p>Estimated Delivery: 4-6 Business Days.</p>
-        """
-    else:
-        html_content = f"<p>Update:</p><pre>{json.dumps(data, indent=2)}</pre>"
+    Args:
+        address_dict (dict): Contains line1, line2, city, state, zip, country.
+        
+    Returns:
+        tuple: (status, cleaned_address_dict, message_list)
+        - status: 'verified', 'corrected', 'invalid', or 'error'
+        - cleaned_address_dict: The standardized address from USPS/PostGrid
+        - message_list: List of errors or warnings
+    """
+    api_key = get_api_key()
+    if not api_key:
+        return "error", address_dict, ["API Key missing"]
 
-    url = "https://api.sendgrid.com/v3/mail/send"
-    headers = {"Authorization": f"Bearer {SENDGRID_KEY}", "Content-Type": "application/json"}
+    endpoint = f"{POSTGRID_BASE_URL}/add_verifications"
+    
+    # Payload structure for PostGrid Verification
     payload = {
-        "personalizations": [{"to": [{"email": user_email}]}],
-        "from": {"email": FROM_EMAIL},
-        "subject": subject,
-        "content": [{"type": "text/html", "value": html_content}]
+        "address": {
+            "line1": address_dict.get("line1", ""),
+            "line2": address_dict.get("line2", ""),
+            "city": address_dict.get("city", ""),
+            "state": address_dict.get("state", ""),
+            "zip": address_dict.get("zip", ""),
+            "country": address_dict.get("country", "US")
+        }
     }
     
     try:
-        r = requests.post(url, headers=headers, json=payload)
-        if r.status_code not in [200, 202]:
-            logger.error(f"❌ Email Failed: {r.text}")
-    except Exception as e:
-        logger.error(f"Email Exception: {e}")
+        response = requests.post(endpoint, auth=(api_key, ""), json=payload, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        # PostGrid returns a 'result' object with the clean address
+        # and a 'summary' object with the verification status
+        res = data.get("result", {})
+        summary = data.get("summary", {})
+        
+        # Build the clean address dictionary
+        clean_addr = {
+            "line1": res.get("line1", ""),
+            "line2": res.get("line2", ""),
+            "city": res.get("city", ""),
+            "state": res.get("provinceOrState", ""),
+            "zip": res.get("postalOrZip", ""),
+            "country": res.get("country", "")
+        }
 
-def get_postgrid_key():
-    return POSTGRID_KEY
+        # Determine Status
+        action = summary.get("action")
+        
+        if action == "verified":
+             return "verified", clean_addr, []
+             
+        elif action == "corrected":
+             # It was valid, but they changed something (e.g. added Zip+4 or fixed spelling)
+             return "corrected", clean_addr, summary.get("errors", [])
+             
+        else:
+             # Action is usually 'failed' here
+             errors = summary.get("errors", ["Address could not be verified"])
+             return "invalid", {}, errors
+
+    except requests.exceptions.RequestException as e:
+        print(f"Address Verification Connection Error: {e}")
+        return "error", address_dict, [f"Connection failed: {str(e)}"]
+    except Exception as e:
+        print(f"Address Verification Error: {e}")
+        return "error", address_dict, [str(e)]
+
+def send_letter(pdf_bytes, recipient_addr, sender_addr=None, description="VerbaPost Letter"):
+    """
+    Uploads the PDF and creates a Letter order in PostGrid.
+    
+    Args:
+        pdf_bytes (bytes): The raw PDF file data.
+        recipient_addr (dict): The verified recipient address.
+        sender_addr (dict): The return address (optional).
+        description (str): Metadata for the order.
+        
+    Returns:
+        tuple: (success, response_data_or_error_msg)
+    """
+    api_key = get_api_key()
+    if not api_key:
+        return False, "PostGrid API Key is missing."
+
+    endpoint = f"{POSTGRID_BASE_URL}/letters"
+    
+    # 1. Prepare the Address Object (PostGrid expects flat parameters for creation)
+    # Note: We send the address fields directly in the multipart form data
+    
+    data = {
+        "to[line1]": recipient_addr.get("line1", ""),
+        "to[line2]": recipient_addr.get("line2", ""),
+        "to[city]": recipient_addr.get("city", ""),
+        "to[provinceOrState]": recipient_addr.get("state", ""),
+        "to[postalOrZip]": recipient_addr.get("zip", ""),
+        "to[country]": recipient_addr.get("country", "US"),
+        "to[firstName]": recipient_addr.get("name", "Current Resident"),
+        
+        "description": description,
+        "color": "true",        # VerbaPost letters are color
+        "express": "false",     # Standard First Class
+        "addressPlacement": "top_first_page", # Ensure address is visible in window envelope
+    }
+
+    # Add Return Address if provided
+    if sender_addr:
+        data.update({
+            "from[line1]": sender_addr.get("line1", ""),
+            "from[line2]": sender_addr.get("line2", ""),
+            "from[city]": sender_addr.get("city", ""),
+            "from[provinceOrState]": sender_addr.get("state", ""),
+            "from[postalOrZip]": sender_addr.get("zip", ""),
+            "from[country]": sender_addr.get("country", "US"),
+            "from[firstName]": sender_addr.get("name", "VerbaPost User"),
+        })
+
+    # 2. Prepare the File Upload
+    # We send the PDF as a file tuple in the 'pdf' field
+    files = {
+        "pdf": ("letter.pdf", pdf_bytes, "application/pdf")
+    }
+
+    try:
+        # 3. Send Request (Multipart/Form-Data)
+        response = requests.post(endpoint, auth=(api_key, ""), data=data, files=files, timeout=30)
+        
+        if response.status_code in [200, 201]:
+            return True, response.json()
+        else:
+            error_msg = f"PostGrid Error {response.status_code}: {response.text}"
+            print(error_msg)
+            return False, error_msg
+
+    except Exception as e:
+        return False, f"Transmission Error: {str(e)}"

@@ -546,133 +546,81 @@ def _handle_draft_creation(email, tier, price):
     return d_id
 
 # --- 8. PAGE: WORKSPACE ---
-def render_workspace_page():
-    # 1. Onboarding Check
-    if ui_onboarding: ui_onboarding.show_onboarding_tutorial()
-
-    # 2. Contextual Help
-    if ui_onboarding: ui_onboarding.show_contextual_help("workspace")
-
-    # 3. Success Banner Logic
-    if st.session_state.get("payment_complete"):
-        if not st.session_state.get("tracked_payment_success"):
-            st.session_state.tracked_payment_success = True
-            st.success("✅ Payment Confirmed! You can now transcribe and send your letter.")
-            tier = st.session_state.get("locked_tier", "Standard")
-            user = st.session_state.get("user_email")
-            if analytics: analytics.track_event(user, "payment_success", {"tier": tier})
-            if mailer: mailer.send_customer_notification(user, "order_confirmed", {"tier": tier, "amount": "Paid"})
-
-    tier = st.session_state.get("locked_tier", "Standard")
-    is_intl = st.session_state.get("is_intl", False)
-    if "transcribed_text" not in st.session_state: st.session_state.transcribed_text = ""
-    _render_hero("Compose Letter", f"{tier} Edition")
-    u_email = st.session_state.get("user_email")
-    if database and u_email:
-        p = database.get_user_profile(u_email)
-        if p and "w_from_name" not in st.session_state:
-            st.session_state.w_from_name = p.full_name
-            st.session_state.w_from_street = p.address_line1
-            st.session_state.w_from_city = p.address_city
-            st.session_state.w_from_state = p.address_state
-            st.session_state.w_from_zip = p.address_zip
-
-    with st.container(border=True):
-        if tier == "Campaign":
-            st.subheader("📂 Upload Mailing List")
-            if not bulk_engine: st.error("Bulk Engine Missing")
-            f = st.file_uploader("CSV (Name, Street, City, State, Zip)", type=['csv'])
-            if f:
-                 if f.size > 200 * 1024 * 1024:
-                     st.error("❌ File too large. Max 200MB.")
-                 elif bulk_engine:
-                    c, err = bulk_engine.parse_csv(f)
-                    if err: st.error(err)
-                    else:
-                        st.success(f"✅ {len(c)} contacts loaded.")
-                        if st.button("Confirm List"): st.session_state.bulk_targets = c; st.toast("Saved!")
-        else:
-            st.subheader("📍 Addressing")
-            if database and tier != "Civic": _render_address_book_selector(u_email)
-            _render_address_form(tier, is_intl)
-            if tier == "Civic" and civic_engine:
-                 if st.button("🔍 Find My Reps"):
-                    zip_code = st.session_state.get("w_from_zip")
-                    if zip_code:
-                        with st.spinner("Searching..."):
-                            reps = civic_engine.get_reps(f"{st.session_state.w_from_street} {st.session_state.w_from_city} {st.session_state.w_from_state} {zip_code}")
-                            if reps: 
-                                st.session_state.civic_targets = reps
-                                st.success(f"Found {len(reps)} Reps!")
-                                st.rerun()
-                            else: st.error("No representatives found.")
-
-    st.write("---")
-    c_sig, c_mic = st.columns(2)
-    with c_sig:
-        st.write("✍️ **Signature**")
-        if tier == "Santa": st.info("Signed by Santa")
-        else:
-            canvas = st_canvas(stroke_width=2, height=150, width=300, key="sig")
-            if canvas.image_data is not None: st.session_state.sig_data = canvas.image_data
-    with c_mic:
-        st.write("🎤 **Input**")
+def render_address_intervention(user_input, recommended):
+    """
+    Displays the side-by-side comparison.
+    """
+    st.warning("⚠️ We found a better match for that address.")
+    
+    c1, c2 = st.columns(2)
+    
+    # Left: What they typed
+    with c1:
+        st.markdown("**You Entered:**")
+        st.text(f"{user_input.get('line1')}")
+        if user_input.get('line2'): st.text(f"{user_input.get('line2')}")
+        st.text(f"{user_input.get('city')}, {user_input.get('state')} {user_input.get('zip')}")
         
-        st.markdown("""
-        <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; border-left: 5px solid #2a5298; margin-bottom: 10px;">
-            <p style="margin:0; font-weight:bold;">🎙️ How to Dictate</p>
-            <ol style="margin:5px 0 0 15px; font-size: 0.9em;">
-                <li>Click <b>Start Recording</b> below.</li>
-                <li>Speak your letter clearly.</li>
-                <li>Click <b>Stop</b>, then <b>Transcribe</b>.</li>
-            </ol>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        t1, t2 = st.tabs(["Record", "Upload"])
-        with t1:
-            audio = st.audio_input("Record")
-            if audio:
-                if st.button("Transcribe Recording", key="btn_rec"):
-                    if ai_engine:
-                        with st.spinner("🤖 Transcribing..."):
-                            st.markdown("""
-                            <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
-                                <p><strong>Converting your speech to text...</strong></p>
-                                <p style="color: #666;">This usually takes 30-60 seconds (CPU Mode)</p>
-                                <p style="font-size: 0.9em;">☕ Perfect time to grab a coffee!</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            res = ai_engine.transcribe_audio(audio)
-                            if not res or len(str(res).strip()) == 0: st.warning("⚠️ No speech detected.")
-                            elif str(res).startswith("Error:") or str(res).startswith("[Error"): st.error(res)
-                            else:
-                                st.session_state.transcribed_text = res
-                                st.session_state.app_mode = "review"
-                                st.success("Success!")
-                                time.sleep(0.1); st.rerun()
-        with t2:
-            st.info("Upload MP3, WAV, or M4A.")
-            up = st.file_uploader("Audio File", type=['mp3','wav','m4a'])
-            if up:
-                if st.button("Transcribe File", key="btn_up"):
-                    if ai_engine:
-                        with st.spinner("Processing..."):
-                            st.markdown("""
-                            <div style="text-align: center; padding: 20px; background-color: #f0f2f6; border-radius: 10px; margin-bottom: 20px;">
-                                <p><strong>Converting your speech to text...</strong></p>
-                                <p style="color: #666;">This usually takes 30-60 seconds (CPU Mode)</p>
-                                <p style="font-size: 0.9em;">☕ Perfect time to grab a coffee!</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            res = ai_engine.transcribe_audio(up)
-                            if not res or len(str(res).strip()) == 0: st.warning("⚠️ No speech detected.")
-                            elif str(res).startswith("Error:") or str(res).startswith("[Error"): st.error(res)
-                            else:
-                                st.session_state.transcribed_text = res
-                                st.session_state.app_mode = "review"
-                                time.sleep(0.1); st.rerun()
+        if st.button("Use My Version (Risky)", key="btn_keep_mine"):
+            st.session_state.recipient_address = user_input
+            st.session_state.address_verified = True
+            st.rerun()
 
+    # Right: What USPS recommends
+    with c2:
+        st.markdown("**USPS Recommended:**")
+        st.markdown(f"<div style='background-color:#e6ffe6; padding:10px; border-radius:5px; border:1px solid #b3ffb3; color:#006600;'>{recommended.get('line1')}</div>", unsafe_allow_html=True)
+        if recommended.get('line2'):
+            st.markdown(f"<div style='background-color:#e6ffe6; padding:10px; border-radius:5px; border:1px solid #b3ffb3; color:#006600; margin-top:2px;'>{recommended.get('line2')}</div>", unsafe_allow_html=True)
+        
+        st.markdown(f"<div style='background-color:#e6ffe6; padding:10px; border-radius:5px; border:1px solid #b3ffb3; color:#006600; margin-top:2px;'>{recommended.get('city')}, {recommended.get('state')} {recommended.get('zip')}</div>", unsafe_allow_html=True)
+        
+        if st.button("✅ Use Recommended", type="primary", key="btn_use_rec"):
+            st.session_state.recipient_address = recommended
+            st.session_state.address_verified = True
+            st.rerun()
+
+# ... Inside render_workspace_page() ...
+
+    # 1. Address Form
+    with st.form("recipient_form"):
+        st.subheader("Recipient")
+        # ... your text inputs for r_name, r_street, etc ...
+        submitted = st.form_submit_button("Next Step")
+
+    if submitted:
+        # Build the dict
+        raw_addr = {
+            "line1": r_street, "line2": r_apt, 
+            "city": r_city, "state": r_state, "zip": r_zip, "country": "US"
+        }
+        
+        # CALL MAILER API
+        status, clean_addr, errs = mailer.verify_address_details(raw_addr)
+        
+        if status == "verified":
+            # Perfect match, just save and go
+            st.session_state.recipient_address = clean_addr
+            st.session_state.address_verified = True
+            st.success("Address Verified! ✅")
+            
+        elif status == "corrected":
+            # Store data in session state to trigger the Intervention UI
+            st.session_state.temp_user_addr = raw_addr
+            st.session_state.temp_rec_addr = clean_addr
+            st.session_state.show_address_fix = True
+            st.rerun()
+            
+        elif status == "invalid":
+            st.error(f"Address not found: {errs}")
+            
+    # 2. Check if we need to show the Intervention UI
+    if st.session_state.get("show_address_fix"):
+        render_address_intervention(
+            st.session_state.temp_user_addr, 
+            st.session_state.temp_rec_addr
+        )
+        st.stop() # Stop rendering the rest of the page until they choose
 # --- 9. PAGE: REVIEW ---
 def render_review_page():
     # Contextual Help
