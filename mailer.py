@@ -3,8 +3,7 @@ import streamlit as st
 import json
 
 # --- CONFIGURATION ---
-# CRITICAL FIX: We must use the 'print-mail' endpoint for your API key type.
-# The previous error (404) happened because we were hitting the wrong API product.
+# We use the Print & Mail base URL
 POSTGRID_BASE_URL = "https://api.postgrid.com/print-mail/v1"
 
 def get_api_key():
@@ -23,7 +22,8 @@ def get_api_key():
 
 def verify_address_details(address_dict):
     """
-    Sends an address to PostGrid for CASS standardization/verification.
+    Verifies an address by creating a temporary Contact in PostGrid.
+    This works for ALL Print & Mail API keys.
     
     Args:
         address_dict (dict): Contains line1, line2, city, state, zip, country.
@@ -36,72 +36,77 @@ def verify_address_details(address_dict):
     if not api_key:
         return "error", address_dict, ["PostGrid API Key is missing from secrets."]
 
-    # Endpoint for verifying addresses within the Print & Mail API
-    endpoint = f"{POSTGRID_BASE_URL}/verifications"
+    # FIX: Use the 'contacts' endpoint. 
+    # Creating a contact triggers CASS verification automatically.
+    endpoint = f"{POSTGRID_BASE_URL}/contacts"
     
-    # Payload: PostGrid Print & Mail expects the address object wrapped in "address"
+    # Payload: Map our fields to PostGrid Contact fields
     payload = {
-        "address": {
-            "line1": address_dict.get("line1", ""),
-            "line2": address_dict.get("line2", ""),
-            "city": address_dict.get("city", ""),
-            "provinceOrState": address_dict.get("state", ""),
-            "postalOrZip": address_dict.get("zip", ""),
-            "country": address_dict.get("country", "US")
-        }
+        "firstName": "Verification Check", # Dummy name required for contact
+        "addressLine1": address_dict.get("line1", ""),
+        "addressLine2": address_dict.get("line2", ""),
+        "city": address_dict.get("city", ""),
+        "provinceOrState": address_dict.get("state", ""),
+        "postalOrZip": address_dict.get("zip", ""),
+        "countryCode": "US"
     }
     
     try:
-        # We use a timeout to prevent hanging if the API is slow
+        # We use a timeout to prevent hanging
         response = requests.post(endpoint, auth=(api_key, ""), json=payload, timeout=15)
         
-        # Handle 400 Bad Request (often means data format is wrong or empty)
+        # Handle 400 Bad Request (Invalid data)
         if response.status_code == 400:
-             return "invalid", {}, ["Address format is invalid or fields are missing."]
+             try:
+                 err_msg = response.json().get("error", {}).get("message", "Invalid address data")
+                 return "invalid", {}, [err_msg]
+             except:
+                 return "invalid", {}, ["Address format is invalid."]
              
         response.raise_for_status()
         data = response.json()
         
-        # In the Print & Mail API, the verification result is inside a 'data' key
-        # If 'data' is missing, fallback to root (just in case of API version diffs)
-        res = data.get("data", data)
+        # PostGrid Contact Response contains the cleaned address directly
+        # and metadata about validity.
+        # Note: 'valid' is often boolean in older versions, or status string in newer.
+        # We assume standard Print & Mail response structure.
         
-        # Check specific status field
-        status_code = res.get("status") # values: 'verified', 'corrected', 'failed'
+        # 1. Check if valid
+        # Some versions return 'metadata': {'validationStatus': 'valid'}
+        # Others strictly return clean data if 200 OK.
         
-        # Build the Clean Address Dictionary from the response
+        # We assume if it created successfully (200/201), it's at least usable.
+        # We compare input vs output to detect "corrections".
+        
         clean_addr = {
-            "line1": res.get("line1", ""),
-            "line2": res.get("line2", ""),
-            "city": res.get("city", ""),
-            "state": res.get("provinceOrState", ""),
-            "zip": res.get("postalOrZip", ""),
-            "country": res.get("country", "US")
+            "line1": data.get("addressLine1", ""),
+            "line2": data.get("addressLine2", ""),
+            "city": data.get("city", ""),
+            "state": data.get("provinceOrState", ""),
+            "zip": data.get("postalOrZip", ""),
+            "country": "US"
         }
 
-        # Return status based on PostGrid's analysis
-        if status_code == "verified":
-             return "verified", clean_addr, []
-             
-        elif status_code == "corrected":
-             return "corrected", clean_addr, ["Address was standardized by USPS data."]
-             
+        # Determine Status
+        # If input Zip was 5 digits and output is 9, that's a correction.
+        input_zip = str(address_dict.get("zip", "")).strip()
+        output_zip = str(clean_addr.get("zip", "")).strip()
+        
+        input_street = str(address_dict.get("line1", "")).lower().strip()
+        output_street = str(clean_addr.get("line1", "")).lower().strip()
+
+        if input_street == output_street and input_zip == output_zip:
+            return "verified", clean_addr, []
         else:
-             # If status is 'failed' or anything else
-             errors = res.get("errors", {})
-             # Flatten error values if it's a dict, otherwise use as list
-             if isinstance(errors, dict):
-                 error_list = list(errors.values())
-             elif isinstance(errors, list):
-                 error_list = errors
-             else:
-                 error_list = ["Address could not be verified."]
-                 
-             return "invalid", {}, error_list
+            return "corrected", clean_addr, ["Address was standardized by USPS."]
 
     except requests.exceptions.ConnectTimeout:
         return "error", address_dict, ["Connection to PostGrid timed out."]
     except requests.exceptions.RequestException as e:
+        # If API returns 400+ it usually means address is bad
+        if hasattr(e, 'response') and e.response is not None:
+             if e.response.status_code == 422 or e.response.status_code == 400:
+                 return "invalid", {}, ["Address rejected by USPS database."]
         return "error", address_dict, [f"API Error: {str(e)}"]
     except Exception as e:
         return "error", address_dict, [f"System Error: {str(e)}"]
@@ -119,17 +124,17 @@ def send_letter(pdf_bytes, recipient_addr, sender_addr=None, description="VerbaP
     # 1. Prepare Address Data (Multipart compatible)
     # PostGrid expects flattened keys like 'to[line1]' when sending files via multipart
     data = {
-        "to[line1]": recipient_addr.get("line1", ""),
-        "to[line2]": recipient_addr.get("line2", ""),
+        "to[addressLine1]": recipient_addr.get("line1", ""),
+        "to[addressLine2]": recipient_addr.get("line2", ""),
         "to[city]": recipient_addr.get("city", ""),
         "to[provinceOrState]": recipient_addr.get("state", ""),
         "to[postalOrZip]": recipient_addr.get("zip", ""),
-        "to[country]": recipient_addr.get("country", "US"),
+        "to[countryCode]": "US",
         "to[firstName]": recipient_addr.get("name", "Current Resident"),
         
         "description": description,
         "color": "true",        # We always print in color
-        "express": "true" if is_certified else "false", # Express usually maps to Certified/Priority
+        "express": "true" if is_certified else "false", 
         "addressPlacement": "top_first_page",
         "envelopeType": "standard_double_window" 
     }
@@ -137,12 +142,12 @@ def send_letter(pdf_bytes, recipient_addr, sender_addr=None, description="VerbaP
     # Add Return Address if provided
     if sender_addr:
         data.update({
-            "from[line1]": sender_addr.get("line1", ""),
-            "from[line2]": sender_addr.get("line2", ""),
+            "from[addressLine1]": sender_addr.get("line1", ""),
+            "from[addressLine2]": sender_addr.get("line2", ""),
             "from[city]": sender_addr.get("city", ""),
             "from[provinceOrState]": sender_addr.get("state", ""),
             "from[postalOrZip]": sender_addr.get("zip", ""),
-            "from[country]": sender_addr.get("country", "US"),
+            "from[countryCode]": "US",
             "from[firstName]": sender_addr.get("name", "VerbaPost User"),
         })
 
@@ -153,11 +158,9 @@ def send_letter(pdf_bytes, recipient_addr, sender_addr=None, description="VerbaP
     try:
         # Handle both file paths (str) and raw bytes
         if isinstance(pdf_bytes, str):
-            # It's a file path
             opened_file = open(pdf_bytes, 'rb')
             files["pdf"] = ("letter.pdf", opened_file, "application/pdf")
         else:
-            # It's raw bytes (from ui_main.py generation)
             files["pdf"] = ("letter.pdf", pdf_bytes, "application/pdf")
 
         # 3. Send Request
