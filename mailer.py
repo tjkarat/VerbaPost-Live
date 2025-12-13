@@ -3,8 +3,8 @@ import streamlit as st
 import json
 
 # --- CONFIGURATION ---
-# We use the Print & Mail endpoint because your API key is likely a "Live" or "Test" key 
-# for the Print & Mail product, not the standalone Address Verification product.
+# CRITICAL FIX: We must use the 'print-mail' endpoint for your API key type.
+# The previous error (404) happened because we were hitting the wrong API product.
 POSTGRID_BASE_URL = "https://api.postgrid.com/print-mail/v1"
 
 def get_api_key():
@@ -39,7 +39,7 @@ def verify_address_details(address_dict):
     # Endpoint for verifying addresses within the Print & Mail API
     endpoint = f"{POSTGRID_BASE_URL}/verifications"
     
-    # Payload: PostGrid expects the address object directly in the body
+    # Payload: PostGrid Print & Mail expects the address object wrapped in "address"
     payload = {
         "address": {
             "line1": address_dict.get("line1", ""),
@@ -55,15 +55,16 @@ def verify_address_details(address_dict):
         # We use a timeout to prevent hanging if the API is slow
         response = requests.post(endpoint, auth=(api_key, ""), json=payload, timeout=15)
         
-        # Handle 400 Bad Request (often means data format is wrong)
+        # Handle 400 Bad Request (often means data format is wrong or empty)
         if response.status_code == 400:
-             return "invalid", {}, ["Address format is invalid or incomplete."]
+             return "invalid", {}, ["Address format is invalid or fields are missing."]
              
         response.raise_for_status()
         data = response.json()
         
         # In the Print & Mail API, the verification result is inside a 'data' key
-        res = data.get("data", {})
+        # If 'data' is missing, fallback to root (just in case of API version diffs)
+        res = data.get("data", data)
         
         # Check specific status field
         status_code = res.get("status") # values: 'verified', 'corrected', 'failed'
@@ -88,7 +89,14 @@ def verify_address_details(address_dict):
         else:
              # If status is 'failed' or anything else
              errors = res.get("errors", {})
-             error_list = list(errors.values()) if errors else ["Address could not be verified."]
+             # Flatten error values if it's a dict, otherwise use as list
+             if isinstance(errors, dict):
+                 error_list = list(errors.values())
+             elif isinstance(errors, list):
+                 error_list = errors
+             else:
+                 error_list = ["Address could not be verified."]
+                 
              return "invalid", {}, error_list
 
     except requests.exceptions.ConnectTimeout:
@@ -145,9 +153,11 @@ def send_letter(pdf_bytes, recipient_addr, sender_addr=None, description="VerbaP
     try:
         # Handle both file paths (str) and raw bytes
         if isinstance(pdf_bytes, str):
+            # It's a file path
             opened_file = open(pdf_bytes, 'rb')
             files["pdf"] = ("letter.pdf", opened_file, "application/pdf")
         else:
+            # It's raw bytes (from ui_main.py generation)
             files["pdf"] = ("letter.pdf", pdf_bytes, "application/pdf")
 
         # 3. Send Request
