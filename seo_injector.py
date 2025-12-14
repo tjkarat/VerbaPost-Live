@@ -1,59 +1,31 @@
-import os
 import streamlit as st
 
-def inject_meta_tags():
+def inject_meta():
     """
-    Injects SEO tags and generates sitemap.xml.
-    Safe for Read-Only filesystems (will fail silently).
+    Injects high-value SEO tags for End of Life & Legacy services.
+    Call this function at the top of main.py.
     """
-    # --- STATIC FOLDER CONFIG ---
-    # Use current working directory for robustness
-    static_dir = os.path.join(os.getcwd(), "static")
+    meta_tags = """
+    <title>VerbaPost | Secure End of Life & Legacy Letters</title>
+    <meta name="title" content="VerbaPost | Secure End of Life & Legacy Letters">
+    <meta name="description" content="The secure way to document and mail final wishes, wills, and legacy letters. Printed on archival paper and delivered via USPS Certified Mail. 100% Private.">
+    <meta name="keywords" content="end of life letter, legacy planning, death dossier, ethical will, write my final wishes, send certified mail online, posthumous letters, VerbaPost">
     
-    if not os.path.exists(static_dir):
-        try:
-            os.makedirs(static_dir)
-        except OSError:
-            pass # Fail silently
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://verbapost.com/">
+    <meta property="og:title" content="VerbaPost | Leave a Lasting Legacy">
+    <meta property="og:description" content="Don't leave things unsaid. Securely write, print, and certify your final letters and wishes today.">
+    <meta property="og:image" content="https://verbapost.com/static/social_preview.png">
 
-    # --- SITEMAP GENERATION ---
-    sitemap_content = """<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-   <url><loc>https://www.verbapost.com/</loc><priority>1.0</priority></url>
-</urlset>"""
-
-    try:
-        with open(os.path.join(static_dir, "sitemap.xml"), "w") as f:
-            f.write(sitemap_content)
-    except Exception:
-        pass 
-
-    # --- INJECT HTML TAGS ---
-    try:
-        # Target the streamlit static index.html
-        st_dir = os.path.dirname(st.__file__)
-        index_path = os.path.join(st_dir, "static", "index.html")
-        
-        if os.path.exists(index_path):
-            with open(index_path, "r", encoding="utf-8") as f:
-                html = f.read()
-
-            meta_tags = """
-            <title>VerbaPost | Making sending physical mail easier</title>
-            <meta name="description" content="Send physical USPS mail from your phone." />
-            """
-            
-            # Simple check to avoid duplicate injection
-            if "VerbaPost | Making sending" not in html:
-                html = html.replace("<head>", f"<head>{meta_tags}")
-                try:
-                    with open(index_path, "w", encoding="utf-8") as f:
-                        f.write(html)
-                except PermissionError:
-                    pass # Expected in some cloud envs
-                
-    except Exception:
-        pass # SEO is non-critical
-
-if __name__ == "__main__":
-    inject_meta_tags()
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://verbapost.com/">
+    <meta property="twitter:title" content="VerbaPost | Secure Legacy Letters">
+    <meta property="twitter:description" content="The secure platform for end-of-life correspondence. Archival quality. Certified delivery.">
+    
+    <meta name="geo.region" content="US">
+    <meta name="geo.position" content="37.0902;-95.7129">
+    <meta name="ICBM" content="37.0902, -95.7129">
+    """
+    
+    # Inject into the <head> of the Streamlit app
+    st.markdown(meta_tags, unsafe_allow_html=True)
