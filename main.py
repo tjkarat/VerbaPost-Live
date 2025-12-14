@@ -82,28 +82,46 @@ def main():
     mode = st.session_state.app_mode
 
     if mode == "splash":
-        if ui_splash: ui_splash.render_splash_page()
-        else: st.error("Splash module missing")
+        if ui_splash:
+            ui_splash.render_splash_page()
+        else:
+            st.error("System Error: Splash module missing.")
 
     elif mode == "login":
-        if ui_login: ui_login.render_login_page()
+        if ui_login:
+            ui_login.render_login_page()
+        else:
+            st.error("System Error: Login module missing.")
         
     elif mode == "legacy":
-        if ui_legacy: ui_legacy.render_legacy_page()
+        if ui_legacy:
+            ui_legacy.render_legacy_page()
+        else:
+            st.error("System Error: Legacy module missing.")
         
     elif mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
+        if ui_legal:
+            ui_legal.render_legal_page()
+        else:
+            st.error("System Error: Legal module missing.")
         
     elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
+        if ui_admin:
+            ui_admin.render_admin_page()
+        else:
+            st.error("System Error: Admin module missing.")
         
     # Default / Standard App Flow
     elif mode in ["store", "workspace", "review"]:
-        if ui_main: ui_main.render_main()
+        if ui_main:
+            ui_main.render_main()
+        else:
+            st.error("System Error: UI Main module missing.")
     
     else:
         # Fallback
-        if ui_main: ui_main.render_main()
+        if ui_main:
+            ui_main.render_main()
 
 if __name__ == "__main__":
     main()

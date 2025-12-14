@@ -7,6 +7,7 @@ import base64
 import hashlib
 
 # --- ROBUST IMPORTS ---
+# We wrap these to prevent the entire app from crashing if one module has an issue.
 try:
     import database
 except ImportError:
@@ -146,7 +147,7 @@ def _save_legacy_draft():
         
         if d_id:
             # Update existing draft
-            # FIX: Changed 'text' to 'content' to match database.py schema
+            # FIX: Changed argument from 'text' to 'content' to match database.py schema
             database.update_draft_data(
                 d_id, 
                 content=text_content, 
@@ -163,7 +164,7 @@ def _save_legacy_draft():
     except Exception as e:
         st.error(f"Save failed: {e}")
 
-# --- SUCCESS VIEW (NEW) ---
+# --- SUCCESS VIEW (Prevents Payment Loop) ---
 def render_success_view():
     """
     Displays the confirmation screen after payment.
@@ -181,8 +182,8 @@ def render_success_view():
         """, unsafe_allow_html=True
     )
     
-    # Display the captured email
-    email = st.session_state.get("user_email", "your email address")
+    # We display the email we captured from Stripe
+    email = st.session_state.get("user_email", "your email")
     st.info(f"We will email the **USPS Tracking Number** to: **{email}**")
     
     st.markdown("---")
@@ -319,7 +320,7 @@ def render_legacy_page():
 
     # 7. Compose Section (With Accessibility Tabs & Loop Fix)
     st.markdown("---")
-    st.markdown("### ✍️ Step 3: Write Your Legacy")
+    st.markdown("### ✍️ Step 3: Compose")
     
     st.markdown(
         """
@@ -451,7 +452,7 @@ def render_legacy_page():
         guest_email = None
         if not st.session_state.get("authenticated"):
             guest_email = st.text_input("📧 Enter Email for Tracking Number", placeholder="you@example.com")
-            # If user enters an email, save it to session immediately
+            # If user enters an email, save it to session
             if guest_email:
                 st.session_state.user_email = guest_email
         
