@@ -1,6 +1,5 @@
 import streamlit as st
 import time
-# DIRECT IMPORT - DO NOT WRAP IN TRY/EXCEPT
 import auth_engine 
 import database
 
@@ -104,14 +103,13 @@ def render_login_page():
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.get("email")
                         
-                        # FIX: Fetch Profile Data for Address Auto-population
+                        # FETCH PROFILE FOR AUTO-FILL
                         if database and hasattr(database, "supabase"):
                             try:
                                 res = database.supabase.table("user_profiles").select("*").eq("user_id", user.get("id")).execute()
                                 if res.data:
                                     st.session_state.user_profile = res.data[0]
-                            except Exception as e:
-                                print(f"Profile Fetch Error: {e}")
+                            except: pass
 
                         st.toast("Login Successful!", icon="✅")
                         st.query_params.clear()
@@ -121,7 +119,7 @@ def render_login_page():
                         trigger_shake_error()
                         st.error("Incorrect credentials or email not confirmed.")
         
-        # Forgot Password
+        # Forgot Password (Correctly placed OUTSIDE the form)
         with st.expander("❓ Forgot Password?"):
             st.write("We will send a 6-digit code to your email.")
             rec_email = st.text_input("Enter your email", key="rec_email_input")
@@ -143,7 +141,7 @@ def render_login_page():
             new_email = st.text_input("Email", key="su_email")
             new_pass = st.text_input("Password", type="password", key="su_pass")
             
-            # Collect Address on Signup
+            # Profile Fields
             st.markdown("#### Return Address")
             su_name = st.text_input("Full Name", key="su_name")
             su_street = st.text_input("Street Address", key="su_street")
@@ -157,21 +155,21 @@ def render_login_page():
                     try:
                         user = auth_engine.create_user(new_email, new_pass)
                         if user:
-                            # Create Profile
+                            # Auto-create profile entry if DB exists
                             if database:
-                                profile_data = {
-                                    "user_id": user["id"],
-                                    "email": new_email,
-                                    "full_name": su_name,
-                                    "return_address_street": su_street,
-                                    "return_address_city": su_city,
-                                    "return_address_state": su_state,
-                                    "return_address_zip": su_zip,
-                                    "return_address_country": "US"
-                                }
                                 try:
-                                    database.create_user_profile(profile_data)
-                                    st.session_state.user_profile = profile_data
+                                    profile = {
+                                        "user_id": user["id"],
+                                        "email": new_email,
+                                        "full_name": su_name,
+                                        "address_line1": su_street,
+                                        "address_city": su_city,
+                                        "address_state": su_state,
+                                        "address_zip": su_zip,
+                                        "country": "US"
+                                    }
+                                    database.create_user_profile(profile)
+                                    st.session_state.user_profile = profile
                                 except: pass
                                 
                             st.success("Account Created! Please check your email to confirm.")

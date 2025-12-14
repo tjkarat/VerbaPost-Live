@@ -97,19 +97,41 @@ def reset_app_state():
 def load_address_book():
     """
     Fetches contacts from DB if logged in.
-    Returns a dictionary formatted for a selectbox.
+    FIX: Uses 'get_contacts' instead of 'get_saved_contacts'
     """
     if not database or not st.session_state.get("authenticated"):
         return {}
     
     try:
         user_email = st.session_state.get("user_email")
-        contacts = database.get_saved_contacts(user_email)
-        return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
+        # Corrected function name based on database.py
+        contacts = database.get_contacts(user_email)
+        # Handle SQLAlchemy objects or dicts
+        result = {}
+        for c in contacts:
+            # Check if it's an object (SQLAlchemy) or dict
+            name = getattr(c, 'name', c.get('name')) if hasattr(c, 'name') else c.get('name')
+            city = getattr(c, 'city', c.get('city', 'Unknown')) if hasattr(c, 'city') else c.get('city', 'Unknown')
+            
+            # Convert object to dict for easier usage
+            contact_dict = {
+                'name': name,
+                'street': getattr(c, 'street', c.get('street')),
+                'city': city,
+                'state': getattr(c, 'state', c.get('state')),
+                'zip': getattr(c, 'zip_code', c.get('zip_code')),
+            }
+            result[f"{name} ({city})"] = contact_dict
+            
+        return result
     except Exception as e:
+        print(f"Address Book Error: {e}")
         return {}
 
 def _handle_draft_creation(email, tier, price):
+    """
+    Ensures a draft exists in the DB before payment.
+    """
     d_id = st.session_state.get("current_draft_id")
     success = False
     
@@ -126,7 +148,6 @@ def _handle_draft_creation(email, tier, price):
 
 def render_store_page():
     """Step 1: The Store (Pricing & Tier Selection)."""
-    # 1. Auth Guard
     u_email = st.session_state.get("user_email", "")
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
@@ -135,7 +156,6 @@ def render_store_page():
             st.rerun()
         return
 
-    # Help on Main Page
     with st.expander("❓ How VerbaPost Works (Help)", expanded=False):
         st.markdown("""
         **Simple 4-Step Process:**
@@ -182,6 +202,7 @@ def render_campaign_uploader():
     
     if uploaded_file:
         contacts = bulk_engine.parse_csv(uploaded_file)
+        
         if not contacts:
             st.error("❌ Could not parse CSV. Please check the format.")
             return
@@ -240,7 +261,7 @@ def render_workspace_page():
             with col_from:
                 st.markdown("### From: (Return Address)")
                 
-                # FIX: Auto-populate from Profile (Except for Santa)
+                # Auto-populate from Profile
                 profile = st.session_state.get("user_profile", {})
                 
                 def_name = ""
@@ -250,19 +271,18 @@ def render_workspace_page():
                 def_zip = ""
                 
                 if current_tier == "Santa":
-                    # Santa defaults (Customizable or North Pole)
                     def_name = "Santa Claus"
                     def_street = "123 Elf Lane"
                     def_city = "North Pole"
                     def_state = "AK"
                     def_zip = "99705"
                 elif profile:
-                    # Enforce User Profile for Standard/Heirloom/Civic
-                    def_name = profile.get("full_name", "")
-                    def_street = profile.get("return_address_street", "")
-                    def_city = profile.get("return_address_city", "")
-                    def_state = profile.get("return_address_state", "")
-                    def_zip = profile.get("return_address_zip", "")
+                    # Handle both dict and object access safely
+                    def_name = profile.get("full_name", "") if isinstance(profile, dict) else getattr(profile, "full_name", "")
+                    def_street = profile.get("address_line1", "") if isinstance(profile, dict) else getattr(profile, "address_line1", "")
+                    def_city = profile.get("address_city", "") if isinstance(profile, dict) else getattr(profile, "address_city", "")
+                    def_state = profile.get("address_state", "") if isinstance(profile, dict) else getattr(profile, "address_state", "")
+                    def_zip = profile.get("address_zip", "") if isinstance(profile, dict) else getattr(profile, "address_zip", "")
 
                 f_name = st.text_input("Your Name", value=def_name, key="from_name")
                 f_street = st.text_input("Your Street", value=def_street, key="from_street")
@@ -281,7 +301,12 @@ def render_workspace_page():
                 
                 d_id = st.session_state.get("current_draft_id")
                 if d_id and database:
-                    database.update_draft_data(d_id, to_address=st.session_state.addr_to, from_address=st.session_state.addr_from)
+                    # FIX: Corrected argument names to match database.py (to_addr, from_addr)
+                    database.update_draft_data(
+                        d_id, 
+                        to_addr=st.session_state.addr_to, 
+                        from_addr=st.session_state.addr_from
+                    )
                 
                 st.success("✅ Addresses Saved!")
 
