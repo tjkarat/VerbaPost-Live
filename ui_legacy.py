@@ -1,5 +1,7 @@
 import streamlit as st
 import time
+import tempfile
+import os
 
 # --- ROBUST IMPORTS ---
 try:
@@ -22,10 +24,36 @@ try:
 except Exception:
     letter_format = None
 
+try:
+    import ai_engine
+except Exception:
+    ai_engine = None
+
 # --- LEGACY PAGE LOGIC ---
 def render_legacy_page():
+    # --- CSS FOR FONT PREVIEWS ---
+    # We load the web versions of your fonts so users can see them live
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Caveat&family=Great+Vibes&family=Indie+Flower&family=Schoolbell&display=swap');
+    
+    .font-preview-box {
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 10px;
+        background-color: #f9f9f9;
+        margin-bottom: 20px;
+        text-align: center;
+    }
+    .fp-Caveat { font-family: 'Caveat', cursive; font-size: 28px; color: #333; }
+    .fp-GreatVibes { font-family: 'Great Vibes', cursive; font-size: 32px; color: #333; }
+    .fp-IndieFlower { font-family: 'Indie Flower', cursive; font-size: 24px; color: #333; }
+    .fp-Schoolbell { font-family: 'Schoolbell', cursive; font-size: 24px; color: #333; }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.markdown("## 🕊️ Legacy Service (End of Life)")
-    st.info("Securely document and deliver your final wishes. No AI processing. 100% Private.")
+    st.info("Securely document and deliver your final wishes. \n\n**Privacy Guarantee:** This tool uses local transcription only. No AI analysis, editing, or data retention is performed.")
 
     # --- 1. SENDER INFO ---
     with st.expander("📍 Step 1: Your Information", expanded=True):
@@ -38,69 +66,136 @@ def render_legacy_page():
             state = st.text_input("State", key="leg_state")
             zip_code = st.text_input("Zip", key="leg_zip")
 
-    # --- 2. COMPOSITION (NO AI) ---
-    st.markdown("### ✍️ Step 2: Compose Letter")
+    # --- 2. FONT SELECTION ---
+    st.markdown("### 🖋️ Step 2: Choose Handwriting Style")
     
-    # Font Selection with Visual Cues
-    st.write("Choose a handwriting style for your letter:")
-    font_cols = st.columns(4)
+    # Map friendly names to internal names
+    font_map = {
+        "Caveat (Casual)": "Caveat",
+        "Great Vibes (Elegant)": "Great Vibes",
+        "Indie Flower (Playful)": "Indie Flower", 
+        "Schoolbell (Neat)": "Schoolbell"
+    }
     
-    # Using session state to track font choice
-    if "legacy_font" not in st.session_state:
-        st.session_state.legacy_font = "Caveat"
+    f_col1, f_col2 = st.columns([1, 2])
+    with f_col1:
+        selected_label = st.radio(
+            "Select Font:",
+            list(font_map.keys()),
+            index=0
+        )
+        font_choice = font_map[selected_label]
+        # Store for PDF generator
+        st.session_state.legacy_font = font_choice
 
-    # Radio button hidden functionality via visual columns
-    font_choice = st.radio(
-        "Select Font Style:",
-        ["Caveat", "Great Vibes", "Indie Flower", "Schoolbell"],
-        horizontal=True,
-        index=0,
-        help="Select the handwriting style for the PDF."
-    )
-    st.session_state.legacy_font = font_choice
+    with f_col2:
+        # Live Preview
+        css_class = f"fp-{font_choice.replace(' ', '')}"
+        st.markdown(f"""
+        <div class="font-preview-box">
+            <p class="{css_class}">
+                "To my dearest family,<br>
+                This is how my final words will look on paper.<br>
+                With love, {name or 'Me'}"
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    # Large Text Area for Long Files
-    st.markdown(f"**Selected Style:** *{font_choice}*")
+    # --- 3. DICTATION & COMPOSITION ---
+    st.markdown("### 🎙️ Step 3: Record or Write")
+    
+    # Dictation Interface
+    with st.container(border=True):
+        st.markdown("#### 🗣️ Dictate Your Letter")
+        st.markdown("""
+        **Instructions:**
+        1.  Click the microphone icon below.
+        2.  Speak clearly and take your time. (Long pauses are okay).
+        3.  Click 'Stop' when finished.
+        4.  Press **Transcribe** to convert voice to text.
+        """)
+        
+        col_mic, col_up = st.columns(2)
+        with col_mic:
+            audio_mic = st.audio_input("Record Voice")
+        with col_up:
+            uploaded_file = st.file_uploader("Or Upload Audio File (mp3/wav/m4a)", type=["mp3", "wav", "m4a"])
+
+        # Handle Transcription
+        active_audio = uploaded_file or audio_mic
+        if active_audio:
+            if ai_engine:
+                if st.button("📝 Transcribe Audio", type="primary"):
+                    with st.spinner("Transcribing... (This may take a moment for long files)"):
+                        suffix = ".wav" if not uploaded_file else os.path.splitext(uploaded_file.name)[1]
+                        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as t:
+                            t.write(active_audio.getvalue())
+                            tpath = t.name
+                        
+                        try:
+                            # Direct transcription, NO AI refinement calls
+                            text = ai_engine.transcribe_audio(tpath)
+                            
+                            # Append to existing text if any
+                            current_text = st.session_state.get("legacy_text", "")
+                            if current_text:
+                                st.session_state.legacy_text = current_text + "\n\n" + text
+                            else:
+                                st.session_state.legacy_text = text
+                                
+                            st.success("Transcription Complete!")
+                        except Exception as e:
+                            st.error(f"Transcription Failed: {e}")
+                        finally:
+                            if os.path.exists(tpath):
+                                try: os.remove(tpath)
+                                except: pass
+            else:
+                st.warning("AI Engine not loaded. Transcription unavailable.")
+
+    # Text Editor
+    st.markdown("#### ✍️ Edit & Review")
     letter_text = st.text_area(
-        "Type your message here (Unlimited length):", 
+        "Letter Content (Unlimited Length)", 
+        value=st.session_state.get("legacy_text", ""),
         height=600, 
-        placeholder="My dearest family,\n\nI am writing this to share my final thoughts...",
-        help="This text is processed locally and formatted directly into PDF. No AI analysis is performed."
+        key="legacy_text_area",
+        placeholder="Type here or use the recorder above..."
     )
+    # Sync text area back to session state
+    if letter_text:
+        st.session_state.legacy_text = letter_text
 
-    # Optional File Upload for Text
-    uploaded_text = st.file_uploader("Or upload a text file (.txt)", type=["txt"])
-    if uploaded_text:
-        letter_text = uploaded_text.read().decode("utf-8")
-        st.success("File loaded successfully!")
-
-    # --- 3. PREVIEW & PAY ---
-    st.markdown("### 👁️ Step 3: Preview & Secure")
+    # --- 4. PREVIEW & PAY ---
+    st.markdown("### 👁️ Step 4: Finalize")
     
     col_prev, col_pay = st.columns([1, 1])
 
     with col_prev:
-        if st.button("📄 Generate PDF Preview"):
+        if st.button("📄 Download PDF Proof"):
             if not name or not letter_text:
                 st.error("Please fill in your name and letter text first.")
             elif letter_format:
-                # Create dummy sender/recipient for preview
+                # Create dummy recipient for preview
                 s_data = {"name": name, "street": street, "city": city, "state": state, "zip": zip_code}
                 r_data = {"name": "Recipient Name", "street": "123 Example St", "city": "City", "state": "ST", "zip": "00000"}
                 
-                pdf_bytes = letter_format.create_pdf(
-                    letter_text, 
-                    s_data, 
-                    r_data, 
-                    tier="Legacy",
-                    font_choice=st.session_state.legacy_font
-                )
-                st.download_button(
-                    label="⬇️ Download PDF Proof",
-                    data=pdf_bytes,
-                    file_name="legacy_proof.pdf",
-                    mime="application/pdf"
-                )
+                try:
+                    pdf_bytes = letter_format.create_pdf(
+                        letter_text, 
+                        s_data, 
+                        r_data, 
+                        tier="Legacy",
+                        font_choice=st.session_state.legacy_font
+                    )
+                    st.download_button(
+                        label="⬇️ Download PDF",
+                        data=pdf_bytes,
+                        file_name="legacy_proof.pdf",
+                        mime="application/pdf"
+                    )
+                except Exception as e:
+                    st.error(f"Error generating PDF: {e}")
             else:
                 st.error("PDF Engine not loaded.")
 
@@ -109,7 +204,7 @@ def render_legacy_page():
         **Total: $15.99**
         * Archival Paper
         * Certified Mail Tracking
-        * {font_choice} Handwriting Style
+        * **{font_choice}** Style
         """)
         
         if st.button("💳 Proceed to Payment ($15.99)", type="primary"):
