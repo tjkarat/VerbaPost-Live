@@ -7,7 +7,6 @@ import time
 from io import BytesIO
 
 # --- ROBUST IMPORTS ---
-# --- ROBUST IMPORTS ---
 try:
     import ui_splash
 except Exception:
@@ -34,11 +33,6 @@ except Exception:
     ai_engine = None
 
 try:
-    import promo_engine
-except Exception:
-    promo_engine = None
-
-try:
     import payment_engine
 except Exception:
     payment_engine = None
@@ -62,6 +56,12 @@ try:
     import letter_format
 except Exception:
     letter_format = None
+
+try:
+    import promo_engine
+except Exception:
+    promo_engine = None
+
 logger = logging.getLogger(__name__)
 
 # --- CONFIG ---
@@ -99,11 +99,13 @@ def _save_address_book(user_email, data, is_sender=False):
     except Exception: pass
 
 def _load_user_profile():
-    if not st.session_state.get("profile_loaded") and database and st.session_state.get("authenticated"):
+    """Loads user profile to autofill sender address."""
+    if database and st.session_state.get("authenticated") and not st.session_state.get("profile_loaded"):
         try:
             if hasattr(database, "get_user_profile"):
                 profile = database.get_user_profile(st.session_state.user_email)
                 if profile:
+                    # Save to a holding dict
                     st.session_state.sender_data = {
                         "name": profile.get("full_name", ""),
                         "street": profile.get("return_address_street", ""),
@@ -112,6 +114,13 @@ def _load_user_profile():
                         "zip": profile.get("return_address_zip", ""),
                         "country": profile.get("return_address_country", "US")
                     }
+                    # FORCE HYDRATION: Push directly to widget keys
+                    st.session_state.s_n = profile.get("full_name", "")
+                    st.session_state.s_s = profile.get("return_address_street", "")
+                    st.session_state.s_c = profile.get("return_address_city", "")
+                    st.session_state.s_st = profile.get("return_address_state", "")
+                    st.session_state.s_z = profile.get("return_address_zip", "")
+            
             st.session_state.profile_loaded = True
         except Exception: pass
 
@@ -171,6 +180,18 @@ def render_store_page():
     with c2:
         with st.container(border=True):
             st.metric("Price / Unit", f"${price:.2f}")
+            
+            # PROMO CODE LOGIC
+            promo_code = st.text_input("Promo Code", key="store_promo")
+            if promo_code and promo_engine:
+                valid, discount, p_type = promo_engine.validate_promo(promo_code)
+                if valid:
+                    st.success(f"Code Applied: {discount}% OFF")
+                    price = price * (1 - discount/100)
+                    st.metric("New Price", f"${price:.2f}")
+                else:
+                    st.error("Invalid Code")
+
             if st.button("Generate Checkout Link 💳", type="primary", use_container_width=True):
                 st.session_state.locked_price = price
                 u = st.session_state.get("user_email", "guest")
@@ -202,7 +223,9 @@ def render_workspace_page():
         time.sleep(1.5)
         st.rerun()
 
+    # Load profile and hydrate keys if needed
     _load_user_profile()
+
     tier = st.session_state.get("locked_tier", "Standard")
     
     # --- HEADER & TUTORIAL ---
@@ -218,38 +241,42 @@ def render_workspace_page():
     with t1:
         st.caption("Tell us where this letter is going.")
         
+        # --- ADDRESS BOOK LOGIC ---
         if database and st.session_state.get("authenticated"):
             try:
                 saved = database.get_saved_contacts(st.session_state.user_email)
                 if saved:
+                    # Create a friendly label for the dropdown
                     opts = {f"{x['name']} ({x.get('street','')})": x for x in saved}
                     selected_key = st.selectbox("📂 Load from Address Book", ["Select..."] + list(opts.keys()))
+                    
+                    # If user selects someone, force-feed the form keys
                     if selected_key != "Select...":
                         data = opts[selected_key]
-                        st.session_state.recipient_data = {
-                            "name": data.get("name"), "street": data.get("street"),
-                            "city": data.get("city"), "state": data.get("state"),
-                            "zip": data.get("zip"), "country": data.get("country", "US")
-                        }
+                        st.session_state.r_n = data.get("name", "")
+                        st.session_state.r_s = data.get("street", "")
+                        st.session_state.r_c = data.get("city", "")
+                        st.session_state.r_st = data.get("state", "")
+                        st.session_state.r_z = data.get("zip", "")
             except Exception: pass
+        # --------------------------
 
         with st.form("addr_form"):
             c1, c2 = st.columns(2)
             
             # SENDER
-            s_defaults = st.session_state.get("sender_data", {})
             with c1:
                 st.markdown("### 🏠 From (You)")
-                s_name = st.text_input("Name", value=s_defaults.get("name",""), key="s_n")
-                s_str = st.text_input("Street", value=s_defaults.get("street",""), key="s_s")
+                # Keys allow auto-population from profile
+                s_name = st.text_input("Name", key="s_n")
+                s_str = st.text_input("Street", key="s_s")
                 sa, sb, sc = st.columns(3)
-                s_city = sa.text_input("City", value=s_defaults.get("city",""), key="s_c")
-                s_state = sb.text_input("State", value=s_defaults.get("state",""), key="s_st")
-                s_zip = sc.text_input("Zip", value=s_defaults.get("zip",""), key="s_z")
+                s_city = sa.text_input("City", key="s_c")
+                s_state = sb.text_input("State", key="s_st")
+                s_zip = sc.text_input("Zip", key="s_z")
                 s_country = st.selectbox("Country", ["US", "CA", "UK"], index=0, key="s_co")
 
             # RECIPIENT
-            r_defaults = st.session_state.get("recipient_data", {})
             with c2:
                 if tier == "Civic":
                     st.markdown("### 🏛️ To (Congress)")
@@ -274,12 +301,13 @@ def render_workspace_page():
                 
                 else:
                     st.markdown("### 📬 To (Recipient)")
-                    r_name = st.text_input("Name", value=r_defaults.get("name",""), key="r_n")
-                    r_str = st.text_input("Street", value=r_defaults.get("street",""), key="r_s")
+                    # Keys allow auto-population from Address Book
+                    r_name = st.text_input("Name", key="r_n")
+                    r_str = st.text_input("Street", key="r_s")
                     ra, rb, rc = st.columns(3)
-                    r_city = ra.text_input("City", value=r_defaults.get("city",""), key="r_c")
-                    r_state = rb.text_input("State", value=r_defaults.get("state",""), key="r_st")
-                    r_zip = rc.text_input("Zip", value=r_defaults.get("zip",""), key="r_z")
+                    r_city = ra.text_input("City", key="r_c")
+                    r_state = rb.text_input("State", key="r_st")
+                    r_zip = rc.text_input("Zip", key="r_z")
                     r_country = st.selectbox("Country", ["US", "CA", "UK"], index=0, key="r_co")
 
             # Save Actions
@@ -297,13 +325,12 @@ def render_workspace_page():
     with t2:
         st.markdown("### 🎙️ Dictation Studio")
         
-        # --- GUIDED TUTORIAL ---
         with st.expander("📖 How to Record (Click to Open)", expanded=True):
             st.markdown("""
             1. **Hit Record:** Click the microphone icon below.
             2. **Speak Clearly:** Dictate your letter. Don't worry about mistakes!
             3. **Stop:** Click the icon again to stop recording.
-            4. **Transcribe:** Click the 'Transcribe Audio' button to turn voice into text.
+            4. **Transcribe:** Click the 'Transcribe Audio' button.
             """)
 
         col_mic, col_file = st.columns(2)
@@ -377,11 +404,12 @@ def render_review_page():
                 
                 # Civic Override for PDF
                 if st.session_state.locked_tier == "Civic":
-                    r = {"r_name": "US Congress", "r_street": "Washington, DC"}
+                    r = {"name": "US Congress", "street": "Washington, DC"}
 
                 pdf = letter_format.create_pdf(
                     st.session_state.get("transcribed_text", ""), 
-                    {**s, **r}, 
+                    s, 
+                    r, 
                     st.session_state.locked_tier
                 )
                 if pdf:
@@ -404,6 +432,7 @@ def render_review_page():
 
 # --- MAIN ENTRY ---
 def render_main():
+    render_sidebar()
     mode = st.session_state.get("app_mode", "store")
     if mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
