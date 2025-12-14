@@ -5,7 +5,6 @@ import hashlib
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
-# These handle the heavy lifting (Database, AI, Payments, Mail)
 import ai_engine
 import payment_engine
 import mailer
@@ -49,13 +48,10 @@ def inject_accessibility_css():
     """
     st.markdown("""
         <style>
-        /* 1. Make the Tab Text Huge and Bold */
         .stTabs [data-baseweb="tab"] p {
             font-size: 1.5rem !important;
             font-weight: 700 !important;
         }
-
-        /* 2. Turn Tabs into Large Buttons with Outlines */
         .stTabs [data-baseweb="tab"] {
             height: 70px;
             white-space: pre-wrap;
@@ -64,27 +60,21 @@ def inject_accessibility_css():
             gap: 2px;
             padding-top: 10px;
             padding-bottom: 10px;
-            border: 3px solid #9CA3AF; /* Thick Grey Outline */
+            border: 3px solid #9CA3AF;
             margin-right: 5px;
-            color: #374151; /* Dark text for unselected */
+            color: #374151;
         }
-
-        /* 3. High Contrast for Selected Tab */
         .stTabs [aria-selected="true"] {
             background-color: #FF4B4B !important;
             border: 3px solid #FF4B4B !important;
             color: white !important;
         }
-        
-        /* 4. Force text color to white inside the active tab */
         .stTabs [aria-selected="true"] p {
             color: white !important;
         }
-
-        /* 5. Improve Instruction Box Visibility */
         .instruction-box {
-            background-color: #FEF3C7; /* Pale Yellow */
-            border-left: 10px solid #F59E0B; /* Orange Accent */
+            background-color: #FEF3C7;
+            border-left: 10px solid #F59E0B;
             padding: 20px;
             margin-bottom: 25px;
             font-size: 20px;
@@ -98,7 +88,7 @@ def inject_accessibility_css():
 
 def reset_app_state():
     """Clears session state for a fresh start."""
-    keys_to_keep = ["authenticated", "user_email", "user_name", "user_role"]
+    keys_to_keep = ["authenticated", "user_email", "user_name", "user_role", "user_profile"]
     for key in list(st.session_state.keys()):
         if key not in keys_to_keep:
             del st.session_state[key]
@@ -117,20 +107,14 @@ def load_address_book():
         contacts = database.get_saved_contacts(user_email)
         return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
     except Exception as e:
-        print(f"Address Book Error: {e}")
         return {}
 
 def _handle_draft_creation(email, tier, price):
-    """
-    Ensures a draft exists in the DB before payment.
-    """
     d_id = st.session_state.get("current_draft_id")
     success = False
     
     if d_id and database:
         success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
-        if not success:
-            print(f"Warning: Failed to update draft {d_id}")
             
     if (not success or not d_id) and database:
         d_id = database.save_draft(email, "", tier, price)
@@ -151,21 +135,18 @@ def render_store_page():
             st.rerun()
         return
 
-    # FIX: Added Help/Tutorial here on the main page
+    # Help on Main Page
     with st.expander("❓ How VerbaPost Works (Help)", expanded=False):
         st.markdown("""
         **Simple 4-Step Process:**
-        1. **Select Service:** Choose your letter tier below (Standard, Heirloom, etc.).
-        2. **Write:** Type or use your voice to dictate the letter content.
+        1. **Select Service:** Choose your letter tier below.
+        2. **Write:** Type or use your voice to dictate.
         3. **Address:** Load a saved contact or enter a new address.
         4. **Send:** We print, envelope, and mail it via USPS.
-        
-        **Need Support?** Email `support@verbapost.com`
         """)
 
     st.markdown("## 📮 Choose Your Letter Service")
     
-    # 2. Campaign Mode Toggle
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
     
     if mode == "Bulk Campaign":
@@ -173,7 +154,6 @@ def render_store_page():
         render_campaign_uploader()
         return
 
-    # 3. Standard Pricing Cards
     col1, col2, col3, col4 = st.columns(4)
 
     def price_card(col, title, price, desc, tier_code, btn_key):
@@ -202,13 +182,12 @@ def render_campaign_uploader():
     
     if uploaded_file:
         contacts = bulk_engine.parse_csv(uploaded_file)
-        
         if not contacts:
             st.error("❌ Could not parse CSV. Please check the format.")
             return
 
         st.success(f"✅ Loaded {len(contacts)} recipients.")
-        st.dataframe(contacts[:5]) # Show preview
+        st.dataframe(contacts[:5])
         
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
         st.metric("Estimated Total", f"${total}")
@@ -260,13 +239,37 @@ def render_workspace_page():
 
             with col_from:
                 st.markdown("### From: (Return Address)")
-                u_profile = st.session_state.get("user_profile", {})
-                f_name = st.text_input("Your Name", value=u_profile.get("full_name",""), key="from_name")
-                f_street = st.text_input("Your Street", value=u_profile.get("address_line1",""), key="from_street")
-                f_city = st.text_input("Your City", value=u_profile.get("city",""), key="from_city")
+                
+                # FIX: Auto-populate from Profile (Except for Santa)
+                profile = st.session_state.get("user_profile", {})
+                
+                def_name = ""
+                def_street = ""
+                def_city = ""
+                def_state = ""
+                def_zip = ""
+                
+                if current_tier == "Santa":
+                    # Santa defaults (Customizable or North Pole)
+                    def_name = "Santa Claus"
+                    def_street = "123 Elf Lane"
+                    def_city = "North Pole"
+                    def_state = "AK"
+                    def_zip = "99705"
+                elif profile:
+                    # Enforce User Profile for Standard/Heirloom/Civic
+                    def_name = profile.get("full_name", "")
+                    def_street = profile.get("return_address_street", "")
+                    def_city = profile.get("return_address_city", "")
+                    def_state = profile.get("return_address_state", "")
+                    def_zip = profile.get("return_address_zip", "")
+
+                f_name = st.text_input("Your Name", value=def_name, key="from_name")
+                f_street = st.text_input("Your Street", value=def_street, key="from_street")
+                f_city = st.text_input("Your City", value=def_city, key="from_city")
                 col_fs, col_fz = st.columns(2)
-                f_state = col_fs.text_input("Your State", value=u_profile.get("state",""), key="from_state")
-                f_zip = col_fz.text_input("Your Zip", value=u_profile.get("zip_code",""), key="from_zip")
+                f_state = col_fs.text_input("Your State", value=def_state, key="from_state")
+                f_zip = col_fz.text_input("Your Zip", value=def_zip, key="from_zip")
             
             if st.form_submit_button("💾 Save Addresses"):
                 st.session_state.addr_to = {
@@ -378,7 +381,7 @@ def render_workspace_page():
                         st.success("✅ Audio Transcribed! Switch to 'Type Manually' to see the text.")
                         st.rerun()
                     else:
-                        st.warning("⚠️ No speech detected.")
+                        st.warning("⚠️ No speech detected. Please try again.")
                 except Exception as e:
                     st.error(f"Error processing audio: {e}")
                 finally:
@@ -413,21 +416,13 @@ def render_review_page():
                 std_from = address_standard.StandardAddress.from_dict(addr_from)
                 
                 raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier)
-                # FIX: Safe Cast
                 pdf_bytes = bytes(raw_pdf)
                 
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                
-                # FIX: Use Embed for Chrome compatibility
-                pdf_display = f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">'
-                st.markdown(pdf_display, unsafe_allow_html=True)
-                
-                # FIX: Add Download Button Fallback
+                st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
                 st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
-                
                 st.session_state.final_pdf = pdf_bytes
-            
             except Exception as e:
                 st.error(f"PDF Generation Error: {e}")
 
