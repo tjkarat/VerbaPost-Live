@@ -965,18 +965,65 @@ def render_review_page():
 
     if st.button("🚀 Send Letter", type="primary"):
         _process_sending_logic(tier)
-
+def render_sidebar():
+    """
+    Renders the sidebar with Admin Console access.
+    """
+    with st.sidebar:
+        st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        # User Status
+        if st.session_state.get("authenticated"):
+            u_email = st.session_state.get("user_email", "User")
+            st.info(f"👤 {u_email}")
+            if st.button("Log Out", use_container_width=True):
+                st.session_state.clear()
+                st.rerun()
+        else:
+            st.info("👤 Guest User")
+            if st.button("🔑 Log In / Sign Up", type="primary", use_container_width=True):
+                st.session_state.app_mode = "login"
+                st.session_state.auth_view = "login"
+                st.rerun()
+        
+        # --- ADMIN LINK LOGIC ---
+        try:
+            # 1. Get Admin Email safely
+            admin_email = "tjkarat@gmail.com" # Default fallback
+            if secrets_manager:
+                sec_email = secrets_manager.get_secret("admin.email")
+                if sec_email: admin_email = sec_email
+            
+            # 2. Check against current user
+            current = st.session_state.get("user_email", "").strip().lower()
+            
+            if st.session_state.get("authenticated") and current == admin_email.strip().lower():
+                st.write("")
+                st.markdown("---")
+                with st.expander("🛡️ Admin Console"):
+                     if st.button("Open Dashboard", use_container_width=True):
+                         st.session_state.app_mode = "admin"
+                         st.rerun()
+        except Exception:
+            pass # Fail silently if secrets missing
+            
+        st.markdown("---")
+        st.caption("v4.0 (Production)")
 # --- 10. MAIN ROUTER (RENAMED FROM SHOW_MAIN_APP) ---
+# --- MAIN ROUTER ---
 def render_main():
     inject_mobile_styles()
     
-    # 1. RENDER SIDEBAR (Critical for Admin)
+    # 1. CALL THE SIDEBAR (This makes the Admin link appear)
     render_sidebar()
-
+    
+    # 2. Analytics
     if analytics: 
         try: analytics.inject_ga()
         except: pass
     
+    # 3. Routing
     mode = st.session_state.get("app_mode", "splash")
     
     if mode == "splash" and ui_splash: 
@@ -990,13 +1037,13 @@ def render_main():
     elif mode == "review": 
         render_review_page()
     elif mode == "admin" and ui_admin: 
-        ui_admin.show_admin()
+        ui_admin.show_admin()  # <--- Admin Routing
     elif mode == "legal" and ui_legal: 
         ui_legal.render_legal()
     elif mode == "legacy" and ui_legacy:
         ui_legacy.render_legacy_page()
     else: 
-        # Fallback to store if authenticated
+        # Fallback
         if st.session_state.get("authenticated"):
             st.session_state.app_mode = "store"
             render_store_page()

@@ -8,22 +8,22 @@ except ImportError:
 
 def render_splash():
     """
-    Renders the marketing landing page.
-    Includes: Hero, Value Props, Pricing Grid, and Civic Leaderboard.
+    Renders the full marketing landing page with Hero, Features, Pricing, and Leaderboard.
     """
     
     # --- 1. HERO SECTION ---
+    # Restored the gradient styling and responsive text
     st.markdown("""
-    <div style="text-align: center; padding: 60px 0 40px 0;">
-        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #333;">📮 VerbaPost</h1>
-        <p style="font-size: 1.4em; color: #555; max-width: 600px; margin: 0 auto;">
+    <div style="text-align: center; padding: 60px 20px 40px 20px; background: linear-gradient(180deg, #ffffff 0%, #f0f2f6 100%); border-radius: 0 0 20px 20px; margin-bottom: 30px;">
+        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #203A60;">📮 VerbaPost</h1>
+        <p style="font-size: 1.4em; color: #555; max-width: 600px; margin: 0 auto; line-height: 1.6;">
             Real letters, sent from your screen.<br>
             <b>We print, envelope, and mail it for you.</b>
         </p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- 2. MAIN CALL TO ACTION (Context Aware) ---
+    # --- 2. MAIN CALL TO ACTION ---
     col1, col2 = st.columns(2)
     
     # Determine button text based on auth state
@@ -53,7 +53,7 @@ def render_splash():
 
     st.write("---")
 
-    # --- 3. VALUE PROPOSITIONS ---
+    # --- 3. VALUE PROPOSITIONS (Restored) ---
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("### 🎙️ Speak")
@@ -67,7 +67,7 @@ def render_splash():
     
     st.write("---")
     
-    # --- 4. PRICING GRID ---
+    # --- 4. PRICING GRID (Restored) ---
     st.subheader("Simple Pricing")
     
     p1, p2, p3 = st.columns(3)
@@ -89,7 +89,7 @@ def render_splash():
 
     st.write("---")
 
-    # --- 5. CIVIC LEADERBOARD (Dynamic) ---
+    # --- 5. CIVIC LEADERBOARD (Restored Dynamic Logic) ---
     st.subheader("🏛️ Civic Leaderboard")
     st.caption("Who is getting mail this week?")
     
@@ -115,17 +115,12 @@ def render_splash():
         hide_index=True
     )
     
-    # --- 6. FOOTER (Fixed Legal Links) ---
+    # --- 6. FOOTER (Fixed: Single Consolidated Legal Button) ---
     st.write("---")
-    f1, f2, f3 = st.columns([2, 1, 1])
+    f1, f2 = st.columns([3, 1])
     with f1:
-        st.caption("© 2025 VerbaPost. All rights reserved.")
-        st.caption("v4.0 - Production Stable")
+        st.caption("© 2025 VerbaPost. All rights reserved. | v4.0 - Production Stable")
     with f2:
-        if st.button("📜 Terms"):
-            st.query_params["view"] = "terms"
-            st.rerun()
-    with f3:
-        if st.button("🔒 Privacy"):
-            st.query_params["view"] = "privacy"
+        if st.button("⚖️ Legal & Privacy"):
+            st.query_params["view"] = "legal"
             st.rerun()
