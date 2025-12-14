@@ -6,14 +6,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Initialize Supabase Client
-supabase: Client = None
-try:
-    # Try fetching from secrets_manager if available, otherwise st.secrets directly
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    supabase = create_client(url, key)
-except Exception as e:
-    logger.error(f"Supabase Init Error: {e}")
+# We let this fail loudly if secrets are missing so we know why the app isn't working
+url = st.secrets["supabase"]["url"]
+key = st.secrets["supabase"]["key"]
+supabase = create_client(url, key)
 
 # --- AUTHENTICATION FUNCTIONS ---
 
@@ -40,6 +36,8 @@ def verify_user(email, password):
             }
     except Exception as e:
         logger.warning(f"Login failed for {email}: {e}")
+        # Print to console for debugging in cloud logs
+        print(f"Login Error: {e}")
     
     return None
 
@@ -64,7 +62,6 @@ def create_user(email, password):
             }
     except Exception as e:
         logger.error(f"Signup failed for {email}: {e}")
-        # Re-raise so the UI can show the specific error (e.g., "User already exists")
         raise e 
     
     return None
@@ -72,16 +69,21 @@ def create_user(email, password):
 def send_password_reset(email):
     """
     Sends a password reset email via Supabase.
+    Returns: (bool success, str message)
     """
     if not supabase:
-        return False
+        return False, "Supabase not connected"
         
     try:
-        supabase.auth.reset_password_email(email)
-        return True
+        # Ensure we redirect back to the app's recovery page
+        base_url = st.secrets.get("general", {}).get("BASE_URL", "https://verbapost.streamlit.app")
+        redirect_to = f"{base_url}/?type=recovery"
+        
+        supabase.auth.reset_password_email(email, options={"redirect_to": redirect_to})
+        return True, "Success"
     except Exception as e:
         logger.error(f"Reset email failed: {e}")
-        return False
+        return False, str(e)
 
 def update_user_password(new_password):
     """

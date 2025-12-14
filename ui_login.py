@@ -1,16 +1,7 @@
 import streamlit as st
 import time
-
-# --- ROBUST IMPORTS ---
-try:
-    import auth_engine
-except Exception:
-    auth_engine = None
-
-try:
-    import database
-except Exception:
-    database = None
+import auth_engine
+import database
 
 # --- ANIMATIONS & STYLING ---
 def trigger_shake_error():
@@ -52,17 +43,20 @@ def render_login_page():
 
     # --- TAB 1: LOGIN ---
     with tab_login:
-        with st.container(border=True):
+        with st.form("login_form"):
             email = st.text_input("Email Address", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
             
             st.write("")
-            if st.button("Sign In", type="primary", use_container_width=True):
+            if st.form_submit_button("Sign In", type="primary", use_container_width=True):
                 if not email or not password:
                     trigger_shake_error()
                     st.error("Please enter both email and password.")
-                elif auth_engine:
+                else:
+                    # Direct call to auth_engine without "if auth_engine:" check
+                    # This ensures if the module is broken, we see the error.
                     user = auth_engine.verify_user(email, password)
+                    
                     if user:
                         # SUCCESS LOGIC
                         st.session_state.authenticated = True
@@ -70,7 +64,7 @@ def render_login_page():
                         st.session_state.user_id = user.get("id")
                         st.toast("Login Successful!", icon="✅")
                         
-                        # FIX: Clear URL so we don't get stuck on login page
+                        # Clear URL so we don't get stuck on login page
                         st.query_params.clear()
                         
                         st.session_state.app_mode = "store"
@@ -78,18 +72,21 @@ def render_login_page():
                         st.rerun()
                     else:
                         trigger_shake_error()
-                        st.error("Incorrect email or password.")
-                else:
-                    st.error("Auth Engine Disconnected")
+                        st.error("Incorrect email or password. Please try again.")
 
             # Expandable "Forgot Password" Section
             with st.expander("❓ Trouble signing in?"):
                 st.info("Enter your email below to receive a secure reset link.")
                 reset_email = st.text_input("Recovery Email", key="reset_req_email")
                 if st.button("Send Reset Link"):
-                    if auth_engine and reset_email:
-                        auth_engine.send_password_reset(reset_email)
-                        st.success(f"Reset link sent to {reset_email}")
+                    if reset_email:
+                        success, msg = auth_engine.send_password_reset(reset_email)
+                        if success:
+                            st.success(f"Reset link sent to {reset_email}")
+                        else:
+                            st.error(f"Failed: {msg}")
+                    else:
+                        st.error("Please enter an email address.")
 
     # --- TAB 2: SIGNUP ---
     with tab_signup:
@@ -124,7 +121,7 @@ def render_login_page():
                 if not (new_email and new_pass and new_name and s_addr and s_zip):
                     trigger_shake_error()
                     st.error("All fields are required.")
-                elif auth_engine:
+                else:
                     try:
                         user = auth_engine.create_user(new_email, new_pass)
                         if user:
@@ -149,7 +146,7 @@ def render_login_page():
                             st.session_state.authenticated = True
                             st.session_state.user_email = new_email
                             
-                            # FIX: Clear URL here too
+                            # Clear URL here too
                             st.query_params.clear()
                             
                             st.session_state.app_mode = "store"
@@ -157,7 +154,7 @@ def render_login_page():
                             st.rerun()
                         else:
                             trigger_shake_error()
-                            st.error("Email already registered.")
+                            st.error("Email already registered or invalid.")
                     except Exception as e:
                         st.error(f"Signup Error: {e}")
 
@@ -176,12 +173,13 @@ def _render_password_reset():
         p2 = st.text_input("Confirm Password", type="password")
         if st.form_submit_button("Update Password"):
             if p1 == p2 and len(p1) > 5:
-                if auth_engine:
-                    auth_engine.update_user_password(p1)
+                if auth_engine.update_user_password(p1):
                     st.success("Password Updated! Please log in.")
                     time.sleep(2)
                     st.query_params.clear()
                     st.rerun()
+                else:
+                    st.error("Failed to update password. Link may have expired.")
             else:
                 trigger_shake_error()
                 st.error("Passwords must match and be at least 6 characters.")
