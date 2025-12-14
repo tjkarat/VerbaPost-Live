@@ -5,13 +5,35 @@ try: import civic_engine
 except ImportError: civic_engine = None
 
 def render_splash():
+    # --- MOBILE OPTIMIZATION CSS ---
+    st.markdown("""
+    <style>
+        /* Desktop Defaults */
+        .splash-header { font-size: 3.5rem; margin-bottom: 10px; color: #1E1E1E; }
+        .splash-sub { font-size: 1.5rem; color: #555; margin-bottom: 30px; }
+        .splash-container { 
+            text-align: center; 
+            padding: 40px 20px 60px 20px; 
+            background: linear-gradient(180deg, #FFFFFF 0%, #F0F2F6 100%); 
+            border-radius: 0 0 20px 20px; 
+            margin-bottom: 30px; 
+        }
+
+        /* Mobile Overrides */
+        @media (max-width: 768px) {
+            .splash-header { font-size: 2.2rem !important; }
+            .splash-sub { font-size: 1.1rem !important; }
+            .splash-container { padding: 20px 10px 30px 10px !important; }
+            .stButton button { width: 100% !important; }
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     # --- HERO SECTION ---
     st.markdown("""
-    <div style="text-align: center; padding: 40px 20px 60px 20px; background: linear-gradient(180deg, #FFFFFF 0%, #F0F2F6 100%); border-radius: 0 0 20px 20px; margin-bottom: 30px;">
-        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #1E1E1E;">📮 VerbaPost</h1>
-        <p style="font-size: 1.5rem; color: #555; margin-bottom: 30px;">Real letters, sent from your screen.</p>
-        <div style="display: flex; justify-content: center; gap: 10px;">
-        </div>
+    <div class="splash-container">
+        <h1 class="splash-header">📮 VerbaPost</h1>
+        <p class="splash-sub">Real letters, sent from your screen.</p>
     </div>
     """, unsafe_allow_html=True)
 
