@@ -2,26 +2,9 @@ import streamlit as st
 import logging
 import tempfile
 import os
-import json
 import time
-from io import BytesIO
 
 # --- ROBUST IMPORTS ---
-try:
-    import ui_splash
-except Exception:
-    ui_splash = None
-
-try:
-    import ui_login
-except Exception:
-    ui_login = None
-
-try:
-    import ui_admin
-except Exception:
-    ui_admin = None
-
 try:
     import database
 except Exception:
@@ -62,8 +45,6 @@ try:
 except Exception:
     promo_engine = None
 
-logger = logging.getLogger(__name__)
-
 # --- CONFIG ---
 YOUR_APP_URL = "https://verbapost.streamlit.app"
 if secrets_manager:
@@ -99,13 +80,11 @@ def _save_address_book(user_email, data, is_sender=False):
     except Exception: pass
 
 def _load_user_profile():
-    """Loads user profile to autofill sender address."""
     if database and st.session_state.get("authenticated") and not st.session_state.get("profile_loaded"):
         try:
             if hasattr(database, "get_user_profile"):
                 profile = database.get_user_profile(st.session_state.user_email)
                 if profile:
-                    # Save to a holding dict
                     st.session_state.sender_data = {
                         "name": profile.get("full_name", ""),
                         "street": profile.get("return_address_street", ""),
@@ -114,18 +93,22 @@ def _load_user_profile():
                         "zip": profile.get("return_address_zip", ""),
                         "country": profile.get("return_address_country", "US")
                     }
-                    # FORCE HYDRATION: Push directly to widget keys
+                    # Force Hydration
                     st.session_state.s_n = profile.get("full_name", "")
                     st.session_state.s_s = profile.get("return_address_street", "")
                     st.session_state.s_c = profile.get("return_address_city", "")
                     st.session_state.s_st = profile.get("return_address_state", "")
                     st.session_state.s_z = profile.get("return_address_zip", "")
-            
             st.session_state.profile_loaded = True
         except Exception: pass
 
-# --- SIDEBAR ---
+# --- SIDEBAR (Fixed Keys) ---
 def render_sidebar():
+    # Prevent double-rendering
+    if st.session_state.get("_sidebar_rendered"):
+        return
+    st.session_state._sidebar_rendered = True
+
     with st.sidebar:
         st.markdown("<div style='text-align: center;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
         st.markdown("---")
@@ -133,18 +116,21 @@ def render_sidebar():
         if st.session_state.get("authenticated"):
             st.success(f"👤 {st.session_state.get('user_email', 'User')}")
             st.markdown("---")
-            if st.button("🏪 Store", key="nav_store", use_container_width=True): 
+            # UPDATED KEYS to avoid collision
+            if st.button("🏪 Store", key="sb_nav_store_unique", use_container_width=True): 
                 st.session_state.app_mode = "store"
                 st.rerun()
             st.markdown("---")
-            if st.button("Log Out", key="sb_logout", use_container_width=True):
+            if st.button("Log Out", key="sb_logout_unique", use_container_width=True):
                 st.session_state.clear()
                 st.rerun()
         else:
-            if st.button("🔑 Log In", key="sb_login", type="primary", use_container_width=True):
+            # UPDATED KEY to avoid collision
+            if st.button("🔑 Log In", key="sb_login_unique", type="primary", use_container_width=True):
                 st.query_params["view"] = "login"
                 st.rerun()
 
+        # Admin Link
         try:
             admins = ["tjkarat@gmail.com"]
             if secrets_manager:
@@ -153,7 +139,7 @@ def render_sidebar():
             curr = st.session_state.get("user_email", "").strip().lower()
             if st.session_state.get("authenticated") and curr in [a.lower() for a in admins]:
                 st.markdown("---")
-                if st.button("🛡️ Admin Console", key="sb_admin", use_container_width=True):
+                if st.button("🛡️ Admin Console", key="sb_admin_unique", use_container_width=True):
                     st.query_params["view"] = "admin"
                     st.rerun()
         except: pass
@@ -181,7 +167,7 @@ def render_store_page():
         with st.container(border=True):
             st.metric("Price / Unit", f"${price:.2f}")
             
-            # PROMO CODE LOGIC
+            # Promo Code
             promo_code = st.text_input("Promo Code", key="store_promo")
             if promo_code and promo_engine:
                 valid, discount, p_type = promo_engine.validate_promo(promo_code)
@@ -216,19 +202,15 @@ def render_store_page():
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
-    # Security Guard
     if not st.session_state.get("paid_order", False):
         st.warning("🔒 Please pay to access the Workspace.")
         st.session_state.app_mode = "store"
         time.sleep(1.5)
         st.rerun()
 
-    # Load profile and hydrate keys if needed
     _load_user_profile()
-
     tier = st.session_state.get("locked_tier", "Standard")
     
-    # --- HEADER & TUTORIAL ---
     st.markdown(f"## 📮 Workspace: {tier}")
     
     if "first_visit" not in st.session_state:
@@ -241,16 +223,13 @@ def render_workspace_page():
     with t1:
         st.caption("Tell us where this letter is going.")
         
-        # --- ADDRESS BOOK LOGIC ---
+        # Address Book
         if database and st.session_state.get("authenticated"):
             try:
                 saved = database.get_saved_contacts(st.session_state.user_email)
                 if saved:
-                    # Create a friendly label for the dropdown
                     opts = {f"{x['name']} ({x.get('street','')})": x for x in saved}
                     selected_key = st.selectbox("📂 Load from Address Book", ["Select..."] + list(opts.keys()))
-                    
-                    # If user selects someone, force-feed the form keys
                     if selected_key != "Select...":
                         data = opts[selected_key]
                         st.session_state.r_n = data.get("name", "")
@@ -259,15 +238,12 @@ def render_workspace_page():
                         st.session_state.r_st = data.get("state", "")
                         st.session_state.r_z = data.get("zip", "")
             except Exception: pass
-        # --------------------------
 
         with st.form("addr_form"):
             c1, c2 = st.columns(2)
-            
             # SENDER
             with c1:
                 st.markdown("### 🏠 From (You)")
-                # Keys allow auto-population from profile
                 s_name = st.text_input("Name", key="s_n")
                 s_str = st.text_input("Street", key="s_s")
                 sa, sb, sc = st.columns(3)
@@ -280,8 +256,7 @@ def render_workspace_page():
             with c2:
                 if tier == "Civic":
                     st.markdown("### 🏛️ To (Congress)")
-                    st.info("We automatically route your letter to your 2 Senators and 1 Representative based on your Return Address.")
-                    
+                    st.info("We automatically route your letter to your 2 Senators and 1 Representative.")
                     if st.form_submit_button("🔍 Verify My Representatives"):
                         if civic_engine and s_str and s_zip:
                             with st.spinner("Consulting Geocodio..."):
@@ -290,18 +265,13 @@ def render_workspace_page():
                                 if reps:
                                     st.success(f"Found: {', '.join(reps)}")
                                     st.session_state.civic_reps = reps
-                                else:
-                                    st.error("No representatives found.")
-                        else:
-                            st.error("Enter Return Address first.")
-                
+                                else: st.error("No representatives found.")
+                        else: st.error("Enter Return Address first.")
                 elif tier == "Campaign":
                     st.markdown("### 📂 Bulk List")
                     st.info("Please upload your CSV file in the next step.")
-                
                 else:
                     st.markdown("### 📬 To (Recipient)")
-                    # Keys allow auto-population from Address Book
                     r_name = st.text_input("Name", key="r_n")
                     r_str = st.text_input("Street", key="r_s")
                     ra, rb, rc = st.columns(3)
@@ -310,13 +280,11 @@ def render_workspace_page():
                     r_zip = rc.text_input("Zip", key="r_z")
                     r_country = st.selectbox("Country", ["US", "CA", "UK"], index=0, key="r_co")
 
-            # Save Actions
             if tier not in ["Civic", "Campaign"]:
                 save_b = st.checkbox("Save Recipient to Address Book")
                 if st.form_submit_button("✅ Save Addresses"):
                     st.session_state.sender_data = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_country}
                     st.session_state.recipient_data = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_country}
-                    
                     if save_b and st.session_state.authenticated:
                         _save_address_book(st.session_state.user_email, st.session_state.recipient_data, is_sender=False)
                     st.success("Addresses Saved!")
@@ -324,22 +292,10 @@ def render_workspace_page():
     # --- TAB 2: WRITING ---
     with t2:
         st.markdown("### 🎙️ Dictation Studio")
-        
-        with st.expander("📖 How to Record (Click to Open)", expanded=True):
-            st.markdown("""
-            1. **Hit Record:** Click the microphone icon below.
-            2. **Speak Clearly:** Dictate your letter. Don't worry about mistakes!
-            3. **Stop:** Click the icon again to stop recording.
-            4. **Transcribe:** Click the 'Transcribe Audio' button.
-            """)
-
         col_mic, col_file = st.columns(2)
-        with col_mic:
-            audio_mic = st.audio_input("🎤 Record Voice")
-        with col_file:
-            uploaded_file = st.file_uploader("📂 Or Upload Audio", type=["mp3", "wav", "m4a"])
+        with col_mic: audio_mic = st.audio_input("🎤 Record Voice")
+        with col_file: uploaded_file = st.file_uploader("📂 Or Upload Audio", type=["mp3", "wav", "m4a"])
         
-        # Processing Logic
         active_audio = uploaded_file or audio_mic
         if active_audio and ai_engine:
             if st.button("✨ Transcribe Audio", type="primary"):
@@ -352,28 +308,24 @@ def render_workspace_page():
                         text = ai_engine.transcribe_audio(tpath)
                         st.session_state.transcribed_text = text
                         st.success("Transcription Complete!")
-                    except Exception as e:
-                        st.error(f"Transcription Failed: {e}")
+                    except Exception as e: st.error(f"Transcription Failed: {e}")
                     finally:
                         try: os.remove(tpath)
                         except: pass
                     st.rerun()
 
-        # Editor
         st.markdown("#### 📝 Edit Your Letter")
         val = st.session_state.get("transcribed_text", "")
-        txt = st.text_area("Letter Body", val, height=400, placeholder="Your transcribed text will appear here...")
+        txt = st.text_area("Letter Body", val, height=400)
         if txt: st.session_state.transcribed_text = txt
         
-        # AI Buttons
         if ai_engine and txt:
-            st.markdown("#### 🤖 AI Polish")
             c_ai1, c_ai2 = st.columns(2)
-            if c_ai1.button("✨ Fix Grammar & Spelling", use_container_width=True):
+            if c_ai1.button("✨ Fix Grammar"):
                 with st.spinner("Polishing..."):
                     st.session_state.transcribed_text = ai_engine.refine_text(txt, "Grammar")
                     st.rerun()
-            if c_ai2.button("👔 Make Professional", use_container_width=True):
+            if c_ai2.button("👔 Make Professional"):
                 with st.spinner("Refining..."):
                     st.session_state.transcribed_text = ai_engine.refine_text(txt, "Professional")
                     st.rerun()
@@ -389,9 +341,7 @@ def render_review_page():
         st.session_state.app_mode = "store"
         st.rerun()
 
-    if "locked_tier" not in st.session_state:
-        st.session_state.locked_tier = "Standard"
-
+    if "locked_tier" not in st.session_state: st.session_state.locked_tier = "Standard"
     st.markdown("## 🔍 Final Review")
     
     c1, c2 = st.columns(2)
@@ -401,29 +351,20 @@ def render_review_page():
             try:
                 s = st.session_state.get("sender_data", {})
                 r = st.session_state.get("recipient_data", {})
+                if st.session_state.locked_tier == "Civic": r = {"name": "US Congress", "street": "Washington, DC"}
                 
-                # Civic Override for PDF
-                if st.session_state.locked_tier == "Civic":
-                    r = {"name": "US Congress", "street": "Washington, DC"}
-
-                pdf = letter_format.create_pdf(
-                    st.session_state.get("transcribed_text", ""), 
-                    s, 
-                    r, 
-                    st.session_state.locked_tier
-                )
+                pdf = letter_format.create_pdf(st.session_state.get("transcribed_text", ""), s, r, st.session_state.locked_tier)
                 if pdf:
                     st.success("✅ PDF Generated")
                     st.download_button("📄 Download Proof", pdf, "letter.pdf", "application/pdf")
-            except Exception as e:
-                st.error(f"Preview Error: {e}")
+            except Exception as e: st.error(f"Preview Error: {e}")
                 
     with c2:
         st.subheader("Ready to Send?")
         st.info("Payment Confirmed. One click to mail.")
         if st.button("🚀 Send Letter Now", type="primary", use_container_width=True):
             st.balloons()
-            st.success("Letter Sent! Check your email for tracking.")
+            st.success("Letter Sent!")
             st.session_state.paid_order = False
             st.session_state.payment_url = None
             time.sleep(3)
