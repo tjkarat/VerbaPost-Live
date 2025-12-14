@@ -140,47 +140,29 @@ def render_review_page():
     st.write(st.session_state.get("transcribed_text"))
     if st.button("🚀 Send"): _process_sending(st.session_state.get("locked_tier"))
 
-# --- MAIN ROUTER ---
-# --- MAIN ROUTER ---
+# --- 10. MAIN ROUTER ---
 def render_main():
-    # 1. Inject CSS
     inject_mobile_styles()
     
-    # 2. Render Sidebar (This brings back the Admin Link)
-    render_sidebar()
+    # DELETE THIS LINE: render_sidebar()  <-- CAUSING THE CRASH
     
-    # 3. Analytics
     if analytics: 
         try: analytics.inject_ga()
         except: pass
     
-    # 4. Router Logic
+    # ... rest of the function remains the same ...
     mode = st.session_state.get("app_mode", "splash")
     
-    # Explicit Admin Trap
-    if mode == "admin" and ui_admin:
-        ui_admin.show_admin()
-        return
-
-    if mode == "splash" and ui_splash: 
-        ui_splash.render_splash()
-    elif mode == "login" and ui_login: 
-        ui_login.render_login()
-    elif mode == "store": 
-        render_store_page()
-    elif mode == "workspace": 
-        render_workspace_page()
-    elif mode == "review": 
-        render_review_page()
-    elif mode == "legal" and ui_legal: 
-        ui_legal.render_legal()
-    elif mode == "legacy" and ui_legacy:
-        ui_legacy.render_legacy_page()
+    if mode == "splash" and ui_splash: ui_splash.render_splash()
+    elif mode == "login" and ui_login: ui_login.render_login()
+    elif mode == "store": render_store_page()
+    elif mode == "workspace": render_workspace_page()
+    elif mode == "review": render_review_page()
+    elif mode == "legacy" and ui_legacy: ui_legacy.render_legacy_page()
+    elif mode == "legal" and ui_legal: ui_legal.render_legal()
     else: 
-        # Fallback
         if st.session_state.get("authenticated"):
             st.session_state.app_mode = "store"
             render_store_page()
         else:
-            st.session_state.app_mode = "splash"
             if ui_splash: ui_splash.render_splash()
