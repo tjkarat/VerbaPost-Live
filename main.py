@@ -76,7 +76,7 @@ if "session_id" in query_params:
                     audit_engine.log_event(current_user, "PAYMENT_CSRF_BLOCK", session_id)
                     st.stop()
             
-            # --- FIX: CAPTURE STATE BEFORE CLEARING URL ---
+            # Restore State from Params
             if "tier" in query_params:
                 st.session_state.locked_tier = query_params["tier"]
             if "draft_id" in query_params:
@@ -88,8 +88,12 @@ if "session_id" in query_params:
             st.success("✅ Payment Confirmed!")
             st.session_state.paid_order = True
             
-            # --- FIX: FORCE NAVIGATION TO WORKSPACE ---
-            st.session_state.app_mode = "workspace"
+            # --- FIX: SMART REDIRECT ---
+            # If they bought Legacy, stay in Legacy view. If Standard, go to Workspace.
+            if st.session_state.get("locked_tier") == "Legacy":
+                st.query_params["view"] = "legacy"
+            else:
+                st.session_state.app_mode = "workspace"
             
             audit_engine.log_event(payer_email, "PAYMENT_SUCCESS", session_id)
             
@@ -102,7 +106,7 @@ if "session_id" in query_params:
             audit_engine.log_event(None, "PAYMENT_FAILED", session_id)
             st.query_params.clear()
 
-# Handle Other Deep Links (Marketing)
+# Handle Other Deep Links
 if "tier" in query_params:
     st.session_state.locked_tier = query_params["tier"]
 if "draft_id" in query_params:
@@ -137,9 +141,9 @@ elif view == "signup":
 else:
     # Logic: If Authenticated OR Paid -> Go to Main App (Store/Workspace)
     if st.session_state.authenticated or st.session_state.get("paid_order"):
-        # Default to workspace if paid, otherwise store logic inside ui_main handles it
-        if st.session_state.get("paid_order") and st.session_state.get("app_mode") != "review":
-             st.session_state.app_mode = "workspace"
+        # Ensure we don't get stuck in 'splash' mode if authenticated
+        if st.session_state.app_mode == "splash":
+             st.session_state.app_mode = "store"
         
         ui_main.render_main()
     else:
