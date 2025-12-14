@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import os
+import hashlib
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
@@ -15,7 +16,7 @@ import bulk_engine
 import audit_engine
 
 # --- UI MODULE IMPORTS ---
-# We wrap these in try/except to prevent the app from crashing 
+# Wrapped in try/except to prevent the entire app from crashing 
 # if a single module is missing or has a syntax error.
 try:
     import ui_splash
@@ -42,7 +43,7 @@ try:
 except ImportError:
     ui_legacy = None
 
-# --- ACCESSIBILITY CSS INJECTOR ---
+# --- ACCESSIBILITY & CSS ---
 def inject_accessibility_css():
     """
     Injects CSS to make tabs larger, high-contrast, and button-like.
@@ -105,6 +106,23 @@ def reset_app_state():
             del st.session_state[key]
     st.rerun()
 
+def load_address_book():
+    """
+    Fetches contacts from DB if logged in.
+    Returns a dictionary formatted for a selectbox: {"Name (City)": data_dict}
+    """
+    if not database or not st.session_state.get("authenticated"):
+        return {}
+    
+    try:
+        user_email = st.session_state.get("user_email")
+        contacts = database.get_saved_contacts(user_email)
+        # Format: "Name (City)" -> Dict
+        return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
+    except Exception as e:
+        print(f"Address Book Error: {e}")
+        return {}
+
 def _handle_draft_creation(email, tier, price):
     """
     Ensures a draft exists in the DB before payment.
@@ -113,21 +131,27 @@ def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
     success = False
     
-    # Try to update existing
+    # Try to update existing draft if we have an ID
     if d_id and database:
         success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
-    
-    # If update failed (row missing) or no draft ID, create new
-    if not success and database:
+        if not success:
+            # If update failed (e.g. row deleted), we need to make a new one
+            print(f"Warning: Failed to update draft {d_id}")
+            
+    # If no draft ID or update failed, create a new record
+    if (not success or not d_id) and database:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
     
     return d_id
 
-# --- CORE PAGE RENDERERS ---
+# --- PAGE RENDERERS ---
 
 def render_store_page():
-    """Step 1: The Store (Pricing & Tier Selection)"""
+    """
+    Step 1: The Store (Pricing & Tier Selection).
+    Displays cards for Standard, Heirloom, Civic, and Santa.
+    """
     # 1. Auth Guard
     u_email = st.session_state.get("user_email", "")
     if not u_email:
@@ -150,15 +174,19 @@ def render_store_page():
     # 3. Standard Pricing Cards
     col1, col2, col3, col4 = st.columns(4)
 
+    # Helper to render a card to keep code clean but expansive
     def price_card(col, title, price, desc, tier_code, btn_key):
         with col:
             st.markdown(f"### {title}")
             st.markdown(f"## ${price}")
             st.caption(desc)
             if st.button(f"Select {title}", key=btn_key, use_container_width=True):
+                # Lock selection
                 st.session_state.locked_tier = tier_code
                 st.session_state.locked_price = price
+                # Ensure draft exists in DB
                 _handle_draft_creation(u_email, tier_code, price)
+                # Move to next step
                 st.session_state.app_mode = "workspace"
                 st.rerun()
 
@@ -168,18 +196,27 @@ def render_store_page():
     price_card(col4, "Santa", 9.99, "North Pole Postmark\nGolden Ticket", "Santa", "btn_santa")
 
 def render_campaign_uploader():
-    """Handles CSV upload for Bulk Tier."""
+    """
+    Handles CSV upload for Bulk Tier.
+    """
     st.markdown("### 📁 Upload Recipient List (CSV)")
+    st.markdown("""
+    **Format Required:**
+    `name, street, city, state, zip`
+    """)
     
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+    
     if uploaded_file:
+        # Use bulk engine to parse safely
         contacts = bulk_engine.parse_csv(uploaded_file)
         
         if not contacts:
-            st.error("❌ Could not parse CSV. Please check format.")
+            st.error("❌ Could not parse CSV. Please check the format and try again.")
             return
 
         st.success(f"✅ Loaded {len(contacts)} recipients.")
+        st.dataframe(contacts[:5]) # Show preview
         
         # Calculate Bulk Price
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
@@ -192,24 +229,47 @@ def render_campaign_uploader():
             st.rerun()
 
 def render_workspace_page():
-    """Step 2 & 3: Composition & Addressing (ACCESSIBLE VERSION)"""
+    """
+    Step 2 & 3: Composition & Addressing.
+    Includes the Address Book and Accessibility Tabs.
+    """
     inject_accessibility_css()
 
-    st.markdown(f"## 📝 Workspace: {st.session_state.get('locked_tier', 'Draft')}")
+    current_tier = st.session_state.get('locked_tier', 'Draft')
+    st.markdown(f"## 📝 Workspace: {current_tier}")
 
     # --- STEP 2: ADDRESSING ---
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # We use a form to force browser autofill to sync
+        # Address Book Loader (Restored Feature)
+        if st.session_state.get("authenticated"):
+            addr_opts = load_address_book()
+            if addr_opts:
+                selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
+                if selected_contact != "Select...":
+                    data = addr_opts[selected_contact]
+                    # Pre-fill session state variables
+                    st.session_state.to_name_input = data.get('name', '')
+                    st.session_state.to_street_input = data.get('street', '')
+                    st.session_state.to_city_input = data.get('city', '')
+                    st.session_state.to_state_input = data.get('state', '')
+                    st.session_state.to_zip_input = data.get('zip', '')
+                    st.rerun()
+        else:
+            st.caption("🔒 Log in to access your saved Address Book.")
+
+        # Address Form
         with st.form("addressing_form"):
             col_to, col_from = st.columns(2)
             
             with col_to:
                 st.markdown("### To: (Recipient)")
+                # Use key=... so we can pre-fill from session state if needed
                 name = st.text_input("Name", key="to_name_input")
                 street = st.text_input("Street Address", key="to_street_input")
                 city = st.text_input("City", key="to_city_input")
+                
                 col_s, col_z = st.columns(2)
                 state = col_s.text_input("State", key="to_state_input")
                 zip_c = col_z.text_input("Zip", key="to_zip_input")
@@ -222,6 +282,7 @@ def render_workspace_page():
                 f_name = st.text_input("Your Name", value=u_profile.get("full_name",""), key="from_name")
                 f_street = st.text_input("Your Street", value=u_profile.get("address_line1",""), key="from_street")
                 f_city = st.text_input("Your City", value=u_profile.get("city",""), key="from_city")
+                
                 col_fs, col_fz = st.columns(2)
                 f_state = col_fs.text_input("Your State", value=u_profile.get("state",""), key="from_state")
                 f_zip = col_fz.text_input("Your Zip", value=u_profile.get("zip_code",""), key="from_zip")
@@ -269,7 +330,13 @@ def render_workspace_page():
         st.write("Click in the box below and start typing your letter.")
         
         current_text = st.session_state.get("letter_body", "")
-        new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed")
+        new_text = st.text_area(
+            "Letter Body", 
+            value=current_text, 
+            height=400, 
+            label_visibility="collapsed",
+            placeholder="Dear..."
+        )
         
         if new_text != current_text:
             st.session_state.letter_body = new_text
@@ -298,40 +365,53 @@ def render_workspace_page():
 
         audio_val = st.audio_input("Record", label_visibility="collapsed")
         
+        # --- AUDIO PROCESSING WITH LOOP PROTECTION ---
         if audio_val:
-            st.info("⏳ Processing your voice... please wait.")
+            # 1. Hash the audio
+            audio_bytes = audio_val.getvalue()
+            audio_hash = hashlib.md5(audio_bytes).hexdigest()
             
-            # Save temp file
-            tmp_path = f"/tmp/temp_{int(time.time())}.wav"
-            with open(tmp_path, "wb") as f:
-                f.write(audio_val.getvalue())
-            
-            try:
-                # Transcribe
-                text = ai_engine.transcribe_audio(tmp_path)
+            # 2. Check previous hash
+            if audio_hash != st.session_state.get("last_processed_audio_hash"):
+                st.info("⏳ Processing your voice... please wait.")
                 
-                if text:
-                    # Append or Replace? Let's Append to avoid deleting work
-                    current = st.session_state.get("letter_body", "")
-                    st.session_state.letter_body = (current + "\n\n" + text).strip()
+                # Save temp file
+                tmp_path = f"/tmp/temp_{int(time.time())}.wav"
+                with open(tmp_path, "wb") as f:
+                    f.write(audio_bytes)
+                
+                try:
+                    # Transcribe
+                    text = ai_engine.transcribe_audio(tmp_path)
                     
-                    # Save to DB
-                    d_id = st.session_state.get("current_draft_id")
-                    if d_id and database:
-                        database.update_draft_data(d_id, content=st.session_state.letter_body)
-                    
-                    st.success("✅ Audio Transcribed! Switch to 'Type Manually' to see the text.")
-                    st.rerun()
-                else:
-                    st.warning("⚠️ No speech detected. Please try again.")
-            
-            except Exception as e:
-                st.error(f"Error processing audio: {e}")
-            
-            finally:
-                # Cleanup
-                if os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                    if text:
+                        # Append text to existing body
+                        current = st.session_state.get("letter_body", "")
+                        st.session_state.letter_body = (current + "\n\n" + text).strip()
+                        
+                        # Update Hash
+                        st.session_state.last_processed_audio_hash = audio_hash
+                        
+                        # Save to DB
+                        d_id = st.session_state.get("current_draft_id")
+                        if d_id and database:
+                            database.update_draft_data(d_id, content=st.session_state.letter_body)
+                        
+                        st.success("✅ Audio Transcribed! Switch to 'Type Manually' to see the text.")
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ No speech detected. Please try again.")
+                
+                except Exception as e:
+                    st.error(f"Error processing audio: {e}")
+                
+                finally:
+                    # Cleanup
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+            else:
+                # Already processed this audio
+                pass
 
     st.divider()
     
@@ -339,15 +419,20 @@ def render_workspace_page():
     col_l, col_r = st.columns([1, 4])
     with col_r:
         if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-            # Final Save check
+            # Final Validation
             if not st.session_state.get("letter_body"):
                 st.error("⚠️ Please write or record something before continuing!")
+            elif not st.session_state.get("addr_to") or not st.session_state.get("addr_from"):
+                st.error("⚠️ Please save your addresses in Step 2.")
             else:
                 st.session_state.app_mode = "review"
                 st.rerun()
 
 def render_review_page():
-    """Step 4: Secure & Send"""
+    """
+    Step 4: Secure & Send.
+    Generates the PDF proof and handles payment.
+    """
     st.markdown("## 👁️ Step 4: Secure & Send")
     
     if st.button("📄 Generate PDF Proof"):
@@ -366,7 +451,7 @@ def render_review_page():
                 # Create PDF
                 raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier)
                 
-                # --- SAFETY CAST: Ensure it is bytes ---
+                # --- SAFETY CAST: Ensure it is bytes to prevent crash ---
                 pdf_bytes = bytes(raw_pdf)
                 
                 # Display
@@ -407,6 +492,7 @@ def render_review_page():
             if d_id and database:
                 database.update_draft_data(d_id, price=total, status="Pending Payment")
             
+            # Call Payment Engine
             url = payment_engine.create_checkout_session(
                 line_items=[{
                     "price_data": {
@@ -422,7 +508,6 @@ def render_review_page():
             
             if url:
                 st.link_button("👉 Click to Pay", url)
-                st.rerun()
             else:
                 st.error("Payment Gateway Error. Please try again.")
 
