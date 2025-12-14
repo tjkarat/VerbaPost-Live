@@ -9,7 +9,6 @@ import ui_login
 import ui_admin
 import ui_legal
 import database
-import secrets_manager
 
 # --- CONFIGURATION ---
 st.set_page_config(
@@ -22,7 +21,7 @@ st.set_page_config(
 # --- GLOBAL SIDEBAR ---
 def render_sidebar():
     """
-    Renders the Global Sidebar with Navigation, Admin Access, and Help.
+    Renders the Global Sidebar with Navigation, Admin Access.
     """
     with st.sidebar:
         # 1. Logo / Brand
@@ -40,39 +39,21 @@ def render_sidebar():
             st.rerun()
 
         # 3. Admin Access (RBAC Protected)
-        # Only show if authenticated AND email matches admin
+        # FIX: Added your email to the allowlist
         user_email = st.session_state.get("user_email", "")
-        # You can store the admin email in secrets as "admin.email"
-        admin_email = "admin@verbapost.com" 
-        try:
-            if secrets_manager:
-                sec_email = secrets_manager.get_secret("admin.email")
-                if sec_email: admin_email = sec_email
-        except: pass
-
-        if st.session_state.get("authenticated") and user_email == admin_email:
+        admin_emails = ["admin@verbapost.com", "tjkarat@gmail.com"]
+        
+        if st.session_state.get("authenticated") and user_email in admin_emails:
             st.markdown("---")
             st.markdown("### 🛡️ Admin")
             if st.button("⚙️ Admin Console", use_container_width=True):
                 st.session_state.app_mode = "admin"
                 st.rerun()
 
-        # 4. Help / Tutorial
-        st.markdown("---")
-        with st.expander("❓ Help & Tutorial"):
-            st.markdown("""
-            **How to use VerbaPost:**
-            1. **Choose Service:** Select Standard or Legacy.
-            2. **Compose:** Type or Dictate your letter.
-            3. **Address:** Enter recipient details.
-            4. **Pay:** Checkout securely via Stripe.
-            5. **Track:** We email you the tracking #.
-            """)
-            st.info("Support: support@verbapost.com")
-
-        # 5. Session Debug
+        # 4. Session Info
         if st.session_state.get("authenticated"):
-            st.success(f"Logged in as: {st.session_state.get('user_email')}")
+            st.markdown("---")
+            st.success(f"Logged in as:\n{user_email}")
             if st.button("Logout"):
                 st.session_state.authenticated = False
                 st.session_state.user_email = ""
@@ -164,11 +145,12 @@ def main():
         if ui_legal: ui_legal.render_legal_page()
         
     elif mode == "admin":
-        # Double check in case they navigated via URL
-        if st.session_state.get("authenticated") and st.session_state.get("user_email") == "admin@verbapost.com": # Or check against secret
+        # FIX: Check Allowlist before rendering
+        admin_emails = ["admin@verbapost.com", "tjkarat@gmail.com"]
+        if st.session_state.get("authenticated") and st.session_state.get("user_email") in admin_emails:
              if ui_admin: ui_admin.render_admin_page()
         else:
-             st.error("Access Denied.")
+             st.error("Access Denied. You are not an authorized administrator.")
         
     # Default / Standard App Flow
     elif mode in ["store", "workspace", "review"]:

@@ -16,9 +16,7 @@ import pricing_engine
 import bulk_engine
 import audit_engine
 
-# --- UI MODULE IMPORTS (DYNAMIC) ---
-# We wrap these in try/except to prevent the app from crashing 
-# if a single module is missing or has a syntax error.
+# --- UI MODULE IMPORTS ---
 try:
     import ui_splash
 except ImportError:
@@ -48,7 +46,6 @@ except ImportError:
 def inject_accessibility_css():
     """
     Injects CSS to make tabs larger, high-contrast, and button-like.
-    Designed for better accessibility (Fitts's Law + Vision).
     """
     st.markdown("""
         <style>
@@ -72,7 +69,7 @@ def inject_accessibility_css():
             color: #374151; /* Dark text for unselected */
         }
 
-        /* 3. High Contrast for Selected Tab (Red Background, White Text) */
+        /* 3. High Contrast for Selected Tab */
         .stTabs [aria-selected="true"] {
             background-color: #FF4B4B !important;
             border: 3px solid #FF4B4B !important;
@@ -110,7 +107,7 @@ def reset_app_state():
 def load_address_book():
     """
     Fetches contacts from DB if logged in.
-    Returns a dictionary formatted for a selectbox: {"Name (City)": data_dict}
+    Returns a dictionary formatted for a selectbox.
     """
     if not database or not st.session_state.get("authenticated"):
         return {}
@@ -118,42 +115,33 @@ def load_address_book():
     try:
         user_email = st.session_state.get("user_email")
         contacts = database.get_saved_contacts(user_email)
-        # Format: "Name (City)" -> Dict
         return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
     except Exception as e:
-        # Log error if needed, but return empty dict to prevent crash
         print(f"Address Book Error: {e}")
         return {}
 
 def _handle_draft_creation(email, tier, price):
     """
     Ensures a draft exists in the DB before payment.
-    Handles 'Ghost Drafts' where the DB row might be missing but session persists.
     """
     d_id = st.session_state.get("current_draft_id")
     success = False
     
-    # Try to update existing draft if we have an ID
     if d_id and database:
         success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
         if not success:
-            # If update failed (e.g. row deleted), we need to make a new one
             print(f"Warning: Failed to update draft {d_id}")
             
-    # If no draft ID or update failed, create a new record
     if (not success or not d_id) and database:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
     
     return d_id
 
-# --- CORE PAGE RENDERERS ---
+# --- PAGE RENDERERS ---
 
 def render_store_page():
-    """
-    Step 1: The Store (Pricing & Tier Selection).
-    Displays cards for Standard, Heirloom, Civic, and Santa.
-    """
+    """Step 1: The Store (Pricing & Tier Selection)."""
     # 1. Auth Guard
     u_email = st.session_state.get("user_email", "")
     if not u_email:
@@ -162,6 +150,18 @@ def render_store_page():
             st.session_state.app_mode = "login"
             st.rerun()
         return
+
+    # FIX: Added Help/Tutorial here on the main page
+    with st.expander("❓ How VerbaPost Works (Help)", expanded=False):
+        st.markdown("""
+        **Simple 4-Step Process:**
+        1. **Select Service:** Choose your letter tier below (Standard, Heirloom, etc.).
+        2. **Write:** Type or use your voice to dictate the letter content.
+        3. **Address:** Load a saved contact or enter a new address.
+        4. **Send:** We print, envelope, and mail it via USPS.
+        
+        **Need Support?** Email `support@verbapost.com`
+        """)
 
     st.markdown("## 📮 Choose Your Letter Service")
     
@@ -176,19 +176,15 @@ def render_store_page():
     # 3. Standard Pricing Cards
     col1, col2, col3, col4 = st.columns(4)
 
-    # Helper to render a card to keep code clean but expansive
     def price_card(col, title, price, desc, tier_code, btn_key):
         with col:
             st.markdown(f"### {title}")
             st.markdown(f"## ${price}")
             st.caption(desc)
             if st.button(f"Select {title}", key=btn_key, use_container_width=True):
-                # Lock selection
                 st.session_state.locked_tier = tier_code
                 st.session_state.locked_price = price
-                # Ensure draft exists in DB
                 _handle_draft_creation(u_email, tier_code, price)
-                # Move to next step
                 st.session_state.app_mode = "workspace"
                 st.rerun()
 
@@ -198,29 +194,22 @@ def render_store_page():
     price_card(col4, "Santa", 9.99, "North Pole Postmark\nGolden Ticket", "Santa", "btn_santa")
 
 def render_campaign_uploader():
-    """
-    Handles CSV upload for Bulk Tier.
-    """
+    """Handles CSV upload for Bulk Tier."""
     st.markdown("### 📁 Upload Recipient List (CSV)")
-    st.markdown("""
-    **Format Required:**
-    `name, street, city, state, zip`
-    """)
+    st.markdown("""**Format Required:** `name, street, city, state, zip`""")
     
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
     
     if uploaded_file:
-        # Use bulk engine to parse safely
         contacts = bulk_engine.parse_csv(uploaded_file)
         
         if not contacts:
-            st.error("❌ Could not parse CSV. Please check the format and try again.")
+            st.error("❌ Could not parse CSV. Please check the format.")
             return
 
         st.success(f"✅ Loaded {len(contacts)} recipients.")
         st.dataframe(contacts[:5]) # Show preview
         
-        # Calculate Bulk Price
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
         st.metric("Estimated Total", f"${total}")
         
@@ -231,10 +220,7 @@ def render_campaign_uploader():
             st.rerun()
 
 def render_workspace_page():
-    """
-    Step 2 & 3: Composition & Addressing (ACCESSIBLE VERSION)
-    Includes the Address Book and Accessibility Tabs.
-    """
+    """Step 2 & 3: Composition & Addressing."""
     inject_accessibility_css()
 
     current_tier = st.session_state.get('locked_tier', 'Draft')
@@ -244,60 +230,45 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # --- ADDRESS BOOK LOADER (RESTORED) ---
+        # Address Book Loader
         if st.session_state.get("authenticated"):
             addr_opts = load_address_book()
             if addr_opts:
-                # Layout for the loader
-                col_load, col_empty = st.columns([2, 1])
-                with col_load:
-                    selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
-                    
-                    if selected_contact != "Select...":
-                        data = addr_opts[selected_contact]
-                        # Pre-fill session state variables for the form below
-                        # We use st.session_state keys directly to ensure text_input widgets update
-                        st.session_state.to_name_input = data.get('name', '')
-                        st.session_state.to_street_input = data.get('street', '')
-                        st.session_state.to_city_input = data.get('city', '')
-                        st.session_state.to_state_input = data.get('state', '')
-                        st.session_state.to_zip_input = data.get('zip', '')
-                        st.rerun()
+                selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
+                if selected_contact != "Select...":
+                    data = addr_opts[selected_contact]
+                    st.session_state.to_name_input = data.get('name', '')
+                    st.session_state.to_street_input = data.get('street', '')
+                    st.session_state.to_city_input = data.get('city', '')
+                    st.session_state.to_state_input = data.get('state', '')
+                    st.session_state.to_zip_input = data.get('zip', '')
+                    st.rerun()
         else:
             st.caption("🔒 Log in to access your saved Address Book.")
 
-        # Address Form
-        # We use a form to force browser autofill to sync
         with st.form("addressing_form"):
             col_to, col_from = st.columns(2)
             
             with col_to:
                 st.markdown("### To: (Recipient)")
-                # Use key=... so we can pre-fill from session state if loaded
                 name = st.text_input("Name", key="to_name_input")
                 street = st.text_input("Street Address", key="to_street_input")
                 city = st.text_input("City", key="to_city_input")
-                
                 col_s, col_z = st.columns(2)
                 state = col_s.text_input("State", key="to_state_input")
                 zip_c = col_z.text_input("Zip", key="to_zip_input")
 
             with col_from:
                 st.markdown("### From: (Return Address)")
-                # Pre-fill from user profile if available
                 u_profile = st.session_state.get("user_profile", {})
-                
                 f_name = st.text_input("Your Name", value=u_profile.get("full_name",""), key="from_name")
                 f_street = st.text_input("Your Street", value=u_profile.get("address_line1",""), key="from_street")
                 f_city = st.text_input("Your City", value=u_profile.get("city",""), key="from_city")
-                
                 col_fs, col_fz = st.columns(2)
                 f_state = col_fs.text_input("Your State", value=u_profile.get("state",""), key="from_state")
                 f_zip = col_fz.text_input("Your Zip", value=u_profile.get("zip_code",""), key="from_zip")
             
-            # Form Submit Button
             if st.form_submit_button("💾 Save Addresses"):
-                # Save to session
                 st.session_state.addr_to = {
                     "name": name, "street": street, "city": city, "state": state, "zip": zip_c
                 }
@@ -305,7 +276,6 @@ def render_workspace_page():
                     "name": f_name, "street": f_street, "city": f_city, "state": f_state, "zip": f_zip
                 }
                 
-                # Save to DB
                 d_id = st.session_state.get("current_draft_id")
                 if d_id and database:
                     database.update_draft_data(d_id, to_address=st.session_state.addr_to, from_address=st.session_state.addr_from)
@@ -314,10 +284,9 @@ def render_workspace_page():
 
     st.divider()
 
-    # --- STEP 3: COMPOSE (ACCESSIBLE VERSION) ---
+    # --- STEP 3: COMPOSE ---
     st.markdown("## ✍️ Step 3: Write Your Letter")
 
-    # High-Contrast Instruction Box
     st.markdown(
         """
         <div class="instruction-box">
@@ -329,7 +298,6 @@ def render_workspace_page():
         unsafe_allow_html=True
     )
 
-    # TABS: Renamed and Styled via CSS
     tab_type, tab_record = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
 
     # -- TAB 1: TYPING --
@@ -346,7 +314,7 @@ def render_workspace_page():
             placeholder="Dear..."
         )
         
-        # --- AI POLISH BUTTON (RESTORED) ---
+        # AI Polish Button
         if st.button("✨ AI Polish (Improve Grammar & Tone)"):
             if new_text and ai_engine:
                 with st.spinner("Polishing your letter..."):
@@ -363,16 +331,14 @@ def render_workspace_page():
 
         if new_text != current_text:
             st.session_state.letter_body = new_text
-            # Auto-save to DB
             d_id = st.session_state.get("current_draft_id")
             if d_id and database:
                 database.update_draft_data(d_id, content=new_text)
 
-    # -- TAB 2: RECORDING (Simplified & Enlarged) --
+    # -- TAB 2: RECORDING --
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
         
-        # Explicit HTML Instructions
         st.markdown(
             """
             <div style="font-size: 22px; margin-bottom: 30px; line-height: 1.8; color: #111;">
@@ -388,35 +354,23 @@ def render_workspace_page():
 
         audio_val = st.audio_input("Record", label_visibility="collapsed")
         
-        # --- AUDIO PROCESSING WITH LOOP PROTECTION ---
         if audio_val:
-            # 1. Hash the audio
             audio_bytes = audio_val.getvalue()
-            # Use md5 for reliable byte hashing
             audio_hash = hashlib.md5(audio_bytes).hexdigest()
             
-            # 2. Check previous hash
             if audio_hash != st.session_state.get("last_processed_audio_hash"):
                 st.info("⏳ Processing your voice... please wait.")
-                
-                # Save temp file
                 tmp_path = f"/tmp/temp_{int(time.time())}.wav"
                 with open(tmp_path, "wb") as f:
                     f.write(audio_bytes)
                 
                 try:
-                    # Transcribe
                     text = ai_engine.transcribe_audio(tmp_path)
-                    
                     if text:
-                        # Append text to existing body
                         current = st.session_state.get("letter_body", "")
                         st.session_state.letter_body = (current + "\n\n" + text).strip()
-                        
-                        # Update Hash
                         st.session_state.last_processed_audio_hash = audio_hash
                         
-                        # Save to DB
                         d_id = st.session_state.get("current_draft_id")
                         if d_id and database:
                             database.update_draft_data(d_id, content=st.session_state.letter_body)
@@ -424,26 +378,18 @@ def render_workspace_page():
                         st.success("✅ Audio Transcribed! Switch to 'Type Manually' to see the text.")
                         st.rerun()
                     else:
-                        st.warning("⚠️ No speech detected. Please try again.")
-                
+                        st.warning("⚠️ No speech detected.")
                 except Exception as e:
                     st.error(f"Error processing audio: {e}")
-                
                 finally:
-                    # Cleanup
                     if os.path.exists(tmp_path):
                         os.remove(tmp_path)
-            else:
-                # Already processed this audio
-                pass
 
     st.divider()
     
-    # Navigation
     col_l, col_r = st.columns([1, 4])
     with col_r:
         if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-            # Final Validation
             if not st.session_state.get("letter_body"):
                 st.error("⚠️ Please write or record something before continuing!")
             elif not st.session_state.get("addr_to") or not st.session_state.get("addr_from"):
@@ -453,36 +399,32 @@ def render_workspace_page():
                 st.rerun()
 
 def render_review_page():
-    """
-    Step 4: Secure & Send.
-    Generates the PDF proof and handles payment.
-    """
     st.markdown("## 👁️ Step 4: Secure & Send")
     
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
-                # Gather Data
                 tier = st.session_state.get("locked_tier", "Standard")
                 body = st.session_state.get("letter_body", "")
                 addr_to = st.session_state.get("addr_to", {})
                 addr_from = st.session_state.get("addr_from", {})
                 
-                # Normalize Addresses
                 std_to = address_standard.StandardAddress.from_dict(addr_to)
                 std_from = address_standard.StandardAddress.from_dict(addr_from)
                 
-                # Create PDF
                 raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier)
-                
-                # --- SAFETY CAST: Ensure it is bytes to prevent crash ---
+                # FIX: Safe Cast
                 pdf_bytes = bytes(raw_pdf)
                 
-                # Display
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
+                
+                # FIX: Use Embed for Chrome compatibility
+                pdf_display = f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">'
                 st.markdown(pdf_display, unsafe_allow_html=True)
+                
+                # FIX: Add Download Button Fallback
+                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
                 
                 st.session_state.final_pdf = pdf_bytes
             
@@ -491,7 +433,6 @@ def render_review_page():
 
     st.divider()
     
-    # Recalculate Total
     tier = st.session_state.get("locked_tier", "Standard")
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
@@ -508,15 +449,12 @@ def render_review_page():
 
     with col_pay:
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-            # Create Stripe Session
             u_email = st.session_state.get("user_email")
             d_id = st.session_state.get("current_draft_id")
             
-            # Ensure draft is saved with final price
             if d_id and database:
                 database.update_draft_data(d_id, price=total, status="Pending Payment")
             
-            # Call Payment Engine
             url = payment_engine.create_checkout_session(
                 line_items=[{
                     "price_data": {
@@ -532,79 +470,51 @@ def render_review_page():
             
             if url:
                 st.link_button("👉 Click to Pay", url)
-                st.rerun()
             else:
                 st.error("Payment Gateway Error. Please try again.")
 
-# --- ROUTER CONTROLLER ---
 def render_application():
-    """
-    Acts as the main router, switching views based on session state.
-    """
-    # Initialize app mode if missing
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
 
     mode = st.session_state.app_mode
 
-    # 1. SPLASH / HERO
     if mode == "splash":
-        if ui_splash:
-            ui_splash.render_splash_page()
-        else:
-            st.error("UI Module 'splash' not found.")
+        if ui_splash: ui_splash.render_splash_page()
+        else: st.error("UI Module 'splash' not found.")
 
-    # 2. LOGIN / AUTH
     elif mode == "login":
-        if ui_login:
-            ui_login.render_login_page()
-        else:
-            st.error("UI Module 'login' not found.")
+        if ui_login: ui_login.render_login_page()
+        else: st.error("UI Module 'login' not found.")
 
-    # 3. STORE (Pricing)
     elif mode == "store":
         render_store_page()
 
-    # 4. WORKSPACE (Compose)
     elif mode == "workspace":
         render_workspace_page()
 
-    # 5. REVIEW (Pay)
     elif mode == "review":
         render_review_page()
 
-    # 6. ADMIN
     elif mode == "admin":
-        if ui_admin:
-            ui_admin.render_admin_page()
-        else:
-            st.error("UI Module 'admin' not found.")
+        if ui_admin: ui_admin.render_admin_page()
+        else: st.error("UI Module 'admin' not found.")
 
-    # 7. LEGAL
     elif mode == "legal":
-        if ui_legal:
-            ui_legal.render_legal_page()
-        else:
-            st.error("UI Module 'legal' not found.")
+        if ui_legal: ui_legal.render_legal_page()
+        else: st.error("UI Module 'legal' not found.")
 
-    # 8. LEGACY (End of Life)
     elif mode == "legacy":
-        if ui_legacy:
-            ui_legacy.render_legacy_page()
-        else:
-            st.error("UI Module 'legacy' not found.")
+        if ui_legacy: ui_legacy.render_legacy_page()
+        else: st.error("UI Module 'legacy' not found.")
 
-    # Fallback
     else:
         st.warning(f"Unknown App Mode: {mode}")
         if st.button("Reset"):
             reset_app_state()
 
-# --- ENTRY POINT ---
-# This is the function called by main.py
 def render_main():
     render_application()
 
-# If run directly (for testing), invoke the router
 if __name__ == "__main__":
     render_main()
