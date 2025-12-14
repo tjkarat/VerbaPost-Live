@@ -1,462 +1,412 @@
 import streamlit as st
-import logging
-import tempfile
-import os
 import time
+import os
+from datetime import datetime
 
-# --- ROBUST IMPORTS ---
-try:
-    import database
-except Exception:
-    database = None
+# Engine Imports
+import ai_engine
+import payment_engine
+import mailer
+import database
+import letter_format
+import address_standard
+import pricing_engine
+import bulk_engine
+import audit_engine
 
-try:
-    import ai_engine
-except Exception:
-    ai_engine = None
-
-try:
-    import payment_engine
-except Exception:
-    payment_engine = None
-
-try:
-    import pricing_engine
-except Exception:
-    pricing_engine = None
-
-try:
-    import secrets_manager
-except Exception:
-    secrets_manager = None
-
-try:
-    import civic_engine
-except Exception:
-    civic_engine = None
-
-try:
-    import letter_format
-except Exception:
-    letter_format = None
-
-try:
-    import promo_engine
-except Exception:
-    promo_engine = None
-
-try:
-    import mailer
-except Exception:
-    mailer = None
-
-try:
-    import email_engine
-except Exception:
-    email_engine = None
-
-# --- CONFIG ---
-YOUR_APP_URL = "https://verbapost.streamlit.app"
-if secrets_manager:
-    s_url = secrets_manager.get_secret("BASE_URL")
-    if s_url: YOUR_APP_URL = s_url.rstrip("/")
-
-# --- INTERNAL LOGIC ---
-def _handle_draft_creation(email, tier, price):
-    d_id = st.session_state.get("current_draft_id")
-    text = st.session_state.get("transcribed_text", "")
-    if database:
-        if d_id:
-            if database.update_draft_data(d_id, tier=tier, price=price, text=text): return d_id
-        d_id = database.save_draft(email, text, tier, price)
-        st.session_state.current_draft_id = d_id
-        return d_id
-    return "temp_draft"
-
-def _save_address_book(user_email, data, is_sender=False):
-    if not database or not user_email: return
-    try:
-        contact = {
-            "user_email": user_email,
-            "name": data.get("name"),
-            "street": data.get("street"),
-            "city": data.get("city"),
-            "state": data.get("state"),
-            "zip": data.get("zip"),
-            "country": data.get("country", "US"),
-            "type": "sender" if is_sender else "recipient"
+# --- ACCESSIBILITY CSS INJECTOR ---
+def inject_accessibility_css():
+    """
+    Injects CSS to make tabs larger, high-contrast, and button-like.
+    Designed for better accessibility (Fitts's Law + Vision).
+    """
+    st.markdown("""
+        <style>
+        /* 1. Make the Tab Text Huge and Bold */
+        .stTabs [data-baseweb="tab"] p {
+            font-size: 1.5rem !important;
+            font-weight: 700 !important;
         }
-        database.save_contact(contact)
-    except Exception: pass
 
-def _load_user_profile():
-    """Loads user profile to autofill sender address."""
-    # We use a flag 'profile_loaded' to ensure we only overwrite the fields once per session
-    if database and st.session_state.get("authenticated") and not st.session_state.get("profile_loaded"):
-        try:
-            if hasattr(database, "get_user_profile"):
-                profile = database.get_user_profile(st.session_state.user_email)
-                if profile:
-                    # Save to a holding dict for reference
-                    st.session_state.sender_data = {
-                        "name": profile.get("full_name", ""),
-                        "street": profile.get("return_address_street", ""),
-                        "city": profile.get("return_address_city", ""),
-                        "state": profile.get("return_address_state", ""),
-                        "zip": profile.get("return_address_zip", ""),
-                        "country": profile.get("return_address_country", "US")
-                    }
-                    # FORCE HYDRATION: Push directly to widget keys so they appear in the UI
-                    st.session_state.s_n = profile.get("full_name", "")
-                    st.session_state.s_s = profile.get("return_address_street", "")
-                    st.session_state.s_c = profile.get("return_address_city", "")
-                    st.session_state.s_st = profile.get("return_address_state", "")
-                    st.session_state.s_z = profile.get("return_address_zip", "")
-            
-            st.session_state.profile_loaded = True
-        except Exception: pass
+        /* 2. Turn Tabs into Large Buttons with Outlines */
+        .stTabs [data-baseweb="tab"] {
+            height: 70px;
+            white-space: pre-wrap;
+            background-color: #F0F2F6;
+            border-radius: 10px 10px 0px 0px;
+            gap: 2px;
+            padding-top: 10px;
+            padding-bottom: 10px;
+            border: 2px solid #9CA3AF; /* Stronger Grey Outline */
+            margin-right: 5px;
+            color: #374151; /* Dark text for unselected */
+        }
 
-# --- SIDEBAR (Fixed Unique Keys) ---
-def render_sidebar():
-    # Prevent double-rendering
-    if st.session_state.get("_sidebar_rendered"):
-        return
-    st.session_state._sidebar_rendered = True
-
-    with st.sidebar:
-        st.markdown("<div style='text-align: center;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
-        st.markdown("---")
+        /* 3. High Contrast for Selected Tab (Red Background, White Text) */
+        .stTabs [aria-selected="true"] {
+            background-color: #FF4B4B !important;
+            border: 2px solid #FF4B4B !important;
+            color: white !important;
+        }
         
-        if st.session_state.get("authenticated"):
-            st.success(f"👤 {st.session_state.get('user_email', 'User')}")
-            st.markdown("---")
-            # Unique keys prevent 'DuplicateElementKey' crash
-            if st.button("🏪 Store", key="sb_nav_store_unique", use_container_width=True): 
-                st.session_state.app_mode = "store"
-                st.rerun()
-            st.markdown("---")
-            if st.button("Log Out", key="sb_logout_unique", use_container_width=True):
-                st.session_state.clear()
-                st.rerun()
-        else:
-            if st.button("🔑 Log In", key="sb_login_unique", type="primary", use_container_width=True):
-                st.query_params["view"] = "login"
-                st.rerun()
+        /* 4. Force text color to white inside the active tab */
+        .stTabs [aria-selected="true"] p {
+            color: white !important;
+        }
 
-        try:
-            admins = ["tjkarat@gmail.com"]
-            if secrets_manager:
-                sec = secrets_manager.get_secret("admin.email")
-                if sec: admins.append(sec)
-            curr = st.session_state.get("user_email", "").strip().lower()
-            if st.session_state.get("authenticated") and curr in [a.lower() for a in admins]:
-                st.markdown("---")
-                if st.button("🛡️ Admin Console", key="sb_admin_unique", use_container_width=True):
-                    st.query_params["view"] = "admin"
-                    st.rerun()
-        except: pass
+        /* 5. Improve Instruction Box Visibility */
+        .instruction-box {
+            background-color: #FEF3C7;
+            border-left: 5px solid #F59E0B;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 18px;
+            color: #1F2937;
+        }
+        </style>
+    """, unsafe_allow_html=True)
 
-# --- PAGE: STORE ---
+# --- HELPER FUNCTIONS ---
+
+def reset_app_state():
+    """Clears session state for a fresh start."""
+    keys_to_keep = ["authenticated", "user_email", "user_name", "user_role"]
+    for key in list(st.session_state.keys()):
+        if key not in keys_to_keep:
+            del st.session_state[key]
+    st.rerun()
+
+def _handle_draft_creation(email, tier, price):
+    """
+    Ensures a draft exists in the DB before payment.
+    Handles 'Ghost Drafts' where the DB row might be missing but session persists.
+    """
+    d_id = st.session_state.get("current_draft_id")
+    success = False
+    
+    # Try to update existing
+    if d_id and database:
+        success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+    
+    # If update failed (row missing) or no draft ID, create new
+    if not success and database:
+        d_id = database.save_draft(email, "", tier, price)
+        st.session_state.current_draft_id = d_id
+        if not success and st.session_state.get("current_draft_id"):
+             # Only warn if we thought we had one but lost it
+             print("Recovered lost draft session.")
+    
+    return d_id
+
+# --- PAGE RENDERERS ---
+
 def render_store_page():
-    st.markdown("## Select Service")
-    is_camp = st.toggle("📢 Bulk Campaign Mode", value=st.session_state.get("is_campaign", False))
-    st.session_state.is_campaign = is_camp
-    
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        if is_camp:
-            st.info("Upload CSV in workspace. Base Price: $2.99/letter.")
-            st.session_state.locked_tier = "Campaign"
-            price = 2.99
-        else:
-            tier = st.radio("Tier", ["Standard", "Heirloom", "Civic", "Santa"],
-                          captions=["$2.99 - Basic", "$5.99 - Archival", "$6.99 - Congress", "$9.99 - North Pole"])
-            st.session_state.locked_tier = tier
-            price = 2.99
-            if pricing_engine: price = pricing_engine.calculate_total(tier)
-    
-    with c2:
-        with st.container(border=True):
-            st.metric("Price / Unit", f"${price:.2f}")
-            
-            # Promo Code Logic
-            promo_code = st.text_input("Promo Code", key="store_promo")
-            if promo_code and promo_engine:
-                valid, discount, p_type = promo_engine.validate_promo(promo_code)
-                if valid:
-                    st.success(f"Code Applied: {discount}% OFF")
-                    price = price * (1 - discount/100)
-                    st.metric("New Price", f"${price:.2f}")
-                else:
-                    st.error("Invalid Code")
+    """
+    Step 1: The Store (Pricing & Tier Selection)
+    Now includes Authentication Guard and Server-Side Pricing.
+    """
+    # 1. Auth Guard
+    u_email = st.session_state.get("user_email", "")
+    if not u_email:
+        st.warning("⚠️ Session Expired. Please log in to continue.")
+        if st.button("Go to Login"):
+            st.session_state.app_mode = "login"
+            st.rerun()
+        return
 
-            if st.button("Generate Checkout Link 💳", type="primary", use_container_width=True):
+    st.markdown("## 📮 Choose Your Letter Service")
+    
+    # 2. Campaign Mode Toggle
+    mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
+    
+    if mode == "Bulk Campaign":
+        st.info("📢 **Campaign Mode:** Upload a CSV to send letters to hundreds of people at once.")
+        render_campaign_uploader()
+        return
+
+    # 3. Standard Pricing Cards
+    col1, col2, col3, col4 = st.columns(4)
+
+    # Helper to render card
+    def price_card(col, title, price, desc, tier_code, btn_key):
+        with col:
+            st.markdown(f"### {title}")
+            st.markdown(f"## ${price}")
+            st.caption(desc)
+            if st.button(f"Select {title}", key=btn_key, use_container_width=True):
+                st.session_state.locked_tier = tier_code
                 st.session_state.locked_price = price
-                u = st.session_state.get("user_email", "guest")
-                d_id = _handle_draft_creation(u, st.session_state.locked_tier, price)
-                
-                if payment_engine:
-                    with st.spinner("Creating link..."):
-                        success_url = f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}"
-                        url, sid = payment_engine.create_checkout_session(
-                            f"VerbaPost {st.session_state.locked_tier}", 
-                            int(price*100), 
-                            success_url, 
-                            YOUR_APP_URL, 
-                            metadata={"draft": d_id}
-                        )
-                        if url: st.session_state.payment_url = url
-                        else: st.error("Payment Gateway Error")
-            
-            if st.session_state.get("payment_url"):
-                st.success("Link Ready!")
-                st.link_button("👉 Click to Pay", st.session_state.payment_url, type="primary", use_container_width=True)
+                # Initialize draft
+                _handle_draft_creation(u_email, tier_code, price)
+                # Move to next step
+                st.session_state.app_mode = "workspace"
+                st.rerun()
 
-# --- PAGE: WORKSPACE ---
+    price_card(col1, "Standard", 2.99, "Standard #10 Envelope\nPremium Paper", "Standard", "btn_std")
+    price_card(col2, "Heirloom", 5.99, "Heavy Cream Paper\nWax Seal Effect", "Heirloom", "btn_heir")
+    price_card(col3, "Civic", 6.99, "Write to Congress\nAuto-lookup Officials", "Civic", "btn_civ")
+    price_card(col4, "Santa", 9.99, "North Pole Postmark\nGolden Ticket", "Santa", "btn_santa")
+
+
+def render_campaign_uploader():
+    """Handles CSV upload for Bulk Tier."""
+    st.markdown("### 📁 Upload Recipient List (CSV)")
+    
+    uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
+    if uploaded_file:
+        contacts = bulk_engine.parse_csv(uploaded_file)
+        
+        if not contacts:
+            st.error("❌ Could not parse CSV. Please check format.")
+            return
+
+        st.success(f"✅ Loaded {len(contacts)} recipients.")
+        
+        # Calculate Bulk Price
+        total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
+        st.metric("Estimated Total", f"${total}")
+        
+        if st.button("Proceed with Campaign"):
+            st.session_state.locked_tier = "Campaign"
+            st.session_state.bulk_targets = contacts
+            st.session_state.app_mode = "workspace"
+            st.rerun()
+
+
 def render_workspace_page():
-    # Security Guard
-    if not st.session_state.get("paid_order", False):
-        st.warning("🔒 Please pay to access the Workspace.")
-        st.session_state.app_mode = "store"
-        time.sleep(1.5)
-        st.rerun()
+    """
+    Step 2 & 3: Composition & Addressing
+    UPDATED: Includes Accessibility CSS and clearer instructions.
+    """
+    # 1. Inject Accessibility CSS
+    inject_accessibility_css()
 
-    # Load profile data if needed
-    _load_user_profile()
+    st.markdown(f"## 📝 Workspace: {st.session_state.get('locked_tier', 'Draft')}")
 
-    tier = st.session_state.get("locked_tier", "Standard")
-    
-    # --- HEADER & TUTORIAL ---
-    st.markdown(f"## 📮 Workspace: {tier}")
-    
-    if "first_visit" not in st.session_state:
-        st.info("👋 Welcome! Follow the steps below to dictate and send your letter.")
-        st.session_state.first_visit = False
-
-    t1, t2 = st.tabs(["📍 Step 1: Addressing", "✍️ Step 2: Composing"])
-    
-    # --- TAB 1: ADDRESSING ---
-    with t1:
-        st.caption("Tell us where this letter is going.")
+    # --- STEP 2: ADDRESSING ---
+    with st.expander("📍 Step 2: Addressing", expanded=True):
+        st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # --- ADDRESS BOOK LOGIC ---
-        if database and st.session_state.get("authenticated"):
-            try:
-                saved = database.get_saved_contacts(st.session_state.user_email)
-                if saved:
-                    # Friendly labels for dropdown
-                    opts = {f"{x['name']} ({x.get('street','')})": x for x in saved}
-                    selected_key = st.selectbox("📂 Load from Address Book", ["Select..."] + list(opts.keys()))
-                    
-                    # If selected, force-fill the widget keys
-                    if selected_key != "Select...":
-                        data = opts[selected_key]
-                        st.session_state.r_n = data.get("name", "")
-                        st.session_state.r_s = data.get("street", "")
-                        st.session_state.r_c = data.get("city", "")
-                        st.session_state.r_st = data.get("state", "")
-                        st.session_state.r_z = data.get("zip", "")
-            except Exception: pass
-        # --------------------------
-
-        with st.form("addr_form"):
-            c1, c2 = st.columns(2)
+        # We use a form to force browser autofill to sync
+        with st.form("addressing_form"):
+            col_to, col_from = st.columns(2)
             
-            # SENDER (Keys allow auto-population from profile)
-            with c1:
-                st.markdown("### 🏠 From (You)")
-                s_name = st.text_input("Name", key="s_n")
-                s_str = st.text_input("Street", key="s_s")
-                sa, sb, sc = st.columns(3)
-                s_city = sa.text_input("City", key="s_c")
-                s_state = sb.text_input("State", key="s_st")
-                s_zip = sc.text_input("Zip", key="s_z")
-                s_country = st.selectbox("Country", ["US", "CA", "UK"], index=0, key="s_co")
+            with col_to:
+                st.markdown("### To: (Recipient)")
+                name = st.text_input("Name", key="to_name_input")
+                street = st.text_input("Street Address", key="to_street_input")
+                city = st.text_input("City", key="to_city_input")
+                col_s, col_z = st.columns(2)
+                state = col_s.text_input("State", key="to_state_input")
+                zip_c = col_z.text_input("Zip", key="to_zip_input")
 
-            # RECIPIENT (Keys allow auto-population from address book)
-            with c2:
-                if tier == "Civic":
-                    st.markdown("### 🏛️ To (Congress)")
-                    st.info("We automatically route your letter to your 2 Senators and 1 Representative.")
-                    if st.form_submit_button("🔍 Verify My Representatives"):
-                        if civic_engine and s_str and s_zip:
-                            with st.spinner("Consulting Geocodio..."):
-                                addr_str = f"{s_str}, {s_city}, {s_state} {s_zip}"
-                                reps = civic_engine.get_representatives(addr_str)
-                                if reps:
-                                    st.success(f"Found: {', '.join(reps)}")
-                                    st.session_state.civic_reps = reps
-                                else: st.error("No representatives found.")
-                        else: st.error("Enter Return Address first.")
+            with col_from:
+                st.markdown("### From: (Return Address)")
+                # Pre-fill from user profile if available
+                u_profile = st.session_state.get("user_profile", {})
                 
-                elif tier == "Campaign":
-                    st.markdown("### 📂 Bulk List")
-                    st.info("Please upload your CSV file in the next step.")
+                f_name = st.text_input("Your Name", value=u_profile.get("full_name",""), key="from_name")
+                f_street = st.text_input("Your Street", value=u_profile.get("address_line1",""), key="from_street")
+                f_city = st.text_input("Your City", value=u_profile.get("city",""), key="from_city")
+                col_fs, col_fz = st.columns(2)
+                f_state = col_fs.text_input("Your State", value=u_profile.get("state",""), key="from_state")
+                f_zip = col_fz.text_input("Your Zip", value=u_profile.get("zip_code",""), key="from_zip")
+            
+            # Form Submit Button
+            if st.form_submit_button("💾 Save Addresses"):
+                # Save to session
+                st.session_state.addr_to = {
+                    "name": name, "street": street, "city": city, "state": state, "zip": zip_c
+                }
+                st.session_state.addr_from = {
+                    "name": f_name, "street": f_street, "city": f_city, "state": f_state, "zip": f_zip
+                }
                 
-                else:
-                    st.markdown("### 📬 To (Recipient)")
-                    r_name = st.text_input("Name", key="r_n")
-                    r_str = st.text_input("Street", key="r_s")
-                    ra, rb, rc = st.columns(3)
-                    r_city = ra.text_input("City", key="r_c")
-                    r_state = rb.text_input("State", key="r_st")
-                    r_zip = rc.text_input("Zip", key="r_z")
-                    r_country = st.selectbox("Country", ["US", "CA", "UK"], index=0, key="r_co")
+                # Save to DB
+                d_id = st.session_state.get("current_draft_id")
+                if d_id and database:
+                    database.update_draft_data(d_id, to_address=st.session_state.addr_to, from_address=st.session_state.addr_from)
+                
+                st.success("✅ Addresses Saved!")
 
-            # Save Actions
-            if tier not in ["Civic", "Campaign"]:
-                save_b = st.checkbox("Save Recipient to Address Book")
-                if st.form_submit_button("✅ Save Addresses"):
-                    # Save to session state dicts
-                    st.session_state.sender_data = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_country}
-                    st.session_state.recipient_data = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_country}
-                    
-                    if save_b and st.session_state.authenticated:
-                        _save_address_book(st.session_state.user_email, st.session_state.recipient_data, is_sender=False)
-                    st.success("Addresses Saved!")
+    st.divider()
 
-    # --- TAB 2: WRITING ---
-    with t2:
-        st.markdown("### 🎙️ Dictation Studio")
+    # --- STEP 3: COMPOSE (ACCESSIBLE VERSION) ---
+    st.markdown("## ✍️ Step 3: Write Your Letter")
+
+    # High-Contrast Instruction Box
+    st.markdown(
+        """
+        <div class="instruction-box">
+        <b>INSTRUCTIONS:</b> Click the <b>'Record Voice'</b> tab below to speak, 
+        or click <b>'Type Manually'</b> to use your keyboard.
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
+    # TABS: Renamed and Styled via CSS
+    tab_type, tab_record = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
+
+    # -- TAB 1: TYPING --
+    with tab_type:
+        st.markdown("### ⌨️ Typing Mode")
+        st.write("Type your letter in the box below.")
         
-        col_mic, col_file = st.columns(2)
-        with col_mic:
-            audio_mic = st.audio_input("🎤 Record Voice")
-        with col_file:
-            uploaded_file = st.file_uploader("📂 Or Upload Audio", type=["mp3", "wav", "m4a"])
+        current_text = st.session_state.get("letter_body", "")
+        new_text = st.text_area("Body", value=current_text, height=300, label_visibility="collapsed")
         
-        active_audio = uploaded_file or audio_mic
-        if active_audio and ai_engine:
-            if st.button("✨ Transcribe Audio", type="primary"):
-                with st.spinner("🧠 AI is listening..."):
-                    suffix = ".wav" if not uploaded_file else os.path.splitext(uploaded_file.name)[1]
-                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as t:
-                        t.write(active_audio.getvalue())
-                        tpath = t.name
-                    try:
-                        text = ai_engine.transcribe_audio(tpath)
-                        st.session_state.transcribed_text = text
-                        st.success("Transcription Complete!")
-                    except Exception as e:
-                        st.error(f"Transcription Failed: {e}")
-                    finally:
-                        try: os.remove(tpath)
-                        except: pass
-                    st.rerun()
+        if new_text != current_text:
+            st.session_state.letter_body = new_text
+            # Auto-save to DB occasionally or on change
+            d_id = st.session_state.get("current_draft_id")
+            if d_id and database:
+                database.update_draft_data(d_id, content=new_text)
 
-        # Editor
-        st.markdown("#### 📝 Edit Your Letter")
-        val = st.session_state.get("transcribed_text", "")
-        txt = st.text_area("Letter Body", val, height=400, placeholder="Your transcribed text will appear here...")
-        if txt: st.session_state.transcribed_text = txt
+    # -- TAB 2: RECORDING (Simplified & Enlarged) --
+    with tab_record:
+        st.markdown("### 🎙️ Voice Mode")
         
-        # AI Buttons
-        if ai_engine and txt:
-            st.markdown("#### 🤖 AI Polish")
-            c_ai1, c_ai2 = st.columns(2)
-            if c_ai1.button("✨ Fix Grammar & Spelling", use_container_width=True):
-                with st.spinner("Polishing..."):
-                    st.session_state.transcribed_text = ai_engine.refine_text(txt, "Grammar")
-                    st.rerun()
-            if c_ai2.button("👔 Make Professional", use_container_width=True):
-                with st.spinner("Refining..."):
-                    st.session_state.transcribed_text = ai_engine.refine_text(txt, "Professional")
-                    st.rerun()
+        # Explicit HTML Instructions
+        st.markdown(
+            """
+            <div style="font-size: 20px; margin-bottom: 20px; line-height: 1.6;">
+            1. Click the <b>red microphone</b> icon below.<br>
+            2. Speak your letter clearly.<br>
+            3. We will type it out for you automatically.
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
 
-    st.markdown("---")
-    if st.button("Review & Send ➡️", type="primary", use_container_width=True):
-        st.session_state.app_mode = "review"
-        st.rerun()
-
-# --- PAGE: REVIEW ---
-def render_review_page():
-    if not st.session_state.get("paid_order", False):
-        st.session_state.app_mode = "store"
-        st.rerun()
-
-    if "locked_tier" not in st.session_state: st.session_state.locked_tier = "Standard"
-    st.markdown("## 🔍 Final Review")
-    
-    # 1. Generate PDF for Preview & Sending
-    pdf_bytes = None
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Document Preview")
-        if letter_format:
+        audio_val = st.audio_input("Record", label_visibility="collapsed")
+        
+        if audio_val:
+            st.info("⏳ Processing your voice... please wait.")
+            
+            # Save temp file
+            tmp_path = f"/tmp/temp_{int(time.time())}.wav"
+            with open(tmp_path, "wb") as f:
+                f.write(audio_val.getvalue())
+            
             try:
-                s = st.session_state.get("sender_data", {})
-                r = st.session_state.get("recipient_data", {})
+                # Transcribe
+                text = ai_engine.transcribe_audio(tmp_path)
                 
-                # Civic Override
-                if st.session_state.locked_tier == "Civic":
-                    r = {"name": "US Congress", "street": "Washington, DC"}
-
-                pdf_bytes = letter_format.create_pdf(
-                    st.session_state.get("transcribed_text", ""), 
-                    s, 
-                    r, 
-                    st.session_state.locked_tier
-                )
-                if pdf_bytes:
-                    st.success("✅ PDF Ready")
-                    st.download_button("📄 Download Proof", pdf_bytes, "letter.pdf", "application/pdf")
-            except Exception as e:
-                st.error(f"Preview Error: {e}")
-                
-    with c2:
-        st.subheader("Ready to Send?")
-        st.info("Payment Confirmed. One click to mail.")
-        
-        # 2. REAL SEND LOGIC
-        if st.button("🚀 Send Letter Now", type="primary", use_container_width=True):
-            if not mailer:
-                st.error("Mailer engine offline.")
-            elif not pdf_bytes:
-                st.error("PDF generation failed.")
-            else:
-                with st.spinner("Transmitting to PostGrid..."):
-                    # A. Send Physical Letter
-                    result = mailer.send_letter(
-                        pdf_bytes, 
-                        st.session_state.get("sender_data", {}), 
-                        st.session_state.get("recipient_data", {}),
-                        st.session_state.locked_tier
-                    )
+                if text:
+                    # Append or Replace? Let's Append to avoid deleting work
+                    current = st.session_state.get("letter_body", "")
+                    st.session_state.letter_body = (current + "\n\n" + text).strip()
                     
-                    if result.get("success"):
-                        st.balloons()
-                        track_num = result.get("tracking_number")
-                        msg = "Letter Sent!"
-                        if track_num:
-                            msg += f" Tracking: {track_num}"
-                        st.success(msg)
-                        
-                        # B. Send Confirmation Email
-                        if email_engine:
-                            u_email = st.session_state.get("user_email")
-                            if u_email:
-                                email_engine.send_confirmation(
-                                    u_email, 
-                                    track_num, 
-                                    st.session_state.locked_tier,
-                                    result.get("id")
-                                )
-                                st.toast("Confirmation email sent!", icon="📧")
-                        
-                        # C. Reset State
-                        st.session_state.paid_order = False
-                        st.session_state.payment_url = None
-                        time.sleep(4)
-                        st.session_state.app_mode = "store"
-                        st.rerun()
-                    else:
-                        st.error(f"Mailing Failed: {result.get('error')}")
+                    # Save to DB
+                    d_id = st.session_state.get("current_draft_id")
+                    if d_id and database:
+                        database.update_draft_data(d_id, content=st.session_state.letter_body)
+                    
+                    st.success("✅ Audio Transcribed! Switch to 'Type Manually' to edit.")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ No speech detected. Please try again.")
+            
+            except Exception as e:
+                st.error(f"Error processing audio: {e}")
+            
+            finally:
+                # Cleanup
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
-# --- MAIN ENTRY ---
-def render_main():
-    render_sidebar()
-    mode = st.session_state.get("app_mode", "store")
-    if mode == "store": render_store_page()
-    elif mode == "workspace": render_workspace_page()
-    elif mode == "review": render_review_page()
-    else: render_store_page()
+    st.divider()
+    
+    # Navigation
+    col_l, col_r = st.columns([1, 4])
+    with col_r:
+        if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
+            # Final Save check
+            if not st.session_state.get("letter_body"):
+                st.error("⚠️ Please write something before continuing!")
+            else:
+                st.session_state.app_mode = "review"
+                st.rerun()
+
+
+def render_review_page():
+    """
+    Step 4: Secure & Send
+    Final Review, PDF Generation, and Payment.
+    """
+    st.markdown("## 👁️ Step 4: Secure & Send")
+    
+    # 1. Generate PDF Preview
+    if st.button("📄 Generate PDF Proof"):
+        with st.spinner("Generating Proof..."):
+            # Gather Data
+            tier = st.session_state.get("locked_tier", "Standard")
+            body = st.session_state.get("letter_body", "")
+            addr_to = st.session_state.get("addr_to", {})
+            addr_from = st.session_state.get("addr_from", {})
+            
+            # Normalize Addresses (Fallback Chain)
+            std_to = address_standard.StandardAddress.from_dict(addr_to)
+            std_from = address_standard.StandardAddress.from_dict(addr_from)
+            
+            # Create PDF
+            pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier)
+            
+            # Display
+            import base64
+            b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+            pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
+            st.markdown(pdf_display, unsafe_allow_html=True)
+            
+            st.session_state.final_pdf = pdf_bytes
+
+    # 2. Payment Section
+    st.divider()
+    
+    # Recalculate Total (Server-Side Check)
+    tier = st.session_state.get("locked_tier", "Standard")
+    # Check flags
+    is_intl = False # Logic to detect country code would go here
+    is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
+    
+    total = pricing_engine.calculate_total(tier, is_intl, is_cert)
+    
+    col_pay, col_info = st.columns([2, 1])
+    
+    with col_info:
+        st.markdown(f"### Total: ${total}")
+        st.caption("• Archival Bond Paper")
+        st.caption("• USPS First Class")
+        if is_cert:
+            st.caption("• Certified Tracking")
+        st.caption("• Digital & Physical Proof")
+
+    with col_pay:
+        if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+            # Create Stripe Session
+            u_email = st.session_state.get("user_email")
+            d_id = st.session_state.get("current_draft_id")
+            
+            # Ensure draft is saved with final price
+            if d_id and database:
+                database.update_draft_data(d_id, price=total, status="Pending Payment")
+            
+            url = payment_engine.create_checkout_session(
+                line_items=[{
+                    "price_data": {
+                        "currency": "usd",
+                        "product_data": {"name": f"VerbaPost - {tier} Letter"},
+                        "unit_amount": int(total * 100),
+                    },
+                    "quantity": 1,
+                }],
+                user_email=u_email,
+                draft_id=d_id
+            )
+            
+            if url:
+                st.link_button("👉 Click to Pay", url)
+                st.rerun()
+            else:
+                st.error("Payment Gateway Error. Please try again.")
