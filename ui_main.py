@@ -72,7 +72,7 @@ def render_sidebar():
                 st.session_state.app_mode = "store"
                 st.rerun()
             
-            # WORKSPACE BUTTON (Visual only - guarded by logic in render_workspace_page)
+            # WORKSPACE BUTTON
             if st.button("✍️ Workspace", key="nav_work", use_container_width=True): 
                 st.session_state.app_mode = "workspace" 
                 st.rerun()
@@ -130,21 +130,14 @@ def render_store_page():
         with st.container(border=True):
             st.metric("Price / Unit", f"${price:.2f}")
             
-            # --- PAYMENT LOGIC FIX ---
-            # Instead of "Start" -> Workspace, we now do "Checkout" -> Stripe
             if st.button("Generate Checkout Link 💳", type="primary", use_container_width=True):
                 st.session_state.locked_price = price
-                
-                # 1. Save Ghost Draft (So we have an ID for the webhook/return)
                 u = st.session_state.get("user_email", "guest")
                 d_id = _handle_draft_creation(u, st.session_state.locked_tier, price)
                 
-                # 2. Generate Stripe Link
                 if payment_engine:
-                    with st.spinner("Creating secure session..."):
-                        # Ensure we return to main.py to handle the logic
+                    with st.spinner("Creating link..."):
                         success_url = f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}"
-                        
                         url, sid = payment_engine.create_checkout_session(
                             f"VerbaPost {st.session_state.locked_tier}", 
                             int(price*100), 
@@ -152,24 +145,20 @@ def render_store_page():
                             YOUR_APP_URL, 
                             metadata={"draft": d_id}
                         )
-                        
                         if url:
                             st.session_state.payment_url = url
                         else:
-                            st.error("Could not contact Payment Gateway.")
+                            st.error("Payment Gateway Error")
             
-            # Display the Link Button if URL exists
             if st.session_state.get("payment_url"):
                 st.success("Link Ready!")
-                st.link_button("👉 Click Here to Pay", st.session_state.payment_url, type="primary", use_container_width=True)
-                st.caption("You will be redirected to the Workspace after payment.")
+                st.link_button("👉 Click to Pay", st.session_state.payment_url, type="primary", use_container_width=True)
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
-    # --- SECURITY GUARD ---
-    # Prevent access unless paid (or admin override if you wanted to add that)
+    # Security Guard
     if not st.session_state.get("paid_order", False):
-        st.warning("🔒 Please select a package and pay to access the Workspace.")
+        st.warning("🔒 Please pay to access the Workspace.")
         st.session_state.app_mode = "store"
         time.sleep(1.5)
         st.rerun()
@@ -180,7 +169,6 @@ def render_workspace_page():
     t1, t2 = st.tabs(["Addressing", "Writing"])
     
     with t1:
-        # Address Book
         if database and st.session_state.get("authenticated"):
             try:
                 saved = database.get_saved_contacts(st.session_state.user_email)
@@ -208,7 +196,6 @@ def render_workspace_page():
             
             save_b = st.checkbox("Save to Address Book")
             if st.form_submit_button("Save Addresses"):
-                # Save Logic
                 st.session_state.sender_data = {"name": s_name, "street": s_str, "csz": s_csz}
                 if tier not in ["Civic", "Campaign"]:
                     st.session_state.recipient_data = {"name": r_name, "street": r_str, "csz": r_csz}
@@ -246,7 +233,6 @@ def render_workspace_page():
 
 # --- PAGE: REVIEW ---
 def render_review_page():
-    # Double check guard just in case
     if not st.session_state.get("paid_order", False):
         st.session_state.app_mode = "store"
         st.rerun()
@@ -256,10 +242,8 @@ def render_review_page():
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("Preview")
-        # PDF Preview Logic
         if letter_format:
             try:
-                # Mock dicts for preview
                 s = st.session_state.get("sender_data", {})
                 r = st.session_state.get("recipient_data", {})
                 pdf = letter_format.create_pdf(st.session_state.get("transcribed_text", ""), {**s, **r}, st.session_state.locked_tier)
@@ -271,28 +255,20 @@ def render_review_page():
     with c2:
         st.subheader("Action")
         st.success("Payment Confirmed ✅")
-        st.caption("Your letter is ready for fulfillment.")
-        
-        # NOTE: In this flow, payment already happened. 
-        # This button triggers the API call to PostGrid (Mailing).
         if st.button("🚀 Send Letter Now", type="primary", use_container_width=True):
-            # 1. Trigger Mailer (Simulation or Real)
-            # if mailer: mailer.send(...)
-            
             st.balloons()
-            st.success("Letter Sent! You will receive a tracking number via email.")
-            
-            # 2. Reset Flow
-            # We clear paid_order so they have to pay for the NEXT letter.
+            st.success("Letter Sent!")
             st.session_state.paid_order = False
-            st.session_state.payment_url = None # Clear old link
-            
+            st.session_state.payment_url = None
             time.sleep(3)
             st.session_state.app_mode = "store"
             st.rerun()
 
 # --- MAIN CONTROLLER ENTRY ---
 def render_main():
+    # CRITICAL FIX: DO NOT CALL render_sidebar() HERE
+    # It is already called by main.py
+    
     mode = st.session_state.get("app_mode", "store")
     
     if mode == "store": render_store_page()

@@ -19,10 +19,10 @@ def render_splash():
             margin-bottom: 30px; 
         }
 
-        /* Mobile Overrides */
+        /* Mobile Overrides (Max width 768px) */
         @media (max-width: 768px) {
-            .splash-header { font-size: 2.2rem !important; }
-            .splash-sub { font-size: 1.1rem !important; }
+            .splash-header { font-size: 2.0rem !important; }
+            .splash-sub { font-size: 1.0rem !important; }
             .splash-container { padding: 20px 10px 30px 10px !important; }
             .stButton button { width: 100% !important; }
         }

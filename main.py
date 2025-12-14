@@ -4,7 +4,7 @@ import sys
 import logging
 
 # --- CONFIG ---
-# CHANGED: initial_sidebar_state set to "collapsed" for cleaner mobile entry
+# MOBILE FIX: initial_sidebar_state="collapsed" gives the Splash screen full width on phones
 st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="centered", initial_sidebar_state="collapsed")
 st.markdown("""<style>[data-testid="stSidebar"] {display: block !important;} .main .block-container {padding-top: 2rem;}</style>""", unsafe_allow_html=True)
 
@@ -44,8 +44,7 @@ if seo_injector and hasattr(seo_injector, 'inject_meta_tags'):
     except: pass
 
 # --- GLOBAL SIDEBAR ---
-# Only render sidebar content if we are NOT in splash mode (optional polish)
-# or just render it standardly.
+# This renders the sidebar once. 
 if ui_main and hasattr(ui_main, 'render_sidebar'):
     try: ui_main.render_sidebar()
     except Exception: pass
