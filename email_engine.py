@@ -4,70 +4,62 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Initialize Resend
+# --- CONFIGURATION ---
+API_KEY = None
 try:
-    # Looks for [resend] api_key or [email] password in secrets
-    api_key = None
+    # Check all possible secret locations
     if "resend" in st.secrets:
-        api_key = st.secrets["resend"]["api_key"]
+        API_KEY = st.secrets["resend"]["api_key"]
     elif "email" in st.secrets:
-        api_key = st.secrets["email"]["password"] # Legacy secret name
+        API_KEY = st.secrets["email"]["password"]
         
-    if api_key:
-        resend.api_key = api_key
+    if API_KEY:
+        resend.api_key = API_KEY
+    else:
+        print("⚠️ WARNING: No 'resend.api_key' found in secrets.toml")
 except Exception as e:
-    logger.error(f"Resend Init Error: {e}")
+    logger.error(f"Resend Config Error: {e}")
 
 def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None):
     """
-    Sends a transaction receipt with the Certified Mail tracking number.
+    Sends a transaction receipt with tracking.
     """
-    if not resend.api_key:
-        logger.warning("No Email API Key found. Skipping notification.")
+    if not API_KEY:
+        print("❌ Email Failed: API Key missing")
         return False
 
-    subject = f"VerbaPost Confirmation: {tier} Letter Sent"
+    subject = f"VerbaPost: {tier} Letter Dispatched"
     
-    # Dynamic text based on tracking
-    tracking_html = ""
+    # Tracking Block
+    track_block = ""
     if tracking_number:
-        tracking_html = f"""
-        <div style="background: #f4f4f4; padding: 15px; border-radius: 5px; margin: 20px 0;">
-            <strong>Certified Tracking Number:</strong><br>
-            <span style="font-family: monospace; font-size: 18px; color: #d93025;">{tracking_number}</span>
-            <br><br>
-            <a href="https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking_number}">Track on USPS.com</a>
-        </div>
-        """
+        track_block = f"""
+        <div style="background:#f4f4f4; padding:15px; margin:20px 0;">
+            <strong>Tracking Number:</strong><br>
+            <span style="font-family:monospace; color:#d93025; font-size:16px;">{tracking_number}</span>
+        </div>"""
     else:
-        tracking_html = f"<p><strong>Order ID:</strong> {order_id}</p>"
+        track_block = f"<p>Order ID: {order_id}</p>"
 
-    html_content = f"""
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #333;">Letter Dispatched 📮</h2>
-        <p>Your <strong>{tier}</strong> letter has been securely transmitted to our print facility.</p>
-        
-        {tracking_html}
-        
-        <p><strong>Next Steps:</strong></p>
-        <ul>
-            <li>Printed on archival paper</li>
-            <li>Enveloped and metered</li>
-            <li>Handed to USPS within 24 hours</li>
-        </ul>
-        <hr>
-        <p style="font-size: 12px; color: #888;">Thank you for using VerbaPost.</p>
+    html = f"""
+    <div style="font-family:sans-serif; color:#333;">
+        <h2>Letter Sent! 📮</h2>
+        <p>Your <strong>{tier}</strong> letter is on its way.</p>
+        {track_block}
+        <p><small>Thank you for using VerbaPost.</small></p>
     </div>
     """
 
     try:
         r = resend.Emails.send({
-            "from": "VerbaPost <notifications@verbapost.com>", # Update if you have a custom domain
+            "from": "VerbaPost <onboarding@resend.dev>", # DEFAULT TEST SENDER
             "to": to_email,
             "subject": subject,
-            "html": html_content
+            "html": html
         })
+        print(f"✅ Email Sent to {to_email}: {r}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send email: {e}")
+        # This will show up in your Streamlit logs now
+        print(f"❌ Email API Error: {e}")
         return False
