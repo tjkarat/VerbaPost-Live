@@ -3,7 +3,7 @@ import time
 import tempfile
 import os
 import json
-import base64  # Required for the fix
+import base64
 
 # --- ROBUST IMPORTS ---
 try:
@@ -244,7 +244,7 @@ def render_legacy_page():
         unsafe_allow_html=True
     )
 
-    tab_write, tab_record = st.tabs(["📝 TYPE MANUALLY", "🎙️ RECORD VOICE"])
+    tab_write, tab_record = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
     
     with tab_write:
         st.markdown("### ⌨️ Typing Mode")
@@ -272,24 +272,46 @@ def render_legacy_page():
             """, 
             unsafe_allow_html=True
         )
+        
+        # Audio Input Widget
         audio_mic = st.audio_input("Record Voice", label_visibility="collapsed")
         
         if audio_mic and ai_engine:
-            st.info("⏳ Processing your voice... please wait.")
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as t:
-                t.write(audio_mic.getvalue())
-                tpath = t.name
-            try:
-                text = ai_engine.transcribe_audio(tpath)
-                exist = st.session_state.get("legacy_text", "")
-                st.session_state.legacy_text = (exist + "\n\n" + text).strip()
-                st.success("✅ Transcribed! Switch to 'Type Manually' to edit.")
-                st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
-            finally:
-                try: os.remove(tpath)
-                except: pass
+            # FIX: Prevent infinite looping by checking if this EXACT audio has been processed
+            # 1. Calculate a simple hash/id for the current audio bytes
+            audio_bytes = audio_mic.getvalue()
+            audio_hash = hash(audio_bytes)
+            
+            # 2. Compare with the last processed hash
+            last_hash = st.session_state.get("last_legacy_audio_hash")
+            
+            if audio_hash != last_hash:
+                st.info("⏳ Processing your voice... please wait.")
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as t:
+                    t.write(audio_bytes)
+                    tpath = t.name
+                
+                try:
+                    text = ai_engine.transcribe_audio(tpath)
+                    if text:
+                        exist = st.session_state.get("legacy_text", "")
+                        st.session_state.legacy_text = (exist + "\n\n" + text).strip()
+                        
+                        # 3. Mark as processed
+                        st.session_state.last_legacy_audio_hash = audio_hash
+                        
+                        st.success("✅ Transcribed! Switch to 'Type Manually' to edit.")
+                        st.rerun() # Refresh to update the text box in the other tab
+                    else:
+                        st.warning("⚠️ No speech detected.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    try: os.remove(tpath)
+                    except: pass
+            else:
+                # If hash matches, we do nothing (the user hasn't recorded anything new)
+                pass
 
     # --- STEP 4: REVIEW & PAY ---
     st.markdown("---")
@@ -303,18 +325,16 @@ def render_legacy_page():
                 st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # FIX 1: Pass "Standard" or "Heirloom" to ensure signature is included
-                    # FIX 2: Explicitly cast output to bytes
+                    # Explicitly convert to bytes to avoid 'bytearray' error
                     raw_pdf = letter_format.create_pdf(
                         letter_text, 
                         st.session_state.legacy_sender, 
                         st.session_state.legacy_recipient, 
-                        tier="Standard", # Ensures signature block logic triggers
+                        tier="Standard", # Use Standard to ensure signature block is included
                         font_choice=st.session_state.legacy_font
                     )
-                    pdf_bytes = bytes(raw_pdf) # <--- CRITICAL FIX FOR BYTEARRAY ERROR
+                    pdf_bytes = bytes(raw_pdf) 
                     
-                    # Display Preview
                     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                     pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
                     st.markdown(pdf_display, unsafe_allow_html=True)
