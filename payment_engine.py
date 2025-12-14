@@ -65,14 +65,18 @@ def create_checkout_session(line_items=None, user_email=None, draft_id=None, tie
         return None
 
 def verify_session(session_id):
-    """Verifies payment status on return."""
+    """
+    Verifies payment status on return.
+    Returns the email used for payment so we can update guest records.
+    """
     if not stripe.api_key: return None
     try:
         session = stripe.checkout.Session.retrieve(session_id)
         if session.payment_status == 'paid':
+            # RETURN THE EMAIL STRIPE COLLECTED
             return {
                 "paid": True,
-                "email": session.customer_details.email,
+                "email": session.customer_details.email, 
                 "amount": session.amount_total / 100.0
             }
     except Exception as e:

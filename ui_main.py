@@ -4,7 +4,6 @@ import os
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
-# These handle the heavy lifting (Database, AI, Payments, Mail)
 import ai_engine
 import payment_engine
 import mailer
@@ -15,7 +14,7 @@ import pricing_engine
 import bulk_engine
 import audit_engine
 
-# --- UI MODULE IMPORTS (DYNAMIC) ---
+# --- UI MODULE IMPORTS ---
 # We wrap these in try/except to prevent the app from crashing 
 # if a single module is missing or has a syntax error.
 try:

@@ -6,7 +6,6 @@ import json
 import base64
 
 # --- ROBUST IMPORTS ---
-# We wrap these to prevent the entire app from crashing if one module has an issue.
 try:
     import database
 except ImportError:
@@ -34,10 +33,6 @@ except ImportError:
 
 # --- CSS INJECTOR (ACCESSIBILITY & STYLING) ---
 def inject_legacy_accessibility_css():
-    """
-    Injects CSS to make tabs larger, high-contrast, and button-like.
-    Also styles the font preview and instruction boxes.
-    """
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Caveat&family=Great+Vibes&family=Indie+Flower&family=Schoolbell&display=swap');
@@ -111,7 +106,7 @@ def initialize_legacy_state():
         "legacy_font": "Caveat",
         "current_legacy_draft_id": None,
         "last_legacy_hash": None,
-        "audio_widget_key": 0  # Added for resetting the recorder
+        "paid_success": False
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -144,14 +139,8 @@ def _save_legacy_draft():
     try:
         d_id = st.session_state.get("current_legacy_draft_id")
         
-        # Matches database.py schema (content instead of text)
         if d_id:
-            database.update_draft_data(
-                d_id, 
-                content=text_content, 
-                tier="Legacy", 
-                price=15.99
-            )
+            database.update_draft_data(d_id, content=text_content, tier="Legacy", price=15.99)
             st.toast("Draft Saved!", icon="💾")
         else:
             d_id = database.save_draft(user_email, text_content, "Legacy", 15.99)
@@ -161,13 +150,52 @@ def _save_legacy_draft():
     except Exception as e:
         st.error(f"Save failed: {e}")
 
+# --- SUCCESS VIEW (POST-PAYMENT) ---
+def render_success_view():
+    """
+    Displays the confirmation screen after payment.
+    Ensures the user doesn't get stuck in a 'goofy loop'.
+    """
+    st.balloons()
+    st.markdown("## ✅ Order Confirmed!")
+    
+    st.markdown(
+        """
+        <div style="background-color: #dcfce7; padding: 20px; border-radius: 10px; border: 1px solid #22c55e; margin-bottom: 20px;">
+            <h3 style="color: #15803d; margin-top:0;">Secure Delivery Initiated</h3>
+            <p>Your legacy letter has been securely generated and is being queued for <b>Certified Mail</b>.</p>
+        </div>
+        """, unsafe_allow_html=True
+    )
+    
+    st.markdown("### 📧 What happens next?")
+    
+    # Display the captured email
+    email = st.session_state.get("user_email", "your email address")
+    st.info(f"We will email the **USPS Tracking Number** to: **{email}**")
+    
+    st.markdown("---")
+    
+    if st.button("Start Another Letter"):
+        # Reset specific legacy flags but keep auth
+        st.session_state.paid_success = False
+        st.session_state.current_legacy_draft_id = None
+        st.session_state.legacy_text = ""
+        st.session_state.last_legacy_hash = None
+        st.rerun()
+
 # --- MAIN RENDERER ---
 def render_legacy_page():
     # 1. Setup
     initialize_legacy_state()
     inject_legacy_accessibility_css()
 
-    # 2. Header & Controls
+    # 2. CHECK: If payment succeeded, show success view immediately
+    if st.session_state.get("paid_success"):
+        render_success_view()
+        return
+
+    # 3. Header & Controls
     col_head, col_save = st.columns([3, 1])
     with col_head:
         st.markdown("## 🕊️ Legacy Workspace")
@@ -184,7 +212,7 @@ def render_legacy_page():
         4.  **Secure:** We generate a PDF proof sent via **Certified Mail**.
         """)
 
-    # 3. Address Book & Loading
+    # 4. Address Book & Loading
     address_options = load_address_book()
     
     st.markdown("### 📍 Step 1: Delivery Details")
@@ -193,40 +221,30 @@ def render_legacy_page():
         selected_contact = st.selectbox("📂 Load from Address Book", ["Select..."] + list(address_options.keys()))
         if selected_contact != "Select...":
             data = address_options[selected_contact]
-            # Autofill session state variables for the form
             st.session_state.leg_r_name = data.get('name', '')
             st.session_state.leg_r_street = data.get('street', '')
             st.session_state.leg_r_city = data.get('city', '')
             st.session_state.leg_r_state = data.get('state', '')
             st.session_state.leg_r_zip = data.get('zip_code', '') or data.get('zip', '')
 
-    # 4. Address Form
+    # 5. Address Form
     with st.form("legacy_address_form"):
         c1, c2 = st.columns(2)
-        
-        # FROM COLUMN
         with c1:
             st.markdown("#### 🏠 From (You)")
-            # Try to pre-fill from user profile
             profile = st.session_state.get("user_profile", {})
-            
             s_name = st.text_input("Your Name", value=profile.get("full_name", ""), key="leg_s_name")
             s_str = st.text_input("Street Address", value=profile.get("address_line1", ""), key="leg_s_street")
-            
             sc1, sc2, sc3 = st.columns(3)
             s_city = sc1.text_input("City", value=profile.get("city", ""), key="leg_s_city")
             s_state = sc2.text_input("State", value=profile.get("state", ""), key="leg_s_state")
             s_zip = sc3.text_input("Zip", value=profile.get("zip_code", ""), key="leg_s_zip")
 
-        # TO COLUMN
         with c2:
             st.markdown("#### 📬 To (Recipient)")
             st.warning("⚠️ Certified Mail: Recipient must sign for delivery.")
-            
-            # These keys match the ones we set in the Address Book loader above
             r_name = st.text_input("Recipient Name", key="leg_r_name")
             r_str = st.text_input("Street Address", key="leg_r_street")
-            
             rc1, rc2, rc3 = st.columns(3)
             r_city = rc1.text_input("City", key="leg_r_city")
             r_state = rc2.text_input("State", key="leg_r_state")
@@ -241,12 +259,11 @@ def render_legacy_page():
             else:
                 st.error("Please fill in at least Name and Street for both parties.")
 
-    # Block progress until addresses are set
     if not st.session_state.get("legacy_sender") or not st.session_state.get("legacy_recipient"):
         st.warning("Please confirm addresses above to unlock the writing studio.")
         st.stop()
 
-    # 5. Font Selection
+    # 6. Font Selection
     st.markdown("---")
     st.markdown("### 🖋️ Step 2: Handwriting Style")
     
@@ -276,16 +293,14 @@ def render_legacy_page():
         </div>
         """, unsafe_allow_html=True)
 
-    # 6. Compose Section
+    # 7. Compose Section
     st.markdown("---")
     st.markdown("### ✍️ Step 3: Compose")
     
     st.markdown(
         """
         <div class="instruction-box">
-        <b>HOW TO USE:</b><br>
-        Click the <b>"RECORD VOICE"</b> tab below if you want to speak.<br>
-        Click the <b>"TYPE MANUALLY"</b> tab below if you want to type.
+        <b>INSTRUCTIONS:</b> Click <b>RECORD VOICE</b> to speak, or <b>TYPE MANUALLY</b> to write.
         </div>
         """, 
         unsafe_allow_html=True
@@ -306,36 +321,24 @@ def render_legacy_page():
         if letter_text:
             st.session_state.legacy_text = letter_text
 
-    # RECORD TAB (UPDATED WITH RESET & CLEAR INSTRUCTIONS)
+    # RECORD TAB
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
-        
-        # Verbose Instructions
         st.markdown(
             """
-            <div style="font-size: 20px; margin-bottom: 30px; line-height: 1.8; color: #111;">
+            <div style="font-size: 22px; margin-bottom: 30px; line-height: 1.8; color: #111;">
             <ol>
-                <li><b>Allow Microphone:</b> If your browser asks for permission, click "Allow".</li>
-                <li><b>Start:</b> Click the <b>Red Microphone</b> icon below.</li>
-                <li><b>Speak:</b> Talk clearly. Take your time.</li>
-                <li><b>Finish:</b> Click the stop/check button when done.</li>
-                <li><b>Wait:</b> The text will appear automatically in the "Type Manually" tab.</li>
+                <li>Click the <b>Red Microphone</b> icon below.</li>
+                <li>Speak your letter clearly.</li>
+                <li>We will turn your voice into text automatically.</li>
             </ol>
             </div>
             """, 
             unsafe_allow_html=True
         )
         
-        # Reset Button for stuck widgets
-        if st.button("🔄 Reset Recorder (Fix Errors)"):
-            st.session_state.audio_widget_key += 1
-            st.rerun()
-
-        # Dynamic Key for Resetting
-        widget_key = f"legacy_audio_{st.session_state.audio_widget_key}"
-        audio_mic = st.audio_input("Record Voice", label_visibility="collapsed", key=widget_key)
+        audio_mic = st.audio_input("Record Voice", label_visibility="collapsed")
         
-        # Loop Prevention Logic
         if audio_mic and ai_engine:
             audio_bytes = audio_mic.getvalue()
             audio_hash = hash(audio_bytes)
@@ -350,39 +353,33 @@ def render_legacy_page():
                 try:
                     text = ai_engine.transcribe_audio(tpath)
                     if text:
-                        # Append text
                         exist = st.session_state.get("legacy_text", "")
                         st.session_state.legacy_text = (exist + "\n\n" + text).strip()
-                        
-                        # Update Hash
                         st.session_state.last_legacy_hash = audio_hash
-                        
                         st.success("✅ Transcribed! Switch to 'Type Manually' to edit.")
                         st.rerun() 
                     else:
-                        st.warning("⚠️ No speech detected. Please try speaking louder.")
+                        st.warning("⚠️ No speech detected.")
                 except Exception as e:
                     st.error(f"Transcription Error: {e}")
                 finally:
                     try: os.remove(tpath)
                     except: pass
             else:
-                pass # Already processed
+                pass
 
-    # 7. Review & Pay Section
+    # 8. Review & Pay Section
     st.markdown("---")
     st.markdown("### 👁️ Step 4: Secure & Send")
     
     col_prev, col_pay = st.columns([1, 1])
 
-    # PDF PREVIEW
     with col_prev:
         if st.button("📄 Generate PDF Proof"):
             if not st.session_state.get("legacy_text"):
                 st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # Tier logic ensures signature
                     raw_pdf = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""), 
                         st.session_state.legacy_sender, 
@@ -391,7 +388,7 @@ def render_legacy_page():
                         font_choice=st.session_state.legacy_font
                     )
                     
-                    # Safe cast to bytes
+                    # SAFETY CAST: Ensure immutable bytes
                     pdf_bytes = bytes(raw_pdf) 
                     
                     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
@@ -401,7 +398,6 @@ def render_legacy_page():
                 except Exception as e:
                     st.error(f"PDF Generation Error: {e}")
 
-    # CHECKOUT
     with col_pay:
         st.markdown(f"""
         <div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px;">
@@ -419,7 +415,6 @@ def render_legacy_page():
             if payment_engine:
                 _save_legacy_draft()
                 
-                # Use line_items format
                 url = payment_engine.create_checkout_session(
                     line_items=[{
                         "price_data": {

@@ -3,9 +3,11 @@ import os
 
 class LetterPDF(FPDF):
     def header(self):
-        pass # No header needed for this style
+        # Header is usually blank for these letters to look personal
+        pass
 
     def footer(self):
+        # Position at 1.5 cm from bottom
         self.set_y(-15)
         self.set_font("Helvetica", "I", 8)
         self.set_text_color(128)
@@ -22,20 +24,24 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
     # --- 1. Fonts Setup ---
     chosen_font_name = "Helvetica" # Default
     
+    # Safe font loading logic
     try:
+        # If specific font requested (Legacy flow)
         if font_choice and "Caveat" in font_choice and os.path.exists("Caveat-Regular.ttf"):
             pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
             chosen_font_name = "Caveat"
+        # Or if tier defaults to handwriting (Standard/Heirloom)
         elif tier in ["Standard", "Heirloom"] and os.path.exists("Caveat-Regular.ttf"):
             pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
             chosen_font_name = "Caveat"
-    except: pass
+    except Exception as e:
+        print(f"Font loading error: {e}")
     
     # --- 2. Return Address ---
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(100, 100, 100) # Grey
     
-    # Handle object vs dict
+    # Handle object vs dict input safely
     s_name = from_addr.get("name") if isinstance(from_addr, dict) else getattr(from_addr, "name", "")
     s_str = from_addr.get("street") if isinstance(from_addr, dict) else getattr(from_addr, "street", "")
     s_city = from_addr.get("city") if isinstance(from_addr, dict) else getattr(from_addr, "city", "")
@@ -84,7 +90,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
         if isinstance(raw_output, str):
             return raw_output.encode('latin-1')
         else:
-            return bytes(raw_output) # Ensure immutable bytes
+            return bytes(raw_output) # Convert to immutable bytes
             
     except Exception as e:
         print(f"PDF Output Error: {e}")
