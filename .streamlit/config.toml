@@ -1,7 +1,6 @@
 [server]
-fileWatcherType = "none"  # CRITICAL: Stops the crash loop
 headless = true
-
+enableCORS = false
 [theme]
 primaryColor = "#667eea"
 backgroundColor = "#FFFFFF"
