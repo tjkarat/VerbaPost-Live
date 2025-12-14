@@ -1,14 +1,10 @@
-[theme]
-base="light"
-primaryColor = "#FF4B4B"
-backgroundColor="#f8f9fc"
-secondaryBackgroundColor="#ffffff"
-# textColor line is GONE
-# font line is GONE
-
 [server]
-enableCORS = false
-enableXsrfProtection = false
-enableStaticServing = true
-fileWatcherType = "none"  # Disables the resource-heavy file watcher
+fileWatcherType = "none"  # CRITICAL: Stops the crash loop
 headless = true
+
+[theme]
+primaryColor = "#667eea"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F0F2F6"
+textColor = "#31333F"
+font = "sans serif"
