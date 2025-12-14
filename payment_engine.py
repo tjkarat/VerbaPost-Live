@@ -1,71 +1,70 @@
-import streamlit as st
 import stripe
-import secrets_manager
-import logging
+import streamlit as st
+from secrets_manager import get_secret
 
-# Configure Logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Initialize Stripe
+stripe.api_key = get_secret("stripe.secret_key")
 
-def create_checkout_session(product_name, amount_cents, success_url, cancel_url, metadata=None):
+# Determine Base URL for redirects
+BASE_URL = get_secret("BASE_URL") or "https://verbapost.streamlit.app"
+
+def create_checkout_session(line_items=None, user_email=None, draft_id=None, tier=None, price=None):
+    """
+    Universal checkout function. 
+    Supports modern 'line_items' (Legacy/New flow) AND older 'tier/price' arguments.
+    """
+    if not stripe.api_key:
+        st.error("⚠️ Payment Error: Stripe API key missing.")
+        return None
+
+    # BACKWARDS COMPATIBILITY:
+    # If the app calls this with old arguments (tier, price), convert them to line_items
+    if line_items is None and tier and price:
+        line_items = [{
+            "price_data": {
+                "currency": "usd",
+                "product_data": {"name": f"VerbaPost - {tier} Letter"},
+                "unit_amount": int(price * 100),
+            },
+            "quantity": 1,
+        }]
+
     try:
-        # Get Key
-        stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
-        if stripe_key: 
-            stripe.api_key = stripe_key.strip()
-        else: 
-            logger.error("Stripe Key Missing")
-            return None, None
-
-        # Build Payload
-        payload = {
-            'payment_method_types': ['card'],
-            'automatic_tax': {'enabled': True},
-            'line_items': [{
-                'price_data': {
-                    'currency': 'usd',
-                    'product_data': {'name': product_name},
-                    'unit_amount': amount_cents,
-                    'tax_behavior': 'exclusive', 
-                },
-                'quantity': 1,
-            }],
-            'mode': 'payment',
-            'success_url': success_url,
-            'cancel_url': cancel_url,
-            'billing_address_collection': 'required',
-        }
+        session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=line_items,
+            mode='payment',
+            success_url=f"{BASE_URL.rstrip('/')}/?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{BASE_URL.rstrip('/')}/?session_id=cancel",
+            customer_email=user_email,
+            client_reference_id=str(draft_id),
+            metadata={
+                "draft_id": str(draft_id),
+                "user_email": user_email
+            }
+        )
+        return session.url
         
-        if metadata: 
-            payload['metadata'] = metadata
-
-        session = stripe.checkout.Session.create(**payload)
-        return session.url, session.id
     except Exception as e:
-        logger.error(f"Stripe Session Create Error: {e}")
-        return None, None
+        print(f"❌ Stripe Checkout Error: {e}")
+        st.error(f"Payment Gateway Error: {e}")
+        return None
 
 def verify_session(session_id):
     """
-    Verifies the Stripe session status.
-    Returns: (status_string, payer_email)
+    Verifies payment status on return.
     """
-    # Get Key
-    stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
-    if stripe_key: 
-        stripe.api_key = stripe_key.strip()
+    if not stripe.api_key: return None
     
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        
-        # --- FIX: Return String "paid" to match main.py expectation ---
         if session.payment_status == 'paid':
-            # Extract email safely
-            payer_email = session.customer_details.email if session.customer_details else None
-            return "paid", payer_email
-            
-        return "failed", None
-        
+            return {
+                "paid": True,
+                "email": session.customer_details.email,
+                "amount": session.amount_total / 100.0
+            }
     except Exception as e:
-        logger.error(f"Stripe Verify Error: {e}")
-        return "error", None
+        print(f"Verify Error: {e}")
+    
+    return None
