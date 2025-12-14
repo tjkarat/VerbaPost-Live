@@ -3,70 +3,79 @@ import os
 
 class PDF(FPDF):
     def header(self):
-        pass  # No header for now
+        pass
     def footer(self):
-        pass  # No footer for now
+        pass
 
-def create_pdf(text, sender_data, recipient_data, tier="Standard", font_choice="Caveat"):
+def create_pdf(text, sender_data, recipient_data, tier="Standard", font_choice="Standard"):
     """
-    Generates a PDF with custom font support.
-    font_choice options: 'Caveat', 'GreatVibes', 'IndieFlower', 'Schoolbell'
+    Generates a PDF with robust font handling and Unicode support.
     """
-    pdf = PDF()
-    pdf.add_page()
+    # 1. Setup PDF (Portrait, mm, Letter size)
+    pdf = PDF(orientation='P', unit='mm', format='Letter')
     
-    # --- FONT REGISTRATION ---
-    # We map friendly names to filenames. 
-    # Assumes fonts are in the root directory or specific folder.
+    # 2. Add Fonts (With Safety Check)
+    # Define the mapping of "Friendly Name" -> "Filename.ttf"
     font_map = {
         "Caveat": "Caveat-Regular.ttf",
         "Great Vibes": "GreatVibes-Regular.ttf",
         "Indie Flower": "IndieFlower-Regular.ttf",
-        "Schoolbell": "Schoolbell-Regular.ttf",
-        "Standard": "Helvetica"  # Fallback
+        "Schoolbell": "Schoolbell-Regular.ttf"
     }
     
-    selected_font_file = font_map.get(font_choice, "Caveat-Regular.ttf")
+    # Determine which font file to load
+    target_font_file = font_map.get(font_choice)
     
-    # 1. Try to load the custom font
-    try:
-        if font_choice != "Standard":
-            # Register the font (must exist in root dir)
-            pdf.add_font(font_choice, '', selected_font_file, uni=True)
-            pdf.set_font(font_choice, '', 14)
-        else:
-            pdf.set_font("Helvetica", '', 12)
-    except Exception as e:
-        print(f"Font loading failed ({selected_font_file}): {e}")
-        pdf.set_font("Helvetica", '', 12) # Fallback if file missing
+    # Only try to load if it's not Standard AND the file actually exists
+    loaded_custom_font = False
+    if target_font_file and os.path.exists(target_font_file):
+        try:
+            # Register the font with FPDF (uni=True enables Unicode)
+            pdf.add_font(font_choice, fname=target_font_file)
+            loaded_custom_font = True
+        except Exception as e:
+            print(f"⚠️ Font Load Error ({target_font_file}): {e}")
 
-    # --- LAYOUT LOGIC ---
-    line_height = 8 if font_choice != "Standard" else 6
+    pdf.add_page()
+    pdf.set_margins(25.4, 25.4, 25.4) # 1 inch margins
+
+    # 3. Render Header (Standard Font for readability)
+    pdf.set_font("Helvetica", size=10)
     
-    # 2. Add Content
-    # Return Address
-    pdf.set_font_size(10)
-    pdf.cell(0, 5, f"{sender_data.get('name','')}", ln=True, align='R')
-    pdf.cell(0, 5, f"{sender_data.get('street','')}", ln=True, align='R')
-    pdf.cell(0, 5, f"{sender_data.get('city','')}, {sender_data.get('state','')} {sender_data.get('zip','')}", ln=True, align='R')
+    # Return Address (Top Right)
+    def safe_cell(txt, align='L', ln=True):
+        # Cleans text to prevent latin-1 crashes in standard font
+        clean_txt = str(txt).encode('latin-1', 'replace').decode('latin-1')
+        pdf.cell(0, 5, clean_txt, ln=ln, align=align)
+
+    safe_cell(sender_data.get('name', ''), 'R')
+    safe_cell(sender_data.get('street', ''), 'R')
+    safe_cell(f"{sender_data.get('city', '')}, {sender_data.get('state', '')} {sender_data.get('zip', '')}", 'R')
     pdf.ln(10)
 
-    # Date (Optional, or auto-generated)
-    # pdf.cell(0, 5, "December 14, 2025", ln=True) 
-    # pdf.ln(10)
-
-    # Recipient Address
-    pdf.set_font_size(12)
-    pdf.cell(0, 6, f"{recipient_data.get('name','')}", ln=True)
-    pdf.cell(0, 6, f"{recipient_data.get('street','')}", ln=True)
-    pdf.cell(0, 6, f"{recipient_data.get('city','')}, {recipient_data.get('state','')} {recipient_data.get('zip','')}", ln=True)
+    # Recipient Address (Left)
+    pdf.set_font("Helvetica", size=12)
+    safe_cell(recipient_data.get('name', ''))
+    safe_cell(recipient_data.get('street', ''))
+    safe_cell(f"{recipient_data.get('city', '')}, {recipient_data.get('state', '')} {recipient_data.get('zip', '')}")
     pdf.ln(15)
 
-    # Body Text (Restore handwriting font size)
-    if font_choice != "Standard":
-        pdf.set_font(font_choice, '', 14)
-    
-    # Handle UTF-8 safely
-    pdf.multi_cell(0, line_height, text)
+    # 4. Render Body Text
+    if loaded_custom_font:
+        # Use the custom font we loaded successfully
+        pdf.set_font(font_choice, size=14)
+    else:
+        # Fallback to standard if file missing or load failed
+        pdf.set_font("Times", size=12)
 
-    return pdf.output(dest='S').encode('latin-1', 'ignore')
+    # Multi_cell handles text wrapping automatically
+    # We purposefully do NOT encode/decode here to allow the custom font to handle Unicode
+    pdf.multi_cell(0, 8, text)
+
+    # 5. Output Bytes (Safe Method)
+    try:
+        # Returns bytearray directly, no .encode() needed
+        return pdf.output(dest='S').encode('latin-1', 'replace') # Legacy FPDF compat
+    except AttributeError:
+        # Newer FPDF2 returns bytes directly
+        return pdf.output()
