@@ -2,7 +2,7 @@ import streamlit as st
 import auth_engine
 import time
 
-# --- FIX: Renamed from show_login to render_login ---
+# --- FIX: Renamed from show_login to render_login to match main.py ---
 def render_login(*args, **kwargs):
     """
     Renders the Authentication Interface (Login, Signup, Forgot Password).
@@ -81,7 +81,6 @@ def render_login(*args, **kwargs):
                         st.session_state.app_mode = "store"  # Force Redirect
                         st.success("Login successful! Redirecting...")
                         time.sleep(0.5)
-                        st.query_params.clear()
                         st.rerun()
                     else:
                         st.error(err)

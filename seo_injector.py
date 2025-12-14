@@ -61,6 +61,7 @@ Sitemap: https://www.verbapost.com/app/static/sitemap.xml
     # --- INJECT HTML TAGS ---
     # We still need to find index.html to inject meta tags.
     # This part MUST access the library path, but we only READ/WRITE it if we have permission.
+    # In many cloud envs, index.html is read-only. We wrap this in try/except to prevent crashing.
     try:
         st_dir = os.path.dirname(st.__file__)
         index_path = os.path.join(st_dir, "static", "index.html")

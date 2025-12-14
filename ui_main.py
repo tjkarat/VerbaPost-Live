@@ -969,44 +969,32 @@ def render_review_page():
 # --- 10. MAIN ROUTER ---
 def render_main():
     inject_mobile_styles()
-    
-    # 1. RENDER SIDEBAR (Critical for Admin Access)
-    render_sidebar()
-    
-    # 2. ANALYTICS
     if analytics: 
         try: analytics.inject_ga()
         except: pass
     
-    # 3. ROUTING
+    render_sidebar()
+    
     mode = st.session_state.get("app_mode", "splash")
     
     if mode == "splash" and ui_splash: 
         ui_splash.render_splash()
-        
     elif mode == "login" and ui_login: 
         ui_login.render_login()
-        
     elif mode == "store": 
         render_store_page()
-        
     elif mode == "workspace": 
         render_workspace_page()
-        
     elif mode == "review": 
         render_review_page()
-        
     elif mode == "admin" and ui_admin: 
         ui_admin.show_admin()
-        
     elif mode == "legal" and ui_legal: 
         ui_legal.render_legal()
-        
     elif mode == "legacy" and "ui_legacy" in globals():
         ui_legacy.render_legacy_page()
-        
     else: 
-        # Fallback Logic
+        # Fallback
         if st.session_state.get("authenticated"):
             st.session_state.app_mode = "store"
             render_store_page()
