@@ -11,20 +11,20 @@ BASE_URL = get_secret("BASE_URL") or "https://verbapost.streamlit.app"
 
 def _is_valid_email(email):
     """Simple regex check to see if email looks valid."""
-    if not email or "@" not in email:
+    if not email or "@" not in email or len(email) < 5:
         return False
     return True
 
 def create_checkout_session(line_items=None, user_email=None, draft_id=None, tier=None, price=None):
     """
     Universal checkout function. 
-    Handles 'guest' users by letting Stripe collect the email.
+    Handles 'guest' users by letting Stripe collect the email if needed.
     """
     if not stripe.api_key:
         st.error("⚠️ Payment Error: Stripe API key missing.")
         return None
 
-    # BACKWARDS COMPATIBILITY: Convert old args to line_items
+    # BACKWARDS COMPATIBILITY: Convert old args to line_items if needed
     if line_items is None and tier and price:
         line_items = [{
             "price_data": {
@@ -35,7 +35,7 @@ def create_checkout_session(line_items=None, user_email=None, draft_id=None, tie
             "quantity": 1,
         }]
 
-    # LOGIC FIX: Handle "guest" or invalid emails
+    # Base Arguments
     stripe_args = {
         "payment_method_types": ['card'],
         "line_items": line_items,
@@ -45,12 +45,13 @@ def create_checkout_session(line_items=None, user_email=None, draft_id=None, tie
         "client_reference_id": str(draft_id),
         "metadata": {
             "draft_id": str(draft_id),
-            "original_user_email": str(user_email) # Store purely for records
+            "original_user_email": str(user_email)
         }
     }
 
+    # LOGIC FIX: Handle "guest" or invalid emails
     # Only pass customer_email to Stripe if it is VALID.
-    # If we omit this, Stripe will ask the user for their email.
+    # If we omit this, Stripe will ask the user for their email on the checkout page.
     if user_email and _is_valid_email(user_email) and user_email.lower() != "guest":
         stripe_args["customer_email"] = user_email
 

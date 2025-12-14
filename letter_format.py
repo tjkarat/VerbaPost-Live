@@ -3,7 +3,8 @@ import os
 
 class LetterPDF(FPDF):
     def header(self):
-        pass # No header needed
+        # Header is usually blank for these letters to look personal
+        pass
 
     def footer(self):
         # Position at 1.5 cm from bottom
@@ -25,9 +26,11 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
     
     # Safe font loading logic
     try:
+        # If specific font requested (Legacy flow)
         if font_choice and "Caveat" in font_choice and os.path.exists("Caveat-Regular.ttf"):
             pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
             chosen_font_name = "Caveat"
+        # Or if tier defaults to handwriting (Standard/Heirloom)
         elif tier in ["Standard", "Heirloom"] and os.path.exists("Caveat-Regular.ttf"):
             pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
             chosen_font_name = "Caveat"
@@ -81,20 +84,17 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
 
     # --- 7. CRITICAL OUTPUT FIX ---
     try:
+        # FPDF2 returns bytearray, Old FPDF returns string
         raw_output = pdf.output(dest='S')
         
-        # Scenario A: It's a string (Old FPDF)
         if isinstance(raw_output, str):
+            # Convert string to bytes
             return raw_output.encode('latin-1')
-            
-        # Scenario B: It's a bytearray (New FPDF2) or bytes
-        elif isinstance(raw_output, (bytes, bytearray)):
-            return bytes(raw_output) # Cast to immutable bytes
-            
-        # Scenario C: Unknown
         else:
+            # Already bytes/bytearray - return as bytes
             return bytes(raw_output)
             
     except Exception as e:
         print(f"PDF Output Error: {e}")
+        # Return empty bytes to prevent crash, allowing UI to handle error
         return b""
