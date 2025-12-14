@@ -6,49 +6,33 @@ import streamlit as st
 # --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
-# Try to get API key from secrets, else None
-API_KEY = None
-try:
-    if "postgrid" in st.secrets:
-        API_KEY = st.secrets["postgrid"]["api_key"]
-except Exception:
-    pass
-
-# PostGrid API Endpoint (Live or Test based on key)
+# PostGrid API Endpoint
 BASE_URL = "https://api.postgrid.com/print-mail/v1/letters"
 
 def send_letter(pdf_bytes, sender, recipient, tier="Standard"):
     """
-    Uploads PDF to PostGrid and creates a letter order.
-    Adapts postage and print quality based on the Tier.
+    Uploads PDF to PostGrid. Returns dict with success status and tracking info.
     """
-    if not API_KEY:
-        logger.error("PostGrid API Key missing.")
-        return {"error": "API Key Missing"}
+    # 1. Get Key
+    api_key = None
+    try:
+        api_key = st.secrets["postgrid"]["api_key"]
+    except:
+        return {"success": False, "error": "API Key Missing"}
 
     try:
-        # 1. Determine Settings based on Tier
+        # 2. Configure Tier Settings
         extra_service = None
-        color_print = False # Default to B/W for standard to save cost
+        color_print = False 
         
         if tier == "Legacy":
-            # $15.99 Tier: Needs Tracking & High Quality
             extra_service = "certified" 
-            color_print = True # Forces higher quality digital press
-            
+            color_print = True 
         elif tier == "Santa":
-            # Santa Tier: Color is nice
             color_print = True
             
-        elif tier == "Civic":
-            # Congress letters are standard
-            pass
-
-        # 2. Prepare the Multipart Payload
-        # We send the PDF as a file and the metadata as form fields
-        files = {
-            'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')
-        }
+        # 3. Build Payload
+        files = { 'pdf': ('letter.pdf', pdf_bytes, 'application/pdf') }
         
         data = {
             'to[name]': recipient.get("name"),
@@ -57,44 +41,44 @@ def send_letter(pdf_bytes, sender, recipient, tier="Standard"):
             'to[provinceOrState]': recipient.get("state"),
             'to[postalOrZip]': recipient.get("zip"),
             'to[countryCode]': recipient.get("country", "US"),
-            
             'from[name]': sender.get("name"),
             'from[addressLine1]': sender.get("street"),
             'from[city]': sender.get("city"),
             'from[provinceOrState]': sender.get("state"),
             'from[postalOrZip]': sender.get("zip"),
             'from[countryCode]': "US",
-            
-            'color': str(color_print).lower(), # "true" or "false"
-            'doubleSided': 'false' if tier == "Legacy" else 'true', # Legacy usually single-sided for formality
+            'color': str(color_print).lower(),
+            'doubleSided': 'false' if tier == "Legacy" else 'true',
             'addressPlacement': 'top_first_page',
         }
 
-        # 3. Add Certified Mail flag if needed
         if extra_service:
             data['extraService'] = extra_service
 
         # 4. Send Request
         response = requests.post(
             BASE_URL,
-            headers={"x-api-key": API_KEY},
+            headers={"x-api-key": api_key},
             files=files,
             data=data
         )
         
-        # 5. Handle Response
+        # 5. Parse Response
         if response.status_code in [200, 201]:
             res_json = response.json()
+            
+            # CRITICAL: Extract Tracking Number if available
+            tracking_num = res_json.get("trackingNumber")
+            
             return {
                 "success": True, 
                 "id": res_json.get("id"),
                 "status": res_json.get("status"),
-                "tracking": extra_service == "certified" # Flag for UI to show tracking later
+                "tracking_number": tracking_num  # Return this to UI
             }
         else:
             logger.error(f"PostGrid Error: {response.text}")
             return {"success": False, "error": response.text}
 
     except Exception as e:
-        logger.error(f"Mailer Exception: {e}")
         return {"success": False, "error": str(e)}
