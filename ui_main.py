@@ -58,9 +58,7 @@ def _load_user_profile():
     """Fetches user profile to auto-fill Return Address."""
     if not st.session_state.get("profile_loaded") and database and st.session_state.get("authenticated"):
         try:
-            # We assume database has a get_user_profile function, or we query directly
-            # For robustness, we'll try-catch specific calls or mock it if missing
-            # This is a safe fallback pattern:
+            # Safe checking for profile function
             if hasattr(database, "get_user_profile"):
                 profile = database.get_user_profile(st.session_state.user_email)
                 if profile:
@@ -299,7 +297,7 @@ def render_review_page():
         st.session_state.app_mode = "store"
         st.rerun()
 
-    # Safety: Ensure locked_tier exists
+    # Safety: Ensure locked_tier exists to prevent crash
     if "locked_tier" not in st.session_state:
         st.session_state.locked_tier = "Standard"
 
