@@ -31,11 +31,11 @@ try:
 except Exception:
     ai_engine = None
 
-# --- ACCESSIBILITY CSS INJECTOR (Shared Logic) ---
+# --- ACCESSIBILITY CSS INJECTOR ---
 def inject_legacy_accessibility_css():
     """
     Injects CSS to make tabs larger, high-contrast, and button-like.
-    Same standard as ui_main for consistency.
+    Also styles the font preview and instruction boxes.
     """
     st.markdown("""
         <style>
@@ -325,15 +325,18 @@ def render_legacy_page():
                 st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # Explicitly convert to bytes to avoid 'bytearray' error
+                    # FIX: Force Standard tier for signature and cast to bytes
                     raw_pdf = letter_format.create_pdf(
                         letter_text, 
                         st.session_state.legacy_sender, 
                         st.session_state.legacy_recipient, 
-                        tier="Standard", # Use Standard to ensure signature block is included
+                        tier="Standard", 
                         font_choice=st.session_state.legacy_font
                     )
-                    pdf_bytes = bytes(raw_pdf) 
+                    
+                    # CRITICAL FIX: Cast to bytes.
+                    # Even though letter_format is fixed, this double-check ensures safety.
+                    pdf_bytes = bytes(raw_pdf)
                     
                     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                     pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'

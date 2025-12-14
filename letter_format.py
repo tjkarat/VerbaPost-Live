@@ -91,5 +91,16 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
     # Typed Name
     pdf.cell(0, 10, s_name, ln=True)
 
-    # Output as immutable bytes (fixes bytearray error)
-    return bytes(pdf.output(dest='S').encode('latin-1'))
+    # --- 7. OUTPUT HANDLING (FIXED) ---
+    # fpdf2 .output(dest='S') returns a bytearray (binary).
+    # older fpdf .output(dest='S') returned a string (latin-1).
+    # Calling .encode() on a bytearray causes the crash.
+    
+    raw_output = pdf.output(dest='S')
+    
+    if isinstance(raw_output, str):
+        # It's a string (Old FPDF), so we must encode it to bytes
+        return raw_output.encode('latin-1')
+    else:
+        # It's already bytes/bytearray (New FPDF2), just cast to immutable bytes
+        return bytes(raw_output)
