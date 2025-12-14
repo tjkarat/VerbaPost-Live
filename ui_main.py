@@ -967,7 +967,7 @@ def render_review_page():
         _process_sending_logic(tier)
 
 # --- 10. MAIN ROUTER ---
-def show_main_app():
+def render_main()::
     inject_mobile_styles()
     if analytics: analytics.inject_ga()
     
