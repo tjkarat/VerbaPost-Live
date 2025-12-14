@@ -65,7 +65,6 @@ if "session_id" in st.query_params:
                 try: audit_engine.log_event(email, "PAYMENT_SUCCESS", sid)
                 except: pass
             
-            # Logic for Legacy vs Standard
             if st.session_state.get("locked_tier") == "Legacy":
                 st.query_params["view"] = "legacy"
             else:

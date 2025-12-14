@@ -5,17 +5,56 @@ import os
 import json
 import time
 
-# --- ROBUST IMPORTS ---
-try: import ui_splash; except ImportError: ui_splash = None
-try: import ui_login; except ImportError: ui_login = None
-try: import ui_admin; except ImportError: ui_admin = None
-try: import database; except ImportError: database = None
-try: import ai_engine; except ImportError: ai_engine = None
-try: import payment_engine; except ImportError: payment_engine = None
-try: import pricing_engine; except ImportError: pricing_engine = None
-try: import secrets_manager; except ImportError: secrets_manager = None
-try: import civic_engine; except ImportError: civic_engine = None
-try: import letter_format; except ImportError: letter_format = None
+# --- ROBUST IMPORTS (Expanded for Safety) ---
+try: 
+    import ui_splash
+except ImportError: 
+    ui_splash = None
+
+try: 
+    import ui_login
+except ImportError: 
+    ui_login = None
+
+try: 
+    import ui_admin
+except ImportError: 
+    ui_admin = None
+
+try: 
+    import database
+except ImportError: 
+    database = None
+
+try: 
+    import ai_engine
+except ImportError: 
+    ai_engine = None
+
+try: 
+    import payment_engine
+except ImportError: 
+    payment_engine = None
+
+try: 
+    import pricing_engine
+except ImportError: 
+    pricing_engine = None
+
+try: 
+    import secrets_manager
+except ImportError: 
+    secrets_manager = None
+
+try: 
+    import civic_engine
+except ImportError: 
+    civic_engine = None
+
+try: 
+    import letter_format
+except ImportError: 
+    letter_format = None
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +66,18 @@ if secrets_manager:
 
 # --- INTERNAL LOGIC ---
 def _handle_draft_creation(email, tier, price):
+    """Creates or updates draft to ensure data persistence"""
     d_id = st.session_state.get("current_draft_id")
     text = st.session_state.get("transcribed_text", "")
+    
     if database:
+        # Update existing
         if d_id:
-            if database.update_draft_data(d_id, tier=tier, price=price, text=text): return d_id
+            # We assume update returns True on success
+            if database.update_draft_data(d_id, tier=tier, price=price, text=text): 
+                return d_id
+        
+        # Create new
         d_id = database.save_draft(email, text, tier, price)
         st.session_state.current_draft_id = d_id
         return d_id
@@ -50,9 +96,10 @@ def _save_address_book(user_email, data, is_sender=False):
             "type": "sender" if is_sender else "recipient"
         }
         database.save_contact(contact)
-    except Exception: pass
+    except Exception:
+        pass
 
-# --- SIDEBAR ---
+# --- SIDEBAR (Logic Only - Rendered by main.py) ---
 def render_sidebar():
     with st.sidebar:
         st.markdown("<div style='text-align: center;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
@@ -60,9 +107,8 @@ def render_sidebar():
         
         if st.session_state.get("authenticated"):
             st.success(f"👤 {st.session_state.get('user_email', 'User')}")
-            st.markdown("---")
             
-            # Nav Buttons
+            st.markdown("---")
             if st.button("🏪 Store", key="nav_store", use_container_width=True): 
                 st.session_state.app_mode = "store"
                 st.rerun()
@@ -94,13 +140,16 @@ def render_sidebar():
                     st.rerun()
         except: pass
 
-# --- PAGES ---
+# --- PAGE: STORE ---
 def render_store_page():
     st.markdown("## Select Service")
+    
+    # Campaign Toggle
     is_camp = st.toggle("📢 Bulk Campaign Mode", value=st.session_state.get("is_campaign", False))
     st.session_state.is_campaign = is_camp
     
     c1, c2 = st.columns([2, 1])
+    
     with c1:
         if is_camp:
             st.info("Upload CSV in workspace. Base Price: $2.99/letter.")
@@ -110,29 +159,39 @@ def render_store_page():
             tier = st.radio("Tier", ["Standard", "Heirloom", "Civic", "Santa"],
                           captions=["$2.99 - Basic", "$5.99 - Archival", "$6.99 - Congress", "$9.99 - North Pole"])
             st.session_state.locked_tier = tier
+            
+            # Pricing logic
             price = 2.99
-            if pricing_engine: price = pricing_engine.calculate_total(tier)
+            if pricing_engine:
+                price = pricing_engine.calculate_total(tier)
     
     with c2:
         with st.container(border=True):
             st.metric("Price / Unit", f"${price:.2f}")
             if st.button("Start ➡️", type="primary", use_container_width=True):
                 st.session_state.locked_price = price
+                
+                # Ghost Draft
                 u = st.session_state.get("user_email", "guest")
                 _handle_draft_creation(u, st.session_state.locked_tier, price)
+                
                 st.session_state.app_mode = "workspace"
                 st.rerun()
 
+# --- PAGE: WORKSPACE ---
 def render_workspace_page():
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## Workspace: {tier}")
+    
     t1, t2 = st.tabs(["Addressing", "Writing"])
     
     with t1:
+        # Address Book
         if database and st.session_state.get("authenticated"):
             try:
                 saved = database.get_saved_contacts(st.session_state.user_email)
-                if saved: st.selectbox("📂 Load Contact", ["Select..."] + [x['name'] for x in saved])
+                if saved:
+                    st.selectbox("📂 Load Contact", ["Select..."] + [x['name'] for x in saved])
             except: pass
 
         with st.form("addr_form"):
@@ -143,8 +202,10 @@ def render_workspace_page():
                 s_str = st.text_input("Street", key="s_s")
                 s_csz = st.text_input("City, State Zip", key="s_c")
             with c2:
-                if tier == "Civic": st.info("🏛️ Auto-routed to Representatives.")
-                elif tier == "Campaign": st.info("📂 Upload CSV in next step.")
+                if tier == "Civic":
+                    st.info("🏛️ Auto-routed to Representatives.")
+                elif tier == "Campaign":
+                    st.info("📂 Upload CSV in next step.")
                 else:
                     st.markdown("**Recipient**")
                     r_name = st.text_input("Name", key="r_n")
@@ -153,9 +214,11 @@ def render_workspace_page():
             
             save_b = st.checkbox("Save to Address Book")
             if st.form_submit_button("Save Addresses"):
+                # Save Logic
                 st.session_state.sender_data = {"name": s_name, "street": s_str, "csz": s_csz}
                 if tier not in ["Civic", "Campaign"]:
                     st.session_state.recipient_data = {"name": r_name, "street": r_str, "csz": r_csz}
+                
                 if save_b and st.session_state.authenticated:
                     _save_address_book(st.session_state.user_email, st.session_state.sender_data, True)
                 st.success("Saved!")
@@ -177,6 +240,7 @@ def render_workspace_page():
         val = st.session_state.get("transcribed_text", "")
         txt = st.text_area("Body", val, height=400)
         if txt: st.session_state.transcribed_text = txt
+        
         if ai_engine and txt:
             if st.button("✨ Polish (AI)"):
                  st.session_state.transcribed_text = ai_engine.refine_text(txt, "Professional")
@@ -186,18 +250,24 @@ def render_workspace_page():
         st.session_state.app_mode = "review"
         st.rerun()
 
+# --- PAGE: REVIEW ---
 def render_review_page():
     st.markdown("## Final Review")
+    
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("Preview")
+        # PDF Preview Logic
         if letter_format:
             try:
+                # Mock dicts for preview
                 s = st.session_state.get("sender_data", {})
                 r = st.session_state.get("recipient_data", {})
                 pdf = letter_format.create_pdf(st.session_state.get("transcribed_text", ""), {**s, **r}, st.session_state.locked_tier)
-                if pdf: st.download_button("📄 Download PDF", pdf, "preview.pdf")
-            except Exception as e: st.error(f"Preview Error: {e}")
+                if pdf:
+                    st.download_button("📄 Download PDF", pdf, "preview.pdf")
+            except Exception as e:
+                st.error(f"Preview Error: {e}")
                 
     with c2:
         st.subheader("Checkout")
@@ -208,17 +278,22 @@ def render_review_page():
         if st.button("Pay & Send", type="primary", use_container_width=True):
             user = st.session_state.get("user_email", "guest")
             d_id = _handle_draft_creation(user, tier, price)
+            
             if payment_engine:
                 succ = f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}"
                 try:
                     url, sid = payment_engine.create_checkout_session(f"VerbaPost {tier}", int(price*100), succ, YOUR_APP_URL, metadata={"draft": d_id})
                     if url: st.link_button("👉 Proceed to Pay", url, type="primary")
-                except Exception as e: st.error(f"Payment Error: {e}")
+                except Exception as e:
+                    st.error(f"Payment Error: {e}")
 
-# --- MAIN CONTROLLER ENTRY ---
+# --- MAIN CONTROLLER ENTRY (FIXED) ---
 def render_main():
-    # FIX: DO NOT call render_sidebar() here. It is called globally in main.py.
+    # CRITICAL FIX: Removed render_sidebar() call here.
+    # It is already called in main.py. Calling it again caused the DuplicateKeyError.
+    
     mode = st.session_state.get("app_mode", "store")
+    
     if mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()

@@ -1,5 +1,4 @@
 import streamlit as st
-import secrets_manager
 
 # Try to import civic engine for leaderboard, fail gracefully if missing
 try: import civic_engine
@@ -12,7 +11,7 @@ def render_splash():
         <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #1E1E1E;">📮 VerbaPost</h1>
         <p style="font-size: 1.5rem; color: #555; margin-bottom: 30px;">Real letters, sent from your screen.</p>
         <div style="display: flex; justify-content: center; gap: 10px;">
-            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 

@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 _supabase_client = None
 
 def get_client() -> Client:
-    """Returns persistent Supabase client."""
     global _supabase_client
     if _supabase_client:
         return _supabase_client
@@ -62,7 +61,6 @@ def sign_up(email, password, full_name, line1, line2, city, state, zip_code, cou
             return False, "User creation failed"
 
         # 2. Create Profile (Atomic safety)
-        # This is critical for Address Book and Credits features
         profile_data = {
             "id": res.user.id,
             "email": email,
@@ -88,7 +86,6 @@ def send_password_reset(email):
     client = get_client()
     if not client: return False
     try:
-        # Uses your secrets_manager logic
         base = secrets_manager.get_secret("BASE_URL") or "https://verbapost.com"
         client.auth.reset_password_for_email(email, {"redirect_to": f"{base}?type=recovery"})
         return True
