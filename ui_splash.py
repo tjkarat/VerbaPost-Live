@@ -1,126 +1,62 @@
 import streamlit as st
-
-# Try to import engines for dynamic data
-try:
-    import civic_engine
-except ImportError:
-    civic_engine = None
+try: import civic_engine
+except: civic_engine = None
 
 def render_splash():
-    """
-    Renders the full marketing landing page with Hero, Features, Pricing, and Leaderboard.
-    """
-    
-    # --- 1. HERO SECTION ---
-    # Restored the gradient styling and responsive text
     st.markdown("""
-    <div style="text-align: center; padding: 60px 20px 40px 20px; background: linear-gradient(180deg, #ffffff 0%, #f0f2f6 100%); border-radius: 0 0 20px 20px; margin-bottom: 30px;">
-        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #203A60;">📮 VerbaPost</h1>
-        <p style="font-size: 1.4em; color: #555; max-width: 600px; margin: 0 auto; line-height: 1.6;">
-            Real letters, sent from your screen.<br>
-            <b>We print, envelope, and mail it for you.</b>
-        </p>
+    <div style="text-align: center; padding: 60px 0 30px 0;">
+        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #333;">📮 VerbaPost</h1>
+        <p style="font-size: 1.4em; color: #555;">Real letters, sent from your screen.</p>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- 2. MAIN CALL TO ACTION ---
-    col1, col2 = st.columns(2)
-    
-    # Determine button text based on auth state
-    start_label = "🚀 Start a Letter"
-    if st.session_state.get("authenticated"):
-        user_name = st.session_state.get("user_email", "").split('@')[0]
-        start_label = f"🚀 Continue ({user_name})"
+    c1, c2 = st.columns(2)
+    label = f"🚀 Continue ({st.session_state.user_email.split('@')[0]})" if st.session_state.get("authenticated") else "🚀 Start a Letter"
 
-    with col1:
-        if st.button(start_label, type="primary", use_container_width=True):
-            # Logic: If guest, go to signup. If user, go to workspace.
-            if not st.session_state.get("authenticated"):
-                st.session_state.auth_view = "signup"
-                st.query_params["view"] = "login"
-            else:
+    with c1:
+        if st.button(label, type="primary", use_container_width=True):
+            if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "workspace"
-                # Clear view param to ensure we fall through to main app logic
-                if "view" in st.query_params:
-                     del st.query_params["view"]
+                if "view" in st.query_params: del st.query_params["view"]
+            else:
+                # FORCE ROUTER TO SWITCH
+                st.query_params["view"] = "login" 
             st.rerun()
             
-    with col2:
-        # LEGACY PIVOT BUTTON
-        if st.button("🕯️ Legacy Service (New)", use_container_width=True):
+    with c2:
+        if st.button("🕯️ Legacy Service", use_container_width=True):
             st.query_params["view"] = "legacy"
             st.rerun()
 
     st.write("---")
-
-    # --- 3. VALUE PROPOSITIONS (Restored) ---
+    
+    # FEATURES
     c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown("### 🎙️ Speak")
-        st.caption("Don't type. Just talk. Our AI transcribes and polishes your grammar instantly.")
-    with c2:
-        st.markdown("### 📄 Print")
-        st.caption("Printed on premium paper, folded, and enveloped in a secure facility.")
-    with c3:
-        st.markdown("### 📬 Send")
-        st.caption("Dispatched via USPS First Class or Certified Mail to any US address.")
+    c1.markdown("### 🎙️ Speak\nJust talk. AI transcribes/polishes.")
+    c2.markdown("### 📄 Print\nPremium paper, folded & enveloped.")
+    c3.markdown("### 📬 Send\nUSPS First Class or Certified.")
     
     st.write("---")
     
-    # --- 4. PRICING GRID (Restored) ---
-    st.subheader("Simple Pricing")
-    
+    # PRICING
     p1, p2, p3 = st.columns(3)
-    
-    with p1:
-        st.markdown("**Standard**")
-        st.markdown("### $2.99")
-        st.caption("Standard Paper\nNo AI Polish\nUSPS First Class")
-        
-    with p2:
-        st.markdown("**Heirloom**")
-        st.markdown("### $5.99")
-        st.caption("Cotton Bond Paper\nAI Polish Included\nUSPS First Class")
-        
-    with p3:
-        st.markdown("**Legacy 🆕**")
-        st.markdown("### $15.99")
-        st.caption("Archival Paper\nContext Prompts\n**Certified Tracking**\nDigital Scrubbing")
+    p1.markdown("**Standard**\n### $2.99"); p2.markdown("**Heirloom**\n### $5.99"); p3.markdown("**Legacy**\n### $15.99")
 
-    st.write("---")
-
-    # --- 5. CIVIC LEADERBOARD (Restored Dynamic Logic) ---
-    st.subheader("🏛️ Civic Leaderboard")
-    st.caption("Who is getting mail this week?")
+    # LEADERBOARD
+    st.write("---"); st.subheader("🏛️ Civic Leaderboard")
+    data = []
+    if civic_engine: 
+        try: data = civic_engine.get_weekly_stats()
+        except: pass
+    if not data:
+        data = [{"Rank": 1, "Name": "Sen. Schumer", "Letters": 142}, {"Rank": 2, "Name": "Rep. AOC", "Letters": 89}]
+    st.dataframe(data, use_container_width=True, hide_index=True)
     
-    # Attempt to fetch real data, fallback to static if engine fails/offline
-    leaderboard_data = []
-    try:
-        if civic_engine and hasattr(civic_engine, "get_weekly_stats"):
-            leaderboard_data = civic_engine.get_weekly_stats()
-    except Exception:
-        pass # Fail silently to static data
-        
-    if not leaderboard_data:
-        # Fallback Data (so the UI doesn't look broken)
-        leaderboard_data = [
-            {"Rank": "1", "Name": "Sen. Chuck Schumer", "Letters": "142"},
-            {"Rank": "2", "Name": "Rep. Alexandria Ocasio-Cortez", "Letters": "89"},
-            {"Rank": "3", "Name": "Sen. Mitch McConnell", "Letters": "64"},
-        ]
-    
-    st.dataframe(
-        leaderboard_data,
-        use_container_width=True,
-        hide_index=True
-    )
-    
-    # --- 6. FOOTER (Fixed: Single Consolidated Legal Button) ---
+    # FOOTER
     st.write("---")
     f1, f2 = st.columns([3, 1])
-    with f1:
-        st.caption("© 2025 VerbaPost. All rights reserved. | v4.0 - Production Stable")
+    f1.caption("© 2025 VerbaPost | v4.0")
     with f2:
-        if st.button("⚖️ Legal & Privacy"):
+        if st.button("⚖️ Legal"): 
             st.query_params["view"] = "legal"
             st.rerun()

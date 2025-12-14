@@ -1,165 +1,38 @@
 import streamlit as st
 import auth_engine
-import time
 
-# --- FIX: Renamed from show_login to render_login to match main.py ---
-def render_login(*args, **kwargs):
-    """
-    Renders the Authentication Interface (Login, Signup, Forgot Password).
-    Highlights the active tab in RED (#FF4B4B) to match branding.
-    """
-    # --- CSS STYLING ---
-    st.markdown("""
-    <style>
-        /* Main Header */
-        .auth-header {
-            text-align: center;
-            font-weight: 700;
-            color: #203A60;
-            margin-bottom: 20px;
-        }
-        
-        /* STREAMLIT TAB OVERRIDES */
-        .stTabs [data-baseweb="tab-list"] button {
-            color: #6b7280; 
-            font-weight: 600;
-        }
-        .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] div {
-            color: #FF4B4B !important;
-            font-weight: 800 !important;
-            font-size: 1.05rem;
-        }
-        .stTabs [data-baseweb="tab-highlight"] {
-            background-color: #FF4B4B !important;
-            height: 3px;
-        }
-        .stButton button {
-            width: 100%;
-            border-radius: 8px;
-            font-weight: 600;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # --- RESET FLOW HANDLER ---
-    q_params = st.query_params
-    if q_params.get("type") == "recovery":
-        render_reset_password_interface()
+def render_login():
+    st.markdown("## Access VerbaPost")
+    
+    if st.query_params.get("type") == "recovery":
+        token = st.text_input("Reset Token"); pwd = st.text_input("New Password", type="password")
+        if st.button("Reset"): 
+            auth_engine.reset_password_with_token("", token, pwd); st.success("Updated! Login now.")
         return
 
-    # --- MAIN UI ---
-    st.markdown("<h2 class='auth-header'>Access VerbaPost</h2>", unsafe_allow_html=True)
+    t1, t2, t3 = st.tabs(["Log In", "Sign Up", "Forgot Password"])
     
-    default_idx = 0
-    if st.session_state.get("auth_view") == "signup":
-        default_idx = 1
-    
-    tab1, tab2, tab3 = st.tabs([
-        "🔑 Returning User", 
-        "✨ New User", 
-        "❓ Forgot Password"
-    ])
-
-    # --- TAB 1: LOG IN ---
-    with tab1:
-        st.write("")
-        st.info("👋 Welcome back! Please log in to your account.")
-        
-        with st.form("login_form"):
-            email = st.text_input("Email Address", key="login_email")
-            password = st.text_input("Password", type="password", key="login_pass")
-            
+    with t1:
+        with st.form("login"):
+            email = st.text_input("Email"); pwd = st.text_input("Password", type="password")
             if st.form_submit_button("Log In", type="primary"):
-                if not email or not password:
-                    st.error("Please enter both email and password.")
-                else:
-                    res, err = auth_engine.sign_in(email, password)
-                    if res:
-                        st.session_state.authenticated = True
-                        st.session_state.user_email = email
-                        st.session_state.user_id = res.user.id
-                        st.session_state.app_mode = "store"  # Force Redirect
-                        st.success("Login successful! Redirecting...")
-                        time.sleep(0.5)
-                        st.rerun()
-                    else:
-                        st.error(err)
+                res, err = auth_engine.sign_in(email, pwd)
+                if res:
+                    st.session_state.authenticated = True
+                    st.session_state.user_email = email
+                    st.session_state.app_mode = "store"
+                    st.query_params.clear()
+                    st.rerun()
+                else: st.error(err)
 
-    # --- TAB 2: SIGN UP ---
-    with tab2:
-        st.write("")
-        st.success("🚀 New here? Create an account to start sending mail.")
-        
-        with st.form("signup_form"):
-            new_email = st.text_input("Email Address", key="signup_email")
-            new_pass = st.text_input("Create Password", type="password", help="Min 8 chars", key="signup_pass")
-            full_name = st.text_input("Full Name")
-            
-            st.markdown("---")
-            st.caption("📍 Return Address (Required for USPS)")
-            
-            c1, c2 = st.columns([3, 1]) 
-            street = c1.text_input("Street Address")
-            street2 = c2.text_input("Apt / Suite")
-            
-            c3, c4, c5, c6 = st.columns([3, 2, 2, 3])
-            city = c3.text_input("City")
-            state = c4.text_input("State")
-            zip_code = c5.text_input("Zip")
-            country = c6.selectbox("Country", ["United States", "Canada", "United Kingdom", "Australia", "Other"], index=0)
-            
-            if st.form_submit_button("Sign Up & Create Account", type="primary"):
-                if not new_email or not new_pass or not street or not city or not state or not zip_code:
-                    st.error("Please fill in all required fields.")
-                else:
-                    res, err = auth_engine.sign_up(
-                        new_email, new_pass, full_name, 
-                        street, street2, city, state, zip_code, country, "English"
-                    )
-                    if res:
-                        st.balloons()
-                        st.success("Account created! Please check your email to confirm.")
-                    else:
-                        st.error(err)
+    with t2:
+        with st.form("signup"):
+            email = st.text_input("Email"); pwd = st.text_input("Password", type="password"); name = st.text_input("Name")
+            if st.form_submit_button("Sign Up"):
+                res, err = auth_engine.sign_up(email, pwd, name, "123 St", "", "City", "ST", "00000", "US", "en")
+                if res: st.success("Created! Log in.")
+                else: st.error(err)
 
-    # --- TAB 3: FORGOT PASSWORD ---
-    with tab3:
-        st.write("")
-        st.warning("🔒 Reset Password")
-        st.write("Enter your email address below. We will send you a secure link.")
-        
-        with st.form("forgot_pass_form"):
-            reset_email = st.text_input("Email Address", key="reset_email")
-            if st.form_submit_button("Send Reset Link"):
-                if not reset_email:
-                    st.error("Please enter your email.")
-                else:
-                    success, msg = auth_engine.send_password_reset(reset_email)
-                    if success:
-                        st.success("Check your email for the password reset link!")
-                    else:
-                        st.error(msg)
-
-def render_reset_password_interface():
-    """
-    Renders ONLY when user clicks the email link and returns to the app.
-    """
-    st.markdown("<h2 style='text-align: center; color: #FF4B4B;'>Set New Password</h2>", unsafe_allow_html=True)
-    st.info("Please set a new password for your account.")
-    
-    with st.form("final_reset_form"):
-        email_confirm = st.text_input("Confirm Email Address")
-        token_input = st.text_input("Token (Paste from email if not auto-filled)")
-        new_pass = st.text_input("New Password", type="password")
-        
-        if st.form_submit_button("Change Password", type="primary"):
-            success, msg = auth_engine.reset_password_with_token(email_confirm, token_input, new_pass)
-            if success:
-                st.balloons()
-                st.success("Password Changed Successfully! Redirecting to login...")
-                st.query_params.clear()
-                time.sleep(2)
-                st.session_state.app_mode = "login"
-                st.rerun()
-            else:
-                st.error(msg)
+    with t3:
+        email = st.text_input("Email")
+        if st.button("Send Link"): auth_engine.send_password_reset(email); st.success("Sent!")
