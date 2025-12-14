@@ -24,8 +24,8 @@ except ImportError: ui_admin = None
 try: import ui_legal
 except ImportError: ui_legal = None
 
-try: import ui_help
-except ImportError: ui_help = None
+try: import ui_legacy
+except ImportError: ui_legacy = None
 
 try: import ui_onboarding
 except ImportError: ui_onboarding = None
@@ -570,7 +570,7 @@ def render_sidebar():
             pass
             
         st.markdown("---")
-        st.caption("v3.3.1 (Full Stable)")
+        st.caption("v4.0 (Production)")
 
 def render_store_page():
     if ui_onboarding: ui_onboarding.show_contextual_help("store")
@@ -966,14 +966,16 @@ def render_review_page():
     if st.button("🚀 Send Letter", type="primary"):
         _process_sending_logic(tier)
 
-# --- 10. MAIN ROUTER ---
+# --- 10. MAIN ROUTER (RENAMED FROM SHOW_MAIN_APP) ---
 def render_main():
     inject_mobile_styles()
+    
+    # 1. RENDER SIDEBAR (Critical for Admin)
+    render_sidebar()
+
     if analytics: 
         try: analytics.inject_ga()
         except: pass
-    
-    render_sidebar()
     
     mode = st.session_state.get("app_mode", "splash")
     
@@ -991,10 +993,10 @@ def render_main():
         ui_admin.show_admin()
     elif mode == "legal" and ui_legal: 
         ui_legal.render_legal()
-    elif mode == "legacy" and "ui_legacy" in globals():
+    elif mode == "legacy" and ui_legacy:
         ui_legacy.render_legacy_page()
     else: 
-        # Fallback
+        # Fallback to store if authenticated
         if st.session_state.get("authenticated"):
             st.session_state.app_mode = "store"
             render_store_page()
