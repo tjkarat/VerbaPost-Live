@@ -5,7 +5,6 @@ import streamlit as st
 from secrets_manager import get_secret
 
 # --- CONFIGURATION ---
-# Use the correct endpoint for "Print & Mail" (Letters)
 BASE_URL = "https://api.postgrid.com/print-mail/v1"
 
 def _get_api_key():
@@ -18,119 +17,96 @@ def _get_api_key():
 
 def _to_postgrid_addr(addr_dict):
     """
-    CRITICAL FIX: Maps internal address keys to PostGrid's required format.
-    Internal: street, city, state, zip
-    PostGrid: addressLine1, city, provinceOrState, postalOrZip, countryCode
+    Maps internal address keys to PostGrid's required format.
     """
     if not addr_dict:
         return {}
 
-    # 1. Extract values safely using multiple possible keys
-    line1 = (addr_dict.get("street") or 
-             addr_dict.get("address_line1") or 
-             addr_dict.get("line1") or 
-             "").strip()
-             
-    line2 = (addr_dict.get("street2") or 
-             addr_dict.get("address_line2") or 
-             addr_dict.get("apt") or 
-             "").strip()
-             
+    # Extract values safely
+    line1 = (addr_dict.get("street") or addr_dict.get("address_line1") or "").strip()
+    line2 = (addr_dict.get("street2") or addr_dict.get("address_line2") or addr_dict.get("apt") or "").strip()
     city = (addr_dict.get("city") or "").strip()
-    
-    state = (addr_dict.get("state") or 
-             addr_dict.get("provinceOrState") or 
-             "").strip()
-             
-    zip_code = (addr_dict.get("zip") or 
-                addr_dict.get("postalOrZip") or 
-                addr_dict.get("zip_code") or 
-                "").strip()
-    
-    name = (addr_dict.get("name") or 
-            addr_dict.get("full_name") or 
-            "Valued Customer").strip()
+    state = (addr_dict.get("state") or addr_dict.get("provinceOrState") or "").strip()
+    zip_code = (addr_dict.get("zip") or addr_dict.get("postalOrZip") or addr_dict.get("zip_code") or "").strip()
+    name = (addr_dict.get("name") or addr_dict.get("full_name") or "Valued Customer").strip()
 
-    # 2. Return strictly formatted dictionary
+    # LOGIC FIX: Return None if critical fields are missing to prevent API errors
+    if not line1 or not zip_code or not state:
+        return None
+
     return {
-        "firstName": name,  # PostGrid can take 'firstName' as full name line
+        "firstName": name,
         "addressLine1": line1,
         "addressLine2": line2,
         "city": city,
         "provinceOrState": state,
         "postalOrZip": zip_code,
-        "countryCode": "US"  # Defaulting to US for safety
+        "countryCode": "US" 
     }
 
 def validate_address(address_dict):
     """
-    Uses PostGrid's Verification API to check if an address is real.
-    Returns: (is_valid: bool, suggestion: dict)
+    Uses PostGrid's Verification API.
     """
     api_key = _get_api_key()
-    if not api_key: 
-        return False, None
+    if not api_key: return False, None
 
-    # Transform to PostGrid format first
-    payload = {"address": _to_postgrid_addr(address_dict)}
-    
+    pg_addr = _to_postgrid_addr(address_dict)
+    if not pg_addr:
+        return False, {"error": "Missing required fields (Street, State, or Zip)"}
+
     try:
         response = requests.post(
             f"{BASE_URL}/verifications/addresses",
             auth=(api_key, ""),
-            json=payload,
+            json={"address": pg_addr},
             timeout=10
         )
         
         if response.status_code == 200:
             data = response.json()
-            # "verified" status means it's deliverable
             if data.get("status") == "verified":
                 return True, data.get("data")
             else:
-                return False, data.get("data") # Return suggestion anyway
+                return False, data.get("data")
         else:
             print(f"PostGrid Verification Error: {response.text}")
-            return True, None # Fail open (allow it) if API errors
+            return False, None # Fail closed to save money on bad addresses
 
     except Exception as e:
         print(f"Address Validation Exception: {e}")
-        return True, None # Fail open
+        return False, None
 
-def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
+def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", extra_service=None):
     """
-    Uploads the PDF and creates the Letter order in one flow.
+    Uploads the PDF and creates the Letter order.
     """
     api_key = _get_api_key()
     if not api_key: return False
 
-    # 1. Transform Addresses
     pg_to = _to_postgrid_addr(to_addr)
     pg_from = _to_postgrid_addr(from_addr)
 
-    # Validate mandatory fields before sending
-    if not pg_to.get("addressLine1") or not pg_to.get("postalOrZip"):
-        print(f"❌ Aborting: Missing address fields. Data: {pg_to}")
+    # FINANCIAL FIX: Don't attempt send if address conversion failed
+    if not pg_to or not pg_from:
+        print(f"❌ Aborting: Invalid address data. To: {pg_to}, From: {pg_from}")
         return False
 
     try:
-        # 2. Create the Letter (using inline PDF upload if supported, or Create Contact first)
-        # For simplicity and reliability, we send the contacts directly in the 'create' call.
+        files = { 'pdf': ('letter.pdf', pdf_bytes, 'application/pdf') }
         
-        files = {
-            'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')
-        }
-        
-        # We must pass the address data as JSON strings because we are using multipart/form-data
         data = {
             'to': json.dumps(pg_to),
             'from': json.dumps(pg_from),
             'description': description,
             'color': True,
-            'express': True, # First Class
-            'addressPlacement': 'top_first_page', # Ensures address shows in window
+            'express': True,
+            'addressPlacement': 'top_first_page',
             'envelopeType': 'standard_double_window'
         }
+
+        if extra_service:
+            data['extraService'] = extra_service
 
         response = requests.post(
             f"{BASE_URL}/letters",
