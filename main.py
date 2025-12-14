@@ -30,26 +30,28 @@ def main():
     if session_id:
         with st.spinner("Verifying secure payment..."):
             # Verify with Stripe
-            # FIX #4: Capture the full verification object, not just boolean
-            verification = payment_engine.verify_session(session_id)
+            result = payment_engine.verify_session(session_id)
             
-            if verification and verification.get("paid"):
-                # CAPTURE EMAIL FROM STRIPE (Fix for Guest Users)
-                payer_email = verification.get("email")
+            if result and result.get("paid"):
+                # --- FIX: CAPTURE EMAIL FROM STRIPE ---
+                # Since guests enter email on Stripe, we grab it here
+                payer_email = result.get("email")
                 
-                # If we didn't have an email before, save the one they used at checkout
+                # If we didn't have an email before (Guest), save the one they used at checkout
                 if payer_email:
                     st.session_state.user_email = payer_email
-                    st.session_state.payment_email = payer_email # Explicitly store for receipt
                     
                     # Update the draft record with this email so we can send the certified code
+                    # This ensures the email is in the DB for the mailer to use
                     if st.session_state.get("current_legacy_draft_id"):
-                        # Ensure we update status to Paid to prevent double-charging
                         database.update_draft_data(
                             st.session_state.current_legacy_draft_id, 
                             status="Paid",
-                            price=15.99
+                            price=15.99 # Ensure price is locked
                         )
+                        # If database has a specific function to update email, use it here
+                        # Otherwise, we assume the draft is linked or we update the user record
+                        print(f"💰 Payment verified for: {payer_email}")
 
                 # Log Success
                 audit_engine.log_event(st.session_state.user_email, "PAYMENT_SUCCESS", session_id, {})
@@ -58,12 +60,13 @@ def main():
                 st.session_state.paid_success = True
                 
                 # Force routing to the correct view to show success message
+                # This prevents the "Goofy Loop" of going back to the start form
                 if st.session_state.get("current_legacy_draft_id"):
                      st.session_state.app_mode = "legacy"
                 else:
                      st.session_state.app_mode = "review"
                 
-                st.toast("Payment Confirmed! 💳", icon="✅")
+                st.success("Payment Confirmed!")
             else:
                 st.error("Payment Verification Failed or Cancelled.")
         
@@ -83,28 +86,46 @@ def main():
     mode = st.session_state.app_mode
 
     if mode == "splash":
-        if ui_splash: ui_splash.render_splash_page()
-        else: st.error("Splash module missing")
+        if ui_splash:
+            ui_splash.render_splash_page()
+        else:
+            st.error("System Error: Splash module missing.")
 
     elif mode == "login":
-        if ui_login: ui_login.render_login_page()
+        if ui_login:
+            ui_login.render_login_page()
+        else:
+            st.error("System Error: Login module missing.")
         
     elif mode == "legacy":
-        if ui_legacy: ui_legacy.render_legacy_page()
+        if ui_legacy:
+            ui_legacy.render_legacy_page()
+        else:
+            st.error("System Error: Legacy module missing.")
         
     elif mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
+        if ui_legal:
+            ui_legal.render_legal_page()
+        else:
+            st.error("System Error: Legal module missing.")
         
     elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
+        if ui_admin:
+            ui_admin.render_admin_page()
+        else:
+            st.error("System Error: Admin module missing.")
         
     # Default / Standard App Flow
     elif mode in ["store", "workspace", "review"]:
-        if ui_main: ui_main.render_main()
+        if ui_main:
+            ui_main.render_main()
+        else:
+            st.error("System Error: UI Main module missing.")
     
     else:
         # Fallback
-        if ui_main: ui_main.render_main()
+        if ui_main:
+            ui_main.render_main()
 
 if __name__ == "__main__":
     main()

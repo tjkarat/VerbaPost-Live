@@ -4,7 +4,6 @@ import os
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
-# These handle the heavy lifting (Database, AI, Payments, Mail)
 import ai_engine
 import payment_engine
 import mailer
@@ -15,7 +14,7 @@ import pricing_engine
 import bulk_engine
 import audit_engine
 
-# --- UI MODULE IMPORTS (DYNAMIC) ---
+# --- UI MODULE IMPORTS ---
 # We wrap these in try/except to prevent the app from crashing 
 # if a single module is missing or has a syntax error.
 try:
@@ -367,8 +366,7 @@ def render_review_page():
                 # Create PDF
                 raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier)
                 
-                # --- FIX: SAFETY CAST TO BYTES ---
-                # This prevents the 'bytearray' error that has been blocking previews
+                # --- SAFETY CAST: Ensure it is bytes ---
                 pdf_bytes = bytes(raw_pdf)
                 
                 # Display
@@ -494,7 +492,6 @@ def render_application():
 
 # --- ENTRY POINT ---
 # This is the function called by main.py
-# CRITICAL: This was missing in the previous version, causing the crash after payment
 def render_main():
     render_application()
 
