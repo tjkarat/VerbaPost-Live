@@ -2,11 +2,21 @@ import streamlit as st
 import time
 
 # --- ROBUST IMPORTS ---
-try: import ai_engine; except Exception: ai_engine = None
-try: import payment_engine; except Exception: payment_engine = None
-try: import database; except Exception: database = None
-try: import secrets_manager; except Exception: secrets_manager = None
+import streamlit as st
 
+# --- SAFE IMPORTS ---
+try:
+    import database
+except Exception:
+    database = None
+
+try:
+    import payment_engine
+except Exception:
+    payment_engine = None
+
+# Add any other imports you see on line 5-10 here, 
+# ensuring "try" and "except" are on different lines.
 def render_legacy_page():
     # --- 1. THEME & STYLING (Gold/Serif) ---
     st.markdown("""
