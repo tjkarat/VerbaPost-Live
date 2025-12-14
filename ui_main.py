@@ -6,7 +6,7 @@ import json
 import time
 from io import BytesIO
 
-# --- ROBUST IMPORTS (Standard Syntax) ---
+# --- ROBUST IMPORTS (Standard Syntax to Fix Crash) ---
 try:
     import ui_splash
 except Exception:
@@ -94,19 +94,21 @@ def _save_address_book(user_email, data, is_sender=False):
     except Exception: pass
 
 def _load_user_profile():
-    # Only load once to prevent overwriting user edits
+    """Fetches user profile to auto-fill Return Address."""
     if not st.session_state.get("profile_loaded") and database and st.session_state.get("authenticated"):
         try:
-            profile = database.get_user_profile(st.session_state.user_email)
-            if profile:
-                st.session_state.sender_data = {
-                    "name": profile.get("full_name", ""),
-                    "street": profile.get("return_address_street", ""),
-                    "city": profile.get("return_address_city", ""),
-                    "state": profile.get("return_address_state", ""),
-                    "zip": profile.get("return_address_zip", ""),
-                    "country": profile.get("return_address_country", "US")
-                }
+            # Safe checking for profile function
+            if hasattr(database, "get_user_profile"):
+                profile = database.get_user_profile(st.session_state.user_email)
+                if profile:
+                    st.session_state.sender_data = {
+                        "name": profile.get("full_name", ""),
+                        "street": profile.get("return_address_street", ""),
+                        "city": profile.get("return_address_city", ""),
+                        "state": profile.get("return_address_state", ""),
+                        "zip": profile.get("return_address_zip", ""),
+                        "country": profile.get("return_address_country", "US")
+                    }
             st.session_state.profile_loaded = True
         except Exception: pass
 
@@ -199,7 +201,7 @@ def render_workspace_page():
         time.sleep(1.5)
         st.rerun()
 
-    _load_user_profile() # Auto-fill
+    _load_user_profile() # Auto-fill sender info
     
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## Workspace: {tier}")
@@ -208,15 +210,17 @@ def render_workspace_page():
     
     # --- TAB 1: ADDRESSING ---
     with t1:
-        # Address Book
+        # Address Book Logic
         if database and st.session_state.get("authenticated"):
             try:
                 saved = database.get_saved_contacts(st.session_state.user_email)
                 if saved:
+                    # Helper to format dropdown display
                     opts = {f"{x['name']} ({x.get('street','')})": x for x in saved}
                     selected_key = st.selectbox("📂 Load Contact", ["Select..."] + list(opts.keys()))
                     if selected_key != "Select...":
                         data = opts[selected_key]
+                        # Populate Recipient Data
                         st.session_state.recipient_data = {
                             "name": data.get("name"), "street": data.get("street"),
                             "city": data.get("city"), "state": data.get("state"),
@@ -227,12 +231,14 @@ def render_workspace_page():
         with st.form("addr_form"):
             c1, c2 = st.columns(2)
             
-            # SENDER
+            # SENDER (Pre-filled from profile or session)
             s_defaults = st.session_state.get("sender_data", {})
             with c1:
-                st.markdown("**Return Address**")
+                st.markdown("**Return Address (You)**")
                 s_name = st.text_input("Name", value=s_defaults.get("name",""), key="s_n")
                 s_str = st.text_input("Street", value=s_defaults.get("street",""), key="s_s")
+                
+                # Granular Fields
                 sa, sb, sc = st.columns(3)
                 s_city = sa.text_input("City", value=s_defaults.get("city",""), key="s_c")
                 s_state = sb.text_input("State", value=s_defaults.get("state",""), key="s_st")
@@ -250,6 +256,7 @@ def render_workspace_page():
                     st.markdown("**Recipient**")
                     r_name = st.text_input("Name", value=r_defaults.get("name",""), key="r_n")
                     r_str = st.text_input("Street", value=r_defaults.get("street",""), key="r_s")
+                    
                     ra, rb, rc = st.columns(3)
                     r_city = ra.text_input("City", value=r_defaults.get("city",""), key="r_c")
                     r_state = rb.text_input("State", value=r_defaults.get("state",""), key="r_st")
@@ -259,10 +266,12 @@ def render_workspace_page():
             save_b = st.checkbox("Save Recipient to Address Book")
             
             if st.form_submit_button("Save Addresses"):
+                # Save to Session
                 st.session_state.sender_data = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_country}
                 if tier not in ["Civic", "Campaign"]:
                     st.session_state.recipient_data = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_country}
                 
+                # Save to DB
                 if save_b and st.session_state.authenticated:
                     _save_address_book(st.session_state.user_email, st.session_state.recipient_data, is_sender=False)
                 st.success("Addresses Saved!")
@@ -271,17 +280,24 @@ def render_workspace_page():
     with t2:
         st.markdown("### Compose")
         
+        # 1. File Import
         uploaded_file = st.file_uploader("📂 Import Audio (MP3/WAV)", type=["mp3", "wav", "m4a"])
+        
+        # 2. Mic Input
         audio_mic = st.audio_input("🎤 Record Voice")
         
+        # Processing Logic
         active_audio = uploaded_file or audio_mic
         if active_audio and ai_engine:
             if st.button("Transcribe Audio"):
                 with st.spinner("Transcribing..."):
+                    # Create temp file
                     suffix = ".wav" if not uploaded_file else os.path.splitext(uploaded_file.name)[1]
                     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as t:
                         t.write(active_audio.getvalue())
                         tpath = t.name
+                    
+                    # Call Engine
                     try:
                         text = ai_engine.transcribe_audio(tpath)
                         st.session_state.transcribed_text = text
@@ -292,10 +308,12 @@ def render_workspace_page():
                         except: pass
                     st.rerun()
 
+        # Text Editor
         val = st.session_state.get("transcribed_text", "")
         txt = st.text_area("Body Text", val, height=400)
         if txt: st.session_state.transcribed_text = txt
         
+        # AI Buttons
         if ai_engine and txt:
             st.markdown("#### AI Editing Tools")
             c_ai1, c_ai2 = st.columns(2)
@@ -318,6 +336,7 @@ def render_review_page():
         st.session_state.app_mode = "store"
         st.rerun()
 
+    # Safety: Ensure locked_tier exists to prevent crash
     if "locked_tier" not in st.session_state:
         st.session_state.locked_tier = "Standard"
 
@@ -326,15 +345,20 @@ def render_review_page():
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("Preview")
+        # PDF Preview Logic
         if letter_format:
             try:
+                # Prepare Data
                 s = st.session_state.get("sender_data", {})
                 r = st.session_state.get("recipient_data", {})
+                
+                # Create PDF
                 pdf = letter_format.create_pdf(
                     st.session_state.get("transcribed_text", ""), 
-                    {**s, **r}, 
+                    {**s, **r}, # Merge dicts
                     st.session_state.locked_tier
                 )
+                
                 if pdf:
                     st.success("PDF Generated Successfully")
                     st.download_button("📄 Download PDF Proof", pdf, "preview.pdf", "application/pdf")
@@ -355,7 +379,9 @@ def render_review_page():
 
 # --- MAIN ENTRY ---
 def render_main():
+    # Only logic routing here. No global sidebar call.
     mode = st.session_state.get("app_mode", "store")
+    
     if mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
