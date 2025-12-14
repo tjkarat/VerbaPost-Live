@@ -11,7 +11,13 @@ import ui_legal
 import database
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="wide")
+# FIX: Sidebar is collapsed by default
+st.set_page_config(
+    page_title="VerbaPost", 
+    page_icon="📮", 
+    layout="wide", 
+    initial_sidebar_state="collapsed"
+)
 
 # --- GLOBAL SIDEBAR ---
 def render_sidebar():
@@ -50,7 +56,8 @@ def render_sidebar():
             4. **Pay:** Checkout securely via Stripe.
             5. **Track:** We email you the tracking #.
             """)
-            st.info("Support: help@verbapost.com")
+            # FIX: Correct Support Email
+            st.info("Support: support@verbapost.com")
 
         # 5. Session Debug
         if st.session_state.get("authenticated"):

@@ -38,11 +38,13 @@ def inject_legacy_accessibility_css():
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Caveat&family=Great+Vibes&family=Indie+Flower&family=Schoolbell&display=swap');
 
+        /* 1. Make the Tab Text Huge and Bold */
         .stTabs [data-baseweb="tab"] p {
             font-size: 1.5rem !important;
             font-weight: 700 !important;
         }
 
+        /* 2. Turn Tabs into Large Buttons with Outlines */
         .stTabs [data-baseweb="tab"] {
             height: 70px;
             white-space: pre-wrap;
@@ -51,21 +53,24 @@ def inject_legacy_accessibility_css():
             gap: 2px;
             padding-top: 10px;
             padding-bottom: 10px;
-            border: 3px solid #9CA3AF;
+            border: 3px solid #9CA3AF; /* Thick Grey Outline */
             margin-right: 5px;
             color: #374151;
         }
 
+        /* 3. High Contrast for Selected Tab */
         .stTabs [aria-selected="true"] {
             background-color: #FF4B4B !important;
             border: 3px solid #FF4B4B !important;
             color: white !important;
         }
         
+        /* 4. Force text color to white inside the active tab */
         .stTabs [aria-selected="true"] p {
             color: white !important;
         }
 
+        /* 5. Font Preview Styling */
         .font-preview-box {
             padding: 20px;
             border: 1px solid #ddd;
@@ -79,6 +84,7 @@ def inject_legacy_accessibility_css():
         .fp-IndieFlower { font-family: 'Indie Flower', cursive; font-size: 24px; color: #333; }
         .fp-Schoolbell { font-family: 'Schoolbell', cursive; font-size: 24px; color: #333; }
         
+        /* 6. Instruction Box */
         .instruction-box {
             background-color: #FEF3C7;
             border-left: 10px solid #F59E0B;
@@ -93,6 +99,7 @@ def inject_legacy_accessibility_css():
 
 # --- STATE MANAGEMENT ---
 def initialize_legacy_state():
+    """Ensures all necessary session state variables exist."""
     defaults = {
         "legacy_sender": {},
         "legacy_recipient": {},
@@ -107,20 +114,24 @@ def initialize_legacy_state():
             st.session_state[key] = val
 
 def load_address_book():
+    """Fetches contacts from DB and returns a formatted dict for the dropdown."""
     if not database or not st.session_state.get("authenticated"):
         return {}
     
     try:
         user_email = st.session_state.get("user_email")
         contacts = database.get_saved_contacts(user_email)
+        # Format: "Name (City)" -> Dict
         return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
     except Exception as e:
         print(f"Address Book Error: {e}")
         return {}
 
+# --- DRAFT SAVING ---
 def _save_legacy_draft():
+    """Saves the current state to the database."""
     if not database:
-        st.error("Database connection missing.")
+        st.error("Database connection missing. Cannot save.")
         return
 
     user_email = st.session_state.get("user_email", "guest")
@@ -130,6 +141,8 @@ def _save_legacy_draft():
         d_id = st.session_state.get("current_legacy_draft_id")
         
         if d_id:
+            # Update existing draft
+            # FIX: Changed argument from 'text' to 'content' to match database.py schema
             database.update_draft_data(
                 d_id, 
                 content=text_content, 
@@ -138,6 +151,7 @@ def _save_legacy_draft():
             )
             st.toast("Draft Saved!", icon="💾")
         else:
+            # Create new draft
             d_id = database.save_draft(user_email, text_content, "Legacy", 15.99)
             st.session_state.current_legacy_draft_id = d_id
             st.toast("New Draft Created!", icon="✨")
@@ -145,8 +159,12 @@ def _save_legacy_draft():
     except Exception as e:
         st.error(f"Save failed: {e}")
 
-# --- SUCCESS VIEW (Prevents Payment Loop) ---
+# --- SUCCESS VIEW (NEW) ---
 def render_success_view():
+    """
+    Displays the confirmation screen after payment.
+    This BREAKS the loop where the user goes back to the form.
+    """
     st.balloons()
     st.markdown("## ✅ Order Confirmed!")
     
@@ -159,10 +177,14 @@ def render_success_view():
         """, unsafe_allow_html=True
     )
     
-    email = st.session_state.get("user_email", "your email")
+    # Display the captured email
+    email = st.session_state.get("user_email", "your email address")
     st.info(f"We will email the **USPS Tracking Number** to: **{email}**")
     
+    st.markdown("---")
+    
     if st.button("Start Another Letter"):
+        # Reset specific legacy flags but keep auth
         st.session_state.paid_success = False
         st.session_state.current_legacy_draft_id = None
         st.session_state.legacy_text = ""
@@ -171,87 +193,127 @@ def render_success_view():
 
 # --- MAIN RENDERER ---
 def render_legacy_page():
+    # 1. Setup
     initialize_legacy_state()
     inject_legacy_accessibility_css()
 
-    # STOP LOOP IF PAID
+    # 2. CHECK: If payment succeeded, show success view immediately
+    # This prevents the "Goofy Loop" where the user sees the form again
     if st.session_state.get("paid_success"):
         render_success_view()
         return
 
-    c_head, c_save = st.columns([3, 1])
-    c_head.markdown("## 🕊️ Legacy Workspace")
-    if c_save.button("💾 Save Progress", key="btn_save_legacy", use_container_width=True): 
-        _save_legacy_draft()
+    # 3. Header & Controls
+    col_head, col_save = st.columns([3, 1])
+    with col_head:
+        st.markdown("## 🕊️ Legacy Workspace")
+    with col_save:
+        if st.button("💾 Save Progress", key="btn_save_legacy", use_container_width=True): 
+            _save_legacy_draft()
 
-    with st.expander("ℹ️ How this works (Read First)", expanded=False):
+    with st.expander("ℹ️ How this works", expanded=False):
         st.markdown("""
-        **Welcome to the Legacy Service.** This tool ensures your final wishes or important messages are physically delivered with legal proof.
-        
-        1. **Confirm Identity:** Ensure the 'From' and 'To' addresses are 100% accurate.
-        2. **Choose Style:** Select a handwriting font that matches your tone.
-        3. **Compose:** Use the Voice Recorder or Type your message.
-        4. **Certified Delivery:** We print on archival paper and send via **USPS Certified Mail**.
-        5. **Tracking:** You will receive a tracking number to prove delivery.
+        **Take your time.** This is a space for important, lasting words.
+        1.  **Identity:** Verify who this is from and exactly who must sign for it.
+        2.  **Style:** Choose a handwriting style that fits your tone.
+        3.  **Compose:** Dictate or type your message.
+        4.  **Secure:** We generate a PDF proof sent via **Certified Mail**.
         """)
 
-    # 1. ADDRESSING
-    addr_opts = load_address_book()
-    st.markdown("### 📍 Step 1: Delivery Details")
-    if addr_opts:
-        sel = st.selectbox("📂 Load from Address Book", ["Select..."] + list(addr_opts.keys()))
-        if sel != "Select...":
-            d = addr_opts[sel]
-            st.session_state.leg_r_name = d.get('name', '')
-            st.session_state.leg_r_street = d.get('street', '')
-            st.session_state.leg_r_city = d.get('city', '')
-            st.session_state.leg_r_state = d.get('state', '')
-            st.session_state.leg_r_zip = d.get('zip_code', '') or d.get('zip', '')
+    # RESTORED: Helpful Tip Link
+    st.info("💡 **Writer's Block?** The [Stanford Letter Project](https://med.stanford.edu/letter.html) offers excellent templates.")
 
-    with st.form("leg_addr"):
+    # 4. Address Book & Loading
+    address_options = load_address_book()
+    
+    st.markdown("### 📍 Step 1: Delivery Details")
+    
+    if address_options:
+        selected_contact = st.selectbox("📂 Load from Address Book", ["Select..."] + list(address_options.keys()))
+        if selected_contact != "Select...":
+            data = address_options[selected_contact]
+            # Autofill session state variables for the form
+            st.session_state.leg_r_name = data.get('name', '')
+            st.session_state.leg_r_street = data.get('street', '')
+            st.session_state.leg_r_city = data.get('city', '')
+            st.session_state.leg_r_state = data.get('state', '')
+            st.session_state.leg_r_zip = data.get('zip_code', '') or data.get('zip', '')
+
+    # 5. Address Form
+    with st.form("legacy_address_form"):
         c1, c2 = st.columns(2)
+        
+        # FROM COLUMN
         with c1:
             st.markdown("#### 🏠 From (You)")
-            prof = st.session_state.get("user_profile", {})
-            sn = st.text_input("Name", value=prof.get("full_name", ""), key="leg_s_name")
-            ss = st.text_input("Street", value=prof.get("address_line1", ""), key="leg_s_street")
-            x1, x2, x3 = st.columns(3)
-            sc = x1.text_input("City", value=prof.get("city", ""), key="leg_s_city")
-            stt = x2.text_input("State", value=prof.get("state", ""), key="leg_s_state")
-            sz = x3.text_input("Zip", value=prof.get("zip_code", ""), key="leg_s_zip")
+            # Try to pre-fill from user profile
+            profile = st.session_state.get("user_profile", {})
+            
+            s_name = st.text_input("Your Name", value=profile.get("full_name", ""), key="leg_s_name")
+            s_str = st.text_input("Street Address", value=profile.get("address_line1", ""), key="leg_s_street")
+            
+            sc1, sc2, sc3 = st.columns(3)
+            s_city = sc1.text_input("City", value=profile.get("city", ""), key="leg_s_city")
+            s_state = sc2.text_input("State", value=profile.get("state", ""), key="leg_s_state")
+            s_zip = sc3.text_input("Zip", value=profile.get("zip_code", ""), key="leg_s_zip")
+
+        # TO COLUMN
         with c2:
             st.markdown("#### 📬 To (Recipient)")
             st.warning("⚠️ Certified Mail: Recipient must sign for delivery.")
-            rn = st.text_input("Name", key="leg_r_name")
-            rs = st.text_input("Street", key="leg_r_street")
-            y1, y2, y3 = st.columns(3)
-            rc = y1.text_input("City", key="leg_r_city")
-            rt = y2.text_input("State", key="leg_r_state")
-            rz = y3.text_input("Zip", key="leg_r_zip")
-        
+            
+            r_name = st.text_input("Recipient Name", key="leg_r_name")
+            r_str = st.text_input("Street Address", key="leg_r_street")
+            
+            rc1, rc2, rc3 = st.columns(3)
+            r_city = rc1.text_input("City", key="leg_r_city")
+            r_state = rc2.text_input("State", key="leg_r_state")
+            r_zip = rc3.text_input("Zip", key="leg_r_zip")
+
+        st.write("")
         if st.form_submit_button("✅ Confirm Addresses"):
-            if sn and ss and rn and rs:
-                st.session_state.legacy_sender = {"name": sn, "street": ss, "city": sc, "state": stt, "zip": sz}
-                st.session_state.legacy_recipient = {"name": rn, "street": rs, "city": rc, "state": rt, "zip": rz}
+            if s_name and s_str and r_name and r_str:
+                st.session_state.legacy_sender = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip}
+                st.session_state.legacy_recipient = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip}
                 st.success("Addresses Confirmed.")
             else:
-                st.error("Missing name or street.")
+                st.error("Please fill in at least Name and Street for both parties.")
 
-    if not st.session_state.get("legacy_sender"): st.stop()
+    if not st.session_state.get("legacy_sender") or not st.session_state.get("legacy_recipient"):
+        st.warning("Please confirm addresses above to unlock the writing studio.")
+        st.stop()
 
-    # 2. STYLE
+    # 6. Font Selection
     st.markdown("---")
     st.markdown("### 🖋️ Step 2: Handwriting Style")
-    f_map = {"Caveat": "Caveat", "Great Vibes": "Great Vibes", "Indie Flower": "Indie Flower", "Schoolbell": "Schoolbell"}
-    c_f1, c_f2 = st.columns([1, 2])
-    with c_f1:
-        f_sel = st.radio("Font", list(f_map.keys()))
-        st.session_state.legacy_font = f_map[f_sel]
-    with c_f2:
-        fn = f_map[f_sel].replace(" ", "")
-        st.markdown(f'<div class="font-preview-box"><p class="fp-{fn}">"To my dearest family..."</p></div>', unsafe_allow_html=True)
+    
+    font_map = {
+        "Caveat (Casual)": "Caveat",
+        "Great Vibes (Elegant)": "Great Vibes",
+        "Indie Flower (Playful)": "Indie Flower", 
+        "Schoolbell (Neat)": "Schoolbell"
+    }
+    
+    f_col1, f_col2 = st.columns([1, 2])
+    with f_col1:
+        selected_label = st.radio("Choose Font:", list(font_map.keys()), index=0)
+        font_choice = font_map[selected_label]
+        st.session_state.legacy_font = font_choice
 
-    # 3. COMPOSE
+    with f_col2:
+        css_class = f"fp-{font_choice.replace(' ', '')}"
+        display_name = st.session_state.legacy_sender.get("name", "Me")
+        st.markdown(f"""
+        <div class="font-preview-box">
+            <p class="{css_class}">
+                "To my dearest family,<br>
+                This is how my final words will look on paper.<br>
+                With love, {display_name}"
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # 7. Compose Section (With Accessibility Tabs & Loop Fix)
     st.markdown("---")
     st.markdown("### ✍️ Step 3: Compose")
     
@@ -335,7 +397,7 @@ def render_legacy_page():
             else:
                 pass # Do nothing if we've already processed this audio
 
-    # 4. REVIEW & PAY
+    # 8. Review & Pay Section
     st.markdown("---")
     st.markdown("### 👁️ Step 4: Secure & Send")
     

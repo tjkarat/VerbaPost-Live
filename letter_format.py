@@ -3,9 +3,11 @@ import os
 
 class LetterPDF(FPDF):
     def header(self):
+        # Header is usually blank for these letters to look personal
         pass
 
     def footer(self):
+        # Position at 1.5 cm from bottom
         self.set_y(-15)
         self.set_font("Helvetica", "I", 8)
         self.set_text_color(128)
@@ -14,26 +16,32 @@ class LetterPDF(FPDF):
 def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None):
     """
     Generates a PDF byte array.
-    Robustly handles string vs bytearray return types.
+    Robustly handles string vs bytearray return types to fix 'encode' errors.
     """
     pdf = LetterPDF()
     pdf.add_page()
     
     # --- 1. Fonts Setup ---
     chosen_font_name = "Helvetica" # Default
+    
+    # Safe font loading logic
     try:
+        # If specific font requested (Legacy flow)
         if font_choice and "Caveat" in font_choice and os.path.exists("Caveat-Regular.ttf"):
             pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
             chosen_font_name = "Caveat"
+        # Or if tier defaults to handwriting (Standard/Heirloom)
         elif tier in ["Standard", "Heirloom"] and os.path.exists("Caveat-Regular.ttf"):
             pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
             chosen_font_name = "Caveat"
-    except: pass
+    except Exception as e:
+        print(f"Font loading error: {e}")
     
     # --- 2. Return Address ---
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(100, 100, 100) # Grey
     
+    # Handle object vs dict input safely
     s_name = from_addr.get("name") if isinstance(from_addr, dict) else getattr(from_addr, "name", "")
     s_str = from_addr.get("street") if isinstance(from_addr, dict) else getattr(from_addr, "street", "")
     s_city = from_addr.get("city") if isinstance(from_addr, dict) else getattr(from_addr, "city", "")
@@ -76,9 +84,17 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
 
     # --- 7. CRITICAL OUTPUT FIX ---
     try:
+        # FPDF2 returns bytearray, Old FPDF returns string
         raw_output = pdf.output(dest='S')
+        
         if isinstance(raw_output, str):
+            # Convert string to bytes
             return raw_output.encode('latin-1')
         else:
-            return bytes(raw_output) # Convert to immutable bytes
-    except: return b""
+            # Already bytes/bytearray - return as bytes
+            return bytes(raw_output)
+            
+    except Exception as e:
+        print(f"PDF Output Error: {e}")
+        # Return empty bytes to prevent crash, allowing UI to handle error
+        return b""
