@@ -4,10 +4,9 @@ import tempfile
 import os
 import json
 import base64
-import hashlib # Critical for audio loop fix
+import hashlib
 
 # --- ROBUST IMPORTS ---
-# We wrap these to prevent the entire app from crashing if one module has an issue.
 try:
     import database
 except ImportError:
@@ -33,12 +32,8 @@ try:
 except ImportError:
     ai_engine = None
 
-# --- CSS INJECTOR (ACCESSIBILITY & STYLING) ---
+# --- CSS INJECTOR ---
 def inject_legacy_accessibility_css():
-    """
-    Injects CSS to make tabs larger, high-contrast, and button-like.
-    Also styles the font preview and instruction boxes.
-    """
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Caveat&family=Great+Vibes&family=Indie+Flower&family=Schoolbell&display=swap');
@@ -126,7 +121,6 @@ def load_address_book():
     try:
         user_email = st.session_state.get("user_email")
         contacts = database.get_saved_contacts(user_email)
-        # Format: "Name (City)" -> Dict
         return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
     except Exception as e:
         print(f"Address Book Error: {e}")
@@ -145,7 +139,6 @@ def _save_legacy_draft():
     try:
         d_id = st.session_state.get("current_legacy_draft_id")
         
-        # --- FIX: Changed argument from 'text' to 'content' to match database.py ---
         if d_id:
             database.update_draft_data(
                 d_id, 
@@ -231,7 +224,6 @@ def render_legacy_page():
         selected_contact = st.selectbox("📂 Load from Address Book", ["Select..."] + list(address_options.keys()))
         if selected_contact != "Select...":
             data = address_options[selected_contact]
-            # Autofill session state variables for the form
             st.session_state.leg_r_name = data.get('name', '')
             st.session_state.leg_r_street = data.get('street', '')
             st.session_state.leg_r_city = data.get('city', '')
@@ -245,12 +237,9 @@ def render_legacy_page():
         # FROM COLUMN
         with c1:
             st.markdown("#### 🏠 From (You)")
-            # Try to pre-fill from user profile
             profile = st.session_state.get("user_profile", {})
-            
             s_name = st.text_input("Your Name", value=profile.get("full_name", ""), key="leg_s_name")
             s_str = st.text_input("Street Address", value=profile.get("address_line1", ""), key="leg_s_street")
-            
             sc1, sc2, sc3 = st.columns(3)
             s_city = sc1.text_input("City", value=profile.get("city", ""), key="leg_s_city")
             s_state = sc2.text_input("State", value=profile.get("state", ""), key="leg_s_state")
@@ -260,11 +249,8 @@ def render_legacy_page():
         with c2:
             st.markdown("#### 📬 To (Recipient)")
             st.warning("⚠️ Certified Mail: Recipient must sign for delivery.")
-            
-            # These keys match the ones we set in the Address Book loader above
             r_name = st.text_input("Recipient Name", key="leg_r_name")
             r_str = st.text_input("Street Address", key="leg_r_street")
-            
             rc1, rc2, rc3 = st.columns(3)
             r_city = rc1.text_input("City", key="leg_r_city")
             r_state = rc2.text_input("State", key="leg_r_state")
@@ -279,7 +265,6 @@ def render_legacy_page():
             else:
                 st.error("Please fill in at least Name and Street for both parties.")
 
-    # Block progress until addresses are set
     if not st.session_state.get("legacy_sender") or not st.session_state.get("legacy_recipient"):
         st.warning("Please confirm addresses above to unlock the writing studio.")
         st.stop()
@@ -314,7 +299,7 @@ def render_legacy_page():
         </div>
         """, unsafe_allow_html=True)
 
-    # 7. Compose Section (With Accessibility Tabs & Loop Fix)
+    # 7. Compose Section
     st.markdown("---")
     st.markdown("### ✍️ Step 3: Compose")
     
@@ -360,17 +345,12 @@ def render_legacy_page():
         
         audio_mic = st.audio_input("Record Voice", label_visibility="collapsed")
         
-        # --- FIX: LOOP PREVENTION LOGIC ---
         if audio_mic and ai_engine:
-            # 1. Calculate Hash of audio bytes
+            # Hash Audio to Prevent Loop
             audio_bytes = audio_mic.getvalue()
-            # Use md5 for reliable byte hashing
             audio_hash = hashlib.md5(audio_bytes).hexdigest()
             
-            # 2. Check if this hash is different from the last one we processed
-            last_hash = st.session_state.get("last_legacy_hash")
-            
-            if audio_hash != last_hash:
+            if audio_hash != st.session_state.get("last_legacy_hash"):
                 st.info("⏳ Processing your voice... please wait.")
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as t:
                     t.write(audio_bytes)
@@ -379,13 +359,9 @@ def render_legacy_page():
                 try:
                     text = ai_engine.transcribe_audio(tpath)
                     if text:
-                        # Append text
                         exist = st.session_state.get("legacy_text", "")
                         st.session_state.legacy_text = (exist + "\n\n" + text).strip()
-                        
-                        # Update Hash so we don't process this again
                         st.session_state.last_legacy_hash = audio_hash
-                        
                         st.success("✅ Transcribed! Switch to 'Type Manually' to edit.")
                         st.rerun() 
                     else:
@@ -396,7 +372,7 @@ def render_legacy_page():
                     try: os.remove(tpath)
                     except: pass
             else:
-                pass # Do nothing if we've already processed this audio
+                pass
 
     # 8. Review & Pay Section
     st.markdown("---")
@@ -411,7 +387,6 @@ def render_legacy_page():
                 st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # Fix: Ensure tier="Standard" so signature block is added
                     raw_pdf = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""), 
                         st.session_state.legacy_sender, 
@@ -421,7 +396,6 @@ def render_legacy_page():
                     )
                     
                     # --- CRITICAL FIX: Explicit cast to bytes ---
-                    # This solves the bytearray error
                     pdf_bytes = bytes(raw_pdf) 
                     
                     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
@@ -447,10 +421,9 @@ def render_legacy_page():
         st.write("")
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
             if payment_engine:
-                # Save first
                 _save_legacy_draft()
                 
-                # --- FIX: Send correct structure to payment engine ---
+                # Use line_items format
                 url = payment_engine.create_checkout_session(
                     line_items=[{
                         "price_data": {

@@ -83,16 +83,15 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
     pdf.cell(0, 10, s_name, ln=True)
 
     # --- 7. CRITICAL OUTPUT FIX ---
-    # FPDF2 returns bytearray, Old FPDF returns string.
-    # We must ensure we return immutable BYTES.
     try:
+        # FPDF2 returns bytearray, Old FPDF returns string
         raw_output = pdf.output(dest='S')
         
         if isinstance(raw_output, str):
             return raw_output.encode('latin-1')
         else:
-            return bytes(raw_output) # Convert bytearray to bytes
+            return bytes(raw_output) # Convert to immutable bytes
             
     except Exception as e:
         print(f"PDF Output Error: {e}")
-        return b"" # Return empty bytes on failure to prevent crash
+        return b""

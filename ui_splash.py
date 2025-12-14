@@ -1,7 +1,8 @@
 import streamlit as st
 
 # --- FUNCTION DEFINITION ---
-def render_splash():
+# FIX: Renamed from render_splash to render_splash_page to match main.py
+def render_splash_page():
     # --- PROFESSIONAL MINIMALIST CSS ---
     st.markdown("""
     <style>
@@ -36,13 +37,13 @@ def render_splash():
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
             else:
-                st.query_params["view"] = "login"
+                st.session_state.app_mode = "login" # Fix: Set mode directly
             st.rerun()
 
         st.write("") 
 
         if st.button("Legacy Service (End of Life)", use_container_width=True):
-            st.query_params["view"] = "legacy"
+            st.session_state.app_mode = "legacy" # Fix: Set mode directly
             st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
@@ -63,8 +64,5 @@ def render_splash():
         st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
         # Legal Button Added Here
         if st.button("⚖️ Legal / Terms", use_container_width=True):
-            st.query_params["view"] = "legal"
+            st.session_state.app_mode = "legal"
             st.rerun()
-
-# --- SAFETY ALIAS ---
-show_splash = render_splash

@@ -27,49 +27,47 @@ def main():
     
     # A. Handle Payment Return (Stripe Redirect)
     session_id = query_params.get("session_id", None)
-    
-    # LOGIC FIX: Check if we already processed this session to prevent duplicate fulfillment
-    if session_id and session_id != st.session_state.get("last_processed_session"):
+    if session_id:
         with st.spinner("Verifying secure payment..."):
             # Verify with Stripe
-            verification = payment_engine.verify_session(session_id)
+            result = payment_engine.verify_session(session_id)
             
-            if verification and verification.get("paid"):
-                # Mark session as processed immediately
-                st.session_state.last_processed_session = session_id
+            if result and result.get("paid"):
+                # --- FIX: CAPTURE EMAIL FROM STRIPE ---
+                # Since guests enter email on Stripe, we grab it here
+                payer_email = result.get("email")
                 
-                # CAPTURE EMAIL (Critical for Guests)
-                payer_email = verification.get("email")
-                
+                # If we didn't have an email before (Guest), save the one they used at checkout
                 if payer_email:
                     st.session_state.user_email = payer_email
-                    st.session_state.payment_email = payer_email
                     
-                    # FINANCIAL FIX: Update DB immediately to "Paid" to lock the draft
+                    # Update the draft record with this email so we can send the certified code
+                    # This ensures the email is in the DB for the mailer to use
                     if st.session_state.get("current_legacy_draft_id"):
                         database.update_draft_data(
                             st.session_state.current_legacy_draft_id, 
                             status="Paid",
-                            price=verification.get("amount", 15.99)
+                            price=15.99 # Ensure price is locked
                         )
 
                 # Log Success
                 audit_engine.log_event(st.session_state.user_email, "PAYMENT_SUCCESS", session_id, {})
                 
-                # Set Flags for UI
+                # Set Flags
                 st.session_state.paid_success = True
                 
-                # Routing
+                # Force routing to the correct view to show success message
+                # This prevents the "Goofy Loop" of going back to the start form
                 if st.session_state.get("current_legacy_draft_id"):
                      st.session_state.app_mode = "legacy"
                 else:
                      st.session_state.app_mode = "review"
                 
-                st.toast("Payment Confirmed! 💳", icon="✅")
+                st.success("Payment Confirmed!")
             else:
                 st.error("Payment Verification Failed or Cancelled.")
         
-        # Clear URL to prevent re-triggering on refresh
+        # Clear URL to prevent re-triggering
         st.query_params.clear()
 
     # B. Handle View Routing
@@ -80,35 +78,51 @@ def main():
         st.session_state.app_mode = "legal"
     elif view_param == "admin":
         st.session_state.app_mode = "admin"
-    elif view_param == "login":
-        st.session_state.app_mode = "login"
 
     # 3. Render Application based on App Mode
     mode = st.session_state.app_mode
 
     if mode == "splash":
-        if ui_splash: ui_splash.render_splash_page()
-        else: st.error("Splash module missing")
+        if ui_splash:
+            ui_splash.render_splash_page()
+        else:
+            st.error("System Error: Splash module missing.")
 
     elif mode == "login":
-        if ui_login: ui_login.render_login_page()
+        if ui_login:
+            ui_login.render_login_page()
+        else:
+            st.error("System Error: Login module missing.")
         
     elif mode == "legacy":
-        if ui_legacy: ui_legacy.render_legacy_page()
+        if ui_legacy:
+            ui_legacy.render_legacy_page()
+        else:
+            st.error("System Error: Legacy module missing.")
         
     elif mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
+        if ui_legal:
+            ui_legal.render_legal_page()
+        else:
+            st.error("System Error: Legal module missing.")
         
     elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
+        if ui_admin:
+            ui_admin.render_admin_page()
+        else:
+            st.error("System Error: Admin module missing.")
         
     # Default / Standard App Flow
     elif mode in ["store", "workspace", "review"]:
-        if ui_main: ui_main.render_main()
+        if ui_main:
+            ui_main.render_main()
+        else:
+            st.error("System Error: UI Main module missing.")
     
     else:
         # Fallback
-        if ui_main: ui_main.render_main()
+        if ui_main:
+            ui_main.render_main()
 
 if __name__ == "__main__":
     main()
