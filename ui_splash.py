@@ -1,111 +1,85 @@
 import streamlit as st
 
-# Try to import civic engine for leaderboard, fail gracefully if missing
-try: import civic_engine
-except ImportError: civic_engine = None
-
-def render_splash():
-    # --- HERO SECTION ---
+def show_splash():
+    # --- CSS STYLING ---
     st.markdown("""
-    <div style="text-align: center; padding: 40px 20px 60px 20px; background: linear-gradient(180deg, #FFFFFF 0%, #F0F2F6 100%); border-radius: 0 0 20px 20px; margin-bottom: 30px;">
-        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #1E1E1E;">📮 VerbaPost</h1>
-        <p style="font-size: 1.5rem; color: #555; margin-bottom: 30px;">Real letters, sent from your screen.</p>
-        <div style="display: flex; justify-content: center; gap: 10px;">
-        </div>
+    <style>
+    .splash-container {
+        text-align: center;
+        width: 100%;
+        padding: 1rem 0 2rem 0;
+    }
+    .splash-title {
+        font-size: 2.8rem; /* Smaller to fit mobile */
+        font-weight: 800;
+        margin-bottom: 0;
+        color: #212529;
+        white-space: nowrap; /* Forces single line */
+        line-height: 1.2;
+    }
+    .splash-subtitle {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: #FF4B4B; /* Streamlit Red for emphasis */
+        margin-top: 10px;
+        margin-bottom: 5px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .splash-text {
+        font-size: 1.1rem;
+        color: #555;
+        font-style: italic;
+        margin-bottom: 30px;
+        max-width: 600px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # --- HEADER SECTION ---
+    st.markdown("""
+    <div class="splash-container">
+        <div class="splash-title">📮 VerbaPost</div>
+        <div class="splash-subtitle">Texts are trivial, emails ignored, REAL MAIL GETS READ.</div>
+        <div class="splash-text">Don't know how to start, what to write? Speak it first and we'll transcribe.</div>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- CALL TO ACTION BUTTONS ---
+    # --- ACTION BUTTONS ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        col_a, col_b = st.columns(2)
-        with col_a:
-            label = f"🚀 Continue" if st.session_state.get("authenticated") else "🚀 Start a Letter"
-            if st.button(label, type="primary", use_container_width=True):
-                if st.session_state.get("authenticated"):
-                    st.session_state.app_mode = "store"
-                else:
-                    st.query_params["view"] = "login"
-                st.rerun()
-        
-        with col_b:
-             if st.button("🕯️ Legacy Service", use_container_width=True):
-                 st.query_params["view"] = "legacy"
-                 st.rerun()
+        # Main Call to Action
+        if st.button("🚀 Start a Letter", type="primary", use_container_width=True):
+            # Check auth state to determine routing
+            if st.session_state.get("authenticated"):
+                st.session_state.app_mode = "store"
+            else:
+                st.query_params["view"] = "login"  # Route to login/signup
+            st.rerun()
 
-    # --- VALUE PROPS ---
+        st.write("") # Spacer
+
+        # Legacy / End of Life Service
+        if st.button("🕊️ Legacy Service (End of Life)", use_container_width=True):
+            st.query_params["view"] = "legacy"
+            st.rerun()
+
     st.markdown("---")
-    c1, c2, c3 = st.columns(3)
-    with c1:
+
+    # --- VALUE PROPS (Keeping the icons) ---
+    c_a, c_b, c_c = st.columns(3)
+    with c_a:
         st.markdown("### 🎙️ Speak")
         st.caption("Dictate your letter. AI transcribes and polishes it to perfection.")
-    with c2:
+    with c_b:
         st.markdown("### 📄 Print")
         st.caption("We print on premium 24lb paper, fold, and envelope it for you.")
-    with c3:
+    with c_c:
         st.markdown("### 📬 Send")
         st.caption("Mailed via USPS First Class or Certified Mail. No stamps needed.")
 
-    # --- PRICING GRID ---
-    st.markdown("---")
-    st.subheader("Simple Pricing")
-    
-    p1, p2, p3 = st.columns(3)
-    
-    with p1:
-        st.container(border=True).markdown("""
-        #### ⚡ Standard
-        ## $2.99
-        * Machine Printed
-        * Standard Envelope
-        * USPS First Class
-        """)
-    
-    with p2:
-        st.container(border=True).markdown("""
-        #### 🏺 Heirloom
-        ## $5.99
-        * **Cotton Bond Paper**
-        * **Real Stamp**
-        * Hand-Addressed
-        """)
-        
-    with p3:
-        st.container(border=True).markdown("""
-        #### 🏛️ Civic
-        ## $6.99
-        * **3 Letters Pack**
-        * Auto-find Reps
-        * Mailed to Congress
-        """)
-
-    # --- CIVIC LEADERBOARD ---
-    st.markdown("---")
-    st.subheader("🏛️ Weekly Civic Leaderboard")
-    st.caption("Most contacted representatives this week via VerbaPost.")
-    
-    leader_data = []
-    if civic_engine:
-        try: 
-            leader_data = civic_engine.get_leaderboard()
-        except: 
-            pass
-            
-    if not leader_data:
-        # Fallback / Demo Data
-        leader_data = [
-            {"Rank": "1", "Name": "Sen. Chuck Schumer (NY)", "Letters": 142},
-            {"Rank": "2", "Name": "Rep. Alexandria Ocasio-Cortez (NY)", "Letters": 89},
-            {"Rank": "3", "Name": "Sen. Ted Cruz (TX)", "Letters": 64},
-        ]
-    
-    st.dataframe(leader_data, use_container_width=True, hide_index=True)
-
     # --- FOOTER ---
-    st.markdown("---")
-    f1, f2 = st.columns([3, 1])
-    f1.caption("© 2025 VerbaPost Inc.")
-    with f2:
-        if st.button("⚖️ Legal & Privacy"):
-            st.query_params["view"] = "legal"
-            st.rerun()
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.caption("VerbaPost v3.2.1 | Secure. Private. Real.")
