@@ -493,6 +493,7 @@ def render_application():
 
 # --- ENTRY POINT ---
 # This is the function called by main.py
+# CRITICAL: This was missing in the previous version, causing the crash after payment
 def render_main():
     render_application()
 
