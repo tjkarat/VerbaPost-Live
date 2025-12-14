@@ -7,17 +7,56 @@ import time
 from io import BytesIO
 
 # --- ROBUST IMPORTS ---
-try: import ui_splash; except Exception: ui_splash = None
-try: import ui_login; except Exception: ui_login = None
-try: import ui_admin; except Exception: ui_admin = None
-try: import database; except Exception: database = None
-try: import ai_engine; except Exception: ai_engine = None
-try: import payment_engine; except Exception: payment_engine = None
-try: import pricing_engine; except Exception: pricing_engine = None
-try: import secrets_manager; except Exception: secrets_manager = None
-try: import civic_engine; except Exception: civic_engine = None
-try: import letter_format; except Exception: letter_format = None
+# --- ROBUST IMPORTS ---
+try:
+    import ui_splash
+except Exception:
+    ui_splash = None
 
+try:
+    import ui_login
+except Exception:
+    ui_login = None
+
+try:
+    import ui_admin
+except Exception:
+    ui_admin = None
+
+try:
+    import database
+except Exception:
+    database = None
+
+try:
+    import ai_engine
+except Exception:
+    ai_engine = None
+
+try:
+    import payment_engine
+except Exception:
+    payment_engine = None
+
+try:
+    import pricing_engine
+except Exception:
+    pricing_engine = None
+
+try:
+    import secrets_manager
+except Exception:
+    secrets_manager = None
+
+try:
+    import civic_engine
+except Exception:
+    civic_engine = None
+
+try:
+    import letter_format
+except Exception:
+    letter_format = None
 logger = logging.getLogger(__name__)
 
 # --- CONFIG ---
