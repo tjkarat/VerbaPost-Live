@@ -1,6 +1,6 @@
 [theme]
 base="light"
-primaryColor="#2a5298"
+primaryColor = "#FF4B4B"
 backgroundColor="#f8f9fc"
 secondaryBackgroundColor="#ffffff"
 # textColor line is GONE
@@ -10,3 +10,5 @@ secondaryBackgroundColor="#ffffff"
 enableCORS = false
 enableXsrfProtection = false
 enableStaticServing = true
+fileWatcherType = "none"  # Disables the resource-heavy file watcher
+headless = true
