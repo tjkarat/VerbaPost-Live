@@ -1,69 +1,72 @@
 from fpdf import FPDF
 import os
 
-def create_pdf(text, address_data, tier="Standard"):
+class PDF(FPDF):
+    def header(self):
+        pass  # No header for now
+    def footer(self):
+        pass  # No footer for now
+
+def create_pdf(text, sender_data, recipient_data, tier="Standard", font_choice="Caveat"):
     """
-    Generates a PDF binary.
+    Generates a PDF with custom font support.
+    font_choice options: 'Caveat', 'GreatVibes', 'IndieFlower', 'Schoolbell'
     """
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf = PDF()
     pdf.add_page()
+    
+    # --- FONT REGISTRATION ---
+    # We map friendly names to filenames. 
+    # Assumes fonts are in the root directory or specific folder.
+    font_map = {
+        "Caveat": "Caveat-Regular.ttf",
+        "Great Vibes": "GreatVibes-Regular.ttf",
+        "Indie Flower": "IndieFlower-Regular.ttf",
+        "Schoolbell": "Schoolbell-Regular.ttf",
+        "Standard": "Helvetica"  # Fallback
+    }
+    
+    selected_font_file = font_map.get(font_choice, "Caveat-Regular.ttf")
+    
+    # 1. Try to load the custom font
+    try:
+        if font_choice != "Standard":
+            # Register the font (must exist in root dir)
+            pdf.add_font(font_choice, '', selected_font_file, uni=True)
+            pdf.set_font(font_choice, '', 14)
+        else:
+            pdf.set_font("Helvetica", '', 12)
+    except Exception as e:
+        print(f"Font loading failed ({selected_font_file}): {e}")
+        pdf.set_font("Helvetica", '', 12) # Fallback if file missing
 
-    # --- FONT SELECTION ---
-    # Fallback to standard fonts if custom ones aren't loaded
-    font_family = "Times" if tier == "Heirloom" else "Arial"
-    pdf.set_font(font_family, '', 12)
-
-    # --- ADDRESS BLOCK ---
-    # Top Left: Sender
+    # --- LAYOUT LOGIC ---
+    line_height = 8 if font_choice != "Standard" else 6
+    
+    # 2. Add Content
+    # Return Address
     pdf.set_font_size(10)
-    pdf.set_text_color(100, 100, 100) # Grey
-    
-    sender_lines = [
-        address_data.get('name', ''),
-        address_data.get('street', ''),
-        f"{address_data.get('city', '')}, {address_data.get('state', '')} {address_data.get('zip', '')}"
-    ]
-    
-    for line in sender_lines:
-        if line.strip(): pdf.cell(0, 5, line, ln=True)
-
+    pdf.cell(0, 5, f"{sender_data.get('name','')}", ln=True, align='R')
+    pdf.cell(0, 5, f"{sender_data.get('street','')}", ln=True, align='R')
+    pdf.cell(0, 5, f"{sender_data.get('city','')}, {sender_data.get('state','')} {sender_data.get('zip','')}", ln=True, align='R')
     pdf.ln(10)
 
-    # --- RECIPIENT BLOCK (Window Envelope Position) ---
-    # Move to X=100mm, Y=45mm (approx)
-    pdf.set_y(45)
-    pdf.set_x(100)
-    pdf.set_text_color(0, 0, 0) # Black
-    
-    # Handle Civic (List of Reps) vs Standard (Single Recipient)
-    if tier == "Civic":
-        recip_lines = ["Honorable Representatives", "United States Congress", "Washington, DC 20510"]
-    else:
-        recip_lines = [
-            address_data.get('r_name', ''),
-            address_data.get('r_street', ''),
-            f"{address_data.get('r_city', '')}, {address_data.get('r_state', '')} {address_data.get('r_zip', '')}"
-        ]
+    # Date (Optional, or auto-generated)
+    # pdf.cell(0, 5, "December 14, 2025", ln=True) 
+    # pdf.ln(10)
 
-    for line in recip_lines:
-        pdf.set_x(100)
-        if line.strip(): pdf.cell(0, 5, line, ln=True)
-
-    # --- BODY TEXT ---
-    pdf.set_y(90) # Start body below window
+    # Recipient Address
     pdf.set_font_size(12)
-    
-    # Clean text to prevent latin-1 errors
-    safe_text = text.encode('latin-1', 'replace').decode('latin-1')
-    pdf.multi_cell(0, 6, safe_text)
+    pdf.cell(0, 6, f"{recipient_data.get('name','')}", ln=True)
+    pdf.cell(0, 6, f"{recipient_data.get('street','')}", ln=True)
+    pdf.cell(0, 6, f"{recipient_data.get('city','')}, {recipient_data.get('state','')} {recipient_data.get('zip','')}", ln=True)
+    pdf.ln(15)
 
-    # --- OUTPUT ---
-    # FIX: Check type before encoding to prevent crash
-    try:
-        res = pdf.output(dest='S')
-        if isinstance(res, str):
-            return res.encode('latin-1')
-        return res # Already bytes/bytearray
-    except Exception:
-        return pdf.output()
+    # Body Text (Restore handwriting font size)
+    if font_choice != "Standard":
+        pdf.set_font(font_choice, '', 14)
+    
+    # Handle UTF-8 safely
+    pdf.multi_cell(0, line_height, text)
+
+    return pdf.output(dest='S').encode('latin-1', 'ignore')
