@@ -42,7 +42,7 @@ def main():
                 if payer_email:
                     st.session_state.user_email = payer_email
                     
-                    # Lock the draft
+                    # Lock the draft and save the email
                     if st.session_state.get("current_legacy_draft_id"):
                         database.update_draft_data(
                             st.session_state.current_legacy_draft_id, 

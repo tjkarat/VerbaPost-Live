@@ -159,6 +159,7 @@ def render_success_view():
         """, unsafe_allow_html=True
     )
     
+    # We display the email we captured from Stripe
     email = st.session_state.get("user_email", "your email")
     st.info(f"We will email the **USPS Tracking Number** to: **{email}**")
     
@@ -175,6 +176,7 @@ def render_legacy_page():
     inject_legacy_accessibility_css()
 
     # CHECK FOR PAYMENT SUCCESS FIRST
+    # This prevents the "Goofy Loop" where the user sees the form again
     if st.session_state.get("paid_success"):
         render_success_view()
         return
@@ -374,6 +376,7 @@ def render_legacy_page():
                 st.session_state.user_email = guest_email
         
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+            # Check if we have an email. If guest, we NEED the manual input.
             if not st.session_state.get("user_email") and not guest_email:
                 st.error("⚠️ Please enter an email address so we can send your tracking number.")
             elif payment_engine:
@@ -382,27 +385,4 @@ def render_legacy_page():
                 # Use current email state
                 final_email = st.session_state.get("user_email")
                 
-                url = payment_engine.create_checkout_session(
-                    line_items=[{
-                        "price_data": {
-                            "currency": "usd",
-                            "product_data": {"name": "Legacy Letter (Certified)"},
-                            "unit_amount": 1599,
-                        },
-                        "quantity": 1,
-                    }],
-                    user_email=final_email,
-                    draft_id=st.session_state.get("current_legacy_draft_id")
-                )
-                
-                if url:
-                    st.link_button("👉 Pay Now ($15.99)", url)
-                else:
-                    st.error("Could not generate payment link.")
-            else:
-                st.error("Payment system offline.")
-
-    st.markdown("---")
-    if st.button("⬅️ Return to Dashboard"):
-        st.query_params.clear()
-        st.rerun()
+                url = payment_engine
