@@ -4,58 +4,19 @@ import tempfile
 import os
 import json
 import time
+from io import BytesIO
 
 # --- ROBUST IMPORTS ---
-# Captures ALL errors (Syntax, Import, Indentation) to prevent crash loops
-try: 
-    import ui_splash
-except Exception: 
-    ui_splash = None
-
-try: 
-    import ui_login
-except Exception: 
-    ui_login = None
-
-try: 
-    import ui_admin
-except Exception: 
-    ui_admin = None
-
-try: 
-    import database
-except Exception: 
-    database = None
-
-try: 
-    import ai_engine
-except Exception: 
-    ai_engine = None
-
-try: 
-    import payment_engine
-except Exception: 
-    payment_engine = None
-
-try: 
-    import pricing_engine
-except Exception: 
-    pricing_engine = None
-
-try: 
-    import secrets_manager
-except Exception: 
-    secrets_manager = None
-
-try: 
-    import civic_engine
-except Exception: 
-    civic_engine = None
-
-try: 
-    import letter_format
-except Exception: 
-    letter_format = None
+try: import ui_splash; except Exception: ui_splash = None
+try: import ui_login; except Exception: ui_login = None
+try: import ui_admin; except Exception: ui_admin = None
+try: import database; except Exception: database = None
+try: import ai_engine; except Exception: ai_engine = None
+try: import payment_engine; except Exception: payment_engine = None
+try: import pricing_engine; except Exception: pricing_engine = None
+try: import secrets_manager; except Exception: secrets_manager = None
+try: import civic_engine; except Exception: civic_engine = None
+try: import letter_format; except Exception: letter_format = None
 
 logger = logging.getLogger(__name__)
 
@@ -67,17 +28,11 @@ if secrets_manager:
 
 # --- INTERNAL LOGIC ---
 def _handle_draft_creation(email, tier, price):
-    """Creates or updates draft to ensure data persistence"""
     d_id = st.session_state.get("current_draft_id")
     text = st.session_state.get("transcribed_text", "")
-    
     if database:
-        # Update existing
         if d_id:
-            if database.update_draft_data(d_id, tier=tier, price=price, text=text): 
-                return d_id
-        
-        # Create new
+            if database.update_draft_data(d_id, tier=tier, price=price, text=text): return d_id
         d_id = database.save_draft(email, text, tier, price)
         st.session_state.current_draft_id = d_id
         return d_id
@@ -93,12 +48,34 @@ def _save_address_book(user_email, data, is_sender=False):
             "city": data.get("city"),
             "state": data.get("state"),
             "zip": data.get("zip"),
+            "country": data.get("country", "US"),
             "type": "sender" if is_sender else "recipient"
         }
         database.save_contact(contact)
     except Exception: pass
 
-# --- SIDEBAR (Logic Only - Rendered by main.py) ---
+def _load_user_profile():
+    """Fetches user profile to auto-fill Return Address."""
+    if not st.session_state.get("profile_loaded") and database and st.session_state.get("authenticated"):
+        try:
+            # We assume database has a get_user_profile function, or we query directly
+            # For robustness, we'll try-catch specific calls or mock it if missing
+            # This is a safe fallback pattern:
+            if hasattr(database, "get_user_profile"):
+                profile = database.get_user_profile(st.session_state.user_email)
+                if profile:
+                    st.session_state.sender_data = {
+                        "name": profile.get("full_name", ""),
+                        "street": profile.get("return_address_street", ""),
+                        "city": profile.get("return_address_city", ""),
+                        "state": profile.get("return_address_state", ""),
+                        "zip": profile.get("return_address_zip", ""),
+                        "country": profile.get("return_address_country", "US")
+                    }
+            st.session_state.profile_loaded = True
+        except Exception: pass
+
+# --- SIDEBAR ---
 def render_sidebar():
     with st.sidebar:
         st.markdown("<div style='text-align: center;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
@@ -106,15 +83,10 @@ def render_sidebar():
         
         if st.session_state.get("authenticated"):
             st.success(f"👤 {st.session_state.get('user_email', 'User')}")
-            
             st.markdown("---")
+            
             if st.button("🏪 Store", key="nav_store", use_container_width=True): 
                 st.session_state.app_mode = "store"
-                st.rerun()
-            
-            # WORKSPACE BUTTON
-            if st.button("✍️ Workspace", key="nav_work", use_container_width=True): 
-                st.session_state.app_mode = "workspace" 
                 st.rerun()
             
             st.markdown("---")
@@ -126,13 +98,11 @@ def render_sidebar():
                 st.query_params["view"] = "login"
                 st.rerun()
 
-        # Admin Link
         try:
             admins = ["tjkarat@gmail.com"]
             if secrets_manager:
                 sec = secrets_manager.get_secret("admin.email")
                 if sec: admins.append(sec)
-            
             curr = st.session_state.get("user_email", "").strip().lower()
             if st.session_state.get("authenticated") and curr in [a.lower() for a in admins]:
                 st.markdown("---")
@@ -144,13 +114,10 @@ def render_sidebar():
 # --- PAGE: STORE ---
 def render_store_page():
     st.markdown("## Select Service")
-    
-    # Campaign Toggle
     is_camp = st.toggle("📢 Bulk Campaign Mode", value=st.session_state.get("is_campaign", False))
     st.session_state.is_campaign = is_camp
     
     c1, c2 = st.columns([2, 1])
-    
     with c1:
         if is_camp:
             st.info("Upload CSV in workspace. Base Price: $2.99/letter.")
@@ -160,11 +127,8 @@ def render_store_page():
             tier = st.radio("Tier", ["Standard", "Heirloom", "Civic", "Santa"],
                           captions=["$2.99 - Basic", "$5.99 - Archival", "$6.99 - Congress", "$9.99 - North Pole"])
             st.session_state.locked_tier = tier
-            
-            # Pricing logic
             price = 2.99
-            if pricing_engine:
-                price = pricing_engine.calculate_total(tier)
+            if pricing_engine: price = pricing_engine.calculate_total(tier)
     
     with c2:
         with st.container(border=True):
@@ -185,10 +149,8 @@ def render_store_page():
                             YOUR_APP_URL, 
                             metadata={"draft": d_id}
                         )
-                        if url:
-                            st.session_state.payment_url = url
-                        else:
-                            st.error("Payment Gateway Error")
+                        if url: st.session_state.payment_url = url
+                        else: st.error("Payment Gateway Error")
             
             if st.session_state.get("payment_url"):
                 st.success("Link Ready!")
@@ -196,33 +158,58 @@ def render_store_page():
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
-    # Security Guard
     if not st.session_state.get("paid_order", False):
         st.warning("🔒 Please pay to access the Workspace.")
         st.session_state.app_mode = "store"
         time.sleep(1.5)
         st.rerun()
 
+    _load_user_profile() # Auto-fill sender info
+    
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## Workspace: {tier}")
     
     t1, t2 = st.tabs(["Addressing", "Writing"])
     
+    # --- TAB 1: ADDRESSING ---
     with t1:
+        # Address Book Logic
         if database and st.session_state.get("authenticated"):
             try:
                 saved = database.get_saved_contacts(st.session_state.user_email)
                 if saved:
-                    st.selectbox("📂 Load Contact", ["Select..."] + [x['name'] for x in saved])
-            except: pass
+                    # Helper to format dropdown display
+                    opts = {f"{x['name']} ({x.get('street','')})": x for x in saved}
+                    selected_key = st.selectbox("📂 Load Contact", ["Select..."] + list(opts.keys()))
+                    if selected_key != "Select...":
+                        data = opts[selected_key]
+                        # Populate Recipient Data
+                        st.session_state.recipient_data = {
+                            "name": data.get("name"), "street": data.get("street"),
+                            "city": data.get("city"), "state": data.get("state"),
+                            "zip": data.get("zip"), "country": data.get("country", "US")
+                        }
+            except Exception: pass
 
         with st.form("addr_form"):
             c1, c2 = st.columns(2)
+            
+            # SENDER (Pre-filled from profile or session)
+            s_defaults = st.session_state.get("sender_data", {})
             with c1:
-                st.markdown("**Return Address**")
-                s_name = st.text_input("Name", key="s_n")
-                s_str = st.text_input("Street", key="s_s")
-                s_csz = st.text_input("City, State Zip", key="s_c")
+                st.markdown("**Return Address (You)**")
+                s_name = st.text_input("Name", value=s_defaults.get("name",""), key="s_n")
+                s_str = st.text_input("Street", value=s_defaults.get("street",""), key="s_s")
+                
+                # Granular Fields
+                sa, sb, sc = st.columns(3)
+                s_city = sa.text_input("City", value=s_defaults.get("city",""), key="s_c")
+                s_state = sb.text_input("State", value=s_defaults.get("state",""), key="s_st")
+                s_zip = sc.text_input("Zip", value=s_defaults.get("zip",""), key="s_z")
+                s_country = st.selectbox("Country", ["US", "CA", "UK"], index=0, key="s_co")
+
+            # RECIPIENT
+            r_defaults = st.session_state.get("recipient_data", {})
             with c2:
                 if tier == "Civic":
                     st.info("🏛️ Auto-routed to Representatives.")
@@ -230,42 +217,77 @@ def render_workspace_page():
                     st.info("📂 Upload CSV in next step.")
                 else:
                     st.markdown("**Recipient**")
-                    r_name = st.text_input("Name", key="r_n")
-                    r_str = st.text_input("Street", key="r_s")
-                    r_csz = st.text_input("City, State Zip", key="r_c")
+                    r_name = st.text_input("Name", value=r_defaults.get("name",""), key="r_n")
+                    r_str = st.text_input("Street", value=r_defaults.get("street",""), key="r_s")
+                    
+                    ra, rb, rc = st.columns(3)
+                    r_city = ra.text_input("City", value=r_defaults.get("city",""), key="r_c")
+                    r_state = rb.text_input("State", value=r_defaults.get("state",""), key="r_st")
+                    r_zip = rc.text_input("Zip", value=r_defaults.get("zip",""), key="r_z")
+                    r_country = st.selectbox("Country", ["US", "CA", "UK"], index=0, key="r_co")
             
-            save_b = st.checkbox("Save to Address Book")
+            save_b = st.checkbox("Save Recipient to Address Book")
+            
             if st.form_submit_button("Save Addresses"):
-                st.session_state.sender_data = {"name": s_name, "street": s_str, "csz": s_csz}
+                # Save to Session
+                st.session_state.sender_data = {"name": s_name, "street": s_str, "city": s_city, "state": s_state, "zip": s_zip, "country": s_country}
                 if tier not in ["Civic", "Campaign"]:
-                    st.session_state.recipient_data = {"name": r_name, "street": r_str, "csz": r_csz}
+                    st.session_state.recipient_data = {"name": r_name, "street": r_str, "city": r_city, "state": r_state, "zip": r_zip, "country": r_country}
                 
+                # Save to DB
                 if save_b and st.session_state.authenticated:
-                    _save_address_book(st.session_state.user_email, st.session_state.sender_data, True)
-                st.success("Saved!")
+                    _save_address_book(st.session_state.user_email, st.session_state.recipient_data, is_sender=False)
+                st.success("Addresses Saved!")
 
+    # --- TAB 2: WRITING ---
     with t2:
         st.markdown("### Compose")
-        audio = st.audio_input("Dictate")
-        if audio and ai_engine:
-            with st.spinner("Transcribing..."):
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as t:
-                    t.write(audio.getvalue())
-                    tpath = t.name
-                text = ai_engine.transcribe_audio(tpath)
-                st.session_state.transcribed_text = text
-                try: os.remove(tpath)
-                except: pass
-                st.rerun()
         
+        # 1. File Import
+        uploaded_file = st.file_uploader("📂 Import Audio (MP3/WAV)", type=["mp3", "wav", "m4a"])
+        
+        # 2. Mic Input
+        audio_mic = st.audio_input("🎤 Record Voice")
+        
+        # Processing Logic
+        active_audio = uploaded_file or audio_mic
+        if active_audio and ai_engine:
+            if st.button("Transcribe Audio"):
+                with st.spinner("Transcribing..."):
+                    # Create temp file
+                    suffix = ".wav" if not uploaded_file else os.path.splitext(uploaded_file.name)[1]
+                    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as t:
+                        t.write(active_audio.getvalue())
+                        tpath = t.name
+                    
+                    # Call Engine
+                    try:
+                        text = ai_engine.transcribe_audio(tpath)
+                        st.session_state.transcribed_text = text
+                    except Exception as e:
+                        st.error(f"Transcription Failed: {e}")
+                    finally:
+                        try: os.remove(tpath)
+                        except: pass
+                    st.rerun()
+
+        # Text Editor
         val = st.session_state.get("transcribed_text", "")
-        txt = st.text_area("Body", val, height=400)
+        txt = st.text_area("Body Text", val, height=400)
         if txt: st.session_state.transcribed_text = txt
         
+        # AI Buttons
         if ai_engine and txt:
-            if st.button("✨ Polish (AI)"):
-                 st.session_state.transcribed_text = ai_engine.refine_text(txt, "Professional")
-                 st.rerun()
+            st.markdown("#### AI Editing Tools")
+            c_ai1, c_ai2 = st.columns(2)
+            if c_ai1.button("✨ Polish Grammar"):
+                with st.spinner("Polishing..."):
+                    st.session_state.transcribed_text = ai_engine.refine_text(txt, "Grammar")
+                    st.rerun()
+            if c_ai2.button("👔 Make Professional"):
+                with st.spinner("Refining..."):
+                    st.session_state.transcribed_text = ai_engine.refine_text(txt, "Professional")
+                    st.rerun()
 
     if st.button("Review & Send ➡️", type="primary"):
         st.session_state.app_mode = "review"
@@ -277,18 +299,32 @@ def render_review_page():
         st.session_state.app_mode = "store"
         st.rerun()
 
+    # Safety: Ensure locked_tier exists
+    if "locked_tier" not in st.session_state:
+        st.session_state.locked_tier = "Standard"
+
     st.markdown("## Final Review")
     
     c1, c2 = st.columns(2)
     with c1:
         st.subheader("Preview")
+        # PDF Preview Logic
         if letter_format:
             try:
+                # Prepare Data
                 s = st.session_state.get("sender_data", {})
                 r = st.session_state.get("recipient_data", {})
-                pdf = letter_format.create_pdf(st.session_state.get("transcribed_text", ""), {**s, **r}, st.session_state.locked_tier)
+                
+                # Create PDF
+                pdf = letter_format.create_pdf(
+                    st.session_state.get("transcribed_text", ""), 
+                    {**s, **r}, # Merge dicts
+                    st.session_state.locked_tier
+                )
+                
                 if pdf:
-                    st.download_button("📄 Download PDF", pdf, "preview.pdf")
+                    st.success("PDF Generated Successfully")
+                    st.download_button("📄 Download PDF Proof", pdf, "preview.pdf", "application/pdf")
             except Exception as e:
                 st.error(f"Preview Error: {e}")
                 
@@ -304,11 +340,9 @@ def render_review_page():
             st.session_state.app_mode = "store"
             st.rerun()
 
-# --- MAIN CONTROLLER ENTRY ---
+# --- MAIN ENTRY ---
 def render_main():
-    # CRITICAL FIX: DO NOT call render_sidebar() here.
-    # It is called in main.py. Calling it again causes DuplicateKeyError.
-    
+    # Only logic routing here. No global sidebar call.
     mode = st.session_state.get("app_mode", "store")
     
     if mode == "store": render_store_page()
