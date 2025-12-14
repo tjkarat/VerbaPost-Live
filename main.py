@@ -1,140 +1,110 @@
 import streamlit as st
-import time
+import payment_engine
+import auth_engine
+import audit_engine
+import ui_main
+import ui_legacy
+import ui_splash
+import ui_login
+import ui_admin
+import ui_legal
+import database
 
-# --- PAGE CONFIGURATION (Must be first) ---
-st.set_page_config(
-    page_title="VerbaPost",
-    page_icon="📮",
-    layout="centered",
-    initial_sidebar_state="collapsed"
-)
+# --- CONFIGURATION ---
+st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="centered")
 
-# --- ROBUST IMPORTS ---
-# We use try/except to prevent the "White Screen of Death" if a module has a typo
-try:
-    import ui_splash
-except Exception as e:
-    print(f"Error importing ui_splash: {e}")
-    ui_splash = None
-
-try:
-    import ui_login
-except Exception as e:
-    print(f"Error importing ui_login: {e}")
-    ui_login = None
-
-try:
-    import ui_main
-except Exception as e:
-    print(f"Error importing ui_main: {e}")
-    ui_main = None
-
-try:
-    import ui_legacy
-except Exception as e:
-    print(f"Error importing ui_legacy: {e}")
-    ui_legacy = None
-
-try:
-    import ui_legal
-except Exception as e:
-    print(f"Error importing ui_legal: {e}")
-    ui_legal = None
-
-try:
-    import analytics
-    import seo_injector
-except Exception:
-    analytics = None
-    seo_injector = None
-
-# --- SESSION STATE INITIALIZATION ---
-if "app_mode" not in st.session_state:
-    st.session_state.app_mode = "splash"
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-
-# --- ANALYTICS & SEO ---
-if analytics:
-    try: analytics.inject_ga()
-    except: pass
-if seo_injector:
-    try: seo_injector.inject_meta()
-    except: pass
-
-# --- PAYMENT RETURN HANDLER ---
-# Checks if user is returning from Stripe
-if "session_id" in st.query_params:
-    try:
-        import payment_engine
-        import audit_engine
-        
-        s_id = st.query_params["session_id"]
-        
-        # Verify payment with Stripe
-        if payment_engine and payment_engine.verify_session(s_id):
-            st.session_state.paid_order = True
-            st.session_state.app_mode = "review"
-            st.toast("Payment Confirmed! 💳", icon="✅")
-            
-            # Log success
-            if audit_engine:
-                audit_engine.log_event(
-                    st.session_state.get("user_email", "guest"), 
-                    "PAYMENT_SUCCESS", 
-                    s_id
-                )
-        else:
-            st.error("⚠️ Payment verification failed or expired.")
-            
-        # Clear params to prevent replay
-        st.query_params.clear()
-        
-    except Exception as e:
-        st.error(f"Payment Error: {e}")
-
-# --- MAIN ROUTING LOGIC ---
 def main():
-    # 1. Check for URL overrides (e.g., ?view=login)
-    view_param = st.query_params.get("view", None)
-    
-    if view_param == "legacy" and ui_legacy:
-        ui_legacy.render_legacy_page()
-        
-    elif view_param == "legal" and ui_legal:
-        ui_legal.render_legal_page() # Ensure ui_legal.py has this function
-        
-    elif view_param == "login" and ui_login:
-        ui_login.render_login_page()
-        
-    elif view_param == "admin":
-        if st.session_state.authenticated:
-            # Simple admin check (you can make this stricter)
-            if ui_main: 
-                ui_main.render_sidebar()
-                st.info("Admin Console Loading...")
-        else:
-            st.warning("Please log in first.")
-            if ui_login: ui_login.render_login_page()
+    # 1. Initialize Global Session State
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = ""
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "splash"
 
-    # 2. Normal App Flow
-    else:
-        # If logged in OR just paid, show the App
-        if st.session_state.authenticated or st.session_state.get("paid_order"):
-            if ui_main:
-                ui_main.render_main()
+    # 2. Handle URL Parameters (Routing)
+    query_params = st.query_params
+    
+    # A. Handle Payment Return (Stripe Redirect)
+    session_id = query_params.get("session_id", None)
+    if session_id:
+        with st.spinner("Verifying secure payment..."):
+            # Verify with Stripe
+            # FIX #4: Capture the full verification object, not just boolean
+            verification = payment_engine.verify_session(session_id)
+            
+            if verification and verification.get("paid"):
+                # CAPTURE EMAIL FROM STRIPE (Fix for Guest Users)
+                payer_email = verification.get("email")
+                
+                # If we didn't have an email before, save the one they used at checkout
+                if payer_email:
+                    st.session_state.user_email = payer_email
+                    st.session_state.payment_email = payer_email # Explicitly store for receipt
+                    
+                    # Update the draft record with this email so we can send the certified code
+                    if st.session_state.get("current_legacy_draft_id"):
+                        # Ensure we update status to Paid to prevent double-charging
+                        database.update_draft_data(
+                            st.session_state.current_legacy_draft_id, 
+                            status="Paid",
+                            price=15.99
+                        )
+
+                # Log Success
+                audit_engine.log_event(st.session_state.user_email, "PAYMENT_SUCCESS", session_id, {})
+                
+                # Set Flags
+                st.session_state.paid_success = True
+                
+                # Force routing to the correct view to show success message
+                if st.session_state.get("current_legacy_draft_id"):
+                     st.session_state.app_mode = "legacy"
+                else:
+                     st.session_state.app_mode = "review"
+                
+                st.toast("Payment Confirmed! 💳", icon="✅")
             else:
-                st.error("System Error: UI Main module missing.")
+                st.error("Payment Verification Failed or Cancelled.")
         
-        # Otherwise, show Splash
-        else:
-            if st.session_state.app_mode == "store" and ui_main:
-                # Allow guest access to store
-                ui_main.render_main()
-            elif ui_splash:
-                ui_splash.render_splash()
-            else:
-                st.error("System Error: Splash module missing.")
+        # Clear URL to prevent re-triggering
+        st.query_params.clear()
+
+    # B. Handle View Routing
+    view_param = query_params.get("view", None)
+    if view_param == "legacy":
+        st.session_state.app_mode = "legacy"
+    elif view_param == "legal":
+        st.session_state.app_mode = "legal"
+    elif view_param == "admin":
+        st.session_state.app_mode = "admin"
+
+    # 3. Render Application based on App Mode
+    mode = st.session_state.app_mode
+
+    if mode == "splash":
+        if ui_splash: ui_splash.render_splash_page()
+        else: st.error("Splash module missing")
+
+    elif mode == "login":
+        if ui_login: ui_login.render_login_page()
+        
+    elif mode == "legacy":
+        if ui_legacy: ui_legacy.render_legacy_page()
+        
+    elif mode == "legal":
+        if ui_legal: ui_legal.render_legal_page()
+        
+    elif mode == "admin":
+        if ui_admin: ui_admin.render_admin_page()
+        
+    # Default / Standard App Flow
+    elif mode in ["store", "workspace", "review"]:
+        if ui_main: ui_main.render_main()
+    
+    else:
+        # Fallback
+        if ui_main: ui_main.render_main()
 
 if __name__ == "__main__":
     main()
