@@ -159,7 +159,6 @@ def render_success_view():
         """, unsafe_allow_html=True
     )
     
-    # We display the email we captured from Stripe
     email = st.session_state.get("user_email", "your email")
     st.info(f"We will email the **USPS Tracking Number** to: **{email}**")
     
@@ -176,7 +175,6 @@ def render_legacy_page():
     inject_legacy_accessibility_css()
 
     # CHECK FOR PAYMENT SUCCESS FIRST
-    # This prevents the "Goofy Loop" where the user sees the form again
     if st.session_state.get("paid_success"):
         render_success_view()
         return
@@ -245,7 +243,7 @@ def render_legacy_page():
         fn = f_map[f_sel].replace(" ", "")
         st.markdown(f'<div class="font-preview-box"><p class="fp-{fn}">"To my dearest family..."</p></div>', unsafe_allow_html=True)
 
-    # 3. COMPOSE (RESTORED TRANSCRIPTION)
+    # 3. COMPOSE
     st.markdown("---")
     st.markdown("### ✍️ Step 3: Write Your Legacy")
     
@@ -273,7 +271,7 @@ def render_legacy_page():
         if letter_text:
             st.session_state.legacy_text = letter_text
 
-    # RECORD TAB (RESTORED WITH LOOP FIX)
+    # RECORD TAB (RESTORED)
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
         st.markdown(
@@ -295,7 +293,6 @@ def render_legacy_page():
         if audio_mic and ai_engine:
             # 1. Calculate Hash of audio bytes
             audio_bytes = audio_mic.getvalue()
-            # Use md5 for reliable byte hashing
             audio_hash = hashlib.md5(audio_bytes).hexdigest()
             
             # 2. Check if this hash is different from the last one we processed
@@ -371,18 +368,39 @@ def render_legacy_page():
         # --- FIX: COLLECT EMAIL MANUALLY IF GUEST ---
         guest_email = None
         if not st.session_state.get("authenticated"):
-            guest_email = st.text_input("📧 Enter Email for Tracking Number", placeholder="you@example.com")
+            guest_email = st.text_input("📧 Email for Tracking Number (Required)", placeholder="you@example.com")
             if guest_email:
                 st.session_state.user_email = guest_email
         
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-            # Check if we have an email. If guest, we NEED the manual input.
-            if not st.session_state.get("user_email") and not guest_email:
-                st.error("⚠️ Please enter an email address so we can send your tracking number.")
+            current_email = st.session_state.get("user_email")
+            # Strict check: Must have valid email or user must have entered one
+            if not current_email or current_email == "guest" or "@" not in current_email:
+                st.error("⚠️ Please enter a valid email address so we can send your tracking number.")
             elif payment_engine:
                 _save_legacy_draft()
                 
-                # Use current email state
-                final_email = st.session_state.get("user_email")
+                url = payment_engine.create_checkout_session(
+                    line_items=[{
+                        "price_data": {
+                            "currency": "usd",
+                            "product_data": {"name": "Legacy Letter (Certified)"},
+                            "unit_amount": 1599,
+                        },
+                        "quantity": 1,
+                    }],
+                    user_email=current_email,
+                    draft_id=st.session_state.get("current_legacy_draft_id")
+                )
                 
-                url = payment_engine
+                if url:
+                    st.link_button("👉 Pay Now ($15.99)", url)
+                else:
+                    st.error("Could not generate payment link.")
+            else:
+                st.error("Payment system offline.")
+
+    st.markdown("---")
+    if st.button("⬅️ Return to Dashboard"):
+        st.query_params.clear()
+        st.rerun()
