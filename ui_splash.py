@@ -1,11 +1,11 @@
 import streamlit as st
 
-# --- FUNCTION DEFINITION (Must match main.py call) ---
+# --- MAIN RENDER FUNCTION ---
 def render_splash():
     # --- MODERN CSS STYLING ---
     st.markdown("""
     <style>
-    /* 1. Reset Streamlit Padding */
+    /* 1. Global Reset & Container Logic */
     .block-container {
         padding-top: 0rem !important;
         padding-bottom: 2rem;
@@ -157,6 +157,6 @@ def render_splash():
     </div>
     """, unsafe_allow_html=True)
 
-# --- SAFETY ALIAS ---
-# This ensures it works whether main.py calls 'show_splash()' or 'render_splash()'
+# --- SAFETY ALIAS (THE CRITICAL FIX) ---
+# This ensures the code works regardless of whether main.py asks for 'show' or 'render'
 show_splash = render_splash
