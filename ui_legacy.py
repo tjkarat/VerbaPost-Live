@@ -32,7 +32,6 @@ except Exception:
 # --- LEGACY PAGE LOGIC ---
 def render_legacy_page():
     # --- CSS FOR FONT PREVIEWS ---
-    # We load the web versions of your fonts so users can see them live
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Caveat&family=Great+Vibes&family=Indie+Flower&family=Schoolbell&display=swap');
@@ -49,10 +48,31 @@ def render_legacy_page():
     .fp-GreatVibes { font-family: 'Great Vibes', cursive; font-size: 32px; color: #333; }
     .fp-IndieFlower { font-family: 'Indie Flower', cursive; font-size: 24px; color: #333; }
     .fp-Schoolbell { font-family: 'Schoolbell', cursive; font-size: 24px; color: #333; }
+    
+    /* Stanford Link Styling */
+    .resource-link {
+        font-size: 0.95rem;
+        color: #555;
+        background-color: #f0f2f6;
+        padding: 10px 15px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        border-left: 4px solid #667eea;
+    }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown("## 🕊️ Legacy Service (End of Life)")
+    
+    # --- NEW: STANFORD LETTER PROJECT LINK ---
+    st.markdown("""
+    <div class="resource-link">
+        <strong>💡 Need guidance on what to say?</strong><br>
+        We highly recommend the <a href="https://med.stanford.edu/letter.html" target="_blank"><strong>Stanford Letter Project</strong></a>. 
+        It provides excellent templates and advice for writing meaningful end-of-life letters.
+    </div>
+    """, unsafe_allow_html=True)
+
     st.info("Securely document and deliver your final wishes. \n\n**Privacy Guarantee:** This tool uses local transcription only. No AI analysis, editing, or data retention is performed.")
 
     # --- 1. SENDER INFO ---
@@ -69,7 +89,6 @@ def render_legacy_page():
     # --- 2. FONT SELECTION ---
     st.markdown("### 🖋️ Step 2: Choose Handwriting Style")
     
-    # Map friendly names to internal names
     font_map = {
         "Caveat (Casual)": "Caveat",
         "Great Vibes (Elegant)": "Great Vibes",
@@ -85,11 +104,9 @@ def render_legacy_page():
             index=0
         )
         font_choice = font_map[selected_label]
-        # Store for PDF generator
         st.session_state.legacy_font = font_choice
 
     with f_col2:
-        # Live Preview
         css_class = f"fp-{font_choice.replace(' ', '')}"
         st.markdown(f"""
         <div class="font-preview-box">
@@ -104,7 +121,6 @@ def render_legacy_page():
     # --- 3. DICTATION & COMPOSITION ---
     st.markdown("### 🎙️ Step 3: Record or Write")
     
-    # Dictation Interface
     with st.container(border=True):
         st.markdown("#### 🗣️ Dictate Your Letter")
         st.markdown("""
@@ -121,28 +137,23 @@ def render_legacy_page():
         with col_up:
             uploaded_file = st.file_uploader("Or Upload Audio File (mp3/wav/m4a)", type=["mp3", "wav", "m4a"])
 
-        # Handle Transcription
         active_audio = uploaded_file or audio_mic
         if active_audio:
             if ai_engine:
                 if st.button("📝 Transcribe Audio", type="primary"):
-                    with st.spinner("Transcribing... (This may take a moment for long files)"):
+                    with st.spinner("Transcribing..."):
                         suffix = ".wav" if not uploaded_file else os.path.splitext(uploaded_file.name)[1]
                         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as t:
                             t.write(active_audio.getvalue())
                             tpath = t.name
                         
                         try:
-                            # Direct transcription, NO AI refinement calls
                             text = ai_engine.transcribe_audio(tpath)
-                            
-                            # Append to existing text if any
                             current_text = st.session_state.get("legacy_text", "")
                             if current_text:
                                 st.session_state.legacy_text = current_text + "\n\n" + text
                             else:
                                 st.session_state.legacy_text = text
-                                
                             st.success("Transcription Complete!")
                         except Exception as e:
                             st.error(f"Transcription Failed: {e}")
@@ -153,7 +164,6 @@ def render_legacy_page():
             else:
                 st.warning("AI Engine not loaded. Transcription unavailable.")
 
-    # Text Editor
     st.markdown("#### ✍️ Edit & Review")
     letter_text = st.text_area(
         "Letter Content (Unlimited Length)", 
@@ -162,7 +172,6 @@ def render_legacy_page():
         key="legacy_text_area",
         placeholder="Type here or use the recorder above..."
     )
-    # Sync text area back to session state
     if letter_text:
         st.session_state.legacy_text = letter_text
 
