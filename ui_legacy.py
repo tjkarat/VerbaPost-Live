@@ -6,7 +6,8 @@ import json
 import base64
 
 # --- ROBUST IMPORTS ---
-# We wrap these to prevent the entire app from crashing if one module has an issue.
+# We wrap these in try/except blocks to prevent the entire app from crashing 
+# if a single module has a syntax error or missing dependency.
 try:
     import database
 except ImportError:
@@ -143,11 +144,11 @@ def _save_legacy_draft():
     try:
         d_id = st.session_state.get("current_legacy_draft_id")
         
-        # --- FIX: Changed argument from 'text' to 'content' to match database.py ---
+        # --- CRITICAL FIX: Use 'content' instead of 'text' to match Database schema ---
         if d_id:
             database.update_draft_data(
                 d_id, 
-                content=text_content,  # <--- FIX
+                content=text_content, # Fixed from 'text'
                 tier="Legacy", 
                 price=15.99
             )
@@ -321,7 +322,7 @@ def render_legacy_page():
         
         audio_mic = st.audio_input("Record Voice", label_visibility="collapsed")
         
-        # --- FIX: LOOP PREVENTION LOGIC ---
+        # --- LOOP PREVENTION LOGIC ---
         if audio_mic and ai_engine:
             # 1. Calculate Hash of audio bytes
             audio_bytes = audio_mic.getvalue()
@@ -380,7 +381,7 @@ def render_legacy_page():
                         font_choice=st.session_state.legacy_font
                     )
                     
-                    # --- FIX: BYTES CASTING TO PREVENT CRASH ---
+                    # --- CRITICAL FIX: Explicit cast to bytes ---
                     pdf_bytes = bytes(raw_pdf) 
                     
                     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
@@ -409,7 +410,7 @@ def render_legacy_page():
                 # Save first
                 _save_legacy_draft()
                 
-                # --- FIX: USE NEW 'line_items' ARGUMENT ---
+                # --- FIX: Send correct structure to payment engine ---
                 url = payment_engine.create_checkout_session(
                     line_items=[{
                         "price_data": {
