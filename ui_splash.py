@@ -1,74 +1,72 @@
 import streamlit as st
 
 def show_splash():
-    # --- CSS STYLING ---
+    # --- CSS STYLING (Mobile Optimized) ---
     st.markdown("""
     <style>
-    /* Force the container to be wider than standard Streamlit text */
+    /* 1. Force banner width to 100% and remove default padding constraints */
     .splash-container {
-        text-align: center;
-        width: 100%;
+        width: 100vw !important;
+        position: relative;
+        left: 50%;
+        right: 50%;
+        margin-left: -50vw;
+        margin-right: -50vw;
+        background-color: #ffffff;
         padding: 2rem 1rem;
-        background-color: white;
-        margin-top: -30px; /* Pull it up higher */
+        text-align: center;
+        margin-top: -60px; /* Pull to top of page */
     }
     
+    /* 2. Responsive Logo Title */
     .splash-title {
-        /* FLUID TYPOGRAPHY: shrinking font for mobile */
-        font-size: clamp(2rem, 8vw, 4rem); 
-        font-weight: 800;
+        font-size: clamp(2.5rem, 6vw, 4.5rem) !important; /* Resizes with screen */
+        font-weight: 900;
         color: #212529;
-        line-height: 1.1;
-        white-space: nowrap; /* Keep on one line if possible */
+        line-height: 1.0;
+        white-space: nowrap; /* CRITICAL: Forces one line */
         margin-bottom: 0.5rem;
     }
     
+    /* 3. Punchy Subtitle */
     .splash-subtitle {
-        font-size: clamp(0.9rem, 3vw, 1.4rem); /* Responsive subtitle */
+        font-size: clamp(0.9rem, 2.5vw, 1.3rem) !important;
         font-weight: 700;
         color: #FF4B4B; 
         text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 1rem;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.5rem;
     }
     
+    /* 4. Descriptive Text */
     .splash-text {
         font-size: 1.1rem;
-        color: #555;
+        color: #333;
         font-style: italic;
         margin-bottom: 2rem;
-        max-width: 700px;
+        max-width: 600px;
         margin-left: auto;
         margin-right: auto;
-        line-height: 1.5;
-    }
-    
-    /* Mobile-specific adjustments */
-    @media (max-width: 640px) {
-        .splash-title {
-            white-space: normal; /* Allow wrap on TINY screens if needed */
-        }
+        padding: 0 10px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- HEADER SECTION ---
-    # The text is hardcoded here exactly as requested
+    # --- CONTENT ---
     st.markdown("""
     <div class="splash-container">
         <div class="splash-title">📮 VerbaPost</div>
-        <div class="splash-subtitle">Texts are trivial, emails ignored, REAL MAIL GETS READ.</div>
+        <div class="splash-subtitle">Texts are trivial, emails ignored<br>REAL MAIL GETS READ.</div>
         <div class="splash-text">
-            Don't know how to start, what to write? 
+            Don't know how to start, what to write?<br>
             Speak it first and we'll transcribe.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- ACTION BUTTONS ---
+    # --- BUTTONS ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # Main Call to Action
         if st.button("🚀 Start a Letter", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
@@ -76,9 +74,7 @@ def show_splash():
                 st.query_params["view"] = "login"
             st.rerun()
 
-        st.write("") # Spacer
-
-        # Legacy Service Link
+        st.write("") 
         if st.button("🕊️ Legacy Service (End of Life)", use_container_width=True):
             st.query_params["view"] = "legacy"
             st.rerun()
@@ -96,7 +92,3 @@ def show_splash():
     with c_c:
         st.markdown("### 📬 Send")
         st.caption("Mailed via USPS First Class or Certified Mail. No stamps needed.")
-
-    # --- FOOTER ---
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.caption("VerbaPost v3.2.2 | Secure. Private. Real.")

@@ -34,6 +34,11 @@ except Exception:
     ai_engine = None
 
 try:
+    import promo_engine
+except Exception:
+    promo_engine = None
+
+try:
     import payment_engine
 except Exception:
     payment_engine = None
