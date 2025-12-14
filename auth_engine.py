@@ -1,31 +1,75 @@
 import streamlit as st
 from supabase import create_client, Client
 import logging
+import os
+
+# Try to import the robust secrets manager
+try:
+    from secrets_manager import get_secret
+except ImportError:
+    # Fallback if module missing
+    def get_secret(key):
+        return st.secrets.get(key)
 
 # --- CONFIGURATION ---
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Supabase Client
-try:
-    url = st.secrets["supabase"]["url"]
-    key = st.secrets["supabase"]["key"]
-    supabase = create_client(url, key)
-except Exception as e:
-    logger.error(f"Supabase Init Error: {e}")
-    supabase = None
+supabase = None
+
+def init_supabase():
+    global supabase
+    if supabase:
+        return supabase
+
+    # 1. Fetch Credentials safely
+    # Try looking for "supabase.url" (TOML) or "SUPABASE_URL" (Env Var)
+    url = get_secret("supabase.url") or get_secret("SUPABASE_URL")
+    key = get_secret("supabase.key") or get_secret("SUPABASE_KEY")
+
+    # Debugging (Masked)
+    if url:
+        print(f"✅ Supabase URL found: {url[:8]}...")
+    else:
+        print("❌ Supabase URL NOT found in secrets.")
+
+    if key:
+        print(f"✅ Supabase Key found: {key[:5]}...")
+    else:
+        print("❌ Supabase Key NOT found in secrets.")
+
+    if not url or not key:
+        logger.error("Supabase config missing. Check secrets.toml or Env Vars.")
+        return None
+
+    try:
+        supabase = create_client(url, key)
+        return supabase
+    except Exception as e:
+        logger.error(f"Supabase Client Init Error: {e}")
+        return None
+
+# Initialize immediately on module load
+init_supabase()
 
 # --- AUTHENTICATION FUNCTIONS ---
 
 def verify_user(email, password):
     """
     Attempts to sign in the user.
+    Returns the User object (dict) if successful, None if failed.
     """
-    if not supabase: return None
+    if not supabase:
+        print("Auth Failed: Supabase client is None")
+        return None
+    
     try:
+        # Supabase Python SDK v2 syntax
         response = supabase.auth.sign_in_with_password({
             "email": email,
             "password": password
         })
+        
         if response.user:
             return {
                 "id": response.user.id,
@@ -33,7 +77,9 @@ def verify_user(email, password):
                 "aud": response.user.aud
             }
     except Exception as e:
-        print(f"Login Error: {e}")
+        logger.warning(f"Login failed for {email}: {e}")
+        print(f"Login Error Details: {e}") # Print to Cloud logs
+    
     return None
 
 def create_user(email, password):
@@ -41,37 +87,52 @@ def create_user(email, password):
     Registers a new user.
     """
     if not supabase: return None
+
     try:
         response = supabase.auth.sign_up({
             "email": email,
             "password": password
         })
+        
         if response.user:
-            return {"id": response.user.id, "email": response.user.email}
+            return {
+                "id": response.user.id,
+                "email": response.user.email
+            }
     except Exception as e:
-        logger.error(f"Signup failed: {e}")
+        logger.error(f"Signup failed for {email}: {e}")
         raise e 
+    
     return None
 
 def send_password_reset(email):
     """
-    Sends a password reset email (OTP) via Supabase.
+    Sends a password reset email via Supabase.
     """
-    if not supabase: return False, "Supabase disconnected"
+    if not supabase:
+        return False, "Supabase disconnected (Check Config)"
+        
     try:
-        # We redirect to the recovery view, but the user will need the code
-        base_url = st.secrets.get("general", {}).get("BASE_URL", "https://verbapost.streamlit.app")
-        redirect_to = f"{base_url}/?type=recovery"
+        # Ensure we redirect back to the app's recovery page
+        # Check general.BASE_URL or fallback
+        base = "https://verbapost.streamlit.app"
+        # Try fetching from secrets safely
+        if get_secret("general.BASE_URL"):
+            base = get_secret("general.BASE_URL")
+        elif get_secret("BASE_URL"):
+            base = get_secret("BASE_URL")
+            
+        redirect_to = f"{base}/?type=recovery"
         
         supabase.auth.reset_password_email(email, options={"redirect_to": redirect_to})
         return True, "Success"
     except Exception as e:
+        logger.error(f"Reset email failed: {e}")
         return False, str(e)
 
 def verify_otp(email, token):
     """
     Verifies the OTP (6-digit code) or token from the email link.
-    This establishes the session required to change the password.
     """
     if not supabase: return False, "System offline"
     try:
@@ -102,3 +163,13 @@ def update_user_password(new_password):
     except Exception as e:
         logger.error(f"Password update failed: {e}")
         return False
+
+def get_current_user():
+    if not supabase: return None
+    try:
+        session = supabase.auth.get_session()
+        if session and session.user:
+            return session.user
+    except:
+        pass
+    return None

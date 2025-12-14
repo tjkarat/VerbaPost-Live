@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import json
+import requests
 
 # --- ROBUST IMPORTS ---
 try:
@@ -19,16 +20,20 @@ try:
 except ImportError:
     mailer = None
 
-# FIX: Import secrets_manager since it exists
 try:
     import secrets_manager
 except ImportError:
     secrets_manager = None
 
+try:
+    import ai_engine
+except ImportError:
+    ai_engine = None
+
 # --- ADMIN AUTHENTICATION ---
 def check_admin_auth():
     """
-    Simple Admin Authentication Guard.
+    Admin Guard. Checks session state or prompts for key.
     """
     if st.session_state.get("admin_authenticated"):
         return True
@@ -38,15 +43,14 @@ def check_admin_auth():
     with st.form("admin_login"):
         password = st.text_input("Enter Admin Key", type="password")
         if st.form_submit_button("Access Console"):
-            # Check against secrets
             try:
-                # FIX: Use secrets_manager if available, else raw secrets
+                # 1. Check Secrets Manager
                 admin_secret = None
                 if secrets_manager:
                     admin_secret = secrets_manager.get_secret("admin.password")
                 
+                # 2. Fallback to raw secrets
                 if not admin_secret:
-                    # Fallback to direct lookup
                     admin_secret = st.secrets.get("admin", {}).get("password")
                 
                 if password == admin_secret:
@@ -59,95 +63,190 @@ def check_admin_auth():
                 
     return False
 
+# --- HEALTH CHECKS ---
+def render_health_dashboard():
+    st.subheader("❤️ System Health")
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    # 1. Database Check
+    with col1:
+        try:
+            if database and hasattr(database, "supabase"):
+                # Simple ping query
+                database.supabase.table("promo_codes").select("count", count="exact").limit(1).execute()
+                st.metric("Database", "Online 🟢")
+            else:
+                st.metric("Database", "Offline 🔴")
+        except:
+            st.metric("Database", "Error 🔴")
+
+    # 2. OpenAI Check
+    with col2:
+        try:
+            if ai_engine and secrets_manager:
+                key = secrets_manager.get_secret("openai.api_key")
+                st.metric("OpenAI", "Ready 🟢" if key else "Missing Key 🟡")
+            else:
+                st.metric("OpenAI", "Offline 🔴")
+        except:
+            st.metric("OpenAI", "Error 🔴")
+
+    # 3. PostGrid Check
+    with col3:
+        try:
+            if mailer:
+                # We can't easily ping API without spending money, so check config
+                key = secrets_manager.get_secret("postgrid.api_key")
+                st.metric("PostGrid", "Configured 🟢" if key else "Missing Key 🟡")
+            else:
+                st.metric("PostGrid", "Offline 🔴")
+        except:
+            st.metric("PostGrid", "Error 🔴")
+
+    # 4. Email (Resend) Check
+    with col4:
+        try:
+            key = secrets_manager.get_secret("resend.api_key") or secrets_manager.get_secret("email.password")
+            st.metric("Email", "Configured 🟢" if key else "Missing Key 🟡")
+        except:
+            st.metric("Email", "Error 🔴")
+
+    # 5. Geocodio Check
+    with col5:
+        try:
+            key = secrets_manager.get_secret("geocodio.api_key")
+            st.metric("Geocodio", "Configured 🟢" if key else "Missing Key 🟡")
+        except:
+            st.metric("Geocodio", "Error 🔴")
+
 # --- PROMO CODE MANAGER ---
 def render_promo_manager():
     st.subheader("🎟️ Promo Code Manager")
     
-    # Add New Code
-    with st.expander("Create New Code"):
-        with st.form("new_promo"):
-            c1, c2 = st.columns(2)
-            code = c1.text_input("Code (e.g., SAVE20)").upper()
-            val = c2.number_input("Discount Value ($)", min_value=0.0, step=0.5)
-            max_uses = st.number_input("Max Uses", min_value=1, value=100)
-            
-            if st.form_submit_button("Create Code"):
-                if database and code:
-                    try:
-                        database.create_promo_code(code, val, max_uses)
-                        st.success(f"Created code {code} for ${val} off.")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
     # View Active Codes
     if database and hasattr(database, "supabase"):
         try:
             res = database.supabase.table("promo_codes").select("*").execute()
             if res.data:
                 df = pd.DataFrame(res.data)
-                st.dataframe(df)
+                st.dataframe(df, use_container_width=True)
             else:
                 st.info("No active promo codes.")
         except Exception as e:
             st.error(f"Fetch Error: {e}")
 
-# --- ORDER MANAGER ---
+    # Create New Code
+    with st.expander("➕ Create New Code"):
+        with st.form("new_promo"):
+            c1, c2, c3 = st.columns(3)
+            code = c1.text_input("Code (e.g., WELCOME10)").upper()
+            val = c2.number_input("Discount Value ($)", min_value=0.0, step=0.5)
+            max_uses = c3.number_input("Max Uses", min_value=1, value=100)
+            
+            if st.form_submit_button("Create Code"):
+                if database and code:
+                    try:
+                        # Assuming create_promo_code exists in database.py, or direct insert
+                        data = {"code": code, "value": val, "max_uses": max_uses, "used_count": 0}
+                        database.supabase.table("promo_codes").insert(data).execute()
+                        st.success(f"Created code {code} for ${val} off.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+# --- ORDER MANAGER (Fix & Resubmit) ---
 def render_order_manager():
     st.subheader("📦 Order Management")
     
-    filter_status = st.selectbox("Filter Status", ["Paid", "Draft", "Shipped", "Error"])
+    filter_status = st.selectbox("Filter Status", ["All", "Paid", "Pending Payment", "Shipped", "Error"], index=0)
     
     if database and hasattr(database, "supabase"):
         try:
-            # Fetch recent drafts
+            # Build Query
             query = database.supabase.table("letter_drafts").select("*").order("created_at", desc=True).limit(50)
-            if filter_status:
+            if filter_status != "All":
                 query = query.eq("status", filter_status)
             
             response = query.execute()
             df = pd.DataFrame(response.data)
             
             if not df.empty:
-                st.dataframe(df)
+                # Show key columns first
+                display_cols = ["id", "created_at", "status", "user_email", "tracking_number", "tier"]
+                # Filter columns that exist in dataframe
+                valid_cols = [c for c in display_cols if c in df.columns]
                 
-                # Retry Logic
-                st.markdown("### 🔧 Actions")
-                selected_id = st.selectbox("Select Order ID to Retry/View", df["id"].tolist())
+                st.dataframe(df[valid_cols], use_container_width=True)
                 
-                if st.button("Retry Fulfillment (Send to PostGrid)"):
-                    order = df[df["id"] == selected_id].iloc[0]
-                    # Logic to re-trigger mailer would go here
-                    st.warning(f"Retrying order {selected_id} functionality is not fully implemented in this view.")
+                # --- ACTION PANEL ---
+                st.divider()
+                st.markdown("### 🔧 Order Actions")
+                
+                col_sel, col_act = st.columns([2, 1])
+                with col_sel:
+                    selected_id = st.selectbox("Select Order ID to Manage", df["id"].tolist())
+                
+                # Fetch full details for selected order
+                order = df[df["id"] == selected_id].iloc[0]
+                
+                with st.expander("View Full Order Details"):
+                    st.json(order.to_dict())
+
+                # Actions
+                c1, c2, c3 = st.columns(3)
+                
+                # Action 1: Resubmit to PostGrid
+                with c1:
+                    if st.button("🚀 Resubmit to PostGrid"):
+                        if mailer:
+                            # Re-construct addresses
+                            to_addr = order.get("to_address")
+                            from_addr = order.get("from_address")
+                            # We need PDF bytes. Ideally stored or regenerated.
+                            # For safety, we warn if PDF is missing
+                            st.warning("Regenerating PDF feature required for full retry.")
+                            # Placeholder for actual logic call
+                            st.info("Logic to call mailer.send_letter() goes here.")
+                        else:
+                            st.error("Mailer module missing.")
+
+                # Action 2: Mark as Shipped/Done
+                with c2:
+                    if st.button("✅ Mark as Shipped"):
+                        database.supabase.table("letter_drafts").update({"status": "Shipped"}).eq("id", selected_id).execute()
+                        st.success("Status updated!")
+                        st.rerun()
+
+                # Action 3: Print / View PDF
+                with c3:
+                    if st.button("📄 View PDF"):
+                        # If you stored base64 or url, display it
+                        st.info("PDF view not stored in DB currently.")
+
             else:
                 st.info("No orders found matching criteria.")
                 
         except Exception as e:
             st.error(f"Database Error: {e}")
 
-# --- USER LOOKUP ---
-def render_user_lookup():
-    st.subheader("🔍 User Lookup")
-    email_search = st.text_input("Search by Email")
+# --- PRIVACY & CLEANUP ---
+def render_privacy_tools():
+    st.subheader("🗑️ Privacy & Data Cleanup")
+    st.warning("These actions are destructive. Proceed with caution.")
     
-    if email_search and database and hasattr(database, "supabase"):
-        try:
-            # Search Profiles
-            res = database.supabase.table("user_profiles").select("*").eq("email", email_search).execute()
-            if res.data:
-                st.success("User Found")
-                st.json(res.data[0])
-                
-                # Show their orders
-                st.markdown("#### User Orders")
-                orders = database.supabase.table("letter_drafts").select("*").eq("user_email", email_search).execute()
-                if orders.data:
-                    st.dataframe(pd.DataFrame(orders.data))
-                else:
-                    st.info("No orders for this user.")
+    if st.button("RUN PRIVACY WIPE (Delete Letter Contents)", type="primary"):
+        confirmation = st.checkbox("I confirm I want to delete user letter bodies.")
+        if confirmation:
+            if database:
+                try:
+                    # Call Stored Procedure 'wipe_old_drafts'
+                    database.supabase.rpc("wipe_old_drafts").execute()
+                    st.success("Privacy wipe completed. Content columns cleared.")
+                except Exception as e:
+                    st.error(f"Procedure Failed: {e}")
             else:
-                st.warning("User not found.")
-        except Exception as e:
-            st.error(f"Search failed: {e}")
+                st.error("Database unavailable.")
 
 # --- MAIN RENDERER ---
 def render_admin_page():
@@ -159,33 +258,23 @@ def render_admin_page():
     # Sidebar Navigation
     admin_tab = st.sidebar.radio("Console Section", [
         "Dashboard", 
-        "Orders", 
-        "Users", 
+        "Orders & Fulfillment", 
         "Promo Codes", 
+        "Privacy Tools",
         "System Logs"
     ])
     
     if admin_tab == "Dashboard":
-        st.markdown("### 📊 System Overview")
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.metric("System Status", "Online 🟢")
-        with c2:
-            # Placeholder for real metrics
-            st.metric("Pending Orders", "0")
-        with c3:
-            st.metric("Total Users", "Unknown")
-            
-        st.info("Select a module from the sidebar to manage specific data.")
-
-    elif admin_tab == "Orders":
+        render_health_dashboard()
+        
+    elif admin_tab == "Orders & Fulfillment":
         render_order_manager()
-
-    elif admin_tab == "Users":
-        render_user_lookup()
 
     elif admin_tab == "Promo Codes":
         render_promo_manager()
+
+    elif admin_tab == "Privacy Tools":
+        render_privacy_tools()
 
     elif admin_tab == "System Logs":
         st.subheader("📜 Audit Logs")

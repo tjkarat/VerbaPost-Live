@@ -1,17 +1,13 @@
 import streamlit as st
 import time
-# Robust import to prevent crash if engine is missing
-try:
-    import auth_engine
-except ImportError:
-    auth_engine = None
-try:
-    import database
-except ImportError:
-    database = None
+# DIRECT IMPORT - DO NOT WRAP IN TRY/EXCEPT
+# We need to know if this fails immediately.
+import auth_engine 
+import database
 
-# --- STYLING ---
+# --- ANIMATIONS & STYLING ---
 def trigger_shake_error():
+    """Injects CSS to shake the next error alert."""
     st.markdown("""
     <style>
     @keyframes shake {
@@ -30,13 +26,13 @@ def trigger_shake_error():
     </style>
     """, unsafe_allow_html=True)
 
-# --- RECOVERY VIEW (NEW LOGIC) ---
+# --- RECOVERY VIEW ---
 def _render_password_reset():
     st.markdown("### 🔐 Password Recovery")
     
     # Step 1: Verify Code
     if not st.session_state.get("recovery_verified"):
-        st.info("Please enter the code sent to your email to verify your identity.")
+        st.info("Please enter the code sent to your email.")
         
         with st.form("otp_form"):
             email_input = st.text_input("Email Address")
@@ -53,9 +49,9 @@ def _render_password_reset():
                         trigger_shake_error()
                         st.error(f"Verification Failed: {msg}")
                 else:
-                    st.error("Auth Engine Missing")
+                    st.error("System Error: Auth Engine Offline")
     
-    # Step 2: Set New Password (Only shown after verification)
+    # Step 2: Set New Password
     else:
         st.success("✅ Identity Verified")
         with st.form("new_pass_form"):
@@ -66,8 +62,7 @@ def _render_password_reset():
                 if p1 == p2 and len(p1) > 5:
                     if auth_engine.update_user_password(p1):
                         st.balloons()
-                        st.success("Password Updated Successfully! Redirecting to login...")
-                        # Cleanup
+                        st.success("Password Updated Successfully! Redirecting...")
                         st.session_state.recovery_verified = False
                         st.query_params.clear()
                         time.sleep(2)
@@ -115,9 +110,9 @@ def render_login_page():
                         st.rerun()
                     else:
                         trigger_shake_error()
-                        st.error("Incorrect credentials.")
+                        st.error("Incorrect credentials or email not confirmed.")
         
-        # Forgot Password (Outside Form)
+        # Forgot Password (Correctly placed OUTSIDE the form)
         with st.expander("❓ Forgot Password?"):
             st.write("We will send a 6-digit code to your email.")
             rec_email = st.text_input("Enter your email", key="rec_email_input")
@@ -127,7 +122,6 @@ def render_login_page():
                     if success:
                         st.success("Code sent! Check your inbox.")
                         time.sleep(1)
-                        # Switch to recovery view so they can enter the code
                         st.query_params["type"] = "recovery"
                         st.rerun()
                     else:
@@ -151,11 +145,7 @@ def render_login_page():
                                     database.create_user_profile({"user_id": user["id"], "email": new_email})
                                 except: pass
                                 
-                            st.success("Account Created! Logging in...")
-                            st.session_state.authenticated = True
-                            st.session_state.user_email = new_email
-                            st.session_state.app_mode = "store"
-                            st.rerun()
+                            st.success("Account Created! Please check your email to confirm.")
                         else:
                             st.error("Could not create account.")
                     except Exception as e:
