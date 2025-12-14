@@ -1,18 +1,18 @@
 import streamlit as st
 
-# RENAMED from 'show_splash' to 'render_splash' to match your main.py
+# --- FUNCTION DEFINITION (Must match main.py call) ---
 def render_splash():
     # --- MODERN CSS STYLING ---
     st.markdown("""
     <style>
-    /* 1. Global Reset & Container Logic */
+    /* 1. Reset Streamlit Padding */
     .block-container {
-        padding-top: 0rem !important; /* Remove default top padding */
+        padding-top: 0rem !important;
         padding-bottom: 2rem;
         max-width: 100%;
     }
     
-    /* 2. The Modern Hero Section */
+    /* 2. Hero Section (Purple Gradient) */
     .hero-container {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         width: 100vw;
@@ -156,3 +156,7 @@ def render_splash():
         VerbaPost v3.2.4 • Secure • Private • Real
     </div>
     """, unsafe_allow_html=True)
+
+# --- SAFETY ALIAS ---
+# This ensures it works whether main.py calls 'show_splash()' or 'render_splash()'
+show_splash = render_splash
