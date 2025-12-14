@@ -11,7 +11,55 @@ import ui_legal
 import database
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="centered")
+st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="wide")
+
+# --- GLOBAL SIDEBAR ---
+def render_sidebar():
+    """
+    Renders the Global Sidebar with Navigation, Admin Access, and Help.
+    """
+    with st.sidebar:
+        # 1. Logo / Brand
+        st.markdown("# 📮 VerbaPost")
+        st.markdown("---")
+        
+        # 2. Navigation
+        st.markdown("### 🧭 Navigation")
+        if st.button("🏠 Home / Splash", use_container_width=True):
+            st.session_state.app_mode = "splash"
+            st.rerun()
+            
+        if st.button("🔐 Login / Account", use_container_width=True):
+            st.session_state.app_mode = "login"
+            st.rerun()
+
+        # 3. Admin Access
+        st.markdown("---")
+        if st.button("⚙️ Admin Console", use_container_width=True):
+            st.session_state.app_mode = "admin"
+            st.rerun()
+
+        # 4. Help / Tutorial
+        st.markdown("---")
+        with st.expander("❓ Help & Tutorial"):
+            st.markdown("""
+            **How to use VerbaPost:**
+            1. **Choose Service:** Select Standard or Legacy.
+            2. **Compose:** Type or Dictate your letter.
+            3. **Address:** Enter recipient details.
+            4. **Pay:** Checkout securely via Stripe.
+            5. **Track:** We email you the tracking #.
+            """)
+            st.info("Support: help@verbapost.com")
+
+        # 5. Session Debug
+        if st.session_state.get("authenticated"):
+            st.success(f"Logged in as: {st.session_state.get('user_email')}")
+            if st.button("Logout"):
+                st.session_state.authenticated = False
+                st.session_state.user_email = ""
+                st.session_state.app_mode = "splash"
+                st.rerun()
 
 def main():
     # 1. Initialize Global Session State
@@ -22,7 +70,10 @@ def main():
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
 
-    # 2. Handle URL Parameters (Routing)
+    # 2. Render Global Sidebar
+    render_sidebar()
+
+    # 3. Handle URL Parameters (Routing)
     query_params = st.query_params
     
     # A. Handle Payment Return (Stripe Redirect)
@@ -42,7 +93,7 @@ def main():
                 if payer_email:
                     st.session_state.user_email = payer_email
                     
-                    # Lock the draft and save the email
+                    # Update the draft record with this email
                     if st.session_state.get("current_legacy_draft_id"):
                         database.update_draft_data(
                             st.session_state.current_legacy_draft_id, 
@@ -78,50 +129,32 @@ def main():
     elif view_param == "admin":
         st.session_state.app_mode = "admin"
 
-    # 3. Render Application based on App Mode
+    # 4. Render Application based on App Mode
     mode = st.session_state.app_mode
 
     if mode == "splash":
-        if ui_splash:
-            ui_splash.render_splash_page()
-        else:
-            st.error("System Error: Splash module missing.")
+        if ui_splash: ui_splash.render_splash_page()
+        else: st.error("Splash module missing")
 
     elif mode == "login":
-        if ui_login:
-            ui_login.render_login_page()
-        else:
-            st.error("System Error: Login module missing.")
+        if ui_login: ui_login.render_login_page()
         
     elif mode == "legacy":
-        if ui_legacy:
-            ui_legacy.render_legacy_page()
-        else:
-            st.error("System Error: Legacy module missing.")
+        if ui_legacy: ui_legacy.render_legacy_page()
         
     elif mode == "legal":
-        if ui_legal:
-            ui_legal.render_legal_page()
-        else:
-            st.error("System Error: Legal module missing.")
+        if ui_legal: ui_legal.render_legal_page()
         
     elif mode == "admin":
-        if ui_admin:
-            ui_admin.render_admin_page()
-        else:
-            st.error("System Error: Admin module missing.")
+        if ui_admin: ui_admin.render_admin_page()
         
     # Default / Standard App Flow
     elif mode in ["store", "workspace", "review"]:
-        if ui_main:
-            ui_main.render_main()
-        else:
-            st.error("System Error: UI Main module missing.")
+        if ui_main: ui_main.render_main()
     
     else:
         # Fallback
-        if ui_main:
-            ui_main.render_main()
+        if ui_main: ui_main.render_main()
 
 if __name__ == "__main__":
     main()
