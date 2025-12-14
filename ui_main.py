@@ -5,6 +5,7 @@ import hashlib
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
+# These handle the heavy lifting (Database, AI, Payments, Mail)
 import ai_engine
 import payment_engine
 import mailer
@@ -15,7 +16,9 @@ import pricing_engine
 import bulk_engine
 import audit_engine
 
-# --- UI MODULE IMPORTS ---
+# --- UI MODULE IMPORTS (DYNAMIC) ---
+# We wrap these in try/except to prevent the app from crashing 
+# if a single module is missing or has a syntax error.
 try:
     import ui_splash
 except ImportError:
@@ -118,7 +121,8 @@ def load_address_book():
         # Format: "Name (City)" -> Dict
         return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
     except Exception as e:
-        # Fail silently or log
+        # Log error if needed, but return empty dict to prevent crash
+        print(f"Address Book Error: {e}")
         return {}
 
 def _handle_draft_creation(email, tier, price):
@@ -143,7 +147,7 @@ def _handle_draft_creation(email, tier, price):
     
     return d_id
 
-# --- PAGE RENDERERS ---
+# --- CORE PAGE RENDERERS ---
 
 def render_store_page():
     """
@@ -228,7 +232,7 @@ def render_campaign_uploader():
 
 def render_workspace_page():
     """
-    Step 2 & 3: Composition & Addressing.
+    Step 2 & 3: Composition & Addressing (ACCESSIBLE VERSION)
     Includes the Address Book and Accessibility Tabs.
     """
     inject_accessibility_css()
@@ -240,16 +244,19 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # --- ADDRESS BOOK (RESTORED) ---
+        # --- ADDRESS BOOK LOADER (RESTORED) ---
         if st.session_state.get("authenticated"):
             addr_opts = load_address_book()
             if addr_opts:
+                # Layout for the loader
                 col_load, col_empty = st.columns([2, 1])
                 with col_load:
                     selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
+                    
                     if selected_contact != "Select...":
                         data = addr_opts[selected_contact]
                         # Pre-fill session state variables for the form below
+                        # We use st.session_state keys directly to ensure text_input widgets update
                         st.session_state.to_name_input = data.get('name', '')
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
@@ -257,9 +264,10 @@ def render_workspace_page():
                         st.session_state.to_zip_input = data.get('zip', '')
                         st.rerun()
         else:
-            st.caption("🔒 Log in to use your Address Book.")
+            st.caption("🔒 Log in to access your saved Address Book.")
 
         # Address Form
+        # We use a form to force browser autofill to sync
         with st.form("addressing_form"):
             col_to, col_from = st.columns(2)
             
@@ -338,6 +346,21 @@ def render_workspace_page():
             placeholder="Dear..."
         )
         
+        # --- AI POLISH BUTTON (RESTORED) ---
+        if st.button("✨ AI Polish (Improve Grammar & Tone)"):
+            if new_text and ai_engine:
+                with st.spinner("Polishing your letter..."):
+                    try:
+                        polished = ai_engine.polish_text(new_text)
+                        if polished:
+                            st.session_state.letter_body = polished
+                            st.success("Text polished!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"AI Error: {e}")
+            else:
+                st.warning("Please write something first.")
+
         if new_text != current_text:
             st.session_state.letter_body = new_text
             # Auto-save to DB
@@ -369,6 +392,7 @@ def render_workspace_page():
         if audio_val:
             # 1. Hash the audio
             audio_bytes = audio_val.getvalue()
+            # Use md5 for reliable byte hashing
             audio_hash = hashlib.md5(audio_bytes).hexdigest()
             
             # 2. Check previous hash
@@ -508,6 +532,7 @@ def render_review_page():
             
             if url:
                 st.link_button("👉 Click to Pay", url)
+                st.rerun()
             else:
                 st.error("Payment Gateway Error. Please try again.")
 

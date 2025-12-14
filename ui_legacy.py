@@ -7,7 +7,6 @@ import base64
 import hashlib
 
 # --- ROBUST IMPORTS ---
-# We wrap these to prevent the entire app from crashing if one module has an issue.
 try:
     import database
 except ImportError:
@@ -35,10 +34,6 @@ except ImportError:
 
 # --- CSS INJECTOR (ACCESSIBILITY & STYLING) ---
 def inject_legacy_accessibility_css():
-    """
-    Injects CSS to make tabs larger, high-contrast, and button-like.
-    Also styles the font preview and instruction boxes.
-    """
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Caveat&family=Great+Vibes&family=Indie+Flower&family=Schoolbell&display=swap');
@@ -215,7 +210,7 @@ def render_legacy_page():
         if st.button("💾 Save Progress", key="btn_save_legacy", use_container_width=True): 
             _save_legacy_draft()
 
-    with st.expander("ℹ️ Read First: How this process works", expanded=False):
+    with st.expander("ℹ️ How this works", expanded=False):
         st.markdown("""
         **Take your time.** This is a space for important, lasting words.
         1.  **Identity:** Verify who this is from and exactly who must sign for it.
@@ -242,6 +237,9 @@ def render_legacy_page():
             st.session_state.leg_r_city = data.get('city', '')
             st.session_state.leg_r_state = data.get('state', '')
             st.session_state.leg_r_zip = data.get('zip_code', '') or data.get('zip', '')
+    
+    if not st.session_state.get("authenticated"):
+        st.caption("🔒 Log in to access saved contacts.")
 
     # 5. Address Form
     with st.form("legacy_address_form"):
@@ -414,7 +412,7 @@ def render_legacy_page():
                 st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # Fix: Ensure tier="Standard" so signature block is added
+                    # FIX: Force Standard tier for signature
                     raw_pdf = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""), 
                         st.session_state.legacy_sender, 
@@ -451,24 +449,13 @@ def render_legacy_page():
         guest_email = None
         if not st.session_state.get("authenticated"):
             guest_email = st.text_input("📧 Enter Email for Tracking Number", placeholder="you@example.com")
-            # If user enters an email, save it to session
-            if guest_email:
-                st.session_state.user_email = guest_email
+            if guest_email: st.session_state.user_email = guest_email
         
-        st.write("")
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-            
-            # CHECK: Do we have an email?
-            final_email = st.session_state.get("user_email")
-            
-            # If still no email (and user isn't authenticated), block them.
-            if not final_email and not st.session_state.get("authenticated"):
+            if not st.session_state.get("user_email") and not guest_email:
                 st.error("⚠️ Please enter an email address so we can send your tracking number.")
-            
             elif payment_engine:
                 _save_legacy_draft()
-                
-                # --- FIX: Send correct structure to payment engine ---
                 url = payment_engine.create_checkout_session(
                     line_items=[{
                         "price_data": {
@@ -478,14 +465,11 @@ def render_legacy_page():
                         },
                         "quantity": 1,
                     }],
-                    user_email=final_email,
+                    user_email=st.session_state.get("user_email"),
                     draft_id=st.session_state.get("current_legacy_draft_id")
                 )
-                
-                if url:
-                    st.link_button("👉 Pay Now ($15.99)", url)
-                else:
-                    st.error("Could not generate payment link.")
+                if url: st.link_button("👉 Pay Now ($15.99)", url)
+                else: st.error("Could not generate payment link.")
             else:
                 st.error("Payment system offline.")
 
