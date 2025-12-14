@@ -9,12 +9,15 @@ logger = logging.getLogger(__name__)
 
 def create_checkout_session(product_name, amount_cents, success_url, cancel_url, metadata=None):
     try:
+        # Get Key
         stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
-        if stripe_key: stripe.api_key = stripe_key.strip()
+        if stripe_key: 
+            stripe.api_key = stripe_key.strip()
         else: 
             logger.error("Stripe Key Missing")
             return None, None
 
+        # Build Payload
         payload = {
             'payment_method_types': ['card'],
             'automatic_tax': {'enabled': True},
@@ -33,8 +36,8 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url,
             'billing_address_collection': 'required',
         }
         
-        # Safe handling of metadata
-        if metadata: payload['metadata'] = metadata
+        if metadata: 
+            payload['metadata'] = metadata
 
         session = stripe.checkout.Session.create(**payload)
         return session.url, session.id
@@ -43,14 +46,26 @@ def create_checkout_session(product_name, amount_cents, success_url, cancel_url,
         return None, None
 
 def verify_session(session_id):
+    """
+    Verifies the Stripe session status.
+    Returns: (status_string, payer_email)
+    """
+    # Get Key
     stripe_key = secrets_manager.get_secret("stripe.secret_key") or secrets_manager.get_secret("STRIPE_SECRET_KEY")
-    if stripe_key: stripe.api_key = stripe_key.strip()
+    if stripe_key: 
+        stripe.api_key = stripe_key.strip()
     
     try:
         session = stripe.checkout.Session.retrieve(session_id)
-        if session.payment_status == 'paid': 
-            return True, session
-        return False, None
+        
+        # --- FIX: Return String "paid" to match main.py expectation ---
+        if session.payment_status == 'paid':
+            # Extract email safely
+            payer_email = session.customer_details.email if session.customer_details else None
+            return "paid", payer_email
+            
+        return "failed", None
+        
     except Exception as e:
         logger.error(f"Stripe Verify Error: {e}")
-        return False, None
+        return "error", None
