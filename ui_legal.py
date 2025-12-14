@@ -26,7 +26,7 @@ def render_legal_page():
         
         **3. Audio Retention:** Audio files are deleted from our servers immediately after transcription processing is complete.
         
-        **4. Contact:** For privacy concerns, contact admin@verbapost.com.
+        **4. Contact:** For privacy concerns, contact support@verbapost.com.
         """)
 
     st.markdown("---")
