@@ -1,11 +1,17 @@
 import streamlit as st
 import time
-import auth_engine
-import database
+# Robust import to prevent crash if engine is missing
+try:
+    import auth_engine
+except ImportError:
+    auth_engine = None
+try:
+    import database
+except ImportError:
+    database = None
 
-# --- ANIMATIONS & STYLING ---
+# --- STYLING ---
 def trigger_shake_error():
-    """Injects CSS to shake the next error alert."""
     st.markdown("""
     <style>
     @keyframes shake {
@@ -24,167 +30,142 @@ def trigger_shake_error():
     </style>
     """, unsafe_allow_html=True)
 
-# --- MAIN RENDER FUNCTION ---
-def render_login_page():
-    trigger_shake_error() # Pre-load CSS
+# --- RECOVERY VIEW (NEW LOGIC) ---
+def _render_password_reset():
+    st.markdown("### 🔐 Password Recovery")
     
-    # Check for Password Recovery Mode URL params
-    if "type" in st.query_params and st.query_params["type"] == "recovery":
+    # Step 1: Verify Code
+    if not st.session_state.get("recovery_verified"):
+        st.info("Please enter the code sent to your email to verify your identity.")
+        
+        with st.form("otp_form"):
+            email_input = st.text_input("Email Address")
+            code_input = st.text_input("Recovery Code (6 digits)", placeholder="123456")
+            
+            if st.form_submit_button("Verify Code", type="primary", use_container_width=True):
+                if auth_engine:
+                    success, msg = auth_engine.verify_otp(email_input, code_input)
+                    if success:
+                        st.session_state.recovery_verified = True
+                        st.success("Identity Verified! Please set your new password below.")
+                        st.rerun()
+                    else:
+                        trigger_shake_error()
+                        st.error(f"Verification Failed: {msg}")
+                else:
+                    st.error("Auth Engine Missing")
+    
+    # Step 2: Set New Password (Only shown after verification)
+    else:
+        st.success("✅ Identity Verified")
+        with st.form("new_pass_form"):
+            p1 = st.text_input("New Password", type="password")
+            p2 = st.text_input("Confirm Password", type="password")
+            
+            if st.form_submit_button("Update Password", type="primary", use_container_width=True):
+                if p1 == p2 and len(p1) > 5:
+                    if auth_engine.update_user_password(p1):
+                        st.balloons()
+                        st.success("Password Updated Successfully! Redirecting to login...")
+                        # Cleanup
+                        st.session_state.recovery_verified = False
+                        st.query_params.clear()
+                        time.sleep(2)
+                        st.session_state.app_mode = "login"
+                        st.rerun()
+                    else:
+                        st.error("Failed to update. Session may have expired.")
+                else:
+                    trigger_shake_error()
+                    st.error("Passwords must match and be at least 6 characters.")
+
+# --- MAIN LOGIN PAGE ---
+def render_login_page():
+    trigger_shake_error()
+    
+    # Check URL for recovery mode
+    if st.query_params.get("type") == "recovery":
         _render_password_reset()
         return
 
-    # --- HEADER ---
     st.markdown("<h2 style='text-align: center; font-family: Merriweather, serif;'>Welcome Back</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #666;'>Secure access to your correspondence.</p>", unsafe_allow_html=True)
     st.write("")
 
-    # --- TABS ---
     tab_login, tab_signup = st.tabs(["🔒 Log In", "✨ New Account"])
 
     # --- TAB 1: LOGIN ---
     with tab_login:
-        # FORM START
         with st.form("login_form"):
             email = st.text_input("Email Address", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
             
             st.write("")
-            # Must use form_submit_button here
             if st.form_submit_button("Sign In", type="primary", use_container_width=True):
                 if not email or not password:
                     trigger_shake_error()
-                    st.error("Please enter both email and password.")
-                else:
+                    st.error("Please enter email and password.")
+                elif auth_engine:
                     user = auth_engine.verify_user(email, password)
-                    
                     if user:
-                        # SUCCESS LOGIC
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.get("email")
-                        st.session_state.user_id = user.get("id")
                         st.toast("Login Successful!", icon="✅")
-                        
-                        # Clear URL so we don't get stuck on login page
                         st.query_params.clear()
-                        
                         st.session_state.app_mode = "store"
-                        time.sleep(0.5)
                         st.rerun()
                     else:
                         trigger_shake_error()
-                        st.error("Incorrect email or password. Please try again.")
-        # FORM END (Critical Fix: Indentation stopped here)
-
-        # Expandable "Forgot Password" Section (Now Outside Form)
-        with st.expander("❓ Trouble signing in?"):
-            st.info("Enter your email below to receive a secure reset link.")
-            reset_email = st.text_input("Recovery Email", key="reset_req_email")
-            # This is a regular button, so it MUST be outside st.form
-            if st.button("Send Reset Link"):
-                if reset_email:
-                    success, msg = auth_engine.send_password_reset(reset_email)
+                        st.error("Incorrect credentials.")
+        
+        # Forgot Password (Outside Form)
+        with st.expander("❓ Forgot Password?"):
+            st.write("We will send a 6-digit code to your email.")
+            rec_email = st.text_input("Enter your email", key="rec_email_input")
+            if st.button("Send Code"):
+                if auth_engine and rec_email:
+                    success, msg = auth_engine.send_password_reset(rec_email)
                     if success:
-                        st.success(f"Reset link sent to {reset_email}")
+                        st.success("Code sent! Check your inbox.")
+                        time.sleep(1)
+                        # Switch to recovery view so they can enter the code
+                        st.query_params["type"] = "recovery"
+                        st.rerun()
                     else:
-                        st.error(f"Failed: {msg}")
-                else:
-                    st.error("Please enter an email address.")
+                        st.error(f"Error: {msg}")
 
     # --- TAB 2: SIGNUP ---
     with tab_signup:
-        # Progress Tracker
-        st.markdown("""
-        <div style="display: flex; justify-content: space-between; margin-bottom: 20px; color: #888; font-size: 0.85rem;">
-            <span><strong style="color: #667eea;">Step 1:</strong> Account</span>
-            <span><strong style="color: #ccc;">Step 2:</strong> Address</span>
-            <span><strong style="color: #ccc;">Step 3:</strong> Verify</span>
-        </div>
-        <div style="height: 4px; background: #eee; border-radius: 2px; margin-bottom: 20px;">
-            <div style="height: 100%; width: 33%; background: #667eea; border-radius: 2px;"></div>
-        </div>
-        """, unsafe_allow_html=True)
-
         with st.container(border=True):
-            st.info("💡 **Quick Tip:** Use your real name. It will appear on your return address labels.")
-            
+            st.info("💡 Use your real name for return address labels.")
             new_email = st.text_input("Email", key="su_email")
-            new_pass = st.text_input("Create Password", type="password", key="su_pass")
-            new_name = st.text_input("Full Name", key="su_name")
+            new_pass = st.text_input("Password", type="password", key="su_pass")
             
-            st.markdown("#### 🏠 Return Address")
-            s_addr = st.text_input("Street Address", key="su_street")
-            c1, c2, c3 = st.columns(3)
-            s_city = c1.text_input("City", key="su_city")
-            s_state = c2.text_input("State", key="su_state")
-            s_zip = c3.text_input("Zip", key="su_zip")
-            
-            st.write("")
             if st.button("Create Account", type="primary", use_container_width=True):
-                if not (new_email and new_pass and new_name and s_addr and s_zip):
-                    trigger_shake_error()
-                    st.error("All fields are required.")
-                else:
+                if new_email and new_pass and auth_engine:
                     try:
                         user = auth_engine.create_user(new_email, new_pass)
                         if user:
-                            # Save Profile
+                            # Auto-create profile entry if DB exists
                             if database:
-                                profile_data = {
-                                    "user_id": user.get("id"),
-                                    "email": new_email,
-                                    "full_name": new_name,
-                                    "return_address_street": s_addr,
-                                    "return_address_city": s_city,
-                                    "return_address_state": s_state,
-                                    "return_address_zip": s_zip,
-                                    "return_address_country": "US"
-                                }
-                                database.create_user_profile(profile_data)
-                            
-                            st.balloons()
-                            st.success("Account Created! Logging you in...")
-                            
-                            # SUCCESS LOGIC
+                                try:
+                                    database.create_user_profile({"user_id": user["id"], "email": new_email})
+                                except: pass
+                                
+                            st.success("Account Created! Logging in...")
                             st.session_state.authenticated = True
                             st.session_state.user_email = new_email
-                            
-                            # Clear URL here too
-                            st.query_params.clear()
-                            
                             st.session_state.app_mode = "store"
-                            time.sleep(1.0)
                             st.rerun()
                         else:
-                            trigger_shake_error()
-                            st.error("Email already registered or invalid.")
+                            st.error("Could not create account.")
                     except Exception as e:
-                        st.error(f"Signup Error: {e}")
+                        st.error(f"Error: {e}")
 
-    # Back Button
     st.markdown("---")
-    if st.button("⬅️ Back to Home", use_container_width=True):
+    if st.button("⬅️ Back to Home"):
         st.query_params.clear()
         st.session_state.app_mode = "splash"
         st.rerun()
 
-def _render_password_reset():
-    """Isolated view for password reset."""
-    st.markdown("### 🔐 Set New Password")
-    with st.form("new_pass_form"):
-        p1 = st.text_input("New Password", type="password")
-        p2 = st.text_input("Confirm Password", type="password")
-        if st.form_submit_button("Update Password"):
-            if p1 == p2 and len(p1) > 5:
-                if auth_engine.update_user_password(p1):
-                    st.success("Password Updated! Please log in.")
-                    time.sleep(2)
-                    st.query_params.clear()
-                    st.rerun()
-                else:
-                    st.error("Failed to update password. Link may have expired.")
-            else:
-                trigger_shake_error()
-                st.error("Passwords must match and be at least 6 characters.")
-
-# --- SAFETY ALIAS ---
+# Safety Alias
 render_login = render_login_page
