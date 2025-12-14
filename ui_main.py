@@ -37,7 +37,7 @@ def inject_accessibility_css():
             gap: 2px;
             padding-top: 10px;
             padding-bottom: 10px;
-            border: 2px solid #9CA3AF; /* Stronger Grey Outline */
+            border: 3px solid #9CA3AF; /* Thick Grey Outline */
             margin-right: 5px;
             color: #374151; /* Dark text for unselected */
         }
@@ -45,7 +45,7 @@ def inject_accessibility_css():
         /* 3. High Contrast for Selected Tab (Red Background, White Text) */
         .stTabs [aria-selected="true"] {
             background-color: #FF4B4B !important;
-            border: 2px solid #FF4B4B !important;
+            border: 3px solid #FF4B4B !important;
             color: white !important;
         }
         
@@ -56,12 +56,13 @@ def inject_accessibility_css():
 
         /* 5. Improve Instruction Box Visibility */
         .instruction-box {
-            background-color: #FEF3C7;
-            border-left: 5px solid #F59E0B;
-            padding: 15px;
-            margin-bottom: 20px;
-            font-size: 18px;
-            color: #1F2937;
+            background-color: #FEF3C7; /* Pale Yellow */
+            border-left: 10px solid #F59E0B; /* Orange Accent */
+            padding: 20px;
+            margin-bottom: 25px;
+            font-size: 20px;
+            font-weight: 500;
+            color: #000000;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -93,7 +94,6 @@ def _handle_draft_creation(email, tier, price):
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
         if not success and st.session_state.get("current_draft_id"):
-             # Only warn if we thought we had one but lost it
              print("Recovered lost draft session.")
     
     return d_id
@@ -103,7 +103,7 @@ def _handle_draft_creation(email, tier, price):
 def render_store_page():
     """
     Step 1: The Store (Pricing & Tier Selection)
-    Now includes Authentication Guard and Server-Side Pricing.
+    Includes Auth Guard and Server-Side Pricing.
     """
     # 1. Auth Guard
     u_email = st.session_state.get("user_email", "")
@@ -238,23 +238,25 @@ def render_workspace_page():
     st.markdown(
         """
         <div class="instruction-box">
-        <b>INSTRUCTIONS:</b> Click the <b>'Record Voice'</b> tab below to speak, 
-        or click <b>'Type Manually'</b> to use your keyboard.
+        <b>HOW TO USE:</b><br>
+        Click the <b>"RECORD VOICE"</b> tab below if you want to speak.<br>
+        Click the <b>"TYPE MANUALLY"</b> tab below if you want to type.
         </div>
         """, 
         unsafe_allow_html=True
     )
 
     # TABS: Renamed and Styled via CSS
+    # Note: These names are critical for the senior experience
     tab_type, tab_record = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
 
     # -- TAB 1: TYPING --
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
-        st.write("Type your letter in the box below.")
+        st.write("Click in the box below and start typing your letter.")
         
         current_text = st.session_state.get("letter_body", "")
-        new_text = st.text_area("Body", value=current_text, height=300, label_visibility="collapsed")
+        new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed")
         
         if new_text != current_text:
             st.session_state.letter_body = new_text
@@ -267,13 +269,15 @@ def render_workspace_page():
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
         
-        # Explicit HTML Instructions
+        # Explicit HTML Instructions with Large Text
         st.markdown(
             """
-            <div style="font-size: 20px; margin-bottom: 20px; line-height: 1.6;">
-            1. Click the <b>red microphone</b> icon below.<br>
-            2. Speak your letter clearly.<br>
-            3. We will type it out for you automatically.
+            <div style="font-size: 22px; margin-bottom: 30px; line-height: 1.8; color: #111;">
+            <ol>
+                <li>Click the <b>Red Microphone</b> icon below.</li>
+                <li>Speak your letter clearly.</li>
+                <li>We will turn your voice into text automatically.</li>
+            </ol>
             </div>
             """, 
             unsafe_allow_html=True
@@ -303,7 +307,7 @@ def render_workspace_page():
                     if d_id and database:
                         database.update_draft_data(d_id, content=st.session_state.letter_body)
                     
-                    st.success("✅ Audio Transcribed! Switch to 'Type Manually' to edit.")
+                    st.success("✅ Audio Transcribed! Switch to 'Type Manually' to see the text.")
                     st.rerun()
                 else:
                     st.warning("⚠️ No speech detected. Please try again.")
@@ -324,7 +328,7 @@ def render_workspace_page():
         if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
             # Final Save check
             if not st.session_state.get("letter_body"):
-                st.error("⚠️ Please write something before continuing!")
+                st.error("⚠️ Please write or record something before continuing!")
             else:
                 st.session_state.app_mode = "review"
                 st.rerun()
