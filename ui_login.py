@@ -64,12 +64,17 @@ def render_login_page():
                 elif auth_engine:
                     user = auth_engine.verify_user(email, password)
                     if user:
+                        # SUCCESS LOGIC
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.get("email")
                         st.session_state.user_id = user.get("id")
                         st.toast("Login Successful!", icon="✅")
-                        time.sleep(0.5)
+                        
+                        # FIX: Clear URL so we don't get stuck on login page
+                        st.query_params.clear()
+                        
                         st.session_state.app_mode = "store"
+                        time.sleep(0.5)
                         st.rerun()
                     else:
                         trigger_shake_error()
@@ -86,7 +91,7 @@ def render_login_page():
                         auth_engine.send_password_reset(reset_email)
                         st.success(f"Reset link sent to {reset_email}")
 
-    # --- TAB 2: SIGNUP (With Progress Tracker) ---
+    # --- TAB 2: SIGNUP ---
     with tab_signup:
         # Progress Tracker
         st.markdown("""
@@ -101,7 +106,6 @@ def render_login_page():
         """, unsafe_allow_html=True)
 
         with st.container(border=True):
-            # Quick Tip Box
             st.info("💡 **Quick Tip:** Use your real name. It will appear on your return address labels.")
             
             new_email = st.text_input("Email", key="su_email")
@@ -119,13 +123,12 @@ def render_login_page():
             if st.button("Create Account", type="primary", use_container_width=True):
                 if not (new_email and new_pass and new_name and s_addr and s_zip):
                     trigger_shake_error()
-                    st.error("All fields are required for account creation.")
+                    st.error("All fields are required.")
                 elif auth_engine:
                     try:
-                        # 1. Create Auth User
                         user = auth_engine.create_user(new_email, new_pass)
                         if user:
-                            # 2. Save Profile Data
+                            # Save Profile
                             if database:
                                 profile_data = {
                                     "user_id": user.get("id"),
@@ -140,10 +143,21 @@ def render_login_page():
                                 database.create_user_profile(profile_data)
                             
                             st.balloons()
-                            st.success("Account Created! Please log in.")
+                            st.success("Account Created! Logging you in...")
+                            
+                            # SUCCESS LOGIC
+                            st.session_state.authenticated = True
+                            st.session_state.user_email = new_email
+                            
+                            # FIX: Clear URL here too
+                            st.query_params.clear()
+                            
+                            st.session_state.app_mode = "store"
+                            time.sleep(1.0)
+                            st.rerun()
                         else:
                             trigger_shake_error()
-                            st.error("Email already registered or invalid.")
+                            st.error("Email already registered.")
                     except Exception as e:
                         st.error(f"Signup Error: {e}")
 
@@ -155,7 +169,7 @@ def render_login_page():
         st.rerun()
 
 def _render_password_reset():
-    """Isolated view for password reset to keep main logic clean."""
+    """Isolated view for password reset."""
     st.markdown("### 🔐 Set New Password")
     with st.form("new_pass_form"):
         p1 = st.text_input("New Password", type="password")
@@ -172,6 +186,5 @@ def _render_password_reset():
                 trigger_shake_error()
                 st.error("Passwords must match and be at least 6 characters.")
 
-# --- SAFETY ALIAS (CRITICAL FIX) ---
-# This ensures it works whether main.py calls 'render_login' or 'render_login_page'
+# --- SAFETY ALIAS ---
 render_login = render_login_page
