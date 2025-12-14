@@ -93,18 +93,13 @@ def _handle_draft_creation(email, tier, price):
     if not success and database:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
-        if not success and st.session_state.get("current_draft_id"):
-             print("Recovered lost draft session.")
     
     return d_id
 
 # --- PAGE RENDERERS ---
 
 def render_store_page():
-    """
-    Step 1: The Store (Pricing & Tier Selection)
-    Includes Auth Guard and Server-Side Pricing.
-    """
+    """Step 1: The Store (Pricing & Tier Selection)"""
     # 1. Auth Guard
     u_email = st.session_state.get("user_email", "")
     if not u_email:
@@ -127,7 +122,6 @@ def render_store_page():
     # 3. Standard Pricing Cards
     col1, col2, col3, col4 = st.columns(4)
 
-    # Helper to render card
     def price_card(col, title, price, desc, tier_code, btn_key):
         with col:
             st.markdown(f"### {title}")
@@ -136,9 +130,7 @@ def render_store_page():
             if st.button(f"Select {title}", key=btn_key, use_container_width=True):
                 st.session_state.locked_tier = tier_code
                 st.session_state.locked_price = price
-                # Initialize draft
                 _handle_draft_creation(u_email, tier_code, price)
-                # Move to next step
                 st.session_state.app_mode = "workspace"
                 st.rerun()
 
@@ -147,38 +139,26 @@ def render_store_page():
     price_card(col3, "Civic", 6.99, "Write to Congress\nAuto-lookup Officials", "Civic", "btn_civ")
     price_card(col4, "Santa", 9.99, "North Pole Postmark\nGolden Ticket", "Santa", "btn_santa")
 
-
 def render_campaign_uploader():
     """Handles CSV upload for Bulk Tier."""
     st.markdown("### 📁 Upload Recipient List (CSV)")
-    
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
     if uploaded_file:
         contacts = bulk_engine.parse_csv(uploaded_file)
-        
         if not contacts:
             st.error("❌ Could not parse CSV. Please check format.")
             return
-
         st.success(f"✅ Loaded {len(contacts)} recipients.")
-        
-        # Calculate Bulk Price
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
         st.metric("Estimated Total", f"${total}")
-        
         if st.button("Proceed with Campaign"):
             st.session_state.locked_tier = "Campaign"
             st.session_state.bulk_targets = contacts
             st.session_state.app_mode = "workspace"
             st.rerun()
 
-
 def render_workspace_page():
-    """
-    Step 2 & 3: Composition & Addressing
-    UPDATED: Includes Accessibility CSS and clearer instructions.
-    """
-    # 1. Inject Accessibility CSS
+    """Step 2 & 3: Composition & Addressing (ACCESSIBLE VERSION)"""
     inject_accessibility_css()
 
     st.markdown(f"## 📝 Workspace: {st.session_state.get('locked_tier', 'Draft')}")
@@ -186,11 +166,8 @@ def render_workspace_page():
     # --- STEP 2: ADDRESSING ---
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
-        
-        # We use a form to force browser autofill to sync
         with st.form("addressing_form"):
             col_to, col_from = st.columns(2)
-            
             with col_to:
                 st.markdown("### To: (Recipient)")
                 name = st.text_input("Name", key="to_name_input")
@@ -202,9 +179,7 @@ def render_workspace_page():
 
             with col_from:
                 st.markdown("### From: (Return Address)")
-                # Pre-fill from user profile if available
                 u_profile = st.session_state.get("user_profile", {})
-                
                 f_name = st.text_input("Your Name", value=u_profile.get("full_name",""), key="from_name")
                 f_street = st.text_input("Your Street", value=u_profile.get("address_line1",""), key="from_street")
                 f_city = st.text_input("Your City", value=u_profile.get("city",""), key="from_city")
@@ -212,21 +187,12 @@ def render_workspace_page():
                 f_state = col_fs.text_input("Your State", value=u_profile.get("state",""), key="from_state")
                 f_zip = col_fz.text_input("Your Zip", value=u_profile.get("zip_code",""), key="from_zip")
             
-            # Form Submit Button
             if st.form_submit_button("💾 Save Addresses"):
-                # Save to session
-                st.session_state.addr_to = {
-                    "name": name, "street": street, "city": city, "state": state, "zip": zip_c
-                }
-                st.session_state.addr_from = {
-                    "name": f_name, "street": f_street, "city": f_city, "state": f_state, "zip": f_zip
-                }
-                
-                # Save to DB
+                st.session_state.addr_to = {"name": name, "street": street, "city": city, "state": state, "zip": zip_c}
+                st.session_state.addr_from = {"name": f_name, "street": f_street, "city": f_city, "state": f_state, "zip": f_zip}
                 d_id = st.session_state.get("current_draft_id")
                 if d_id and database:
                     database.update_draft_data(d_id, to_address=st.session_state.addr_to, from_address=st.session_state.addr_from)
-                
                 st.success("✅ Addresses Saved!")
 
     st.divider()
@@ -234,7 +200,6 @@ def render_workspace_page():
     # --- STEP 3: COMPOSE (ACCESSIBLE VERSION) ---
     st.markdown("## ✍️ Step 3: Write Your Letter")
 
-    # High-Contrast Instruction Box
     st.markdown(
         """
         <div class="instruction-box">
@@ -246,30 +211,22 @@ def render_workspace_page():
         unsafe_allow_html=True
     )
 
-    # TABS: Renamed and Styled via CSS
-    # Note: These names are critical for the senior experience
     tab_type, tab_record = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
 
-    # -- TAB 1: TYPING --
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
         st.write("Click in the box below and start typing your letter.")
-        
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed")
         
         if new_text != current_text:
             st.session_state.letter_body = new_text
-            # Auto-save to DB occasionally or on change
             d_id = st.session_state.get("current_draft_id")
             if d_id and database:
                 database.update_draft_data(d_id, content=new_text)
 
-    # -- TAB 2: RECORDING (Simplified & Enlarged) --
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
-        
-        # Explicit HTML Instructions with Large Text
         st.markdown(
             """
             <div style="font-size: 22px; margin-bottom: 30px; line-height: 1.8; color: #111;">
@@ -284,118 +241,83 @@ def render_workspace_page():
         )
 
         audio_val = st.audio_input("Record", label_visibility="collapsed")
-        
         if audio_val:
             st.info("⏳ Processing your voice... please wait.")
-            
-            # Save temp file
             tmp_path = f"/tmp/temp_{int(time.time())}.wav"
             with open(tmp_path, "wb") as f:
                 f.write(audio_val.getvalue())
-            
             try:
-                # Transcribe
                 text = ai_engine.transcribe_audio(tmp_path)
-                
                 if text:
-                    # Append or Replace? Let's Append to avoid deleting work
                     current = st.session_state.get("letter_body", "")
                     st.session_state.letter_body = (current + "\n\n" + text).strip()
-                    
-                    # Save to DB
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
                         database.update_draft_data(d_id, content=st.session_state.letter_body)
-                    
                     st.success("✅ Audio Transcribed! Switch to 'Type Manually' to see the text.")
                     st.rerun()
                 else:
                     st.warning("⚠️ No speech detected. Please try again.")
-            
             except Exception as e:
                 st.error(f"Error processing audio: {e}")
-            
             finally:
-                # Cleanup
                 if os.path.exists(tmp_path):
                     os.remove(tmp_path)
 
     st.divider()
-    
-    # Navigation
     col_l, col_r = st.columns([1, 4])
     with col_r:
         if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-            # Final Save check
             if not st.session_state.get("letter_body"):
                 st.error("⚠️ Please write or record something before continuing!")
             else:
                 st.session_state.app_mode = "review"
                 st.rerun()
 
-
 def render_review_page():
-    """
-    Step 4: Secure & Send
-    Final Review, PDF Generation, and Payment.
-    """
+    """Step 4: Secure & Send"""
     st.markdown("## 👁️ Step 4: Secure & Send")
     
-    # 1. Generate PDF Preview
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
-            # Gather Data
-            tier = st.session_state.get("locked_tier", "Standard")
-            body = st.session_state.get("letter_body", "")
-            addr_to = st.session_state.get("addr_to", {})
-            addr_from = st.session_state.get("addr_from", {})
-            
-            # Normalize Addresses (Fallback Chain)
-            std_to = address_standard.StandardAddress.from_dict(addr_to)
-            std_from = address_standard.StandardAddress.from_dict(addr_from)
-            
-            # Create PDF
-            pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier)
-            
-            # Display
-            import base64
-            b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-            pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
-            st.markdown(pdf_display, unsafe_allow_html=True)
-            
-            st.session_state.final_pdf = pdf_bytes
+            try:
+                tier = st.session_state.get("locked_tier", "Standard")
+                body = st.session_state.get("letter_body", "")
+                addr_to = st.session_state.get("addr_to", {})
+                addr_from = st.session_state.get("addr_from", {})
+                
+                std_to = address_standard.StandardAddress.from_dict(addr_to)
+                std_from = address_standard.StandardAddress.from_dict(addr_from)
+                
+                raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier)
+                pdf_bytes = bytes(raw_pdf)
+                
+                import base64
+                b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+                st.session_state.final_pdf = pdf_bytes
+            except Exception as e:
+                st.error(f"PDF Generation Error: {e}")
 
-    # 2. Payment Section
     st.divider()
-    
-    # Recalculate Total (Server-Side Check)
     tier = st.session_state.get("locked_tier", "Standard")
-    # Check flags
-    is_intl = False # Logic to detect country code would go here
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
-    
-    total = pricing_engine.calculate_total(tier, is_intl, is_cert)
+    total = pricing_engine.calculate_total(tier, is_certified=is_cert)
     
     col_pay, col_info = st.columns([2, 1])
-    
     with col_info:
         st.markdown(f"### Total: ${total}")
         st.caption("• Archival Bond Paper")
         st.caption("• USPS First Class")
-        if is_cert:
-            st.caption("• Certified Tracking")
-        st.caption("• Digital & Physical Proof")
+        if is_cert: st.caption("• Certified Tracking")
 
     with col_pay:
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-            # Create Stripe Session
             u_email = st.session_state.get("user_email")
             d_id = st.session_state.get("current_draft_id")
-            
-            # Ensure draft is saved with final price
             if d_id and database:
                 database.update_draft_data(d_id, price=total, status="Pending Payment")
-            
             url = payment_engine.create_checkout_session(
                 line_items=[{
                     "price_data": {
@@ -408,7 +330,6 @@ def render_review_page():
                 user_email=u_email,
                 draft_id=d_id
             )
-            
             if url:
                 st.link_button("👉 Click to Pay", url)
                 st.rerun()
