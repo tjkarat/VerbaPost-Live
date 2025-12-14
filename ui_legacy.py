@@ -7,6 +7,7 @@ import base64
 import hashlib
 
 # --- ROBUST IMPORTS ---
+# We wrap these to prevent the entire app from crashing if one module has an issue.
 try:
     import database
 except ImportError:
@@ -34,6 +35,10 @@ except ImportError:
 
 # --- CSS INJECTOR (ACCESSIBILITY & STYLING) ---
 def inject_legacy_accessibility_css():
+    """
+    Injects CSS to make tabs larger, high-contrast, and button-like.
+    Also styles the font preview and instruction boxes.
+    """
     st.markdown("""
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Caveat&family=Great+Vibes&family=Indie+Flower&family=Schoolbell&display=swap');
@@ -142,7 +147,6 @@ def _save_legacy_draft():
         
         if d_id:
             # Update existing draft
-            # FIX: Changed argument from 'text' to 'content' to match database.py schema
             database.update_draft_data(
                 d_id, 
                 content=text_content, 
@@ -211,7 +215,7 @@ def render_legacy_page():
         if st.button("💾 Save Progress", key="btn_save_legacy", use_container_width=True): 
             _save_legacy_draft()
 
-    with st.expander("ℹ️ How this works", expanded=False):
+    with st.expander("ℹ️ Read First: How this process works", expanded=False):
         st.markdown("""
         **Take your time.** This is a space for important, lasting words.
         1.  **Identity:** Verify who this is from and exactly who must sign for it.
@@ -336,7 +340,7 @@ def render_legacy_page():
             value=st.session_state.get("legacy_text", ""),
             height=600,
             label_visibility="collapsed",
-            placeholder="Start writing here...",
+            placeholder="My dearest...",
         )
         if letter_text:
             st.session_state.legacy_text = letter_text
@@ -410,7 +414,7 @@ def render_legacy_page():
                 st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # FIX: Force Standard tier for signature
+                    # Fix: Ensure tier="Standard" so signature block is added
                     raw_pdf = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""), 
                         st.session_state.legacy_sender, 
