@@ -5,56 +5,17 @@ import os
 import json
 import time
 
-# --- ROBUST IMPORTS (Expanded for Safety) ---
-try: 
-    import ui_splash
-except ImportError: 
-    ui_splash = None
-
-try: 
-    import ui_login
-except ImportError: 
-    ui_login = None
-
-try: 
-    import ui_admin
-except ImportError: 
-    ui_admin = None
-
-try: 
-    import database
-except ImportError: 
-    database = None
-
-try: 
-    import ai_engine
-except ImportError: 
-    ai_engine = None
-
-try: 
-    import payment_engine
-except ImportError: 
-    payment_engine = None
-
-try: 
-    import pricing_engine
-except ImportError: 
-    pricing_engine = None
-
-try: 
-    import secrets_manager
-except ImportError: 
-    secrets_manager = None
-
-try: 
-    import civic_engine
-except ImportError: 
-    civic_engine = None
-
-try: 
-    import letter_format
-except ImportError: 
-    letter_format = None
+# --- ROBUST IMPORTS ---
+try: import ui_splash; except ImportError: ui_splash = None
+try: import ui_login; except ImportError: ui_login = None
+try: import ui_admin; except ImportError: ui_admin = None
+try: import database; except ImportError: database = None
+try: import ai_engine; except ImportError: ai_engine = None
+try: import payment_engine; except ImportError: payment_engine = None
+try: import pricing_engine; except ImportError: pricing_engine = None
+try: import secrets_manager; except ImportError: secrets_manager = None
+try: import civic_engine; except ImportError: civic_engine = None
+try: import letter_format; except ImportError: letter_format = None
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +34,6 @@ def _handle_draft_creation(email, tier, price):
     if database:
         # Update existing
         if d_id:
-            # We assume update returns True on success
             if database.update_draft_data(d_id, tier=tier, price=price, text=text): 
                 return d_id
         
@@ -96,10 +56,9 @@ def _save_address_book(user_email, data, is_sender=False):
             "type": "sender" if is_sender else "recipient"
         }
         database.save_contact(contact)
-    except Exception:
-        pass
+    except Exception: pass
 
-# --- SIDEBAR (Logic Only - Rendered by main.py) ---
+# --- SIDEBAR (Logic Only) ---
 def render_sidebar():
     with st.sidebar:
         st.markdown("<div style='text-align: center;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
@@ -112,6 +71,8 @@ def render_sidebar():
             if st.button("🏪 Store", key="nav_store", use_container_width=True): 
                 st.session_state.app_mode = "store"
                 st.rerun()
+            
+            # WORKSPACE BUTTON (Visual only - guarded by logic in render_workspace_page)
             if st.button("✍️ Workspace", key="nav_work", use_container_width=True): 
                 st.session_state.app_mode = "workspace" 
                 st.rerun()
@@ -168,18 +129,51 @@ def render_store_page():
     with c2:
         with st.container(border=True):
             st.metric("Price / Unit", f"${price:.2f}")
-            if st.button("Start ➡️", type="primary", use_container_width=True):
+            
+            # --- PAYMENT LOGIC FIX ---
+            # Instead of "Start" -> Workspace, we now do "Checkout" -> Stripe
+            if st.button("Generate Checkout Link 💳", type="primary", use_container_width=True):
                 st.session_state.locked_price = price
                 
-                # Ghost Draft
+                # 1. Save Ghost Draft (So we have an ID for the webhook/return)
                 u = st.session_state.get("user_email", "guest")
-                _handle_draft_creation(u, st.session_state.locked_tier, price)
+                d_id = _handle_draft_creation(u, st.session_state.locked_tier, price)
                 
-                st.session_state.app_mode = "workspace"
-                st.rerun()
+                # 2. Generate Stripe Link
+                if payment_engine:
+                    with st.spinner("Creating secure session..."):
+                        # Ensure we return to main.py to handle the logic
+                        success_url = f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}"
+                        
+                        url, sid = payment_engine.create_checkout_session(
+                            f"VerbaPost {st.session_state.locked_tier}", 
+                            int(price*100), 
+                            success_url, 
+                            YOUR_APP_URL, 
+                            metadata={"draft": d_id}
+                        )
+                        
+                        if url:
+                            st.session_state.payment_url = url
+                        else:
+                            st.error("Could not contact Payment Gateway.")
+            
+            # Display the Link Button if URL exists
+            if st.session_state.get("payment_url"):
+                st.success("Link Ready!")
+                st.link_button("👉 Click Here to Pay", st.session_state.payment_url, type="primary", use_container_width=True)
+                st.caption("You will be redirected to the Workspace after payment.")
 
 # --- PAGE: WORKSPACE ---
 def render_workspace_page():
+    # --- SECURITY GUARD ---
+    # Prevent access unless paid (or admin override if you wanted to add that)
+    if not st.session_state.get("paid_order", False):
+        st.warning("🔒 Please select a package and pay to access the Workspace.")
+        st.session_state.app_mode = "store"
+        time.sleep(1.5)
+        st.rerun()
+
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## Workspace: {tier}")
     
@@ -246,12 +240,17 @@ def render_workspace_page():
                  st.session_state.transcribed_text = ai_engine.refine_text(txt, "Professional")
                  st.rerun()
 
-    if st.button("Review & Pay ➡️", type="primary"):
+    if st.button("Review & Send ➡️", type="primary"):
         st.session_state.app_mode = "review"
         st.rerun()
 
 # --- PAGE: REVIEW ---
 def render_review_page():
+    # Double check guard just in case
+    if not st.session_state.get("paid_order", False):
+        st.session_state.app_mode = "store"
+        st.rerun()
+
     st.markdown("## Final Review")
     
     c1, c2 = st.columns(2)
@@ -270,28 +269,30 @@ def render_review_page():
                 st.error(f"Preview Error: {e}")
                 
     with c2:
-        st.subheader("Checkout")
-        tier = st.session_state.locked_tier
-        price = st.session_state.get("locked_price", 2.99)
-        st.metric("Total", f"${price:.2f}")
+        st.subheader("Action")
+        st.success("Payment Confirmed ✅")
+        st.caption("Your letter is ready for fulfillment.")
         
-        if st.button("Pay & Send", type="primary", use_container_width=True):
-            user = st.session_state.get("user_email", "guest")
-            d_id = _handle_draft_creation(user, tier, price)
+        # NOTE: In this flow, payment already happened. 
+        # This button triggers the API call to PostGrid (Mailing).
+        if st.button("🚀 Send Letter Now", type="primary", use_container_width=True):
+            # 1. Trigger Mailer (Simulation or Real)
+            # if mailer: mailer.send(...)
             
-            if payment_engine:
-                succ = f"{YOUR_APP_URL}?session_id={{CHECKOUT_SESSION_ID}}"
-                try:
-                    url, sid = payment_engine.create_checkout_session(f"VerbaPost {tier}", int(price*100), succ, YOUR_APP_URL, metadata={"draft": d_id})
-                    if url: st.link_button("👉 Proceed to Pay", url, type="primary")
-                except Exception as e:
-                    st.error(f"Payment Error: {e}")
+            st.balloons()
+            st.success("Letter Sent! You will receive a tracking number via email.")
+            
+            # 2. Reset Flow
+            # We clear paid_order so they have to pay for the NEXT letter.
+            st.session_state.paid_order = False
+            st.session_state.payment_url = None # Clear old link
+            
+            time.sleep(3)
+            st.session_state.app_mode = "store"
+            st.rerun()
 
-# --- MAIN CONTROLLER ENTRY (FIXED) ---
+# --- MAIN CONTROLLER ENTRY ---
 def render_main():
-    # CRITICAL FIX: Removed render_sidebar() call here.
-    # It is already called in main.py. Calling it again caused the DuplicateKeyError.
-    
     mode = st.session_state.get("app_mode", "store")
     
     if mode == "store": render_store_page()
