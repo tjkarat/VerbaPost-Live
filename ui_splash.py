@@ -19,7 +19,7 @@ def render_splash():
             margin-bottom: 30px; 
         }
 
-        /* Mobile Overrides (Max width 768px) */
+        /* Mobile Overrides */
         @media (max-width: 768px) {
             .splash-header { font-size: 2.0rem !important; }
             .splash-sub { font-size: 1.0rem !important; }

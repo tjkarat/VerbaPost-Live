@@ -6,16 +6,56 @@ import json
 import time
 
 # --- ROBUST IMPORTS ---
-try: import ui_splash; except ImportError: ui_splash = None
-try: import ui_login; except ImportError: ui_login = None
-try: import ui_admin; except ImportError: ui_admin = None
-try: import database; except ImportError: database = None
-try: import ai_engine; except ImportError: ai_engine = None
-try: import payment_engine; except ImportError: payment_engine = None
-try: import pricing_engine; except ImportError: pricing_engine = None
-try: import secrets_manager; except ImportError: secrets_manager = None
-try: import civic_engine; except ImportError: civic_engine = None
-try: import letter_format; except ImportError: letter_format = None
+# Captures ALL errors (Syntax, Import, Indentation) to prevent crash loops
+try: 
+    import ui_splash
+except Exception: 
+    ui_splash = None
+
+try: 
+    import ui_login
+except Exception: 
+    ui_login = None
+
+try: 
+    import ui_admin
+except Exception: 
+    ui_admin = None
+
+try: 
+    import database
+except Exception: 
+    database = None
+
+try: 
+    import ai_engine
+except Exception: 
+    ai_engine = None
+
+try: 
+    import payment_engine
+except Exception: 
+    payment_engine = None
+
+try: 
+    import pricing_engine
+except Exception: 
+    pricing_engine = None
+
+try: 
+    import secrets_manager
+except Exception: 
+    secrets_manager = None
+
+try: 
+    import civic_engine
+except Exception: 
+    civic_engine = None
+
+try: 
+    import letter_format
+except Exception: 
+    letter_format = None
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +98,7 @@ def _save_address_book(user_email, data, is_sender=False):
         database.save_contact(contact)
     except Exception: pass
 
-# --- SIDEBAR (Logic Only) ---
+# --- SIDEBAR (Logic Only - Rendered by main.py) ---
 def render_sidebar():
     with st.sidebar:
         st.markdown("<div style='text-align: center;'><h1>📮<br>VerbaPost</h1></div>", unsafe_allow_html=True)
@@ -266,8 +306,8 @@ def render_review_page():
 
 # --- MAIN CONTROLLER ENTRY ---
 def render_main():
-    # CRITICAL FIX: DO NOT CALL render_sidebar() HERE
-    # It is already called by main.py
+    # CRITICAL FIX: DO NOT call render_sidebar() here.
+    # It is called in main.py. Calling it again causes DuplicateKeyError.
     
     mode = st.session_state.get("app_mode", "store")
     
