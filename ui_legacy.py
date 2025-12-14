@@ -6,8 +6,7 @@ import json
 import base64
 
 # --- ROBUST IMPORTS ---
-# We wrap these in try/except blocks to prevent the entire app from crashing 
-# if a single module has a syntax error or missing dependency.
+# We wrap these to prevent the entire app from crashing if one module has an issue.
 try:
     import database
 except ImportError:
@@ -111,7 +110,8 @@ def initialize_legacy_state():
         "legacy_text": "",
         "legacy_font": "Caveat",
         "current_legacy_draft_id": None,
-        "last_legacy_hash": None
+        "last_legacy_hash": None,
+        "audio_widget_key": 0  # Added for resetting the recorder
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -144,11 +144,11 @@ def _save_legacy_draft():
     try:
         d_id = st.session_state.get("current_legacy_draft_id")
         
-        # --- CRITICAL FIX: Use 'content' instead of 'text' to match Database schema ---
+        # Matches database.py schema (content instead of text)
         if d_id:
             database.update_draft_data(
                 d_id, 
-                content=text_content, # Fixed from 'text'
+                content=text_content, 
                 tier="Legacy", 
                 price=15.99
             )
@@ -276,14 +276,16 @@ def render_legacy_page():
         </div>
         """, unsafe_allow_html=True)
 
-    # 6. Compose Section (With Accessibility Tabs & Loop Fix)
+    # 6. Compose Section
     st.markdown("---")
     st.markdown("### ✍️ Step 3: Compose")
     
     st.markdown(
         """
         <div class="instruction-box">
-        <b>INSTRUCTIONS:</b> Click <b>RECORD VOICE</b> to speak, or <b>TYPE MANUALLY</b> to write.
+        <b>HOW TO USE:</b><br>
+        Click the <b>"RECORD VOICE"</b> tab below if you want to speak.<br>
+        Click the <b>"TYPE MANUALLY"</b> tab below if you want to type.
         </div>
         """, 
         unsafe_allow_html=True
@@ -304,31 +306,39 @@ def render_legacy_page():
         if letter_text:
             st.session_state.legacy_text = letter_text
 
-    # RECORD TAB
+    # RECORD TAB (UPDATED WITH RESET & CLEAR INSTRUCTIONS)
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
+        
+        # Verbose Instructions
         st.markdown(
             """
-            <div style="font-size: 22px; margin-bottom: 30px; line-height: 1.8; color: #111;">
+            <div style="font-size: 20px; margin-bottom: 30px; line-height: 1.8; color: #111;">
             <ol>
-                <li>Click the <b>Red Microphone</b> icon below.</li>
-                <li>Speak your letter clearly.</li>
-                <li>We will turn your voice into text automatically.</li>
+                <li><b>Allow Microphone:</b> If your browser asks for permission, click "Allow".</li>
+                <li><b>Start:</b> Click the <b>Red Microphone</b> icon below.</li>
+                <li><b>Speak:</b> Talk clearly. Take your time.</li>
+                <li><b>Finish:</b> Click the stop/check button when done.</li>
+                <li><b>Wait:</b> The text will appear automatically in the "Type Manually" tab.</li>
             </ol>
             </div>
             """, 
             unsafe_allow_html=True
         )
         
-        audio_mic = st.audio_input("Record Voice", label_visibility="collapsed")
+        # Reset Button for stuck widgets
+        if st.button("🔄 Reset Recorder (Fix Errors)"):
+            st.session_state.audio_widget_key += 1
+            st.rerun()
+
+        # Dynamic Key for Resetting
+        widget_key = f"legacy_audio_{st.session_state.audio_widget_key}"
+        audio_mic = st.audio_input("Record Voice", label_visibility="collapsed", key=widget_key)
         
-        # --- LOOP PREVENTION LOGIC ---
+        # Loop Prevention Logic
         if audio_mic and ai_engine:
-            # 1. Calculate Hash of audio bytes
             audio_bytes = audio_mic.getvalue()
             audio_hash = hash(audio_bytes)
-            
-            # 2. Check if this hash is different from the last one we processed
             last_hash = st.session_state.get("last_legacy_hash")
             
             if audio_hash != last_hash:
@@ -344,20 +354,20 @@ def render_legacy_page():
                         exist = st.session_state.get("legacy_text", "")
                         st.session_state.legacy_text = (exist + "\n\n" + text).strip()
                         
-                        # Update Hash so we don't process this again
+                        # Update Hash
                         st.session_state.last_legacy_hash = audio_hash
                         
                         st.success("✅ Transcribed! Switch to 'Type Manually' to edit.")
                         st.rerun() 
                     else:
-                        st.warning("⚠️ No speech detected.")
+                        st.warning("⚠️ No speech detected. Please try speaking louder.")
                 except Exception as e:
                     st.error(f"Transcription Error: {e}")
                 finally:
                     try: os.remove(tpath)
                     except: pass
             else:
-                pass # Do nothing if we've already processed this audio
+                pass # Already processed
 
     # 7. Review & Pay Section
     st.markdown("---")
@@ -372,7 +382,7 @@ def render_legacy_page():
                 st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # Fix: Ensure tier="Standard" so signature block is added
+                    # Tier logic ensures signature
                     raw_pdf = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""), 
                         st.session_state.legacy_sender, 
@@ -381,7 +391,7 @@ def render_legacy_page():
                         font_choice=st.session_state.legacy_font
                     )
                     
-                    # --- CRITICAL FIX: Explicit cast to bytes ---
+                    # Safe cast to bytes
                     pdf_bytes = bytes(raw_pdf) 
                     
                     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
@@ -407,10 +417,9 @@ def render_legacy_page():
         st.write("")
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
             if payment_engine:
-                # Save first
                 _save_legacy_draft()
                 
-                # --- FIX: Send correct structure to payment engine ---
+                # Use line_items format
                 url = payment_engine.create_checkout_session(
                     line_items=[{
                         "price_data": {
