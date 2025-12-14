@@ -1,86 +1,81 @@
 import streamlit as st
 
-# --- MAIN RENDER FUNCTION ---
+# --- FUNCTION DEFINITION ---
 def render_splash():
-    # --- MODERN CSS STYLING ---
+    # --- PROFESSIONAL MINIMALIST CSS ---
     st.markdown("""
     <style>
-    /* 1. Global Reset & Container Logic */
+    /* 1. Global Reset */
     .block-container {
-        padding-top: 0rem !important;
-        padding-bottom: 2rem;
-        max-width: 100%;
+        padding-top: 2rem !important;
+        padding-bottom: 3rem;
+        max-width: 900px; /* Tighter width for better reading experience */
     }
     
-    /* 2. Hero Section (Purple Gradient) */
+    /* 2. Hero Section (Clean & White) */
     .hero-container {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        width: 100vw;
-        position: relative;
-        left: 50%;
-        right: 50%;
-        margin-left: -50vw;
-        margin-right: -50vw;
-        padding: 4rem 1rem 5rem 1rem;
+        background-color: #ffffff;
+        width: 100%;
+        padding: 3rem 1rem 2rem 1rem;
         text-align: center;
-        color: white;
-        margin-top: -60px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        border-bottom: 1px solid #eaeaea; /* Subtle divider */
+        margin-bottom: 2rem;
     }
 
-    /* 3. Logo Title (Mobile Responsive) */
+    /* 3. Typography - The "New York Times" Look */
     .hero-title {
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        font-weight: 800;
-        /* Clamp calculates size based on viewport width */
-        font-size: clamp(2.8rem, 8vw, 5rem); 
+        font-family: 'Merriweather', 'Georgia', serif; /* Serif for professional feel */
+        font-weight: 700;
+        color: #111111;
+        /* Responsive sizing */
+        font-size: clamp(2.5rem, 6vw, 4rem); 
         margin-bottom: 0.5rem;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        white-space: nowrap; /* Forces single line */
-        line-height: 1.1;
+        letter-spacing: -0.5px;
+        line-height: 1.2;
     }
 
     .hero-subtitle {
-        font-size: clamp(1rem, 4vw, 1.4rem);
-        font-weight: 700;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-size: clamp(0.9rem, 3vw, 1.1rem);
+        font-weight: 600;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
-        color: #ffd700; /* Gold text */
+        letter-spacing: 2px;
+        color: #d93025; /* Muted Professional Red */
         margin-bottom: 1.5rem;
+        margin-top: 1rem;
     }
 
     .hero-text {
-        font-size: 1.1rem;
-        font-weight: 400;
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        font-size: 1.15rem;
+        font-weight: 300;
+        color: #555;
         max-width: 600px;
         margin: 0 auto;
-        opacity: 0.95;
         line-height: 1.6;
-        font-style: italic;
     }
 
-    /* 4. Feature Cards */
-    .feature-card {
-        background: white;
-        padding: 2rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        text-align: center;
-        height: 100%;
-        border: 1px solid #f0f2f6;
-        transition: transform 0.2s;
+    /* 4. Feature Icons (Minimalist) */
+    .feature-icon { 
+        font-size: 2rem; 
+        margin-bottom: 0.5rem; 
+        opacity: 0.8;
     }
-    .feature-card:hover {
-        transform: translateY(-5px);
-        box-shadow: 0 8px 15px rgba(0,0,0,0.1);
+    .feature-head { 
+        font-weight: 600; 
+        color: #111; 
+        margin-bottom: 0.25rem; 
+        font-family: 'Merriweather', serif;
     }
-    .feature-icon { font-size: 2.5rem; margin-bottom: 1rem; }
-    .feature-head { font-weight: 700; color: #333; margin-bottom: 0.5rem; }
-    .feature-body { color: #666; font-size: 0.9rem; }
+    .feature-body { 
+        color: #666; 
+        font-size: 0.9rem; 
+        line-height: 1.5;
+    }
 
     /* Mobile Tweaks */
     @media (max-width: 600px) {
-        .hero-container { padding-bottom: 3rem; }
+        .hero-container { padding: 1rem 0.5rem; border-bottom: none; }
     }
     </style>
     """, unsafe_allow_html=True)
@@ -88,22 +83,20 @@ def render_splash():
     # --- HERO CONTENT ---
     st.markdown("""
     <div class="hero-container">
-        <div class="hero-title">📮 VerbaPost</div>
-        <div class="hero-subtitle">Texts are trivial, emails ignored<br>REAL MAIL GETS READ.</div>
+        <div class="hero-title">VerbaPost</div>
+        <div class="hero-subtitle">Real Mail Gets Read</div>
         <div class="hero-text">
-            "Don't know how to start, what to write?<br>
-            Speak it first and we'll transcribe."
+            Texts are trivial. Emails are ignored.<br>
+            <span style="font-style: italic;">"Don't know how to start? Speak it first, and we'll transcribe."</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
 
     # --- ACTION BUTTONS ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         # Primary "Start" Button
-        if st.button("🚀 Start a Letter", type="primary", use_container_width=True):
+        if st.button("Start a Letter", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
             else:
@@ -112,51 +105,50 @@ def render_splash():
 
         st.write("") 
 
-        # Secondary "Legacy" Button
-        if st.button("🕊️ Legacy Service (End of Life)", use_container_width=True):
+        # Secondary "Legacy" Button - Styled as a subtle link now
+        if st.button("Legacy Service (End of Life)", use_container_width=True):
             st.query_params["view"] = "legacy"
             st.rerun()
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # --- THREE COLUMN FEATURES ---
+    # --- THREE COLUMN FEATURES (CLEAN) ---
     c_a, c_b, c_c = st.columns(3)
     
     with c_a:
         st.markdown("""
-        <div class="feature-card">
+        <div style="text-align: center;">
             <div class="feature-icon">🎙️</div>
             <div class="feature-head">Speak</div>
-            <div class="feature-body">Dictate your letter. AI transcribes and polishes it to perfection.</div>
+            <div class="feature-body">Dictate your letter. AI transcribes and formats it instantly.</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c_b:
         st.markdown("""
-        <div class="feature-card">
+        <div style="text-align: center;">
             <div class="feature-icon">📄</div>
             <div class="feature-head">Print</div>
-            <div class="feature-body">We print on premium 24lb paper, fold, and envelope it for you.</div>
+            <div class="feature-body">Printed on archival bond paper, folded, and enveloped.</div>
         </div>
         """, unsafe_allow_html=True)
         
     with c_c:
         st.markdown("""
-        <div class="feature-card">
+        <div style="text-align: center;">
             <div class="feature-icon">📬</div>
             <div class="feature-head">Send</div>
-            <div class="feature-body">Mailed via USPS First Class or Certified Mail. No stamps needed.</div>
+            <div class="feature-body">USPS First Class or Certified Mail. Full tracking included.</div>
         </div>
         """, unsafe_allow_html=True)
 
     # --- FOOTER ---
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     st.markdown("""
-    <div style="text-align: center; color: #aaa; font-size: 0.8rem;">
-        VerbaPost v3.2.4 • Secure • Private • Real
+    <div style="text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;">
+        VerbaPost • Secure • Private • Real
     </div>
     """, unsafe_allow_html=True)
 
-# --- SAFETY ALIAS (THE CRITICAL FIX) ---
-# This ensures the code works regardless of whether main.py asks for 'show' or 'render'
+# --- SAFETY ALIAS ---
 show_splash = render_splash
