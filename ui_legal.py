@@ -1,6 +1,7 @@
 import streamlit as st
 
-def show_legal():
+# --- FIX: Renamed from show_legal to render_legal ---
+def render_legal():
     st.markdown("""
     <div style="text-align: center; margin-bottom: 30px;">
         <h1 style="color: #2a5298;">⚖️ Legal & Privacy</h1>

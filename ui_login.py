@@ -2,7 +2,7 @@ import streamlit as st
 import auth_engine
 import time
 
-# --- RENAMED from show_login to render_login to match main.py ---
+# --- FIX: Renamed from show_login to render_login ---
 def render_login(*args, **kwargs):
     """
     Renders the Authentication Interface (Login, Signup, Forgot Password).
@@ -50,13 +50,10 @@ def render_login(*args, **kwargs):
     # --- MAIN UI ---
     st.markdown("<h2 class='auth-header'>Access VerbaPost</h2>", unsafe_allow_html=True)
     
-    # Determine default tab based on session state
     default_idx = 0
     if st.session_state.get("auth_view") == "signup":
         default_idx = 1
     
-    # Note: Streamlit tabs don't support programmatic index setting easily without rerun, 
-    # so we rely on user click for now, or use st.radio for strict control if needed.
     tab1, tab2, tab3 = st.tabs([
         "🔑 Returning User", 
         "✨ New User", 
@@ -81,12 +78,10 @@ def render_login(*args, **kwargs):
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
                         st.session_state.user_id = res.user.id
-                        # Clear URL params to clean up '?view=login'
-                        st.query_params.clear()
-                        # Force Redirect to Workspace/Store
-                        st.session_state.app_mode = "store" 
+                        st.session_state.app_mode = "store"  # Force Redirect
                         st.success("Login successful! Redirecting...")
                         time.sleep(0.5)
+                        st.query_params.clear()
                         st.rerun()
                     else:
                         st.error(err)
