@@ -9,7 +9,6 @@ except ImportError:
 def render_splash():
     """
     Renders the marketing landing page.
-    Includes: Hero, Value Props, Pricing Grid, and Civic Leaderboard.
     """
     
     # --- 1. HERO SECTION ---
@@ -23,31 +22,25 @@ def render_splash():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- 2. MAIN CALL TO ACTION (Context Aware) ---
+    # --- 2. MAIN CALL TO ACTION ---
     col1, col2 = st.columns(2)
     
-    # Determine button text based on auth state
     start_label = "🚀 Start a Letter"
     if st.session_state.get("authenticated"):
-        user_name = st.session_state.get("user_email", "").split('@')[0]
-        start_label = f"🚀 Continue ({user_name})"
+        user = st.session_state.get("user_email", "")
+        if user: start_label = f"🚀 Continue ({user.split('@')[0]})"
 
     with col1:
         if st.button(start_label, type="primary", use_container_width=True):
-            # If guest, go to signup. If user, go to workspace.
             if not st.session_state.get("authenticated"):
                 st.session_state.auth_view = "signup"
-                # FIX: Set query param so main.py router switches to login view
                 st.query_params["view"] = "login"
             else:
                 st.session_state.app_mode = "workspace"
-                # Clear view param to ensure we fall through to main app logic
-                if "view" in st.query_params:
-                     del st.query_params["view"]
+                if "view" in st.query_params: del st.query_params["view"]
             st.rerun()
             
     with col2:
-        # 🆕 LEGACY PIVOT BUTTON
         if st.button("🕯️ Legacy Service (New)", use_container_width=True):
             st.query_params["view"] = "legacy"
             st.rerun()
@@ -68,7 +61,7 @@ def render_splash():
     
     st.write("---")
     
-    # --- 4. PRICING GRID (Full v3.0 Options) ---
+    # --- 4. PRICING GRID ---
     st.subheader("Simple Pricing")
     
     p1, p2, p3 = st.columns(3)
@@ -90,31 +83,37 @@ def render_splash():
 
     st.write("---")
 
-    # --- 5. CIVIC LEADERBOARD (Restored Dynamic Logic) ---
+    # --- 5. CIVIC LEADERBOARD ---
     st.subheader("🏛️ Civic Leaderboard")
     st.caption("Who is getting mail this week?")
     
-    # Attempt to fetch real data, fallback to static if engine fails/offline
     leaderboard_data = []
     try:
         if civic_engine and hasattr(civic_engine, "get_weekly_stats"):
             leaderboard_data = civic_engine.get_weekly_stats()
     except Exception:
-        pass # Fail silently to static data
+        pass 
         
     if not leaderboard_data:
-        # Fallback Data (so the UI doesn't look broken)
         leaderboard_data = [
             {"Rank": "1", "Name": "Sen. Chuck Schumer", "Letters": "142"},
             {"Rank": "2", "Name": "Rep. Alexandria Ocasio-Cortez", "Letters": "89"},
             {"Rank": "3", "Name": "Sen. Mitch McConnell", "Letters": "64"},
         ]
     
-    st.dataframe(
-        leaderboard_data,
-        use_container_width=True,
-        hide_index=True
-    )
+    st.dataframe(leaderboard_data, use_container_width=True, hide_index=True)
     
-    # --- FOOTER ---
-    st.markdown("<div style='text-align: center; color: #888; margin-top: 50px; font-size: 0.8em;'>v4.0 - Production Ready | <a href='?view=terms'>Terms</a> | <a href='?view=privacy'>Privacy</a></div>", unsafe_allow_html=True)
+    # --- 6. FOOTER (FIXED) ---
+    st.write("---")
+    f1, f2, f3 = st.columns([2, 1, 1])
+    with f1:
+        st.caption("© 2025 VerbaPost. All rights reserved.")
+        st.caption("v4.0 - Production Stable")
+    with f2:
+        if st.button("📜 Terms of Service", key="btn_terms"):
+            st.query_params["view"] = "terms"
+            st.rerun()
+    with f3:
+        if st.button("🔒 Privacy Policy", key="btn_privacy"):
+            st.query_params["view"] = "privacy"
+            st.rerun()
