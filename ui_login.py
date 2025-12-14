@@ -43,18 +43,18 @@ def render_login_page():
 
     # --- TAB 1: LOGIN ---
     with tab_login:
+        # FORM START
         with st.form("login_form"):
             email = st.text_input("Email Address", key="login_email")
             password = st.text_input("Password", type="password", key="login_pass")
             
             st.write("")
+            # Must use form_submit_button here
             if st.form_submit_button("Sign In", type="primary", use_container_width=True):
                 if not email or not password:
                     trigger_shake_error()
                     st.error("Please enter both email and password.")
                 else:
-                    # Direct call to auth_engine without "if auth_engine:" check
-                    # This ensures if the module is broken, we see the error.
                     user = auth_engine.verify_user(email, password)
                     
                     if user:
@@ -73,20 +73,22 @@ def render_login_page():
                     else:
                         trigger_shake_error()
                         st.error("Incorrect email or password. Please try again.")
+        # FORM END (Critical Fix: Indentation stopped here)
 
-            # Expandable "Forgot Password" Section
-            with st.expander("❓ Trouble signing in?"):
-                st.info("Enter your email below to receive a secure reset link.")
-                reset_email = st.text_input("Recovery Email", key="reset_req_email")
-                if st.button("Send Reset Link"):
-                    if reset_email:
-                        success, msg = auth_engine.send_password_reset(reset_email)
-                        if success:
-                            st.success(f"Reset link sent to {reset_email}")
-                        else:
-                            st.error(f"Failed: {msg}")
+        # Expandable "Forgot Password" Section (Now Outside Form)
+        with st.expander("❓ Trouble signing in?"):
+            st.info("Enter your email below to receive a secure reset link.")
+            reset_email = st.text_input("Recovery Email", key="reset_req_email")
+            # This is a regular button, so it MUST be outside st.form
+            if st.button("Send Reset Link"):
+                if reset_email:
+                    success, msg = auth_engine.send_password_reset(reset_email)
+                    if success:
+                        st.success(f"Reset link sent to {reset_email}")
                     else:
-                        st.error("Please enter an email address.")
+                        st.error(f"Failed: {msg}")
+                else:
+                    st.error("Please enter an email address.")
 
     # --- TAB 2: SIGNUP ---
     with tab_signup:
