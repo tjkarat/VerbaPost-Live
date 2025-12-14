@@ -967,34 +967,47 @@ def render_review_page():
         _process_sending_logic(tier)
 
 # --- 10. MAIN ROUTER ---
-def render_main()::
+def render_main():
     inject_mobile_styles()
-    if analytics: analytics.inject_ga()
+    if analytics: 
+        try: analytics.inject_ga()
+        except: pass
     
     render_sidebar()
     
     mode = st.session_state.get("app_mode", "splash")
     
+    # ROUTING LOGIC
     if mode == "splash" and ui_splash: 
-        ui_splash.show_splash()
-    elif mode == "login" and ui_login and auth_engine: 
-        ui_login.show_login(auth_engine.sign_in, auth_engine.sign_up)
+        ui_splash.render_splash()
+        
+    elif mode == "login" and ui_login: 
+        # Updated to match the new ui_login.render_login() signature
+        ui_login.render_login()
+        
     elif mode == "store": 
         render_store_page()
+        
     elif mode == "workspace": 
         render_workspace_page()
+        
     elif mode == "review": 
         render_review_page()
+        
     elif mode == "admin" and ui_admin: 
         ui_admin.show_admin()
+        
     elif mode == "legal" and ui_legal: 
-        ui_legal.show_legal()
-    elif mode == "help" and ui_help: 
-        ui_help.show_help()
+        ui_legal.render_legal() # Renamed from show_legal
+        
+    elif mode == "legacy" and "ui_legacy" in globals():
+        ui_legacy.render_legacy_page()
+        
     else: 
-        # Fallback to store if authenticated, else splash
+        # Fallback
         if st.session_state.get("authenticated"):
             st.session_state.app_mode = "store"
+            render_store_page()
         else:
             st.session_state.app_mode = "splash"
-        st.rerun()
+            if ui_splash: ui_splash.render_splash()
