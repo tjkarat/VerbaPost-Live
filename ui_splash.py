@@ -1,52 +1,112 @@
 import streamlit as st
+import secrets_manager
+
+# Try to import civic engine for leaderboard, fail gracefully if missing
 try: import civic_engine
-except: civic_engine = None
+except ImportError: civic_engine = None
 
 def render_splash():
+    # --- HERO SECTION ---
     st.markdown("""
-    <div style="text-align: center; padding: 60px 0 40px 0;">
-        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #333;">📮 VerbaPost</h1>
-        <p style="font-size: 1.4em; color: #555;">Real letters, sent from your screen.</p>
+    <div style="text-align: center; padding: 40px 20px 60px 20px; background: linear-gradient(180deg, #FFFFFF 0%, #F0F2F6 100%); border-radius: 0 0 20px 20px; margin-bottom: 30px;">
+        <h1 style="font-size: 3.5rem; margin-bottom: 10px; color: #1E1E1E;">📮 VerbaPost</h1>
+        <p style="font-size: 1.5rem; color: #555; margin-bottom: 30px;">Real letters, sent from your screen.</p>
+        <div style="display: flex; justify-content: center; gap: 10px;">
+            </div>
     </div>
     """, unsafe_allow_html=True)
 
-    c1, c2 = st.columns(2)
-    label = f"🚀 Continue ({st.session_state.user_email.split('@')[0]})" if st.session_state.get("authenticated") else "🚀 Start a Letter"
-
-    with c1:
-        if st.button(label, type="primary", use_container_width=True):
-            if st.session_state.get("authenticated"):
-                st.session_state.app_mode = "workspace"
-                if "view" in st.query_params: del st.query_params["view"]
-            else:
-                st.query_params["view"] = "login" # Force View Switch
-            st.rerun()
-            
+    # --- CALL TO ACTION BUTTONS ---
+    c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("🕯️ Legacy Service", use_container_width=True):
-            st.query_params["view"] = "legacy"; st.rerun()
+        col_a, col_b = st.columns(2)
+        with col_a:
+            label = f"🚀 Continue" if st.session_state.get("authenticated") else "🚀 Start a Letter"
+            if st.button(label, type="primary", use_container_width=True):
+                if st.session_state.get("authenticated"):
+                    st.session_state.app_mode = "store"
+                else:
+                    st.query_params["view"] = "login"
+                st.rerun()
+        
+        with col_b:
+             if st.button("🕯️ Legacy Service", use_container_width=True):
+                 st.query_params["view"] = "legacy"
+                 st.rerun()
 
-    st.write("---")
+    # --- VALUE PROPS ---
+    st.markdown("---")
     c1, c2, c3 = st.columns(3)
-    c1.markdown("### 🎙️ Speak\nDictate your letter. AI polishes it.")
-    c2.markdown("### 📄 Print\nPremium paper, folded & enveloped.")
-    c3.markdown("### 📬 Send\nUSPS First Class or Certified.")
-    
-    st.write("---")
-    p1, p2, p3 = st.columns(3)
-    p1.markdown("**Standard**\n### $2.99"); p2.markdown("**Heirloom**\n### $5.99"); p3.markdown("**Legacy**\n### $15.99")
+    with c1:
+        st.markdown("### 🎙️ Speak")
+        st.caption("Dictate your letter. AI transcribes and polishes it to perfection.")
+    with c2:
+        st.markdown("### 📄 Print")
+        st.caption("We print on premium 24lb paper, fold, and envelope it for you.")
+    with c3:
+        st.markdown("### 📬 Send")
+        st.caption("Mailed via USPS First Class or Certified Mail. No stamps needed.")
 
-    st.write("---")
-    st.subheader("🏛️ Civic Leaderboard")
-    data = []
-    if civic_engine: 
-        try: data = civic_engine.get_weekly_stats()
-        except: pass
-    if not data: data = [{"Rank": 1, "Name": "Sen. Schumer", "Letters": 142}, {"Rank": 2, "Name": "Rep. AOC", "Letters": 89}]
-    st.dataframe(data, use_container_width=True, hide_index=True)
+    # --- PRICING GRID ---
+    st.markdown("---")
+    st.subheader("Simple Pricing")
     
-    st.write("---")
+    p1, p2, p3 = st.columns(3)
+    
+    with p1:
+        st.container(border=True).markdown("""
+        #### ⚡ Standard
+        ## $2.99
+        * Machine Printed
+        * Standard Envelope
+        * USPS First Class
+        """)
+    
+    with p2:
+        st.container(border=True).markdown("""
+        #### 🏺 Heirloom
+        ## $5.99
+        * **Cotton Bond Paper**
+        * **Real Stamp**
+        * Hand-Addressed
+        """)
+        
+    with p3:
+        st.container(border=True).markdown("""
+        #### 🏛️ Civic
+        ## $6.99
+        * **3 Letters Pack**
+        * Auto-find Reps
+        * Mailed to Congress
+        """)
+
+    # --- CIVIC LEADERBOARD ---
+    st.markdown("---")
+    st.subheader("🏛️ Weekly Civic Leaderboard")
+    st.caption("Most contacted representatives this week via VerbaPost.")
+    
+    leader_data = []
+    if civic_engine:
+        try: 
+            leader_data = civic_engine.get_leaderboard()
+        except: 
+            pass
+            
+    if not leader_data:
+        # Fallback / Demo Data
+        leader_data = [
+            {"Rank": "1", "Name": "Sen. Chuck Schumer (NY)", "Letters": 142},
+            {"Rank": "2", "Name": "Rep. Alexandria Ocasio-Cortez (NY)", "Letters": 89},
+            {"Rank": "3", "Name": "Sen. Ted Cruz (TX)", "Letters": 64},
+        ]
+    
+    st.dataframe(leader_data, use_container_width=True, hide_index=True)
+
+    # --- FOOTER ---
+    st.markdown("---")
     f1, f2 = st.columns([3, 1])
-    f1.caption("© 2025 VerbaPost | v4.0")
+    f1.caption("© 2025 VerbaPost Inc. | Made in NYC")
     with f2:
-        if st.button("⚖️ Legal & Privacy"): st.query_params["view"] = "legal"; st.rerun()
+        if st.button("⚖️ Legal & Privacy"):
+            st.query_params["view"] = "legal"
+            st.rerun()
