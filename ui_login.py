@@ -30,21 +30,10 @@ def trigger_shake_error():
         background-color: #fff8f8;
         color: #d93025;
     }
-    /* Status Badge Styling */
-    .status-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .badge-gray { background-color: #f0f2f6; color: #555; }
-    .badge-green { background-color: #e6fffa; color: #047857; border: 1px solid #047857; }
     </style>
     """, unsafe_allow_html=True)
 
+# --- MAIN RENDER FUNCTION ---
 def render_login_page():
     trigger_shake_error() # Pre-load CSS
     
@@ -58,7 +47,7 @@ def render_login_page():
     st.markdown("<p style='text-align: center; color: #666;'>Secure access to your correspondence.</p>", unsafe_allow_html=True)
     st.write("")
 
-    # --- TABS (Clean toggle) ---
+    # --- TABS ---
     tab_login, tab_signup = st.tabs(["🔒 Log In", "✨ New Account"])
 
     # --- TAB 1: LOGIN ---
@@ -182,3 +171,7 @@ def _render_password_reset():
             else:
                 trigger_shake_error()
                 st.error("Passwords must match and be at least 6 characters.")
+
+# --- SAFETY ALIAS (CRITICAL FIX) ---
+# This ensures it works whether main.py calls 'render_login' or 'render_login_page'
+render_login = render_login_page
