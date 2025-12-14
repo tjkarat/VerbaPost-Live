@@ -9,9 +9,9 @@ import ui_login
 import ui_admin
 import ui_legal
 import database
+import secrets_manager
 
 # --- CONFIGURATION ---
-# FIX: Sidebar is collapsed by default
 st.set_page_config(
     page_title="VerbaPost", 
     page_icon="📮", 
@@ -39,11 +39,23 @@ def render_sidebar():
             st.session_state.app_mode = "login"
             st.rerun()
 
-        # 3. Admin Access
-        st.markdown("---")
-        if st.button("⚙️ Admin Console", use_container_width=True):
-            st.session_state.app_mode = "admin"
-            st.rerun()
+        # 3. Admin Access (RBAC Protected)
+        # Only show if authenticated AND email matches admin
+        user_email = st.session_state.get("user_email", "")
+        # You can store the admin email in secrets as "admin.email"
+        admin_email = "admin@verbapost.com" 
+        try:
+            if secrets_manager:
+                sec_email = secrets_manager.get_secret("admin.email")
+                if sec_email: admin_email = sec_email
+        except: pass
+
+        if st.session_state.get("authenticated") and user_email == admin_email:
+            st.markdown("---")
+            st.markdown("### 🛡️ Admin")
+            if st.button("⚙️ Admin Console", use_container_width=True):
+                st.session_state.app_mode = "admin"
+                st.rerun()
 
         # 4. Help / Tutorial
         st.markdown("---")
@@ -56,7 +68,6 @@ def render_sidebar():
             4. **Pay:** Checkout securely via Stripe.
             5. **Track:** We email you the tracking #.
             """)
-            # FIX: Correct Support Email
             st.info("Support: support@verbapost.com")
 
         # 5. Session Debug
@@ -153,7 +164,11 @@ def main():
         if ui_legal: ui_legal.render_legal_page()
         
     elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
+        # Double check in case they navigated via URL
+        if st.session_state.get("authenticated") and st.session_state.get("user_email") == "admin@verbapost.com": # Or check against secret
+             if ui_admin: ui_admin.render_admin_page()
+        else:
+             st.error("Access Denied.")
         
     # Default / Standard App Flow
     elif mode in ["store", "workspace", "review"]:
