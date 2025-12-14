@@ -1,17 +1,18 @@
 import streamlit as st
 
-def show_splash():
+# RENAMED from 'show_splash' to 'render_splash' to match your main.py
+def render_splash():
     # --- MODERN CSS STYLING ---
     st.markdown("""
     <style>
-    /* 1. Reset Streamlit Padding */
+    /* 1. Global Reset & Container Logic */
     .block-container {
-        padding-top: 0rem !important;
+        padding-top: 0rem !important; /* Remove default top padding */
         padding-bottom: 2rem;
         max-width: 100%;
     }
     
-    /* 2. Hero Section (Purple Gradient) */
+    /* 2. The Modern Hero Section */
     .hero-container {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         width: 100vw;
