@@ -16,8 +16,6 @@ import bulk_engine
 import audit_engine
 
 # --- UI MODULE IMPORTS ---
-# Wrapped in try/except to prevent the entire app from crashing 
-# if a single module is missing or has a syntax error.
 try:
     import ui_splash
 except ImportError:
@@ -43,7 +41,7 @@ try:
 except ImportError:
     ui_legacy = None
 
-# --- ACCESSIBILITY & CSS ---
+# --- ACCESSIBILITY CSS INJECTOR ---
 def inject_accessibility_css():
     """
     Injects CSS to make tabs larger, high-contrast, and button-like.
@@ -120,7 +118,7 @@ def load_address_book():
         # Format: "Name (City)" -> Dict
         return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
     except Exception as e:
-        print(f"Address Book Error: {e}")
+        # Fail silently or log
         return {}
 
 def _handle_draft_creation(email, tier, price):
@@ -242,22 +240,24 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # Address Book Loader (Restored Feature)
+        # --- ADDRESS BOOK (RESTORED) ---
         if st.session_state.get("authenticated"):
             addr_opts = load_address_book()
             if addr_opts:
-                selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
-                if selected_contact != "Select...":
-                    data = addr_opts[selected_contact]
-                    # Pre-fill session state variables
-                    st.session_state.to_name_input = data.get('name', '')
-                    st.session_state.to_street_input = data.get('street', '')
-                    st.session_state.to_city_input = data.get('city', '')
-                    st.session_state.to_state_input = data.get('state', '')
-                    st.session_state.to_zip_input = data.get('zip', '')
-                    st.rerun()
+                col_load, col_empty = st.columns([2, 1])
+                with col_load:
+                    selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
+                    if selected_contact != "Select...":
+                        data = addr_opts[selected_contact]
+                        # Pre-fill session state variables for the form below
+                        st.session_state.to_name_input = data.get('name', '')
+                        st.session_state.to_street_input = data.get('street', '')
+                        st.session_state.to_city_input = data.get('city', '')
+                        st.session_state.to_state_input = data.get('state', '')
+                        st.session_state.to_zip_input = data.get('zip', '')
+                        st.rerun()
         else:
-            st.caption("🔒 Log in to access your saved Address Book.")
+            st.caption("🔒 Log in to use your Address Book.")
 
         # Address Form
         with st.form("addressing_form"):
@@ -265,7 +265,7 @@ def render_workspace_page():
             
             with col_to:
                 st.markdown("### To: (Recipient)")
-                # Use key=... so we can pre-fill from session state if needed
+                # Use key=... so we can pre-fill from session state if loaded
                 name = st.text_input("Name", key="to_name_input")
                 street = st.text_input("Street Address", key="to_street_input")
                 city = st.text_input("City", key="to_city_input")
