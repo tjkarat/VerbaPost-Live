@@ -5,12 +5,11 @@ import streamlit as st
 from secrets_manager import get_secret
 
 # --- CONFIGURATION ---
-# We use the Print & Mail API for EVERYTHING (Sending & Verifying)
+# We use the Print & Mail API for EVERYTHING
 BASE_URL = "https://api.postgrid.com/print-mail/v1"
 
 def _get_api_key():
     """Retrieve API Key from secrets or env vars."""
-    # This grabs 'postgrid.api_key' which will be the TEST key in QA and LIVE key in Prod
     key = get_secret("postgrid.api_key")
     if not key:
         st.error("❌ Configuration Error: PostGrid API Key missing.")
@@ -20,12 +19,10 @@ def _get_api_key():
 def _to_postgrid_addr(addr_dict):
     """
     Maps internal address keys to PostGrid's required format.
-    Returns None if critical fields are missing.
     """
     if not addr_dict:
         return None
 
-    # Handle various key names safely
     line1 = (addr_dict.get("street") or addr_dict.get("address_line1") or "").strip()
     line2 = (addr_dict.get("street2") or addr_dict.get("address_line2") or addr_dict.get("apt") or "").strip()
     city = (addr_dict.get("city") or "").strip()
@@ -33,7 +30,6 @@ def _to_postgrid_addr(addr_dict):
     zip_code = (addr_dict.get("zip") or addr_dict.get("postalOrZip") or addr_dict.get("zip_code") or "").strip()
     name = (addr_dict.get("name") or addr_dict.get("full_name") or "Valued Customer").strip()
 
-    # CRITICAL VALIDATION
     if not line1 or not city or not state or not zip_code:
         return None
 
@@ -49,32 +45,47 @@ def _to_postgrid_addr(addr_dict):
 
 def validate_address(address_dict):
     """
-    Uses PostGrid's Print & Mail Verification Endpoint.
+    WORKAROUND: Verifies address by creating a temporary 'Contact' 
+    using the Print & Mail API key.
     """
     api_key = _get_api_key()
     if not api_key: return False, {"error": "API Key Missing"}
 
     pg_addr = _to_postgrid_addr(address_dict)
     if not pg_addr:
-        return False, {"error": "Missing critical fields (Street, City, State, Zip)"}
+        return False, {"error": "Missing critical fields"}
 
     try:
-        # FIX: The correct endpoint for Print & Mail verification is /verifications
-        # We removed "/address" from the end.
+        # FIX: Use /contacts to validate instead of /verifications
+        # This works with your Print & Mail key.
         response = requests.post(
-            url = f"{BASE_URL}/verifications", 
+            url = f"{BASE_URL}/contacts", 
             auth=(api_key, ""),
-            json={"address": pg_addr},
+            json=pg_addr,  # Payload is the same
             timeout=10
         )
         
-        if response.status_code == 200:
+        if response.status_code in [200, 201]:
+            # Success! The address is valid and PostGrid accepted it.
             data = response.json()
-            if data.get("success") or data.get("status") in ["verified", "corrected"]: 
-                # PostGrid Print & Mail API typically returns the verified address in 'data'
-                return True, data.get("data", data) 
-            else:
-                return False, data.get("error", "Address not found or invalid.")
+            
+            # Map the returned 'contact' data back to our expected format
+            # so the UI can autofill the "corrected" address
+            standardized_data = {
+                "address_line1": data.get("addressLine1"),
+                "address_line2": data.get("addressLine2"),
+                "city": data.get("city"),
+                "state": data.get("provinceOrState"),
+                "zip": data.get("postalOrZip"),
+                "country": data.get("countryCode")
+            }
+            return True, standardized_data
+            
+        elif response.status_code == 400:
+            # 400 usually means validation failed (e.g. invalid state/zip combo)
+            err_msg = response.json().get("error", {}).get("message", "Invalid Address")
+            return False, {"error": err_msg}
+            
         else:
             return False, f"API Error {response.status_code}: {response.text}"
 
@@ -91,11 +102,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
     pg_to = _to_postgrid_addr(to_addr)
     pg_from = _to_postgrid_addr(from_addr)
 
-    if not pg_to:
-        print(f"❌ Aborting Send: Invalid TO address. Data received: {to_addr}")
-        return False
-    if not pg_from:
-        print(f"❌ Aborting Send: Invalid FROM address. Data received: {from_addr}")
+    if not pg_to or not pg_from:
         return False
 
     try:
