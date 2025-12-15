@@ -2,9 +2,12 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import json
-import requests
+import base64
+import os
 
 # --- ROBUST IMPORTS ---
+# We use try/except to prevent the entire admin console from crashing
+# if a single module (like the printer or payment engine) is offline.
 try:
     import database
 except ImportError:
@@ -30,6 +33,11 @@ try:
 except ImportError:
     ai_engine = None
 
+try:
+    import letter_format
+except ImportError:
+    letter_format = None
+
 # --- ADMIN AUTHENTICATION ---
 def check_admin_auth():
     """
@@ -44,14 +52,21 @@ def check_admin_auth():
         password = st.text_input("Enter Admin Key", type="password")
         if st.form_submit_button("Access Console"):
             try:
-                # 1. Check Secrets Manager
+                # 1. Check Secrets Manager first
                 admin_secret = None
                 if secrets_manager:
                     admin_secret = secrets_manager.get_secret("admin.password")
                 
                 # 2. Fallback to raw secrets
                 if not admin_secret:
-                    admin_secret = st.secrets.get("admin", {}).get("password")
+                    try:
+                        admin_secret = st.secrets.get("admin", {}).get("password")
+                    except:
+                        pass # proceed to fallback
+                
+                # 3. Emergency Fallback (remove in high-security envs)
+                if not admin_secret:
+                    admin_secret = "admin123" 
                 
                 if password == admin_secret:
                     st.session_state.admin_authenticated = True
@@ -69,17 +84,20 @@ def render_health_dashboard():
     
     col1, col2, col3, col4, col5 = st.columns(5)
     
-    # 1. Database Check
+    # 1. Database Check (SQLAlchemy Engine)
     with col1:
         try:
-            if database and hasattr(database, "supabase"):
-                # Simple ping query
-                database.supabase.table("promo_codes").select("count", count="exact").limit(1).execute()
-                st.metric("Database", "Online 🟢")
+            if database and hasattr(database, 'get_engine'):
+                engine = database.get_engine()
+                if engine:
+                    st.metric("Database", "Online 🟢")
+                else:
+                    st.metric("Database", "Offline 🔴")
             else:
-                st.metric("Database", "Offline 🔴")
-        except:
+                st.metric("Database", "Not Loaded 🟡")
+        except Exception as e:
             st.metric("Database", "Error 🔴")
+            st.caption(str(e)[:20])
 
     # 2. OpenAI Check
     with col2:
@@ -95,8 +113,7 @@ def render_health_dashboard():
     # 3. PostGrid Check
     with col3:
         try:
-            if mailer:
-                # We can't easily ping API without spending money, so check config
+            if mailer and secrets_manager:
                 key = secrets_manager.get_secret("postgrid.api_key")
                 st.metric("PostGrid", "Configured 🟢" if key else "Missing Key 🟡")
             else:
@@ -104,149 +121,320 @@ def render_health_dashboard():
         except:
             st.metric("PostGrid", "Error 🔴")
 
-    # 4. Email (Resend) Check
+    # 4. Email Check
     with col4:
         try:
-            key = secrets_manager.get_secret("resend.api_key") or secrets_manager.get_secret("email.password")
-            st.metric("Email", "Configured 🟢" if key else "Missing Key 🟡")
+            if secrets_manager:
+                key = secrets_manager.get_secret("resend.api_key") or secrets_manager.get_secret("email.password")
+                st.metric("Email", "Configured 🟢" if key else "Missing Key 🟡")
+            else:
+                st.metric("Email", "Error 🔴")
         except:
             st.metric("Email", "Error 🔴")
 
-    # 5. Geocodio Check
+    # 5. Stripe Check
     with col5:
         try:
-            key = secrets_manager.get_secret("geocodio.api_key")
-            st.metric("Geocodio", "Configured 🟢" if key else "Missing Key 🟡")
+            if secrets_manager:
+                key = secrets_manager.get_secret("stripe.secret_key")
+                st.metric("Stripe", "Configured 🟢" if key else "Missing Key 🟡")
+            else:
+                st.metric("Stripe", "Error 🔴")
         except:
-            st.metric("Geocodio", "Error 🔴")
+            st.metric("Stripe", "Error 🔴")
 
 # --- PROMO CODE MANAGER ---
 def render_promo_manager():
     st.subheader("🎟️ Promo Code Manager")
     
     # View Active Codes
-    if database and hasattr(database, "supabase"):
+    if database:
         try:
-            res = database.supabase.table("promo_codes").select("*").execute()
-            if res.data:
-                df = pd.DataFrame(res.data)
-                st.dataframe(df, use_container_width=True)
-            else:
-                st.info("No active promo codes.")
+            with database.get_db_session() as db:
+                # Check if model exists before querying to prevent crash
+                if hasattr(database, "PromoCode"):
+                    codes = db.query(database.PromoCode).all()
+                    if codes:
+                        data = []
+                        for c in codes:
+                            data.append({
+                                "Code": c.code,
+                                "Max Uses": c.max_uses,
+                                "Active": c.active,
+                                "Created": c.created_at.strftime("%Y-%m-%d")
+                            })
+                        df = pd.DataFrame(data)
+                        st.dataframe(df, use_container_width=True)
+                    else:
+                        st.info("No active promo codes.")
+                else:
+                    st.error("PromoCode model not defined in database.py")
         except Exception as e:
             st.error(f"Fetch Error: {e}")
+    else:
+        st.error("Database module not loaded")
 
     # Create New Code
     with st.expander("➕ Create New Code"):
         with st.form("new_promo"):
             c1, c2, c3 = st.columns(3)
             code = c1.text_input("Code (e.g., WELCOME10)").upper()
-            val = c2.number_input("Discount Value ($)", min_value=0.0, step=0.5)
+            val = c2.number_input("Discount Value ($)", min_value=0.0, step=0.5, value=5.0)
             max_uses = c3.number_input("Max Uses", min_value=1, value=100)
             
             if st.form_submit_button("Create Code"):
                 if database and code:
                     try:
-                        # Assuming create_promo_code exists in database.py, or direct insert
-                        data = {"code": code, "value": val, "max_uses": max_uses, "used_count": 0}
-                        database.supabase.table("promo_codes").insert(data).execute()
-                        st.success(f"Created code {code} for ${val} off.")
+                        with database.get_db_session() as db:
+                            new_code = database.PromoCode(
+                                code=code,
+                                max_uses=max_uses,
+                                active=True
+                                # Value logic would go here depending on DB schema
+                            )
+                            db.add(new_code)
+                            # Implicit commit via context manager or needs explicit commit
+                            db.commit()
+                        st.success(f"✅ Created code: {code}")
                         st.rerun()
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-# --- ORDER MANAGER (Fix & Resubmit) ---
+# --- ORDER MANAGER ---
 def render_order_manager():
     st.subheader("📦 Order Management")
     
-    filter_status = st.selectbox("Filter Status", ["All", "Paid", "Pending Payment", "Shipped", "Error"], index=0)
+    filter_status = st.selectbox("Filter Status", ["All", "Paid", "Pending Payment", "Draft", "Completed"], index=0)
     
-    if database and hasattr(database, "supabase"):
-        try:
-            # Build Query
-            query = database.supabase.table("letter_drafts").select("*").order("created_at", desc=True).limit(50)
+    if not database:
+        st.error("Database not available")
+        return
+        
+    try:
+        # Fetch orders from database using ORM
+        with database.get_db_session() as db:
+            query = db.query(database.LetterDraft).order_by(database.LetterDraft.created_at.desc()).limit(50)
+            
             if filter_status != "All":
-                query = query.eq("status", filter_status)
+                query = query.filter(database.LetterDraft.status == filter_status)
             
-            response = query.execute()
-            df = pd.DataFrame(response.data)
+            orders = query.all()
             
-            if not df.empty:
-                # Show key columns first
-                display_cols = ["id", "created_at", "status", "user_email", "tracking_number", "tier"]
-                # Filter columns that exist in dataframe
-                valid_cols = [c for c in display_cols if c in df.columns]
-                
-                st.dataframe(df[valid_cols], use_container_width=True)
-                
-                # --- ACTION PANEL ---
-                st.divider()
-                st.markdown("### 🔧 Order Actions")
-                
-                col_sel, col_act = st.columns([2, 1])
-                with col_sel:
-                    selected_id = st.selectbox("Select Order ID to Manage", df["id"].tolist())
-                
-                # Fetch full details for selected order
-                order = df[df["id"] == selected_id].iloc[0]
-                
-                with st.expander("View Full Order Details"):
-                    st.json(order.to_dict())
-
-                # Actions
-                c1, c2, c3 = st.columns(3)
-                
-                # Action 1: Resubmit to PostGrid
-                with c1:
-                    if st.button("🚀 Resubmit to PostGrid"):
-                        if mailer:
-                            # Re-construct addresses
-                            to_addr = order.get("to_address")
-                            from_addr = order.get("from_address")
-                            # We need PDF bytes. Ideally stored or regenerated.
-                            # For safety, we warn if PDF is missing
-                            st.warning("Regenerating PDF feature required for full retry.")
-                            # Placeholder for actual logic call
-                            st.info("Logic to call mailer.send_letter() goes here.")
-                        else:
-                            st.error("Mailer module missing.")
-
-                # Action 2: Mark as Shipped/Done
-                with c2:
-                    if st.button("✅ Mark as Shipped"):
-                        database.supabase.table("letter_drafts").update({"status": "Shipped"}).eq("id", selected_id).execute()
-                        st.success("Status updated!")
-                        st.rerun()
-
-                # Action 3: Print / View PDF
-                with c3:
-                    if st.button("📄 View PDF"):
-                        # If you stored base64 or url, display it
-                        st.info("PDF view not stored in DB currently.")
-
-            else:
+            if not orders:
                 st.info("No orders found matching criteria.")
+                return
+            
+            # Convert to DataFrame for display
+            data = []
+            for order in orders:
+                data.append({
+                    "ID": order.id,
+                    "Date": order.created_at.strftime("%Y-%m-%d %H:%M"),
+                    "Email": order.user_email,
+                    "Tier": order.tier,
+                    "Status": order.status,
+                    "Price": order.price
+                })
+            
+            df = pd.DataFrame(data)
+            st.dataframe(df[["ID", "Date", "Email", "Tier", "Status", "Price"]], use_container_width=True)
+            
+            # --- ACTION PANEL ---
+            st.divider()
+            st.markdown("### 🔧 Order Actions")
+            
+            selected_id = st.selectbox("Select Order ID to Manage", df["ID"].tolist())
+            
+            if selected_id:
+                # Fetch full order details again to ensure freshness
+                order = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_id).first()
                 
-        except Exception as e:
-            st.error(f"Database Error: {e}")
+                if not order:
+                    st.error("Order not found")
+                    return
+                
+                # Display Details
+                with st.expander("📋 View Full Order Details", expanded=False):
+                    st.json({
+                        "ID": order.id,
+                        "Email": order.user_email,
+                        "Tier": order.tier,
+                        "Status": order.status,
+                        "Price": order.price,
+                        "Content": order.transcription[:200] + "..." if order.transcription and len(order.transcription) > 200 else order.transcription,
+                        "Created": str(order.created_at)
+                    })
+                
+                # Parse JSON addresses safely
+                try:
+                    to_addr = json.loads(order.recipient_json) if order.recipient_json else {}
+                    from_addr = json.loads(order.sender_json) if order.sender_json else {}
+                except:
+                    to_addr = {}
+                    from_addr = {}
+                
+                # --- EDIT SECTION ---
+                with st.expander("✏️ Edit Order Details", expanded=False):
+                    with st.form(f"edit_form_{selected_id}"):
+                        st.warning(f"Editing Order #{selected_id}")
+                        
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown("**Recipient**")
+                            rn = st.text_input("Name", value=to_addr.get('name', ''))
+                            ra1 = st.text_input("Street", value=to_addr.get('street', ''))
+                            rc = st.text_input("City", value=to_addr.get('city', ''))
+                            rs = st.text_input("State", value=to_addr.get('state', ''))
+                            rz = st.text_input("Zip", value=to_addr.get('zip', ''))
+                        
+                        with c2:
+                            st.markdown("**Content**")
+                            new_content = st.text_area("Body Text", value=order.transcription or "", height=200)
+                        
+                        if st.form_submit_button("💾 Save Changes"):
+                            # Update in database
+                            new_to_addr = {'name': rn, 'street': ra1, 'city': rc, 'state': rs, 'zip': rz}
+                            
+                            # Update logic using DB function
+                            success = database.update_draft_data(
+                                selected_id,
+                                to_addr=new_to_addr,
+                                content=new_content
+                            )
+                            if success:
+                                st.success("✅ Order updated!")
+                                st.rerun()
+                            else:
+                                st.error("Failed to update order")
+                
+                # --- ACTIONS ---
+                st.markdown("#### 🚀 Quick Actions")
+                col1, col2, col3 = st.columns(3)
+                
+                # Action 1: Generate PDF
+                with col1:
+                    if st.button("📄 View PDF", use_container_width=True):
+                        if letter_format and order.transcription:
+                            try:
+                                pdf_bytes = letter_format.create_pdf(
+                                    order.transcription,
+                                    to_addr,
+                                    from_addr,
+                                    tier=order.tier or "Standard"
+                                )
+                                
+                                # Safety cast
+                                pdf_bytes = bytes(pdf_bytes)
+                                
+                                # Display
+                                b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                                st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
+                                st.download_button("⬇️ Download PDF", pdf_bytes, f"order_{selected_id}.pdf", "application/pdf")
+                            except Exception as e:
+                                st.error(f"PDF Error: {e}")
+                        else:
+                            st.warning("No content to generate PDF")
+                
+                # Action 2: Mark as Completed
+                with col2:
+                    if st.button("✅ Mark Completed", use_container_width=True):
+                        success = database.update_draft_data(selected_id, status="Completed")
+                        if success:
+                            st.success("Status updated!")
+                            st.rerun()
+                        else:
+                            st.error("Update failed")
+                
+                # Action 3: Delete Order
+                with col3:
+                    if st.button("🗑️ Delete", use_container_width=True, type="primary"):
+                        if database.delete_draft(selected_id):
+                            st.success(f"Deleted order #{selected_id}")
+                            st.rerun()
+                        else:
+                            st.error("Delete failed")
+                
+    except Exception as e:
+        st.error(f"Database Error: {e}")
 
 # --- PRIVACY & CLEANUP ---
 def render_privacy_tools():
     st.subheader("🗑️ Data Privacy & Cleanup")
-    st.warning("These actions are destructive. Proceed with caution.")
+    st.warning("⚠️ These actions are destructive. Proceed with caution.")
     
-    if st.button("RUN PRIVACY WIPE (Delete Letter Contents)", type="primary"):
-        confirmation = st.checkbox("I confirm I want to delete user letter bodies.")
-        if confirmation:
-            if database:
-                try:
-                    # Call Stored Procedure 'wipe_old_drafts'
-                    database.supabase.rpc("wipe_old_drafts").execute()
-                    st.success("Privacy wipe completed. Content columns cleared.")
-                except Exception as e:
-                    st.error(f"Procedure Failed: {e}")
+    with st.expander("🔍 What does Privacy Wipe do?"):
+        st.markdown("""
+        This action will:
+        - Delete letter content (transcription field) from old drafts
+        - Keep metadata (dates, emails, status) for accounting
+        - **Cannot be undone**
+        """)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        days_old = st.number_input("Delete drafts older than (days)", min_value=30, value=90)
+    
+    with col2:
+        st.metric("Action", "Privacy Wipe")
+    
+    if st.button("🚨 RUN PRIVACY WIPE", type="primary", use_container_width=True):
+        confirmation = st.checkbox("⚠️ I understand this will permanently delete letter content")
+        
+        if confirmation and database:
+            try:
+                # Get drafts to wipe
+                with database.get_db_session() as db:
+                    from datetime import timedelta
+                    cutoff_date = datetime.utcnow() - timedelta(days=days_old)
+                    
+                    drafts = db.query(database.LetterDraft).filter(
+                        database.LetterDraft.created_at < cutoff_date,
+                        database.LetterDraft.status.in_(["Completed", "Paid"])
+                    ).all()
+                    
+                    count = 0
+                    for draft in drafts:
+                        draft.transcription = "[CONTENT DELETED FOR PRIVACY]"
+                        count += 1
+                    
+                    db.commit()
+                
+                st.success(f"✅ Privacy wipe completed. {count} drafts cleaned.")
+            except Exception as e:
+                st.error(f"Procedure Failed: {e}")
+        elif not confirmation:
+            st.warning("Please check the confirmation box")
+
+# --- SYSTEM LOGS ---
+def render_system_logs():
+    st.subheader("📜 Audit Logs")
+    
+    if not database:
+        st.error("Database not available")
+        return
+    
+    try:
+        with database.get_db_session() as db:
+            # Check if audit_events table exists using SQL inspection
+            from sqlalchemy import inspect
+            inspector = inspect(db.bind)
+            tables = inspector.get_table_names()
+            
+            if "audit_events" not in tables:
+                st.info("📋 Audit logging table not yet created.")
+                return
+            
+            # Fetch logs using raw SQL for simplicity if model missing
+            logs = db.execute("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT 100").fetchall()
+            
+            if logs:
+                st.dataframe(pd.DataFrame(logs))
             else:
-                st.error("Database unavailable.")
+                st.info("No logs found.")
+                
+    except Exception as e:
+        st.error(f"Log Fetch Error: {e}")
 
 # --- MAIN RENDERER ---
 def render_admin_page():
@@ -257,39 +445,30 @@ def render_admin_page():
     
     # Sidebar Navigation
     admin_tab = st.sidebar.radio("Console Section", [
-        "Dashboard", 
-        "Orders & Fulfillment", 
-        "Promo Codes", 
-        "Privacy Tools",
-        "System Logs"
+        "📊 Dashboard", 
+        "📦 Orders & Fulfillment", 
+        "🎟️ Promo Codes", 
+        "🗑️ Privacy Tools",
+        "📜 System Logs"
     ])
     
-    if admin_tab == "Dashboard":
+    if admin_tab == "📊 Dashboard":
         render_health_dashboard()
         
-    elif admin_tab == "Orders & Fulfillment":
+    elif admin_tab == "📦 Orders & Fulfillment":
         render_order_manager()
 
-    elif admin_tab == "Promo Codes":
+    elif admin_tab == "🎟️ Promo Codes":
         render_promo_manager()
 
-    elif admin_tab == "Privacy Tools":
+    elif admin_tab == "🗑️ Privacy Tools":
         render_privacy_tools()
 
-    elif admin_tab == "System Logs":
-        st.subheader("📜 Audit Logs")
-        if database and hasattr(database, "supabase"):
-            try:
-                logs = database.supabase.table("audit_events").select("*").order("created_at", desc=True).limit(50).execute()
-                if logs.data:
-                    st.dataframe(pd.DataFrame(logs.data))
-                else:
-                    st.info("No logs found.")
-            except Exception as e:
-                st.error(f"Log Fetch Error: {e}")
+    elif admin_tab == "📜 System Logs":
+        render_system_logs()
 
     # Logout Button
     st.markdown("---")
-    if st.button("🔴 Logout Admin"):
+    if st.button("🔴 Logout Admin", use_container_width=True):
         st.session_state.admin_authenticated = False
         st.rerun()
