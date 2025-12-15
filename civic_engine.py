@@ -12,19 +12,18 @@ def find_representatives(address_input):
     Looks up US Senators and Representatives for a given address.
     Args: address_input (dict or str)
     """
-    # 1. ROBUST KEY FETCHING
-    # Try multiple common key names to avoid configuration errors
+    # 1. KEY RETRIEVAL (Try all common variations)
     api_key = (
         secrets_manager.get_secret("geocodio.api_key") or 
         secrets_manager.get_secret("GEOCODIO_API_KEY") or
-        secrets_manager.get_secret("geocodio_api_key")
+        st.secrets.get("geocodio", {}).get("api_key")
     )
     
     if not api_key:
-        print("❌ CIVIC ERROR: Geocodio API Key is MISSING in secrets.")
+        print("❌ CIVIC ERROR: Geocodio API Key is MISSING.")
         return []
-    
-    # 2. Format Address
+
+    # 2. ADDRESS FORMATTING
     if isinstance(address_input, dict):
         parts = [
             address_input.get("street", ""),
@@ -36,9 +35,9 @@ def find_representatives(address_input):
     else:
         address_str = str(address_input)
 
-    print(f"🔍 CIVIC LOOKUP: '{address_str}'")
+    print(f"🔍 CIVIC LOOKUP: Sending '{address_str}' to Geocodio...")
 
-    # 3. Call API
+    # 3. API CALL
     url = "https://api.geocod.io/v1.7/geocode"
     params = {
         "q": address_str,
@@ -50,17 +49,18 @@ def find_representatives(address_input):
         r = requests.get(url, params=params, timeout=10)
         
         if r.status_code != 200:
-            print(f"❌ CIVIC API ERROR: {r.status_code} - {r.text}")
+            print(f"❌ CIVIC API FAIL: {r.status_code} - {r.text}")
             return []
             
         data = r.json()
         results = []
         
         if 'results' in data and len(data['results']) > 0:
-            # Parse Congress data
-            fields = data['results'][0].get('fields', {}).get('congress', {})
+            # Check for Congress data block
+            result_block = data['results'][0]
+            fields = result_block.get('fields', {}).get('congress', {})
             
-            # Senators
+            # --- PARSE SENATE ---
             for rep in fields.get('senate', []):
                 results.append({
                     "name": f"Sen. {rep['name']['first']} {rep['name']['last']}",
@@ -73,7 +73,7 @@ def find_representatives(address_input):
                     }
                 })
                 
-            # House Reps
+            # --- PARSE HOUSE ---
             for rep in fields.get('house', []):
                 results.append({
                     "name": f"Rep. {rep['name']['first']} {rep['name']['last']}",
@@ -86,7 +86,11 @@ def find_representatives(address_input):
                     }
                 })
         
-        print(f"✅ CIVIC SUCCESS: Found {len(results)} officials.")
+        if not results:
+            print(f"⚠️ CIVIC: API returned success but no officials found for this address.")
+        else:
+            print(f"✅ CIVIC: Found {len(results)} officials.")
+            
         return results
 
     except Exception as e:
