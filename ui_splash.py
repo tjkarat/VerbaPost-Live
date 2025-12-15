@@ -67,4 +67,3 @@ def render_splash_page():
             st.rerun()
 
     # Explicit return avoids "None" printing in main.py
-    return
