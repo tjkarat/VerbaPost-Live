@@ -5,7 +5,6 @@ import hashlib
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
-# These handle the heavy lifting (Database, AI, Payments, Mail)
 import ai_engine
 import payment_engine
 import mailer
@@ -17,6 +16,8 @@ import bulk_engine
 import audit_engine
 
 # --- UI MODULE IMPORTS ---
+# We wrap these in try/except to prevent the app from crashing 
+# if a single module is missing or has a syntax error.
 try:
     import ui_splash
 except ImportError:
@@ -115,11 +116,27 @@ def load_address_book():
     
     try:
         user_email = st.session_state.get("user_email")
-        contacts = database.get_saved_contacts(user_email)
-        # Format: "Name (City)" -> Dict
-        return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
+        # Correct function call based on database.py
+        contacts = database.get_contacts(user_email)
+        
+        result = {}
+        for c in contacts:
+            # Handle SQLAlchemy objects vs Dicts safely
+            name = getattr(c, 'name', None) or c.get('name')
+            city = getattr(c, 'city', None) or c.get('city', 'Unknown')
+            
+            contact_data = {
+                'name': name,
+                'street': getattr(c, 'street', None) or c.get('street'),
+                'city': city,
+                'state': getattr(c, 'state', None) or c.get('state'),
+                'zip': getattr(c, 'zip_code', None) or c.get('zip_code') or c.get('zip')
+            }
+            result[f"{name} ({city})"] = contact_data
+            
+        return result
     except Exception as e:
-        # Log error if needed, but return empty dict to prevent crash
+        # Log error to console but don't crash app
         print(f"Address Book Error: {e}")
         return {}
 
@@ -145,7 +162,7 @@ def _handle_draft_creation(email, tier, price):
     
     return d_id
 
-# --- CORE PAGE RENDERERS ---
+# --- PAGE RENDERERS ---
 
 def render_store_page():
     """
@@ -160,6 +177,18 @@ def render_store_page():
             st.session_state.app_mode = "login"
             st.rerun()
         return
+
+    # Help Expander (Restored functionality)
+    with st.expander("❓ How VerbaPost Works (Help)", expanded=False):
+        st.markdown("""
+        **Simple 4-Step Process:**
+        1. **Select Service:** Choose your letter tier below (Standard, Heirloom, etc.).
+        2. **Write:** Type or use your voice to dictate the letter content.
+        3. **Address:** Load a saved contact or enter a new address.
+        4. **Send:** We print, envelope, and mail it via USPS.
+        
+        **Need Support?** Email `support@verbapost.com`
+        """)
 
     st.markdown("## 📮 Choose Your Letter Service")
     
@@ -242,7 +271,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # --- ADDRESS BOOK LOADER ---
+        # --- ADDRESS BOOK LOADER (RESTORED) ---
         if st.session_state.get("authenticated"):
             addr_opts = load_address_book()
             if addr_opts:
@@ -254,7 +283,6 @@ def render_workspace_page():
                     if selected_contact != "Select...":
                         data = addr_opts[selected_contact]
                         # Pre-fill session state variables for the form below
-                        # We use st.session_state keys directly to ensure text_input widgets update
                         st.session_state.to_name_input = data.get('name', '')
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
@@ -282,16 +310,27 @@ def render_workspace_page():
 
             with col_from:
                 st.markdown("### From: (Return Address)")
-                # Pre-fill from user profile if available
-                u_profile = st.session_state.get("user_profile", {})
+                # Auto-populate from Profile (with logic for Santa)
+                profile = st.session_state.get("user_profile", {})
                 
-                f_name = st.text_input("Your Name", value=u_profile.get("full_name",""), key="from_name")
-                f_street = st.text_input("Your Street", value=u_profile.get("address_line1",""), key="from_street")
-                f_city = st.text_input("Your City", value=u_profile.get("city",""), key="from_city")
+                def_name, def_street, def_city, def_state, def_zip = "", "", "", "", ""
                 
+                if current_tier == "Santa":
+                    def_name, def_street, def_city, def_state, def_zip = "Santa Claus", "123 Elf Lane", "North Pole", "AK", "99705"
+                elif profile:
+                    # Handle both dict and object access safely
+                    def_name = profile.get("full_name", "") if isinstance(profile, dict) else getattr(profile, "full_name", "")
+                    def_street = profile.get("address_line1", "") if isinstance(profile, dict) else getattr(profile, "address_line1", "")
+                    def_city = profile.get("address_city", "") if isinstance(profile, dict) else getattr(profile, "address_city", "")
+                    def_state = profile.get("address_state", "") if isinstance(profile, dict) else getattr(profile, "address_state", "")
+                    def_zip = profile.get("address_zip", "") if isinstance(profile, dict) else getattr(profile, "address_zip", "")
+
+                f_name = st.text_input("Your Name", value=def_name, key="from_name")
+                f_street = st.text_input("Your Street", value=def_street, key="from_street")
+                f_city = st.text_input("Your City", value=def_city, key="from_city")
                 col_fs, col_fz = st.columns(2)
-                f_state = col_fs.text_input("Your State", value=u_profile.get("state",""), key="from_state")
-                f_zip = col_fz.text_input("Your Zip", value=u_profile.get("zip_code",""), key="from_zip")
+                f_state = col_fs.text_input("Your State", value=def_state, key="from_state")
+                f_zip = col_fz.text_input("Your Zip", value=def_zip, key="from_zip")
             
             # Form Submit Button
             if st.form_submit_button("💾 Save Addresses"):
@@ -306,7 +345,7 @@ def render_workspace_page():
                 # Save to DB
                 d_id = st.session_state.get("current_draft_id")
                 if d_id and database:
-                    # FIX: Use correct argument names 'to_addr' and 'from_addr'
+                    # FIX: Correct keyword arguments to match database.py (to_addr, from_addr)
                     database.update_draft_data(
                         d_id, 
                         to_addr=st.session_state.addr_to, 
@@ -349,7 +388,7 @@ def render_workspace_page():
             placeholder="Dear..."
         )
         
-        # --- AI POLISH BUTTON ---
+        # --- AI POLISH BUTTON (RESTORED) ---
         if st.button("✨ AI Polish (Improve Grammar & Tone)"):
             if new_text and ai_engine:
                 with st.spinner("Polishing your letter..."):
@@ -483,8 +522,12 @@ def render_review_page():
                 # Display
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
-                st.markdown(pdf_display, unsafe_allow_html=True)
+                
+                # Use Embed for compatibility
+                st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
+                
+                # Add download button
+                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
                 
                 st.session_state.final_pdf = pdf_bytes
             
@@ -534,7 +577,6 @@ def render_review_page():
             
             if url:
                 st.link_button("👉 Click to Pay", url)
-                st.rerun()
             else:
                 st.error("Payment Gateway Error. Please try again.")
 

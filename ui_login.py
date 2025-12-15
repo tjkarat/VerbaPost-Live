@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+# DIRECT IMPORT - DO NOT WRAP IN TRY/EXCEPT
 import auth_engine 
 import database
 
