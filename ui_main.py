@@ -4,6 +4,11 @@ import os
 import hashlib
 from datetime import datetime
 
+# --- CRITICAL IMPORTS ---
+# We import database explicitly. If this fails, the app will crash 
+# and show the error, rather than failing silently.
+import database 
+
 # --- ENGINE IMPORTS ---
 try: import ai_engine
 except ImportError: ai_engine = None
@@ -11,8 +16,6 @@ try: import payment_engine
 except ImportError: payment_engine = None
 try: import mailer
 except ImportError: mailer = None
-try: import database
-except ImportError: database = None
 try: import letter_format
 except ImportError: letter_format = None
 try: import address_standard
@@ -49,62 +52,106 @@ def get_profile_field(profile, field, default=""):
     return getattr(profile, field, default)
 
 def _ensure_profile_loaded():
-    """CRITICAL FIX: Forces profile reload if missing from session state."""
+    """Forces profile reload if missing from session state to fix autopopulation."""
     if st.session_state.get("authenticated") and not st.session_state.get("user_profile"):
-        if database:
+        try:
             email = st.session_state.get("user_email")
+            # This call will fail visibly if DB is broken, which is what we want
             profile = database.get_user_profile(email)
             if profile:
                 st.session_state.user_profile = profile
-                # Force rerun to populate fields immediately
                 st.rerun()
+        except Exception as e:
+            st.error(f"Critical Database Error: {e}")
 
-# --- ACCESSIBILITY CSS INJECTOR ---
-def inject_accessibility_css(text_size=16):
-    """Injects CSS to make tabs larger, high-contrast, and button-like."""
+# --- ACCESSIBILITY & STYLE INJECTOR ---
+def inject_custom_css(text_size=16):
+    """Injects CSS for text size, layout, and visual polish."""
+    # NOTE: We use {{ }} to escape curly braces in f-strings
     st.markdown(f"""
         <style>
-        /* Dynamic Text Size */
+        /* Base Text Sizing */
         .stTextArea textarea, .stTextInput input, p, li, .stMarkdown {{
             font-size: {text_size}px !important;
             line-height: 1.6 !important;
         }}
+        
+        /* Card-like Styling for Pricing */
+        .price-card {{
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            border: 1px solid #e0e0e0;
+            height: 180px; /* Fixed height for alignment */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }}
+        .price-header {{
+            font-family: 'Helvetica Neue', sans-serif;
+            font-weight: 700;
+            font-size: 1.3rem;
+            color: #333;
+            margin-bottom: 5px;
+        }}
+        .price-tag {{
+            font-size: 2.2rem;
+            font-weight: 800;
+            color: #d93025;
+            margin: 5px 0;
+        }}
+        .price-sub {{
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 8px;
+        }}
+        .price-desc {{
+            font-size: 0.9rem;
+            color: #666;
+            line-height: 1.4;
+        }}
+
         /* Tab Styling */
         .stTabs [data-baseweb="tab"] p {{
-            font-size: 1.5rem !important;
-            font-weight: 700 !important;
+            font-size: 1.2rem !important;
+            font-weight: 600 !important;
         }}
         .stTabs [data-baseweb="tab"] {{
-            height: 70px;
+            height: 60px;
             white-space: pre-wrap;
             background-color: #F0F2F6;
-            border-radius: 10px 10px 0px 0px;
+            border-radius: 8px 8px 0px 0px;
             gap: 2px;
-            padding-top: 10px;
-            padding-bottom: 10px;
-            border: 3px solid #9CA3AF;
-            margin-right: 5px;
-            color: #374151;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-bottom: none;
+            color: #333;
         }}
         .stTabs [aria-selected="true"] {{
             background-color: #FF4B4B !important;
-            border: 3px solid #FF4B4B !important;
+            border: 1px solid #FF4B4B !important;
             color: white !important;
         }}
         .stTabs [aria-selected="true"] p {{
             color: white !important;
         }}
+        
         /* Instruction Box */
         .instruction-box {{
             background-color: #FEF3C7;
-            border-left: 10px solid #F59E0B;
-            padding: 20px;
-            margin-bottom: 25px;
-            font-size: 20px;
-            font-weight: 500;
-            color: #000000;
+            border-left: 6px solid #F59E0B;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            color: #000;
         }}
-        /* Hide Streamlit Branding */
+        
+        /* Hide Branding */
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
@@ -122,14 +169,13 @@ def reset_app_state():
 
 def load_address_book():
     """Fetches contacts from DB if logged in."""
-    if not database or not st.session_state.get("authenticated"):
+    if not st.session_state.get("authenticated"):
         return {}
     try:
         user_email = st.session_state.get("user_email")
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
-            # Handle dicts vs objects safely
             name = c.get('name') if isinstance(c, dict) else getattr(c, 'name', '')
             city = c.get('city') if isinstance(c, dict) else getattr(c, 'city', 'Unknown')
             contact_data = {
@@ -142,6 +188,7 @@ def load_address_book():
             result[f"{name} ({city})"] = contact_data
         return result
     except Exception as e:
+        # Don't crash here, just log it
         print(f"Address Book Error: {e}")
         return {}
 
@@ -150,12 +197,10 @@ def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
     success = False
     
-    # Update existing draft if possible
-    if d_id and database:
+    if d_id:
         success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
     
-    # If update failed (row missing) or no draft, create new
-    if (not success or not d_id) and database:
+    if not success or not d_id:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
         
@@ -166,6 +211,8 @@ def _handle_draft_creation(email, tier, price):
 
 def render_store_page():
     """Step 1: The Store (Pricing & Tier Selection)."""
+    inject_custom_css(16)
+    
     u_email = st.session_state.get("user_email", "")
     
     # Auth Guard
@@ -177,10 +224,9 @@ def render_store_page():
         return
 
     # Help Section
-    with st.expander("❓ How VerbaPost Works (Help)", expanded=False):
+    with st.expander("❓ How VerbaPost Works", expanded=False):
         st.markdown("""
-        **Simple 4-Step Process:**
-        1. **Select Service:** Choose your letter tier.
+        1. **Select Service:** Choose your letter tier below.
         2. **Write:** Type or dictate your content.
         3. **Address:** Load or enter recipient.
         4. **Send:** We print and mail it via USPS.
@@ -188,7 +234,6 @@ def render_store_page():
 
     st.markdown("## 📮 Choose Your Letter Service")
     
-    # Mode Toggle
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
     
     if mode == "Bulk Campaign":
@@ -196,25 +241,62 @@ def render_store_page():
         render_campaign_uploader()
         return
 
-    # Pricing Cards
-    col1, col2, col3, col4 = st.columns(4)
+    # --- PRICING GRID LAYOUT ---
     
-    def price_card(col, title, price, desc, tier_code, btn_key):
-        with col:
-            st.markdown(f"### {title}")
-            st.markdown(f"## ${price}")
-            st.caption(desc)
-            if st.button(f"Select {title}", key=btn_key, use_container_width=True):
-                st.session_state.locked_tier = tier_code
-                st.session_state.locked_price = price
-                _handle_draft_creation(u_email, tier_code, price)
-                st.session_state.app_mode = "workspace"
-                st.rerun()
+    # ROW 1: Info Cards
+    c1, c2, c3, c4 = st.columns(4)
+    
+    def html_card(title, qty_text, price, desc):
+        return f"""
+        <div class="price-card">
+            <div class="price-header">{title}</div>
+            <div class="price-sub">{qty_text}</div>
+            <div class="price-tag">${price}</div>
+            <div class="price-desc">{desc}</div>
+        </div>
+        """
 
-    price_card(col1, "Standard", 2.99, "Standard #10 Envelope\nPremium Paper", "Standard", "btn_std")
-    price_card(col2, "Heirloom", 5.99, "Heavy Cream Paper\nWax Seal Effect", "Heirloom", "btn_heir")
-    price_card(col3, "Civic", 6.99, "Write to Congress\nAuto-lookup Officials", "Civic", "btn_civ")
-    price_card(col4, "Santa", 9.99, "North Pole Postmark\nGolden Ticket", "Santa", "btn_santa")
+    with c1:
+        st.markdown(html_card("Standard", "One Letter", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
+    with c2:
+        st.markdown(html_card("Heirloom", "One Letter", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
+    with c3:
+        st.markdown(html_card("Civic", "3 Letters", "6.99", "Write to Congress. We find your 3 reps automatically."), unsafe_allow_html=True)
+    with c4:
+        st.markdown(html_card("Santa", "One Letter", "9.99", "North Pole Postmark. Golden Ticket. Magical."), unsafe_allow_html=True)
+
+    # ROW 2: Buttons
+    st.markdown("<br>", unsafe_allow_html=True) 
+    b1, b2, b3, b4 = st.columns(4)
+    
+    with b1:
+        if st.button("Select Standard", use_container_width=True):
+            st.session_state.locked_tier = "Standard"
+            st.session_state.locked_price = 2.99
+            _handle_draft_creation(u_email, "Standard", 2.99)
+            st.session_state.app_mode = "workspace"
+            st.rerun()
+    with b2:
+        if st.button("Select Heirloom", use_container_width=True):
+            st.session_state.locked_tier = "Heirloom"
+            st.session_state.locked_price = 5.99
+            _handle_draft_creation(u_email, "Heirloom", 5.99)
+            st.session_state.app_mode = "workspace"
+            st.rerun()
+    with b3:
+        if st.button("Select Civic", use_container_width=True):
+            st.session_state.locked_tier = "Civic"
+            st.session_state.locked_price = 6.99
+            _handle_draft_creation(u_email, "Civic", 6.99)
+            st.session_state.app_mode = "workspace"
+            st.rerun()
+    with b4:
+        if st.button("Select Santa", use_container_width=True):
+            st.session_state.locked_tier = "Santa"
+            st.session_state.locked_price = 9.99
+            _handle_draft_creation(u_email, "Santa", 9.99)
+            st.session_state.app_mode = "workspace"
+            st.rerun()
 
 
 def render_campaign_uploader():
@@ -233,7 +315,6 @@ def render_campaign_uploader():
         st.success(f"✅ Loaded {len(contacts)} recipients.")
         st.dataframe(contacts[:5])
         
-        # Calculate Bulk Price
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
         st.metric("Estimated Total", f"${total}")
         
@@ -253,11 +334,10 @@ def render_workspace_page():
     # Ensure profile is loaded for auto-population
     _ensure_profile_loaded()
 
-    # Accessibility Slider
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
-    inject_accessibility_css(text_size)
+    inject_custom_css(text_size)
 
     current_tier = st.session_state.get('locked_tier', 'Draft')
     st.markdown(f"## 📝 Workspace: {current_tier}")
@@ -266,16 +346,13 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 1. Address Book Visibility
-        # SHOW for Heirloom/Standard/Santa/Campaign. HIDE for Civic (as requested).
+        # 1. Address Book Visibility (Hidden for Civic)
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             if addr_opts:
                 col_load, col_empty = st.columns([2, 1])
                 with col_load:
                     selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
-                    
-                    # Prevent infinite rerun loop
                     if selected_contact != "Select..." and selected_contact != st.session_state.get("last_loaded_contact"):
                         data = addr_opts[selected_contact]
                         st.session_state.to_name_input = data.get('name', '')
@@ -294,19 +371,16 @@ def render_workspace_page():
             with col_to:
                 st.markdown("### To: (Recipient)")
                 
-                # CIVIC TIER SPECIAL: Lookup Button
+                # CIVIC TIER SPECIAL
                 if current_tier == "Civic" and civic_engine:
                     st.caption("Auto-find your elected officials based on YOUR address.")
-                    
                     if st.form_submit_button("🏛️ Find My Representatives"):
-                        # Grab values from the session state widgets (which update on submit)
                         temp_addr = {
                             "street": st.session_state.get("from_street"),
                             "city": st.session_state.get("from_city"),
                             "state": st.session_state.get("from_state"),
                             "zip": st.session_state.get("from_zip")
                         }
-                        
                         if temp_addr["zip"]:
                             with st.spinner("Searching Congress..."):
                                 reps = civic_engine.find_representatives(temp_addr)
@@ -321,11 +395,8 @@ def render_workspace_page():
                 # If Civic reps found, allow selection
                 if current_tier == "Civic" and st.session_state.get("civic_reps_found"):
                     reps_list = st.session_state.civic_reps_found
-                    # Format: "Sen. Ron Wyden (Senate)"
                     rep_names = [f"{r['name']} ({r['office']})" for r in reps_list]
                     chosen_rep = st.selectbox("Select Official to Autofill", rep_names)
-                    
-                    # Apply selection logic
                     for r in reps_list:
                         if f"{r['name']} ({r['office']})" == chosen_rep:
                             st.session_state.to_name_input = r['name']
@@ -334,7 +405,7 @@ def render_workspace_page():
                             st.session_state.to_state_input = r['address'].get('state', '')
                             st.session_state.to_zip_input = r['address'].get('zip', '')
 
-                # Standard Text Inputs (Populated by session state keys)
+                # Standard Text Inputs
                 name = st.text_input("Name", key="to_name_input")
                 street = st.text_input("Street Address", key="to_street_input")
                 city = st.text_input("City", key="to_city_input")
@@ -347,26 +418,19 @@ def render_workspace_page():
                 st.markdown("### From: (Return Address)")
                 profile = st.session_state.get("user_profile", {})
                 
-                # AUTOPOPULATION LOGIC
+                # Defaults
                 d_name, d_str, d_city, d_state, d_zip = "", "", "", "", ""
-                
                 if current_tier == "Santa":
                     d_name, d_str, d_city, d_state, d_zip = "Santa Claus", "123 Elf Lane", "North Pole", "AK", "99705"
                 else:
-                    # Default to User Profile for Heirloom, Standard, Civic
                     d_name = get_profile_field(profile, "full_name")
                     d_str = get_profile_field(profile, "address_line1")
                     d_city = get_profile_field(profile, "address_city")
                     d_state = get_profile_field(profile, "address_state")
                     d_zip = get_profile_field(profile, "address_zip")
 
-                # The Inputs
-                # 'value' sets the default. key binds it to session state.
                 f_name = st.text_input("Your Name", value=d_name, key="from_name")
-                
-                # SIGNATURE BLOCK (Unified for all tiers)
                 f_sig = st.text_input("Signature (Sign-off)", value=d_name, placeholder="e.g. Love, Mom", key="from_sig")
-                
                 f_street = st.text_input("Your Street", value=d_str, key="from_street")
                 f_city = st.text_input("Your City", value=d_city, key="from_city")
                 col_fs, col_fz = st.columns(2)
@@ -375,17 +439,14 @@ def render_workspace_page():
             
             # --- Save Button ---
             if st.form_submit_button("💾 Save Addresses"):
-                # Save to Session
                 st.session_state.addr_to = {"name": name, "street": street, "city": city, "state": state, "zip": zip_c}
                 st.session_state.addr_from = {"name": f_name, "street": f_street, "city": f_city, "state": f_state, "zip": f_zip}
                 st.session_state.signature_text = f_sig
                 
-                # Save to DB
                 d_id = st.session_state.get("current_draft_id")
-                if d_id and database:
+                if d_id:
                     database.update_draft_data(d_id, to_addr=st.session_state.addr_to, from_addr=st.session_state.addr_from)
                 
-                # Address Verification Call (using mailer if available)
                 if mailer:
                     with st.spinner("Validating with USPS/PostGrid..."):
                         t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
@@ -399,7 +460,6 @@ def render_workspace_page():
                             st.error(f"❌ Sender Address Error: {err}")
                             
                         if t_valid and f_valid:
-                            # Update with standardized data
                             st.session_state.addr_to = t_data
                             st.session_state.addr_from = f_data
                             st.session_state.addresses_saved_at = time.time()
@@ -408,7 +468,6 @@ def render_workspace_page():
                     st.session_state.addresses_saved_at = time.time()
                     st.success("✅ Addresses Saved (Verification Offline)")
         
-        # Confirmation Message
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
 
@@ -416,26 +475,15 @@ def render_workspace_page():
 
     # --- STEP 3: COMPOSE ---
     st.markdown("## ✍️ Step 3: Write Your Letter")
-
-    st.markdown(
-        """
-        <div class="instruction-box">
-            <p style="margin: 0 0 10px 0; font-weight: bold;">📱 INSTRUCTIONS</p>
-            <p style="margin: 5px 0;">1️⃣ Click <b>RECORD VOICE</b> to speak<br>2️⃣ Click <b>TYPE MANUALLY</b> to type</p>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
+    st.markdown("""<div class="instruction-box">1️⃣ Click <b>RECORD VOICE</b> to speak<br>2️⃣ Click <b>TYPE MANUALLY</b> to type</div>""", unsafe_allow_html=True)
 
     tab_type, tab_record = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
 
-    # Tab: Typing
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
         
-        # History for Undo
         if "letter_body_history" not in st.session_state:
             st.session_state.letter_body_history = []
         
@@ -459,17 +507,15 @@ def render_workspace_page():
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
 
-        # Autosave Logic
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
                 d_id = st.session_state.get("current_draft_id")
-                if d_id and database:
+                if d_id:
                     database.update_draft_data(d_id, content=new_text)
                     st.session_state.last_autosave = time.time()
                     st.caption("💾 Auto-saved")
 
-    # Tab: Recording
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
         audio_val = st.audio_input("Record", label_visibility="collapsed")
@@ -477,22 +523,15 @@ def render_workspace_page():
         if audio_val:
             audio_bytes = audio_val.getvalue()
             audio_hash = hashlib.md5(audio_bytes).hexdigest()
-            
-            # Prevent re-processing same audio on rerun
             if audio_hash != st.session_state.get("last_processed_audio_hash"):
                 st.info("⏳ Processing...")
                 tmp_path = f"/tmp/temp_{int(time.time())}.wav"
-                
-                # Write temp file for Whisper
                 with open(tmp_path, "wb") as f: f.write(audio_bytes)
-                
                 try:
                     text = ai_engine.transcribe_audio(tmp_path)
                     if text:
-                        # Senior Enhancement Check
                         if hasattr(ai_engine, 'enhance_transcription_for_seniors'):
                             text = ai_engine.enhance_transcription_for_seniors(text)
-                        
                         current = st.session_state.get("letter_body", "")
                         st.session_state.letter_body = (current + "\n\n" + text).strip()
                         st.session_state.last_processed_audio_hash = audio_hash
@@ -505,7 +544,6 @@ def render_workspace_page():
 
     st.divider()
     
-    # Next Step Button
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
         if not st.session_state.get("letter_body"):
             st.error("⚠️ Letter is empty!")
@@ -520,28 +558,15 @@ def render_review_page():
     """Step 4: Secure & Send."""
     st.markdown("## 👁️ Step 4: Secure & Send")
     
-    # PDF Preview
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
                 tier = st.session_state.get("locked_tier", "Standard")
                 body = st.session_state.get("letter_body", "")
-                
-                # Convert dicts to StandardAddress objects
                 std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                 std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                
-                # Generate PDF
-                raw_pdf = letter_format.create_pdf(
-                    body, 
-                    std_to, 
-                    std_from, 
-                    tier, 
-                    signature_text=st.session_state.get("signature_text")
-                )
+                raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
                 pdf_bytes = bytes(raw_pdf)
-                
-                # Display PDF
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
@@ -550,12 +575,10 @@ def render_review_page():
 
     st.divider()
     
-    # Calculate Total
     tier = st.session_state.get("locked_tier", "Standard")
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
     
-    # Promo Code Logic
     discount = 0.0
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
@@ -576,16 +599,13 @@ def render_review_page():
 
     st.markdown(f"### Total: ${total:.2f}")
 
-    # Payment Button
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
         u_email = st.session_state.get("user_email")
         d_id = st.session_state.get("current_draft_id")
         
-        # Lock in final price to DB
         if d_id and database:
             database.update_draft_data(d_id, price=total, status="Pending Payment")
         
-        # Create Stripe Session
         url = payment_engine.create_checkout_session(
             line_items=[{
                 "price_data": {
