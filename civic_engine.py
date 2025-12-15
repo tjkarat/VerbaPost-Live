@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 def find_representatives(address_input):
     """
     Looks up US Senators and Representatives.
+    Uses 'cd' field (Congressional Districts) which includes legislators.
     """
     # 1. KEY RETRIEVAL
     api_key = (
@@ -35,11 +36,12 @@ def find_representatives(address_input):
 
     print(f"🔍 CIVIC DEBUG: Sending Address: '{address_str}'")
 
-    # 3. API CALL
+    # 3. API CALL (Updated to use 'cd' instead of 'congress')
+    # Use v1.7 as per your logs, but 'cd' is the standard field now.
     url = "https://api.geocod.io/v1.7/geocode"
     params = {
         "q": address_str,
-        "fields": "congress",
+        "fields": "cd", # FIX: Changed from 'congress' to 'cd'
         "api_key": api_key
     }
 
@@ -52,43 +54,63 @@ def find_representatives(address_input):
             
         data = r.json()
         
-        # LOG RAW RESPONSE
-        print(f"📦 CIVIC RAW: {json.dumps(data)}")
+        # DEBUG: Print raw to confirm structure
+        print(f"📦 CIVIC RAW RESPONSE: {json.dumps(data)}")
 
         results = []
         
         if 'results' in data and len(data['results']) > 0:
             result_block = data['results'][0]
             fields = result_block.get('fields', {})
-            congress_data = fields.get('congress', {})
             
-            # PARSE SENATE
-            for rep in congress_data.get('senate', []):
-                results.append({
-                    "name": f"Sen. {rep['name']['first']} {rep['name']['last']}",
-                    "office": "Senate",
-                    "address": {
-                        "street": "United States Senate",
-                        "city": "Washington",
-                        "state": "DC",
-                        "zip": "20510"
-                    }
-                })
+            # PARSING UPDATE: Geocodio returns 'congressional_districts' array
+            # We default to the first one found (standard for single address)
+            districts = fields.get('congressional_districts', [])
+            
+            if not districts:
+                print("⚠️ CIVIC DEBUG: No 'congressional_districts' found in response.")
+                return []
+
+            for dist in districts:
+                # legislators are nested inside the district object
+                legislators = dist.get('current_legislators', [])
                 
-            # PARSE HOUSE
-            for rep in congress_data.get('house', []):
-                results.append({
-                    "name": f"Rep. {rep['name']['first']} {rep['name']['last']}",
-                    "office": "House of Representatives",
-                    "address": {
-                        "street": "US House of Representatives",
-                        "city": "Washington",
-                        "state": "DC",
-                        "zip": "20515"
+                for leg in legislators:
+                    role_type = leg.get('type') # 'senator' or 'representative'
+                    full_name = f"{leg['bio']['first_name']} {leg['bio']['last_name']}"
+                    
+                    # Map Geocodio structure to our App structure
+                    entry = {
+                        "name": "", 
+                        "office": "",
+                        "address": {
+                            "street": "United States Capitol", 
+                            "city": "Washington", 
+                            "state": "DC", 
+                            "zip": "20515"
+                        }
                     }
-                })
+
+                    # Extract Contact Info if available
+                    contact = leg.get('contact', {})
+                    if contact.get('address'):
+                        entry['address']['street'] = contact['address']
+
+                    if role_type == 'senator':
+                        entry['name'] = f"Sen. {full_name}"
+                        entry['office'] = "Senate"
+                        entry['address']['zip'] = "20510" # Senate Zip
+                    elif role_type == 'representative':
+                        entry['name'] = f"Rep. {full_name}"
+                        entry['office'] = "House of Representatives"
+                        entry['address']['zip'] = "20515" # House Zip
+                    
+                    results.append(entry)
+                    print(f"   -> Found {entry['name']}")
+
+        else:
+            print("⚠️ CIVIC DEBUG: Geocodio returned 0 results for this address.")
         
-        print(f"✅ CIVIC DEBUG: Returning {len(results)} officials.")
         return results
 
     except Exception as e:
