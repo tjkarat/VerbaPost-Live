@@ -16,8 +16,6 @@ import bulk_engine
 import audit_engine
 
 # --- UI MODULE IMPORTS ---
-# We wrap these in try/except to prevent the app from crashing 
-# if a single module is missing or has a syntax error.
 try:
     import ui_splash
 except ImportError:
@@ -43,22 +41,37 @@ try:
 except ImportError:
     ui_legacy = None
 
-# --- ACCESSIBILITY CSS INJECTOR ---
-def inject_accessibility_css():
+# --- HELPER: SAFE PROFILE GETTER (FIX 4) ---
+def get_profile_field(profile, field, default=""):
+    """Safely retrieves fields from profile whether it's a dict, object, or None."""
+    if not profile:
+        return default
+    if isinstance(profile, dict):
+        return profile.get(field, default)
+    return getattr(profile, field, default)
+
+# --- ACCESSIBILITY CSS INJECTOR (FIX 15) ---
+def inject_accessibility_css(text_size=16):
     """
     Injects CSS to make tabs larger, high-contrast, and button-like.
-    Designed for better accessibility (Fitts's Law + Vision).
+    Now supports dynamic text sizing via slider.
     """
-    st.markdown("""
+    st.markdown(f"""
         <style>
+        /* Dynamic Text Size from Slider */
+        .stTextArea textarea, .stTextInput input, p, li, .stMarkdown {{
+            font-size: {text_size}px !important;
+            line-height: 1.6 !important;
+        }}
+
         /* 1. Make the Tab Text Huge and Bold */
-        .stTabs [data-baseweb="tab"] p {
+        .stTabs [data-baseweb="tab"] p {{
             font-size: 1.5rem !important;
             font-weight: 700 !important;
-        }
+        }}
 
         /* 2. Turn Tabs into Large Buttons with Outlines */
-        .stTabs [data-baseweb="tab"] {
+        .stTabs [data-baseweb="tab"] {{
             height: 70px;
             white-space: pre-wrap;
             background-color: #F0F2F6;
@@ -69,22 +82,22 @@ def inject_accessibility_css():
             border: 3px solid #9CA3AF; /* Thick Grey Outline */
             margin-right: 5px;
             color: #374151; /* Dark text for unselected */
-        }
+        }}
 
         /* 3. High Contrast for Selected Tab (Red Background, White Text) */
-        .stTabs [aria-selected="true"] {
+        .stTabs [aria-selected="true"] {{
             background-color: #FF4B4B !important;
             border: 3px solid #FF4B4B !important;
             color: white !important;
-        }
+        }}
         
         /* 4. Force text color to white inside the active tab */
-        .stTabs [aria-selected="true"] p {
+        .stTabs [aria-selected="true"] p {{
             color: white !important;
-        }
+        }}
 
         /* 5. Improve Instruction Box Visibility */
-        .instruction-box {
+        .instruction-box {{
             background-color: #FEF3C7; /* Pale Yellow */
             border-left: 10px solid #F59E0B; /* Orange Accent */
             padding: 20px;
@@ -92,7 +105,7 @@ def inject_accessibility_css():
             font-size: 20px;
             font-weight: 500;
             color: #000000;
-        }
+        }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -251,18 +264,27 @@ def render_campaign_uploader():
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
         st.metric("Estimated Total", f"${total}")
         
+        # FIX 10: Progress Indicator for Bulk
         if st.button("Proceed with Campaign"):
-            st.session_state.locked_tier = "Campaign"
-            st.session_state.bulk_targets = contacts
-            st.session_state.app_mode = "workspace"
-            st.rerun()
+            with st.spinner(f"Preparing {len(contacts)} letters..."):
+                time.sleep(1) # Give visual feedback
+                st.session_state.locked_tier = "Campaign"
+                st.session_state.bulk_targets = contacts
+                st.success(f"✅ Ready to send {len(contacts)} letters!")
+                time.sleep(1) # Visual confirmation
+                st.session_state.app_mode = "workspace"
+                st.rerun()
 
 def render_workspace_page():
     """
     Step 2 & 3: Composition & Addressing (ACCESSIBLE VERSION)
     Includes the Address Book and Accessibility Tabs.
     """
-    inject_accessibility_css()
+    # FIX 15: Text Size Slider
+    col_slide, col_gap = st.columns([1, 2])
+    with col_slide:
+        text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size for easier reading")
+    inject_accessibility_css(text_size)
 
     current_tier = st.session_state.get('locked_tier', 'Draft')
     st.markdown(f"## 📝 Workspace: {current_tier}")
@@ -280,16 +302,15 @@ def render_workspace_page():
                 with col_load:
                     selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
                     
+                    # FIX 2: Removed st.rerun() to prevent race condition/flickering
                     if selected_contact != "Select...":
                         data = addr_opts[selected_contact]
                         # Pre-fill session state variables for the form below
-                        # We use st.session_state keys directly to ensure text_input widgets update
                         st.session_state.to_name_input = data.get('name', '')
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
                         st.session_state.to_state_input = data.get('state', '')
                         st.session_state.to_zip_input = data.get('zip', '')
-                        st.rerun()
         else:
             st.caption("🔒 Log in to access your saved Address Book.")
 
@@ -314,28 +335,28 @@ def render_workspace_page():
                 # Auto-populate from Profile (with logic for Santa)
                 profile = st.session_state.get("user_profile", {})
                 
-                def_name, def_street, def_city, def_state, def_zip = "", "", "", "", ""
+                d_name, d_str, d_city, d_state, d_zip = "", "", "", "", ""
                 
                 if current_tier == "Santa":
-                    def_name, def_street, def_city, def_state, def_zip = "Santa Claus", "123 Elf Lane", "North Pole", "AK", "99705"
-                elif profile:
-                    # Handle both dict and object access safely
-                    def_name = profile.get("full_name", "") if isinstance(profile, dict) else getattr(profile, "full_name", "")
-                    def_street = profile.get("address_line1", "") if isinstance(profile, dict) else getattr(profile, "address_line1", "")
-                    def_city = profile.get("address_city", "") if isinstance(profile, dict) else getattr(profile, "address_city", "")
-                    def_state = profile.get("address_state", "") if isinstance(profile, dict) else getattr(profile, "address_state", "")
-                    def_zip = profile.get("address_zip", "") if isinstance(profile, dict) else getattr(profile, "address_zip", "")
+                    d_name, d_str, d_city, d_state, d_zip = "Santa Claus", "123 Elf Lane", "North Pole", "AK", "99705"
+                else:
+                    # FIX 4: Safe Profile Access using helper
+                    d_name = get_profile_field(profile, "full_name")
+                    d_str = get_profile_field(profile, "address_line1")
+                    d_city = get_profile_field(profile, "address_city")
+                    d_state = get_profile_field(profile, "address_state")
+                    d_zip = get_profile_field(profile, "address_zip")
 
-                f_name = st.text_input("Your Name", value=def_name, key="from_name")
+                f_name = st.text_input("Your Name", value=d_name, key="from_name")
                 
-                # --- NEW SIGNATURE BOX ---
-                f_sig = st.text_input("Signature (Sign-off)", value=def_name, placeholder="e.g. Love, Mom", key="from_sig")
+                # FIX 1: Standardized Signature Input (Using correct key)
+                f_sig = st.text_input("Signature (Sign-off)", value=d_name, placeholder="e.g. Love, Mom", key="from_sig")
                 
-                f_street = st.text_input("Your Street", value=def_street, key="from_street")
-                f_city = st.text_input("Your City", value=def_city, key="from_city")
+                f_street = st.text_input("Your Street", value=d_str, key="from_street")
+                f_city = st.text_input("Your City", value=d_city, key="from_city")
                 col_fs, col_fz = st.columns(2)
-                f_state = col_fs.text_input("Your State", value=def_state, key="from_state")
-                f_zip = col_fz.text_input("Your Zip", value=def_zip, key="from_zip")
+                f_state = col_fs.text_input("Your State", value=d_state, key="from_state")
+                f_zip = col_fz.text_input("Your Zip", value=d_zip, key="from_zip")
             
             # Form Submit Button
             if st.form_submit_button("💾 Save Addresses"):
@@ -346,33 +367,45 @@ def render_workspace_page():
                 st.session_state.addr_from = {
                     "name": f_name, "street": f_street, "city": f_city, "state": f_state, "zip": f_zip
                 }
-                # Save signature to session
+                # FIX 1: Save standardized signature key
                 st.session_state.signature_text = f_sig
                 
                 # Save to DB
                 d_id = st.session_state.get("current_draft_id")
                 if d_id and database:
-                    # FIX: Correct keyword arguments to match database.py (to_addr, from_addr)
                     database.update_draft_data(
                         d_id, 
                         to_addr=st.session_state.addr_to, 
                         from_addr=st.session_state.addr_from
                     )
                 
+                # FIX 7: Persist success message timestamp
+                st.session_state.addresses_saved_at = time.time()
                 st.success("✅ Addresses Saved!")
+        
+        # FIX 7 (Part 2): Display persistent success message
+        if st.session_state.get("addresses_saved_at"):
+            if time.time() - st.session_state.addresses_saved_at < 10:
+                st.success("✅ Your addresses are saved and ready!")
 
     st.divider()
 
     # --- STEP 3: COMPOSE (ACCESSIBLE VERSION) ---
     st.markdown("## ✍️ Step 3: Write Your Letter")
 
-    # High-Contrast Instruction Box
+    # FIX 6: Senior-Friendly Instructions (HTML)
     st.markdown(
         """
-        <div class="instruction-box">
-        <b>HOW TO USE:</b><br>
-        Click the <b>"RECORD VOICE"</b> tab below if you want to speak.<br>
-        Click the <b>"TYPE MANUALLY"</b> tab below if you want to type.
+        <div style="font-size: 26px; padding: 30px; background: #fffbeb; border: 3px solid #f59e0b; border-radius: 10px;">
+            <p style="margin: 0 0 20px 0; font-weight: bold;">📱 RECORDING INSTRUCTIONS</p>
+            <p style="margin: 10px 0; font-size: 22px;">
+                1️⃣ Click the round button below that says "Record"<br>
+                2️⃣ Start talking into your device<br>
+                3️⃣ When finished, the words will appear in the typing box above
+            </p>
+            <p style="margin-top: 20px; font-size: 18px; color: #92400e;">
+                💡 Tip: Speak slowly and clearly for best results
+            </p>
         </div>
         """, 
         unsafe_allow_html=True
@@ -395,46 +428,53 @@ def render_workspace_page():
             placeholder="Dear..."
         )
         
-        # --- AI POLISH BUTTON ---
-        if st.button("✨ AI Polish (Improve Grammar & Tone)"):
-            if new_text and ai_engine:
-                with st.spinner("Polishing your letter..."):
-                    try:
-                        polished = ai_engine.polish_text(new_text)
-                        if polished:
-                            st.session_state.letter_body = polished
-                            st.success("Text polished!")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"AI Error: {e}")
-            else:
-                st.warning("Please write something first.")
+        # FIX 3 & 14: AI Polish Fix + Undo Button
+        if "letter_body_history" not in st.session_state:
+            st.session_state.letter_body_history = []
+        
+        col_polish, col_undo = st.columns([1, 1])
+        with col_polish:
+            if st.button("✨ AI Polish (Improve Grammar & Tone)"):
+                if new_text and ai_engine:
+                    with st.spinner("Polishing your letter..."):
+                        try:
+                            # Save history for Undo
+                            st.session_state.letter_body_history.append(new_text)
+                            # FIX 3: Correct function call (refine_text)
+                            polished = ai_engine.refine_text(new_text, style="Professional")
+                            if polished:
+                                st.session_state.letter_body = polished
+                                st.success("Text polished!")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"AI Error: {e}")
+                else:
+                    st.warning("Please write something first.")
+        
+        with col_undo:
+            # FIX 14: Undo Button
+            if len(st.session_state.get("letter_body_history", [])) > 0:
+                if st.button("↩️ Undo Last Change"):
+                    st.session_state.letter_body = st.session_state.letter_body_history.pop()
+                    st.rerun()
 
+        # FIX 12: Visual Autosave Indicator
         if new_text != current_text:
             st.session_state.letter_body = new_text
-            # Auto-save to DB
-            d_id = st.session_state.get("current_draft_id")
-            if d_id and database:
-                database.update_draft_data(d_id, content=new_text)
+            current_time = time.time()
+            # Throttle autosaves
+            if current_time - st.session_state.get("last_autosave", 0) > 3:
+                d_id = st.session_state.get("current_draft_id")
+                if d_id and database:
+                    success = database.update_draft_data(d_id, content=new_text)
+                    if success:
+                        st.session_state.last_autosave = current_time
+                        st.caption(f"💾 Auto-saved at {datetime.now().strftime('%I:%M %p')}")
 
     # -- TAB 2: RECORDING (Simplified & Enlarged) --
     with tab_record:
         st.markdown("### 🎙️ Voice Mode")
         
-        # Explicit HTML Instructions
-        st.markdown(
-            """
-            <div style="font-size: 22px; margin-bottom: 30px; line-height: 1.8; color: #111;">
-            <ol>
-                <li>Click the <b>Red Microphone</b> icon below.</li>
-                <li>Speak your letter clearly.</li>
-                <li>We will turn your voice into text automatically.</li>
-            </ol>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
-
         audio_val = st.audio_input("Record", label_visibility="collapsed")
         
         # --- AUDIO PROCESSING WITH LOOP PROTECTION ---
@@ -457,6 +497,10 @@ def render_workspace_page():
                     text = ai_engine.transcribe_audio(tmp_path)
                     
                     if text:
+                        # FIX 13: Clean up voice text for seniors
+                        if hasattr(ai_engine, 'enhance_transcription_for_seniors'):
+                            text = ai_engine.enhance_transcription_for_seniors(text)
+
                         # Append text to existing body
                         current = st.session_state.get("letter_body", "")
                         st.session_state.letter_body = (current + "\n\n" + text).strip()
@@ -491,10 +535,16 @@ def render_workspace_page():
     with col_r:
         if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
             # Final Validation
+            # FIX 8: Better Error Messages
             if not st.session_state.get("letter_body"):
-                st.error("⚠️ Please write or record something before continuing!")
+                st.error("⚠️ YOUR LETTER IS EMPTY")
+                st.warning("👆 Please scroll up and either:\n- Click 'TYPE MANUALLY' to write your letter\n- Click 'RECORD VOICE' to speak your letter")
+                st.info("Once you see words in the white box, come back here.")
+                st.stop()
             elif not st.session_state.get("addr_to") or not st.session_state.get("addr_from"):
-                st.error("⚠️ Please save your addresses in Step 2.")
+                st.error("⚠️ PLEASE SAVE ADDRESSES")
+                st.warning("👆 Scroll up to Step 2 and click 'Save Addresses' before continuing.")
+                st.stop()
             else:
                 st.session_state.app_mode = "review"
                 st.rerun()
@@ -519,12 +569,13 @@ def render_review_page():
                 std_to = address_standard.StandardAddress.from_dict(addr_to)
                 std_from = address_standard.StandardAddress.from_dict(addr_from)
                 
-                # Create PDF with explicit signature
+                # Create PDF
+                # FIX 1: Pass standardized signature text
                 raw_pdf = letter_format.create_pdf(
                     body, 
                     std_to, 
                     std_from, 
-                    tier,
+                    tier, 
                     signature_text=st.session_state.get("signature_text")
                 )
                 
