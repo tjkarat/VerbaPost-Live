@@ -88,7 +88,7 @@ def render_admin_page():
             st.markdown(f"**Mail (PostGrid):** {postgrid_s}")
             st.markdown(f"**Email (Resend):** {email_s}")
 
-    # --- TAB 2: ORDERS (UPGRADED) ---
+    # --- TAB 2: ORDERS (UPGRADED WITH JSON GUIDE) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
@@ -114,24 +114,38 @@ def render_admin_page():
                     oid = st.number_input("Enter Order ID to Fix/Retry", min_value=0, step=1)
                     
                     if oid:
-                        # Fetch the object from current session
                         sel = db.query(database.LetterDraft).filter(database.LetterDraft.id == oid).first()
                         if sel:
                             st.info(f"Editing Order #{oid} ({sel.status})")
                             
-                            c_edit1, c_edit2 = st.columns(2)
+                            # --- 1. JSON REFERENCE TEMPLATE ---
+                            json_template = """{
+  "name": "John Doe",
+  "street": "123 Main St Apt 4B",
+  "city": "New York",
+  "state": "NY",
+  "zip_code": "10001",
+  "country": "US"
+}"""
                             
-                            # 1. EDIT ADDRESSES (Fix the NULLs)
-                            with c_edit1:
-                                st.markdown("**Edit Recipient JSON**")
-                                r_val = json.dumps(sel.recipient_data) if sel.recipient_data else "{}"
-                                new_r = st.text_area("Recipient", r_val, height=150)
+                            # --- 2. EDITING COLUMNS ---
+                            # We create a 2-column layout for side-by-side editing
+                            c_left, c_right = st.columns([1.5, 1])
+                            
+                            with c_left:
+                                st.markdown("#### 1. Data Repair")
                                 
-                                st.markdown("**Edit Sender JSON**")
-                                s_val = json.dumps(sel.sender_data) if sel.sender_data else "{}"
-                                new_s = st.text_area("Sender", s_val, height=150)
+                                # RECIPIENT
+                                st.caption("Recipient (To)")
+                                r_val = json.dumps(sel.recipient_data, indent=2) if sel.recipient_data else "{}"
+                                new_r = st.text_area("Recipient JSON", r_val, height=200, label_visibility="collapsed")
                                 
-                                if st.button("💾 Save Data Changes"):
+                                # SENDER
+                                st.caption("Sender (From)")
+                                s_val = json.dumps(sel.sender_data, indent=2) if sel.sender_data else "{}"
+                                new_s = st.text_area("Sender JSON", s_val, height=200, label_visibility="collapsed")
+                                
+                                if st.button("💾 Save Changes", use_container_width=True):
                                     try:
                                         sel.recipient_data = json.loads(new_r)
                                         sel.sender_data = json.loads(new_s)
@@ -142,22 +156,23 @@ def render_admin_page():
                                     except Exception as e:
                                         st.error(f"JSON Error: {e}")
 
-                            # 2. FORCE SEND (Retry PostGrid)
-                            with c_edit2:
-                                st.markdown("**Force Fulfillment**")
-                                st.warning("Use this if payment succeeded but PostGrid failed/skipped.")
+                            with c_right:
+                                st.markdown("#### 📖 Format Guide")
+                                st.info("Copy this format if data is missing (NULL).")
+                                st.code(json_template, language="json")
+                                st.markdown("---")
+                                st.markdown("#### 2. Force Send")
+                                st.warning("Only use this if PostGrid failed but payment succeeded.")
                                 
-                                if st.button("🚀 Force Send to PostGrid"):
+                                if st.button("🚀 Force Send to PostGrid", type="primary"):
                                     if not mailer or not letter_format or not address_standard:
                                         st.error("Engines missing")
                                     else:
                                         with st.spinner("Generating & Sending..."):
                                             try:
-                                                # Reconstruct StandardAddress objects
                                                 to_obj = address_standard.StandardAddress.from_dict(sel.recipient_data)
                                                 from_obj = address_standard.StandardAddress.from_dict(sel.sender_data)
                                                 
-                                                # Generate PDF
                                                 pdf_bytes = letter_format.create_pdf(
                                                     sel.content, 
                                                     to_obj, 
@@ -165,7 +180,6 @@ def render_admin_page():
                                                     sel.tier
                                                 )
                                                 
-                                                # Send
                                                 ref = f"admin_retry_{oid}_{int(time.time())}"
                                                 tracking = mailer.send_letter(
                                                     pdf_bytes, 
@@ -173,18 +187,17 @@ def render_admin_page():
                                                     from_obj, 
                                                     ref_id=ref, 
                                                     color=True, 
-                                                    certified=(sel.price > 10) # Simple logic for certified check
+                                                    certified=(sel.price > 10)
                                                 )
                                                 
                                                 st.success(f"✅ Sent! Tracking: {tracking}")
-                                                
-                                                # Log success
                                                 sel.status = "Completed (Admin Retry)"
                                                 sel.tracking_number = tracking
                                                 db.commit()
                                                 
                                             except Exception as ex:
                                                 st.error(f"Send Failed: {ex}")
+
                         else:
                             st.warning("Order ID not found.")
 
