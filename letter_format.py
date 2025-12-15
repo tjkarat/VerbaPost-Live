@@ -13,10 +13,11 @@ class LetterPDF(FPDF):
         self.set_text_color(128)
         self.cell(0, 10, "Sent via VerbaPost", align="C")
 
-def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None):
+def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None, signature_text=None):
     """
     Generates a PDF byte array.
     Robustly handles string vs bytearray return types to fix 'encode' errors.
+    Added signature_text for custom sign-offs.
     """
     pdf = LetterPDF()
     pdf.add_page()
@@ -80,7 +81,10 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None)
     pdf.ln(15)
     pdf.cell(0, 10, "Sincerely,", ln=True)
     pdf.ln(15)
-    pdf.cell(0, 10, s_name, ln=True)
+    
+    # Use custom signature if provided, otherwise default to Sender Name
+    sign_name = signature_text if signature_text else s_name
+    pdf.cell(0, 10, sign_name, ln=True)
 
     # --- 7. CRITICAL OUTPUT FIX ---
     try:

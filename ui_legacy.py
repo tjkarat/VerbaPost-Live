@@ -99,9 +99,11 @@ def initialize_legacy_state():
         "legacy_recipient": {},
         "legacy_text": "",
         "legacy_font": "Caveat",
+        "legacy_signature": "",
         "current_legacy_draft_id": None,
         "last_legacy_hash": None,
-        "paid_success": False
+        "paid_success": False,
+        "tracking_number": None # Added for Success View
     }
     for key, val in defaults.items():
         if key not in st.session_state:
@@ -114,8 +116,8 @@ def load_address_book():
     
     try:
         user_email = st.session_state.get("user_email")
-        contacts = database.get_saved_contacts(user_email)
-        return {f"{c['name']} ({c.get('city', 'Unknown')})": c for c in contacts}
+        contacts = database.get_contacts(user_email)
+        return {f"{c.name} ({c.city})": c for c in contacts}
     except Exception as e:
         print(f"Address Book Error: {e}")
         return {}
@@ -152,23 +154,30 @@ def render_success_view():
     st.balloons()
     st.markdown("## ✅ Order Confirmed!")
     
+    # Get Tracking Number from Session
+    track_num = st.session_state.get("tracking_number", "Processing...")
+    email = st.session_state.get("user_email", "your email")
+
     st.markdown(
-        """
-        <div style="background-color: #dcfce7; padding: 20px; border-radius: 10px; border: 1px solid #22c55e; margin-bottom: 20px;">
+        f"""
+        <div style="background-color: #dcfce7; padding: 25px; border-radius: 10px; border: 1px solid #22c55e; margin-bottom: 20px;">
             <h3 style="color: #15803d; margin-top:0;">Secure Delivery Initiated</h3>
-            <p>Your legacy letter has been securely generated and is being queued for <b>Certified Mail</b>.</p>
+            <p>Your legacy letter has been securely generated and sent to our certified mailing center.</p>
+            <div style="background: white; padding: 15px; border-radius: 5px; margin-top: 15px;">
+                <strong>Tracking Reference / ID:</strong><br>
+                <code style="font-size: 1.2em; color: #d93025;">{track_num}</code>
+            </div>
+            <p style="margin-top: 15px;">A confirmation email has been sent to <b>{email}</b>.</p>
         </div>
         """, unsafe_allow_html=True
     )
-    
-    email = st.session_state.get("user_email", "your email address")
-    st.info(f"We will email the **USPS Tracking Number** to: **{email}**")
     
     if st.button("Start Another Letter"):
         st.session_state.paid_success = False
         st.session_state.current_legacy_draft_id = None
         st.session_state.legacy_text = ""
         st.session_state.last_legacy_hash = None
+        st.session_state.tracking_number = None
         st.rerun()
 
 # --- MAIN RENDERER ---
@@ -195,11 +204,18 @@ def render_legacy_page():
         sel = st.selectbox("📂 Load from Address Book", ["Select..."] + list(addr_opts.keys()))
         if sel != "Select...":
             d = addr_opts[sel]
-            st.session_state.leg_r_name = d.get('name', '')
-            st.session_state.leg_r_street = d.get('street', '')
-            st.session_state.leg_r_city = d.get('city', '')
-            st.session_state.leg_r_state = d.get('state', '')
-            st.session_state.leg_r_zip = d.get('zip_code', '') or d.get('zip', '')
+            if hasattr(d, 'name'):
+                st.session_state.leg_r_name = d.name
+                st.session_state.leg_r_street = d.street
+                st.session_state.leg_r_city = d.city
+                st.session_state.leg_r_state = d.state
+                st.session_state.leg_r_zip = d.zip_code
+            else:
+                st.session_state.leg_r_name = d.get('name', '')
+                st.session_state.leg_r_street = d.get('street', '')
+                st.session_state.leg_r_city = d.get('city', '')
+                st.session_state.leg_r_state = d.get('state', '')
+                st.session_state.leg_r_zip = d.get('zip_code', '') or d.get('zip', '')
     
     if not st.session_state.get("authenticated"):
         st.caption("🔒 Log in to access saved contacts.")
@@ -209,12 +225,21 @@ def render_legacy_page():
         with c1:
             st.markdown("#### 🏠 From (You)")
             prof = st.session_state.get("user_profile", {})
-            sn = st.text_input("Name", value=prof.get("full_name", ""), key="leg_s_name")
-            ss = st.text_input("Street", value=prof.get("address_line1", ""), key="leg_s_street")
+            
+            p_name = prof.get("full_name", "") if isinstance(prof, dict) else getattr(prof, "full_name", "")
+            p_addr = prof.get("address_line1", "") if isinstance(prof, dict) else getattr(prof, "address_line1", "")
+            p_city = prof.get("address_city", "") if isinstance(prof, dict) else getattr(prof, "address_city", "")
+            p_state = prof.get("address_state", "") if isinstance(prof, dict) else getattr(prof, "address_state", "")
+            p_zip = prof.get("address_zip", "") if isinstance(prof, dict) else getattr(prof, "address_zip", "")
+            
+            sn = st.text_input("Name", value=p_name, key="leg_s_name")
+            sig = st.text_input("Signature (Sign-off)", value=p_name, placeholder="e.g. Love, Grandma", key="leg_s_sig")
+            ss = st.text_input("Street", value=p_addr, key="leg_s_street")
             x1, x2, x3 = st.columns(3)
-            sc = x1.text_input("City", value=prof.get("city", ""), key="leg_s_city")
-            stt = x2.text_input("State", value=prof.get("state", ""), key="leg_s_state")
-            sz = x3.text_input("Zip", value=prof.get("zip_code", ""), key="leg_s_zip")
+            sc = x1.text_input("City", value=p_city, key="leg_s_city")
+            stt = x2.text_input("State", value=p_state, key="leg_s_state")
+            sz = x3.text_input("Zip", value=p_zip, key="leg_s_zip")
+            
         with c2:
             st.markdown("#### 📬 To (Recipient)")
             st.warning("⚠️ Certified Mail: Recipient must sign.")
@@ -229,6 +254,7 @@ def render_legacy_page():
             if sn and ss and rn and rs:
                 st.session_state.legacy_sender = {"name": sn, "street": ss, "city": sc, "state": stt, "zip": sz}
                 st.session_state.legacy_recipient = {"name": rn, "street": rs, "city": rc, "state": rt, "zip": rz}
+                st.session_state.legacy_signature = sig
                 st.success("Addresses Confirmed.")
             else:
                 st.error("Missing name or street.")
@@ -288,17 +314,16 @@ def render_legacy_page():
                 try:
                     raw = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""),
-                        st.session_state.legacy_sender,
-                        st.session_state.legacy_recipient,
+                        st.session_state.legacy_recipient,  # Correct: To first
+                        st.session_state.legacy_sender,     # Correct: From second
                         tier="Standard",
-                        font_choice=st.session_state.legacy_font
+                        font_choice=st.session_state.legacy_font,
+                        signature_text=st.session_state.get("legacy_signature")
                     )
-                    # FIX: Safe Cast & Use Embed
+                    
                     pdf_bytes = bytes(raw) 
                     b64 = base64.b64encode(pdf_bytes).decode('utf-8')
-                    # Use embed for better compatibility
                     st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                    # Fallback Download Button
                     st.download_button("⬇️ Download PDF", pdf_bytes, "legacy_letter.pdf", "application/pdf")
                 except Exception as e:
                     st.error(f"PDF Error: {e}")
@@ -306,7 +331,6 @@ def render_legacy_page():
     with c_c:
         st.markdown(f"""<div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 15px;"><h4 style="margin:0;">Total: $15.99</h4><ul style="font-size: 0.9rem; color: #555; padding-left: 20px;"><li>Archival Bond Paper</li><li>USPS Certified Mail Tracking</li><li>Digital & Physical Proof</li></ul></div>""", unsafe_allow_html=True)
         
-        # FIX: Guest Email Input
         guest_email = None
         if not st.session_state.get("authenticated"):
             guest_email = st.text_input("📧 Enter Email for Tracking Number", placeholder="you@example.com")

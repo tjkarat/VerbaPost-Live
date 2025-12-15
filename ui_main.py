@@ -327,6 +327,10 @@ def render_workspace_page():
                     def_zip = profile.get("address_zip", "") if isinstance(profile, dict) else getattr(profile, "address_zip", "")
 
                 f_name = st.text_input("Your Name", value=def_name, key="from_name")
+                
+                # --- NEW SIGNATURE BOX ---
+                f_sig = st.text_input("Signature (Sign-off)", value=def_name, placeholder="e.g. Love, Mom", key="from_sig")
+                
                 f_street = st.text_input("Your Street", value=def_street, key="from_street")
                 f_city = st.text_input("Your City", value=def_city, key="from_city")
                 col_fs, col_fz = st.columns(2)
@@ -342,6 +346,8 @@ def render_workspace_page():
                 st.session_state.addr_from = {
                     "name": f_name, "street": f_street, "city": f_city, "state": f_state, "zip": f_zip
                 }
+                # Save signature to session
+                st.session_state.signature_text = f_sig
                 
                 # Save to DB
                 d_id = st.session_state.get("current_draft_id")
@@ -513,8 +519,14 @@ def render_review_page():
                 std_to = address_standard.StandardAddress.from_dict(addr_to)
                 std_from = address_standard.StandardAddress.from_dict(addr_from)
                 
-                # Create PDF
-                raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier)
+                # Create PDF with explicit signature
+                raw_pdf = letter_format.create_pdf(
+                    body, 
+                    std_to, 
+                    std_from, 
+                    tier,
+                    signature_text=st.session_state.get("signature_text")
+                )
                 
                 # --- SAFETY CAST: Ensure it is bytes to prevent crash ---
                 pdf_bytes = bytes(raw_pdf)
