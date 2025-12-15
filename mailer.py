@@ -59,7 +59,7 @@ def validate_address(address_dict):
 
     try:
         response = requests.post(
-            url = f"{BASE_URL}/print-mail/v1/verifications/address",
+            url = f"{BASE_URL}/verifications/address",
             auth=(api_key, ""),
             json={"address": pg_addr},
             timeout=10
