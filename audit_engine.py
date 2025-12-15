@@ -1,14 +1,9 @@
 import logging
 import datetime
 import json
-import streamlit as st
+import database  # Imports the SQLAlchemy setup
 
-# --- IMPORTS ---
-try:
-    import database
-except Exception:
-    database = None
-
+# --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
 def log_event(user_email, event_type, session_id=None, metadata=None):
@@ -21,32 +16,62 @@ def log_event(user_email, event_type, session_id=None, metadata=None):
         session_id (str, optional): The Stripe or App session ID.
         metadata (dict, optional): Extra details like error messages or IP.
     """
-    timestamp = datetime.datetime.utcnow().isoformat()
+    timestamp = datetime.datetime.utcnow()
     
-    # Ensure metadata is a string for storage
+    # 1. Console Log (Always happens for cloud observability)
     meta_str = "{}"
     if metadata:
         try:
             meta_str = json.dumps(metadata)
         except Exception:
             meta_str = str(metadata)
-
-    # 1. Console Log (Always happens)
-    log_msg = f"[AUDIT] {timestamp} | {event_type} | User: {user_email} | {meta_str}"
+            
+    log_msg = f"[AUDIT] {event_type} | User: {user_email} | {meta_str}"
     logger.info(log_msg)
-    print(log_msg) # Force print to Cloud Run logs
+    print(log_msg) # Force print to standard output for Cloud Run logs
 
-    # 2. Database Log (If DB is connected)
-    if database and hasattr(database, "supabase"):
+    # 2. Database Log (SQLAlchemy)
+    if database:
         try:
-            data = {
-                "event_type": event_type,
-                "user_email": user_email,
-                "session_id": session_id,
-                "metadata": metadata,  # Supabase handles JSONB automatically if configured
-                "created_at": timestamp
-            }
-            # Attempt to insert into 'audit_events' table
-            database.supabase.table("audit_events").insert(data).execute()
+            with database.get_db_session() as db:
+                # Use the AuditEvent model defined in database.py
+                event = database.AuditEvent(
+                    event_type=event_type,
+                    user_email=user_email,
+                    # We store session_id inside details/metadata or separate column if schema allows.
+                    # Based on database.py schema, 'details' is a Text column.
+                    details=meta_str,
+                    timestamp=timestamp
+                )
+                db.add(event)
+                # Context manager auto-commits here
         except Exception as e:
             logger.error(f"Failed to write audit log to DB: {e}")
+
+def get_recent_logs(limit=50):
+    """
+    Retrieves the most recent audit logs for the Admin Console.
+    """
+    if not database:
+        return []
+        
+    try:
+        with database.get_db_session() as db:
+            logs = db.query(database.AuditEvent).order_by(
+                database.AuditEvent.timestamp.desc()
+            ).limit(limit).all()
+            
+            # Convert to dicts for safe consumption
+            results = []
+            for log in logs:
+                results.append({
+                    "id": log.id,
+                    "time": log.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": log.event_type,
+                    "user": log.user_email,
+                    "details": log.details
+                })
+            return results
+    except Exception as e:
+        logger.error(f"Failed to fetch audit logs: {e}")
+        return []
