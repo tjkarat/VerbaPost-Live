@@ -5,7 +5,7 @@ import hashlib
 from datetime import datetime
 
 # --- CRITICAL IMPORTS ---
-# We import database explicitly. If this fails, we want the app to show the error.
+# We import database explicitly. If this fails, the app should show the error.
 import database 
 
 # --- ENGINE IMPORTS ---
@@ -54,12 +54,12 @@ def get_profile_field(profile, field, default=""):
 def _ensure_profile_loaded():
     """
     Forces profile load AND syncs it to session state inputs.
-    This fixes the 'Autopopulate not working' issue and prevents database detachment.
+    This fixes the 'Autopopulate not working' issue.
     """
     if st.session_state.get("authenticated") and not st.session_state.get("profile_synced"):
         try:
             email = st.session_state.get("user_email")
-            # This returns a DICT now (safe)
+            # Now returns a DICT, which is safe from 'DetachedInstanceError'
             profile = database.get_user_profile(email)
             if profile:
                 st.session_state.user_profile = profile
@@ -72,7 +72,7 @@ def _ensure_profile_loaded():
                 st.session_state.from_state = get_profile_field(profile, "address_state")
                 st.session_state.from_zip = get_profile_field(profile, "address_zip")
                 
-                st.session_state.profile_synced = True # Mark as done
+                st.session_state.profile_synced = True # Mark as done so we don't overwrite user edits later
                 st.rerun()
         except Exception as e:
             st.error(f"Database Error: {e}")
@@ -153,7 +153,17 @@ def inject_custom_css(text_size=16):
             color: white !important;
         }}
         
-        /* Hide Branding */
+        /* Instruction Box */
+        .instruction-box {{
+            background-color: #FEF3C7;
+            border-left: 6px solid #F59E0B;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            color: #000;
+        }}
+        
+        /* FIX: Double Curly Braces to escape f-string */
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
@@ -175,13 +185,14 @@ def load_address_book():
         return {}
     try:
         user_email = st.session_state.get("user_email")
+        # contacts is now a list of dicts from the updated database.py
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
-            # c is a dictionary now
+            # Safely access dict keys
             name = c.get('name', '')
             city = c.get('city', 'Unknown')
-            # Create label
+            # Create a label for the dropdown
             label = f"{name} ({city})"
             result[label] = c
         return result
@@ -296,6 +307,7 @@ def render_campaign_uploader():
         st.success(f"✅ Loaded {len(contacts)} recipients.")
         st.dataframe(contacts[:5])
         
+        # Calculate Bulk Price
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
         st.metric("Estimated Total", f"${total}")
         
@@ -324,6 +336,7 @@ def render_workspace_page():
 
     # --- STEP 2: ADDRESSING ---
     with st.expander("📍 Step 2: Addressing", expanded=True):
+        st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
         # 1. Address Book Visibility (Hidden for Civic/Santa)
         if st.session_state.get("authenticated") and current_tier not in ["Civic", "Santa"]:
@@ -339,11 +352,11 @@ def render_workspace_page():
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
                         st.session_state.to_state_input = data.get('state', '')
-                        st.session_state.to_zip_input = data.get('zip', '')
+                        st.session_state.to_zip_input = data.get('zip_code', '') # Fixed key
                         st.session_state.last_loaded_contact = selected_contact
                         st.rerun()
 
-        # 2. Main Addressing Form
+        # 2. Main Form
         with st.form("addressing_form"):
             col_to, col_from = st.columns(2)
             
@@ -356,6 +369,7 @@ def render_workspace_page():
                     st.info("ℹ️ We will send 3 letters: One to your Rep, and two to your Senators.")
                     
                     if st.form_submit_button("🏛️ Find My Representatives"):
+                        # Use the FROM address to look up
                         temp_addr = {
                             "street": st.session_state.get("from_street"),
                             "city": st.session_state.get("from_city"),
@@ -373,7 +387,6 @@ def render_workspace_page():
                         else:
                             st.error("⚠️ Please fill out your 'From' address first.")
                     
-                    # Show found reps
                     if st.session_state.get("civic_reps_found"):
                         st.write("---")
                         st.markdown("**Recipients Found:**")
@@ -403,6 +416,7 @@ def render_workspace_page():
                 c_fz.text_input("Your Zip", key="from_zip")
             
             # --- Save Button ---
+            # FIX: Only show save button for non-Civic tiers to avoid form confusion
             if current_tier != "Civic":
                 if st.form_submit_button("💾 Save Addresses"):
                     st.session_state.addr_to = {
@@ -410,14 +424,14 @@ def render_workspace_page():
                         "street": st.session_state.to_street_input, 
                         "city": st.session_state.to_city_input, 
                         "state": st.session_state.to_state_input, 
-                        "zip": st.session_state.to_zip_input
+                        "zip_code": st.session_state.to_zip_input
                     }
                     st.session_state.addr_from = {
                         "name": st.session_state.from_name, 
                         "street": st.session_state.from_street, 
                         "city": st.session_state.from_city, 
                         "state": st.session_state.from_state, 
-                        "zip": st.session_state.from_zip
+                        "zip_code": st.session_state.from_zip
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
@@ -554,7 +568,7 @@ def render_review_page():
                 # Address handling for Civic vs Standard
                 if tier == "Civic":
                     # Create generic placeholder for proof
-                    std_to = address_standard.StandardAddress(name="Your Representative", street="Washington DC", city="Washington", state="DC", zip="20515")
+                    std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
                 else:
                     std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                 
