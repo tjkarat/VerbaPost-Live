@@ -232,7 +232,7 @@ def render_order_manager():
 
 # --- PRIVACY & CLEANUP ---
 def render_privacy_tools():
-    st.subheader("🗑️ Privacy & Data Cleanup")
+    st.subheader("🗑️ Data Privacy & Cleanup")
     st.warning("These actions are destructive. Proceed with caution.")
     
     if st.button("RUN PRIVACY WIPE (Delete Letter Contents)", type="primary"):
