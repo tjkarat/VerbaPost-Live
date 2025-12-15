@@ -12,16 +12,20 @@ def find_representatives(address_input):
     Looks up US Senators and Representatives for a given address.
     Args: address_input (dict or str)
     """
-    # 1. Get API Key
-    api_key = secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCODIO_API_KEY")
+    # 1. ROBUST KEY FETCHING
+    # Try multiple common key names to avoid configuration errors
+    api_key = (
+        secrets_manager.get_secret("geocodio.api_key") or 
+        secrets_manager.get_secret("GEOCODIO_API_KEY") or
+        secrets_manager.get_secret("geocodio_api_key")
+    )
     
     if not api_key:
-        print("❌ CIVIC DEBUG: API Key is MISSING.")
+        print("❌ CIVIC ERROR: Geocodio API Key is MISSING in secrets.")
         return []
-
+    
     # 2. Format Address
     if isinstance(address_input, dict):
-        # Join non-empty parts
         parts = [
             address_input.get("street", ""),
             address_input.get("city", ""),
@@ -32,7 +36,7 @@ def find_representatives(address_input):
     else:
         address_str = str(address_input)
 
-    print(f"🔍 CIVIC DEBUG: Searching for Address: '{address_str}'")
+    print(f"🔍 CIVIC LOOKUP: '{address_str}'")
 
     # 3. Call API
     url = "https://api.geocod.io/v1.7/geocode"
@@ -46,7 +50,7 @@ def find_representatives(address_input):
         r = requests.get(url, params=params, timeout=10)
         
         if r.status_code != 200:
-            print(f"❌ CIVIC DEBUG: API Error Response: {r.text}")
+            print(f"❌ CIVIC API ERROR: {r.status_code} - {r.text}")
             return []
             
         data = r.json()
@@ -68,7 +72,7 @@ def find_representatives(address_input):
                         "zip": "20510"
                     }
                 })
-            
+                
             # House Reps
             for rep in fields.get('house', []):
                 results.append({
@@ -82,9 +86,9 @@ def find_representatives(address_input):
                     }
                 })
         
-        print(f"✅ CIVIC DEBUG: Returning {len(results)} officials.")
+        print(f"✅ CIVIC SUCCESS: Found {len(results)} officials.")
         return results
 
     except Exception as e:
-        print(f"❌ CIVIC DEBUG EXCEPTION: {e}")
+        print(f"❌ CIVIC EXCEPTION: {e}")
         return []
