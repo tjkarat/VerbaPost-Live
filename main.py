@@ -63,6 +63,10 @@ def get_module(module_name):
         logger.error(f"Failed to load {module_name}: {e}")
         return None
 
+# --- SECRET MANAGER IMPORT (Added for Admin Check) ---
+try: import secrets_manager
+except ImportError: secrets_manager = None
+
 # --- MAIN LOGIC ---
 def main():
     # 1. SEO
@@ -151,8 +155,19 @@ def main():
             st.session_state.app_mode = "splash"
             st.rerun()
             
-        # ONLY SHOW ADMIN IF LOGGED IN
-        if st.session_state.get("admin_authenticated"):
+        # --- FIXED ADMIN VISIBILITY LOGIC ---
+        # Get current user and admin email (case-insensitive check)
+        current_email = st.session_state.get("user_email", "").lower().strip()
+        admin_email = ""
+        if secrets_manager:
+            admin_email = secrets_manager.get_secret("admin.email", "").lower().strip()
+        
+        # Show button if:
+        # 1. Already authenticated as admin in this session (via admin login)
+        # OR 2. The logged-in user matches the admin email secret
+        is_admin = st.session_state.get("admin_authenticated", False)
+        
+        if is_admin or (current_email and admin_email and current_email == admin_email):
             st.markdown("### 🛠️ Administration")
             if st.button("🔐 Admin Console", key="sidebar_admin_btn", use_container_width=True):
                 st.session_state.app_mode = "admin"
