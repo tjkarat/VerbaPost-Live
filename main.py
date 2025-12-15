@@ -71,8 +71,7 @@ def main():
 
     params = st.query_params
 
-    # 2. ADMIN BACKDOOR (NEW)
-    # To access admin, append /?view=admin to your URL
+    # 2. ADMIN BACKDOOR
     if params.get("view") == "admin":
         st.session_state.app_mode = "admin"
 
@@ -144,7 +143,7 @@ def main():
         
     mode = st.session_state.app_mode
 
-    # 6. SIDEBAR (STEALTH MODE APPLIED)
+    # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
         st.markdown("---")
@@ -160,7 +159,7 @@ def main():
                 st.rerun()
                 
         st.markdown("---")
-        st.caption(f"v3.3.8 | {st.session_state.app_mode}")
+        st.caption(f"v3.3.9 | {st.session_state.app_mode}")
 
     # 7. ROUTER
     if mode == "splash":
@@ -175,6 +174,9 @@ def main():
     elif mode == "admin":
         m = get_module("ui_admin")
         if m: m.render_admin_page()
+    elif mode == "legal":   # <--- THIS BLOCK WAS MISSING
+        m = get_module("ui_legal")
+        if m: m.render_legal_page()
     elif mode in ["store", "workspace", "review"]:
         m = get_module("ui_main")
         if m: m.render_main()
