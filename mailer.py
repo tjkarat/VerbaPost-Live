@@ -5,15 +5,12 @@ import streamlit as st
 from secrets_manager import get_secret
 
 # --- CONFIGURATION ---
-# Base URL for Sending Letters (Print & Mail API)
+# We use the Print & Mail API for EVERYTHING (Sending & Verifying)
 BASE_URL = "https://api.postgrid.com/print-mail/v1"
-
-# Base URL for Verification (Address Verification API)
-# FIX: Verification lives on a different API route entirely
-VERIFY_BASE_URL = "https://api.postgrid.com/v1/addver"
 
 def _get_api_key():
     """Retrieve API Key from secrets or env vars."""
+    # This grabs 'postgrid.api_key' which will be the TEST key in QA and LIVE key in Prod
     key = get_secret("postgrid.api_key")
     if not key:
         st.error("❌ Configuration Error: PostGrid API Key missing.")
@@ -52,8 +49,7 @@ def _to_postgrid_addr(addr_dict):
 
 def validate_address(address_dict):
     """
-    Uses PostGrid's Verification API.
-    Returns: (bool is_valid, dict details)
+    Uses PostGrid's Print & Mail Verification Endpoint.
     """
     api_key = _get_api_key()
     if not api_key: return False, {"error": "API Key Missing"}
@@ -62,37 +58,27 @@ def validate_address(address_dict):
     if not pg_addr:
         return False, {"error": "Missing critical fields (Street, City, State, Zip)"}
 
-    # --- DEBUGGING START ---
-    target_url = f"{VERIFY_BASE_URL}/verifications"
-    print(f"🔍 DEBUG: Attempting Verification via: {target_url}")
-    print(f"🔍 DEBUG: Payload: {json.dumps(pg_addr)}")
-    # --- DEBUGGING END ---
-
     try:
-        # FIX: Switched to VERIFY_BASE_URL (api.postgrid.com/v1/addver)
+        # FIX: The correct endpoint for Print & Mail verification is /verifications
+        # We removed "/address" from the end.
         response = requests.post(
-            url = target_url, 
+            url = f"{BASE_URL}/verifications", 
             auth=(api_key, ""),
             json={"address": pg_addr},
             timeout=10
         )
         
-        # --- DEBUGGING RESPONSE ---
-        if response.status_code != 200:
-             print(f"❌ DEBUG: API Error {response.status_code}: {response.text}")
-
         if response.status_code == 200:
             data = response.json()
-            # PostGrid returns "verified" or "corrected" as success states
-            if data.get("status") in ["verified", "corrected"]: 
-                return True, data.get("data")
+            if data.get("success") or data.get("status") in ["verified", "corrected"]: 
+                # PostGrid Print & Mail API typically returns the verified address in 'data'
+                return True, data.get("data", data) 
             else:
                 return False, data.get("error", "Address not found or invalid.")
         else:
-            return False, f"API Error: {response.text}"
+            return False, f"API Error {response.status_code}: {response.text}"
 
     except Exception as e:
-        print(f"❌ DEBUG: Exception: {str(e)}")
         return False, f"Exception: {str(e)}"
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", extra_service=None):
@@ -102,11 +88,9 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
     api_key = _get_api_key()
     if not api_key: return False
 
-    # 1. Convert and Validate Addresses
     pg_to = _to_postgrid_addr(to_addr)
     pg_from = _to_postgrid_addr(from_addr)
 
-    # 2. CIRCUIT BREAKER
     if not pg_to:
         print(f"❌ Aborting Send: Invalid TO address. Data received: {to_addr}")
         return False
@@ -130,7 +114,6 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
         if extra_service:
             data['extraService'] = extra_service
 
-        # NOTE: This uses the original BASE_URL (print-mail) which is CORRECT for letters
         response = requests.post(
             f"{BASE_URL}/letters",
             auth=(api_key, ""),
