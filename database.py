@@ -7,12 +7,13 @@ from contextlib import contextmanager
 import logging
 import secrets_manager
 
+# --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# --- DATABASE MODELS ---
 Base = declarative_base()
 
-# --- MODELS ---
 class UserProfile(Base):
     __tablename__ = "user_profiles"
     id = Column(String, primary_key=True, index=True)
@@ -86,7 +87,7 @@ class AuditEvent(Base):
     details = Column(Text)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
-# --- ENGINE ---
+# --- ENGINE & SESSION ---
 _engine = None
 
 def get_engine():
@@ -100,10 +101,12 @@ def get_engine():
     if not db_url and "supabase" in st.secrets:
         db_url = st.secrets["supabase"].get("db_url")
 
+    # Fallback to local
     if not db_url:
         logger.warning("⚠️ No DATABASE_URL found. Using local SQLite.")
         db_url = "sqlite:///./local_dev.db"
     
+    # Fix Dialect
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -117,7 +120,7 @@ def get_engine():
                 max_overflow=10,
                 pool_timeout=30,
                 pool_recycle=1800,
-                poolclass=QueuePool,  # <--- COMMA FIXED HERE
+                poolclass=QueuePool,  # <--- CRITICAL FIX: Added comma here
                 connect_args={'options': '-csearch_path=public'}
             )
         Base.metadata.create_all(bind=_engine)
@@ -130,6 +133,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine()
 
 @contextmanager
 def get_db_session():
+    """Safe session management."""
     engine = get_engine() 
     if not engine:
         engine = create_engine("sqlite:///:memory:")
@@ -145,7 +149,8 @@ def get_db_session():
     finally:
         session.close()
 
-# --- CRUD ---
+# --- CRUD OPERATIONS ---
+
 def create_user_profile(profile_data):
     try:
         with get_db_session() as db:
@@ -172,6 +177,7 @@ def create_user_profile(profile_data):
         return False
 
 def get_user_profile(email):
+    """Fetches profile and converts to DICT."""
     try:
         with get_db_session() as db:
             profile = db.query(UserProfile).filter(UserProfile.email == email).first()
