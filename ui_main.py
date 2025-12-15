@@ -48,12 +48,20 @@ def get_profile_field(profile, field, default=""):
     if isinstance(profile, dict): return profile.get(field, default)
     return getattr(profile, field, default)
 
+def _ensure_profile_loaded():
+    """CRITICAL FIX: Forces profile reload if missing from session state."""
+    if st.session_state.get("authenticated") and not st.session_state.get("user_profile"):
+        if database:
+            email = st.session_state.get("user_email")
+            profile = database.get_user_profile(email)
+            if profile:
+                st.session_state.user_profile = profile
+                # Force rerun to populate fields immediately
+                st.rerun()
 
-# --- ACCESSIBILITY CSS INJECTOR (FIXED) ---
+# --- ACCESSIBILITY CSS INJECTOR ---
 def inject_accessibility_css(text_size=16):
     """Injects CSS to make tabs larger, high-contrast, and button-like."""
-    # FIX: All CSS curly braces must be doubled {{ }} inside an f-string
-    # The only single braces { } should be around the python variable {text_size}
     st.markdown(f"""
         <style>
         /* Dynamic Text Size */
@@ -96,7 +104,7 @@ def inject_accessibility_css(text_size=16):
             font-weight: 500;
             color: #000000;
         }}
-        /* Hide Streamlit Branding if needed - FIXED BRACES HERE */
+        /* Hide Streamlit Branding */
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
@@ -242,6 +250,9 @@ def render_campaign_uploader():
 
 def render_workspace_page():
     """Step 2 & 3: Composition & Addressing."""
+    # Ensure profile is loaded for auto-population
+    _ensure_profile_loaded()
+
     # Accessibility Slider
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
@@ -255,8 +266,9 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 1. Address Book (Visible for ALL tiers now)
-        if st.session_state.get("authenticated"):
+        # 1. Address Book Visibility
+        # SHOW for Heirloom/Standard/Santa/Campaign. HIDE for Civic (as requested).
+        if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             if addr_opts:
                 col_load, col_empty = st.columns([2, 1])
