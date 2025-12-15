@@ -18,11 +18,12 @@ def _get_api_key():
 def _to_postgrid_addr(addr_dict):
     """
     Maps internal address keys to PostGrid's required format.
+    Returns None if critical fields (Street, City, State, Zip) are empty.
     """
     if not addr_dict:
-        return {}
+        return None
 
-    # Extract values safely
+    # 1. Extract values safely with multiple fallback keys
     line1 = (addr_dict.get("street") or addr_dict.get("address_line1") or "").strip()
     line2 = (addr_dict.get("street2") or addr_dict.get("address_line2") or addr_dict.get("apt") or "").strip()
     city = (addr_dict.get("city") or "").strip()
@@ -30,8 +31,9 @@ def _to_postgrid_addr(addr_dict):
     zip_code = (addr_dict.get("zip") or addr_dict.get("postalOrZip") or addr_dict.get("zip_code") or "").strip()
     name = (addr_dict.get("name") or addr_dict.get("full_name") or "Valued Customer").strip()
 
-    # LOGIC FIX: Return None if critical fields are missing to prevent API errors
-    if not line1 or not zip_code or not state:
+    # 2. CRITICAL VALIDATION: Fail if any required field is empty
+    # This prevents sending {"addressLine1": ""} to the API
+    if not line1 or not city or not state or not zip_code:
         return None
 
     return {
@@ -53,7 +55,7 @@ def validate_address(address_dict):
 
     pg_addr = _to_postgrid_addr(address_dict)
     if not pg_addr:
-        return False, {"error": "Missing required fields (Street, State, or Zip)"}
+        return False, {"error": "Missing required fields (Street, City, State, or Zip)"}
 
     try:
         response = requests.post(
@@ -84,12 +86,17 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
     api_key = _get_api_key()
     if not api_key: return False
 
+    # 1. Convert and Validate Addresses
     pg_to = _to_postgrid_addr(to_addr)
     pg_from = _to_postgrid_addr(from_addr)
 
-    # FINANCIAL FIX: Don't attempt send if address conversion failed
-    if not pg_to or not pg_from:
-        print(f"❌ Aborting: Invalid address data. To: {pg_to}, From: {pg_from}")
+    # 2. CIRCUIT BREAKER: Stop immediately if address conversion failed
+    # This catches empty Autofill strings before they hit the API
+    if not pg_to:
+        print(f"❌ Aborting Send: Invalid TO address. Data received: {to_addr}")
+        return False
+    if not pg_from:
+        print(f"❌ Aborting Send: Invalid FROM address. Data received: {from_addr}")
         return False
 
     try:

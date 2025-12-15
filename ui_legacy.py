@@ -32,12 +32,24 @@ def inject_legacy_accessibility_css():
         .fp-IndieFlower { font-family: 'Indie Flower', cursive; }
         .fp-Schoolbell { font-family: 'Schoolbell', cursive; }
         .instruction-box { background-color: #FEF3C7; border-left: 10px solid #F59E0B; padding: 20px; margin-bottom: 25px; font-size: 20px; font-weight: 500; color: #000000; }
+        /* Make form inputs larger for seniors */
+        div[data-testid="stForm"] input { font-size: 1.1rem; }
         </style>
     """, unsafe_allow_html=True)
 
 # --- STATE MANAGEMENT ---
 def initialize_legacy_state():
-    defaults = {"legacy_sender": {}, "legacy_recipient": {}, "legacy_text": "", "legacy_font": "Caveat", "legacy_signature": "", "current_legacy_draft_id": None, "last_legacy_hash": None, "paid_success": False, "tracking_number": None}
+    defaults = {
+        "legacy_sender": {}, 
+        "legacy_recipient": {}, 
+        "legacy_text": "", 
+        "legacy_font": "Caveat", 
+        "legacy_signature": "", 
+        "current_legacy_draft_id": None, 
+        "last_legacy_hash": None, 
+        "paid_success": False, 
+        "tracking_number": None
+    }
     for key, val in defaults.items():
         if key not in st.session_state: st.session_state[key] = val
 
@@ -54,11 +66,12 @@ def _save_legacy_draft():
     user_email = st.session_state.get("user_email", "guest")
     try:
         d_id = st.session_state.get("current_legacy_draft_id")
+        content = st.session_state.legacy_text
         if d_id:
-            database.update_draft_data(d_id, content=st.session_state.legacy_text, tier="Legacy", price=15.99)
+            database.update_draft_data(d_id, content=content, tier="Legacy", price=15.99)
             st.toast("Draft Saved!", icon="💾")
         else:
-            d_id = database.save_draft(user_email, st.session_state.legacy_text, "Legacy", 15.99)
+            d_id = database.save_draft(user_email, content, "Legacy", 15.99)
             st.session_state.current_legacy_draft_id = d_id
             st.toast("New Draft Created!", icon="✨")
     except Exception as e: st.error(f"Save failed: {e}")
@@ -103,8 +116,10 @@ def render_legacy_page():
         st.markdown("### 💡 Need help writing?")
         st.info("For guidance, templates, and inspiration on what to say, we highly recommend the **[Stanford Letter Project](https://med.stanford.edu/letter.html)**.")
 
+    # --- ADDRESS BOOK LOGIC (Outside Form to allow State Update) ---
     addr_opts = load_address_book()
     st.markdown("### 📍 Step 1: Delivery Details")
+    
     if addr_opts:
         sel = st.selectbox("📂 Load from Address Book", ["Select..."] + list(addr_opts.keys()))
         if sel != "Select...":
@@ -114,11 +129,17 @@ def render_legacy_page():
             st.session_state.leg_r_city = d.city if hasattr(d, 'city') else d.get('city', '')
             st.session_state.leg_r_state = d.state if hasattr(d, 'state') else d.get('state', '')
             st.session_state.leg_r_zip = d.zip_code if hasattr(d, 'zip_code') else d.get('zip_code', '')
-    
-    with st.form("leg_addr"):
+
+    # --- THE FORM (Fixes Autofill Issue) ---
+    # Using st.form guarantees that browser autofill values are synced 
+    # to Python before the submit button code executes.
+    with st.form("legacy_address_form"):
         c1, c2 = st.columns(2)
+        
+        # --- SENDER SECTION ---
         with c1:
             st.markdown("#### 🏠 From (You)")
+            # Pre-fill from User Profile if available
             prof = st.session_state.get("user_profile", {})
             p_name = prof.get("full_name", "") if isinstance(prof, dict) else getattr(prof, "full_name", "")
             p_addr = prof.get("address_line1", "") if isinstance(prof, dict) else getattr(prof, "address_line1", "")
@@ -126,31 +147,49 @@ def render_legacy_page():
             p_state = prof.get("address_state", "") if isinstance(prof, dict) else getattr(prof, "address_state", "")
             p_zip = prof.get("address_zip", "") if isinstance(prof, dict) else getattr(prof, "address_zip", "")
             
-            sn = st.text_input("Name", value=p_name, key="leg_s_name")
-            sig = st.text_input("Signature (Sign-off)", value=p_name, placeholder="e.g. Love, Grandma", key="leg_s_sig")
-            ss = st.text_input("Street", value=p_addr, key="leg_s_street")
+            # Sender Inputs
+            sn = st.text_input("Your Name", value=p_name, key="leg_s_name")
+            ss = st.text_input("Your Street", value=p_addr, key="leg_s_street")
             x1, x2, x3 = st.columns(3)
             sc = x1.text_input("City", value=p_city, key="leg_s_city")
             stt = x2.text_input("State", value=p_state, key="leg_s_state")
             sz = x3.text_input("Zip", value=p_zip, key="leg_s_zip")
+            
+            st.markdown("#### ✍️ Signature")
+            st.info("This will appear at the bottom of your letter.")
+            sig = st.text_input("Sign-off (e.g. Love, Grandma)", value=p_name, key="leg_s_sig")
+
+        # --- RECIPIENT SECTION ---
         with c2:
             st.markdown("#### 📬 To (Recipient)")
             st.warning("⚠️ Certified Mail: Recipient must sign.")
-            rn = st.text_input("Name", key="leg_r_name")
-            rs = st.text_input("Street", key="leg_r_street")
+            
+            # Recipient Inputs (Values pull from Session State if Address Book was used)
+            rn = st.text_input("Recipient Name", key="leg_r_name")
+            rs = st.text_input("Recipient Street", key="leg_r_street")
             y1, y2, y3 = st.columns(3)
             rc = y1.text_input("City", key="leg_r_city")
             rt = y2.text_input("State", key="leg_r_state")
             rz = y3.text_input("Zip", key="leg_r_zip")
-        if st.form_submit_button("✅ Confirm Addresses"):
-            if sn and ss and rn and rs:
+
+        # --- FORM ACTION ---
+        submitted = st.form_submit_button("✅ Save & Confirm Addresses", type="primary", use_container_width=True)
+
+        if submitted:
+            # 1. Validation
+            if not sn or not ss or not rn or not rs or not rc or not sc:
+                st.error("⚠️ Please fill in all required address fields (Name, Street, City, State, Zip).")
+            else:
+                # 2. Save to Session State (Explicit Sync)
                 st.session_state.legacy_sender = {"name": sn, "street": ss, "city": sc, "state": stt, "zip": sz}
                 st.session_state.legacy_recipient = {"name": rn, "street": rs, "city": rc, "state": rt, "zip": rz}
                 st.session_state.legacy_signature = sig
-                st.success("Addresses Confirmed.")
-            else: st.error("Missing name or street.")
+                st.success("Addresses Saved Successfully.")
 
-    if not st.session_state.get("legacy_sender"): st.stop()
+    # Block progress if addresses aren't saved yet
+    if not st.session_state.get("legacy_sender") or not st.session_state.get("legacy_recipient"):
+        st.info("👆 Please save addresses above to continue.")
+        st.stop()
 
     st.markdown("---")
     st.markdown("### 🖋️ Step 2: Handwriting Style")
@@ -161,7 +200,6 @@ def render_legacy_page():
         st.session_state.legacy_font = f_map[f_sel]
     with c_f2:
         fn = f_map[f_sel].replace(" ", "")
-        # FIX 9: Larger, Senior-Friendly Font Preview
         preview_text = "My Dearest Family,<br>This is how my legacy letter will look.<br>With all my love,<br>Grandma"
         st.markdown(f'''<div style="background: #fff; padding: 25px; border: 2px solid #333; border-radius: 10px; margin-bottom: 20px;">
             <p class="fp-{fn}" style="font-size: 32px !important; line-height: 1.6; margin: 0; color: #000;">{preview_text}</p>
@@ -201,13 +239,19 @@ def render_legacy_page():
             if not st.session_state.get("legacy_text"): st.error("Please write your letter first.")
             elif letter_format:
                 try:
+                    # Pass the Saved Signature explicitly here
+                    current_sig = st.session_state.get("legacy_signature", "")
+                    if not current_sig: 
+                        # Fallback if signature empty
+                        current_sig = st.session_state.legacy_sender.get("name", "Sincerely")
+
                     raw = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""),
-                        st.session_state.legacy_recipient, # Correct: To
-                        st.session_state.legacy_sender,    # Correct: From
+                        st.session_state.legacy_recipient, 
+                        st.session_state.legacy_sender,    
                         tier="Standard",
                         font_choice=st.session_state.legacy_font,
-                        signature_text=st.session_state.get("legacy_signature")
+                        signature_text=current_sig
                     )
                     pdf_bytes = bytes(raw)
                     b64 = base64.b64encode(pdf_bytes).decode('utf-8')
