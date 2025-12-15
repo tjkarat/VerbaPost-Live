@@ -5,7 +5,12 @@ import streamlit as st
 from secrets_manager import get_secret
 
 # --- CONFIGURATION ---
+# Base URL for Sending Letters (Print & Mail API)
 BASE_URL = "https://api.postgrid.com/print-mail/v1"
+
+# Base URL for Verification (Address Verification API)
+# FIX: Verification lives on a different API route entirely
+VERIFY_BASE_URL = "https://api.postgrid.com/v1/addver"
 
 def _get_api_key():
     """Retrieve API Key from secrets or env vars."""
@@ -57,15 +62,25 @@ def validate_address(address_dict):
     if not pg_addr:
         return False, {"error": "Missing critical fields (Street, City, State, Zip)"}
 
+    # --- DEBUGGING START ---
+    target_url = f"{VERIFY_BASE_URL}/verifications"
+    print(f"🔍 DEBUG: Attempting Verification via: {target_url}")
+    print(f"🔍 DEBUG: Payload: {json.dumps(pg_addr)}")
+    # --- DEBUGGING END ---
+
     try:
-        # FIX: Removed "/address" from the end of the URL
+        # FIX: Switched to VERIFY_BASE_URL (api.postgrid.com/v1/addver)
         response = requests.post(
-            url = f"{BASE_URL}/verifications", 
+            url = target_url, 
             auth=(api_key, ""),
             json={"address": pg_addr},
             timeout=10
         )
         
+        # --- DEBUGGING RESPONSE ---
+        if response.status_code != 200:
+             print(f"❌ DEBUG: API Error {response.status_code}: {response.text}")
+
         if response.status_code == 200:
             data = response.json()
             # PostGrid returns "verified" or "corrected" as success states
@@ -77,6 +92,7 @@ def validate_address(address_dict):
             return False, f"API Error: {response.text}"
 
     except Exception as e:
+        print(f"❌ DEBUG: Exception: {str(e)}")
         return False, f"Exception: {str(e)}"
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", extra_service=None):
@@ -114,6 +130,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
         if extra_service:
             data['extraService'] = extra_service
 
+        # NOTE: This uses the original BASE_URL (print-mail) which is CORRECT for letters
         response = requests.post(
             f"{BASE_URL}/letters",
             auth=(api_key, ""),
