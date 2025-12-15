@@ -122,7 +122,7 @@ def get_engine():
                 pool_timeout=30,
                 pool_recycle=1800,
                 poolclass=QueuePool
-                connect_args={'options': '-csearch_path=public'}
+                connect_args={'options': '-csearch_path=public'},
             )
         Base.metadata.create_all(bind=_engine)
         return _engine
