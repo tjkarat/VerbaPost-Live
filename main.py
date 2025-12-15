@@ -149,6 +149,31 @@ def main():
 
     # 6. SIDEBAR
     with st.sidebar:
+        st.divider()
+        st.error("🔍 DEBUG MODE")
+        
+        # Check 1: Is the module loaded?
+        if secrets_manager is None:
+            st.warning("⚠️ secrets_manager.py failed to import!")
+        else:
+            st.success("✅ Module Loaded")
+            
+            # Check 2: What are the exact values?
+            u_email = st.session_state.get("user_email", "Not Logged In")
+            # Try getting secret directly, then from Streamlit secrets
+            a_email = secrets_manager.get_secret("admin.email")
+            
+            st.write(f"**You:** `{u_email}`")
+            st.write(f"**Admin Secret:** `{a_email}`")
+            
+            # Check 3: Do they match?
+            if u_email and a_email:
+                match = (u_email.lower().strip() == a_email.lower().strip())
+                st.write(f"**Match?** {match}")
+            else:
+                st.write("**Match?** Cannot compare (One is empty)")
+        st.divider()
+    # --- END DEBUG BLOCK ---
         st.header("VerbaPost System")
         st.markdown("---")
         if st.button("🏠 Home", use_container_width=True):
