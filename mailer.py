@@ -58,8 +58,9 @@ def validate_address(address_dict):
         return False, {"error": "Missing critical fields (Street, City, State, Zip)"}
 
     try:
+        # FIX: Removed "/address" from the end of the URL
         response = requests.post(
-            url = f"{BASE_URL}/verifications/address",
+            url = f"{BASE_URL}/verifications", 
             auth=(api_key, ""),
             json={"address": pg_addr},
             timeout=10
@@ -67,10 +68,10 @@ def validate_address(address_dict):
         
         if response.status_code == 200:
             data = response.json()
-            if data.get("status") == "verified":
+            # PostGrid returns "verified" or "corrected" as success states
+            if data.get("status") in ["verified", "corrected"]: 
                 return True, data.get("data")
             else:
-                # Return the error message from PostGrid if available
                 return False, data.get("error", "Address not found or invalid.")
         else:
             return False, f"API Error: {response.text}"
