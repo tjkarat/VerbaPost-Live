@@ -36,7 +36,7 @@ try: import audit_engine
 except ImportError: audit_engine = None
 try: import seo_injector
 except ImportError: seo_injector = None
-try: import email_engine  # <--- NEW: REQUIRED FOR CONFIRMATIONS
+try: import email_engine
 except ImportError: email_engine = None
 
 # --- CSS STYLING ---
@@ -62,18 +62,44 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- HELPER: ROBUST PAYMENT CHECK ---
+def verify_payment_with_retries(session_id, retries=3):
+    """Attempts to verify payment multiple times to handle race conditions."""
+    if not payment_engine:
+        return "error"
+        
+    for i in range(retries):
+        try:
+            status = payment_engine.verify_session(session_id)
+            if status == "paid":
+                return "paid"
+            elif status == "open":
+                time.sleep(1.5) # Wait for Stripe webhook/processing
+                continue
+        except Exception as e:
+            print(f"Payment Check Fail (Attempt {i+1}): {e}")
+            time.sleep(1)
+            
+    return "failed"
+
 # --- MAIN APP LOGIC ---
 def main():
     if seo_injector: seo_injector.inject_meta()
 
     # 1. HANDLE PAYMENT RETURNS (STRIPE REDIRECT)
     params = st.query_params
-    if "session_id" in params and payment_engine:
+    if "session_id" in params:
         session_id = params["session_id"]
-        with st.spinner("Verifying Payment & Generating Tracking..."):
-            status = payment_engine.verify_session(session_id)
+        
+        # UI Feedback for User
+        with st.status("🔐 Verifying secure payment...", expanded=True) as status_box:
+            st.write("Connecting to payment gateway...")
             
-            if status == "paid":
+            # Smart Retry Logic
+            pay_status = verify_payment_with_retries(session_id)
+            
+            if pay_status == "paid":
+                status_box.update(label="✅ Payment Confirmed!", state="complete", expanded=False)
                 st.session_state.paid_success = True
                 
                 # A. Determine User Logic
@@ -90,14 +116,14 @@ def main():
                 track_num = f"94055{random.randint(10000000,99999999)}"
                 st.session_state.tracking_number = track_num
 
-                # D. SEND EMAIL (FIXED)
+                # D. SEND EMAIL
                 if email_engine:
+                    st.write("Sending confirmation email...")
                     # Determine Tier for email subject
                     tier_sold = "Legacy" if st.session_state.get("last_mode") == "legacy" else "Standard"
                     email_engine.send_confirmation(current_user, track_num, tier=tier_sold)
 
-                # E. ROUTING (FIXED)
-                st.success("✅ Payment Confirmed!")
+                # E. CLEAR & ROUTE
                 time.sleep(1)
                 st.query_params.clear()
                 
@@ -109,13 +135,25 @@ def main():
                 
                 st.rerun()
 
-            elif status == "open":
-                st.info("Payment is processing...")
+            elif pay_status == "open":
+                status_box.update(label="⏳ Payment Processing", state="running")
+                st.info("Your payment is still processing. Please wait a moment and refresh.")
+                if st.button("🔄 Refresh Status"):
+                    st.rerun()
             else:
-                st.error("Payment not found or failed. Please contact support.")
-    
+                status_box.update(label="⚠️ Payment Verification Issue", state="error")
+                st.warning("We couldn't confirm the payment instantly.")
+                st.markdown("If you received a receipt from Stripe, your order **is safe**.")
+                
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("🔄 Try Again"):
+                        st.rerun()
+                with c2:
+                    st.link_button("💬 Contact Support", "mailto:support@verbapost.com")
+
     # 2. PASSWORD RESET
-    if "type" in params and params["type"] == "recovery":
+    elif "type" in params and params["type"] == "recovery":
         st.session_state.app_mode = "login"
 
     # 3. INIT STATE
@@ -134,7 +172,7 @@ def main():
             st.session_state.app_mode = "admin"
             st.rerun()
         st.markdown("---")
-        st.caption(f"v3.3.1 | {st.session_state.app_mode}")
+        st.caption(f"v3.3.2 | {st.session_state.app_mode}")
 
     # 5. ROUTING SWITCHBOARD
     mode = st.session_state.app_mode
