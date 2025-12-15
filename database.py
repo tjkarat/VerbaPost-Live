@@ -27,7 +27,7 @@ class UserProfile(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     def to_dict(self):
-        """Helper to convert ORM object to dictionary"""
+        """Converts ORM object to dictionary to prevent DetachedInstanceError"""
         return {
             "id": self.id,
             "email": self.email,
@@ -71,6 +71,14 @@ class PromoCode(Base):
     max_uses = Column(Integer, default=100)
     current_uses = Column(Integer, default=0)
     active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+class PromoLog(Base):
+    __tablename__ = "promo_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String, index=True)
+    user_email = Column(String)
+    used_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class AuditEvent(Base):
     __tablename__ = "audit_events"
@@ -94,10 +102,12 @@ def get_engine():
     if not db_url and "supabase" in st.secrets:
         db_url = st.secrets["supabase"].get("db_url")
 
+    # Fallback to local
     if not db_url:
         logger.warning("⚠️ No DATABASE_URL found. Using local SQLite.")
         db_url = "sqlite:///./local_dev.db"
     
+    # Fix Dialect
     if db_url and db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -140,6 +150,7 @@ def get_db_session():
         session.close()
 
 # --- CRUD OPERATIONS ---
+
 def create_user_profile(profile_data):
     try:
         with get_db_session() as db:
@@ -166,7 +177,7 @@ def create_user_profile(profile_data):
         return False
 
 def get_user_profile(email):
-    """Returns a Dictionary, not an ORM object, to prevent DetachedInstanceError"""
+    """Fetches profile and converts to DICT to avoid DetachedInstanceError."""
     try:
         with get_db_session() as db:
             profile = db.query(UserProfile).filter(UserProfile.email == email).first()
@@ -233,6 +244,7 @@ def get_contacts(user_email):
     try:
         with get_db_session() as db:
             contacts = db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
+            # Return LIST OF DICTS, not objects
             return [{
                 "name": c.name, "street": c.street, "city": c.city, 
                 "state": c.state, "zip_code": c.zip_code, "country": c.country

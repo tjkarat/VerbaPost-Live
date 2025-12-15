@@ -5,11 +5,11 @@ import hashlib
 from datetime import datetime
 
 # --- CRITICAL IMPORTS ---
-# We import database explicitly. If this fails, the app will crash 
-# and show the error, rather than failing silently.
+# We import database explicitly to ensure connection
 import database 
 
 # --- ENGINE IMPORTS ---
+# Safely import engines
 try: import ai_engine
 except ImportError: ai_engine = None
 try: import payment_engine
@@ -46,9 +46,10 @@ except ImportError: ui_legacy = None
 
 # --- HELPER: SAFE PROFILE GETTER ---
 def get_profile_field(profile, field, default=""):
-    """Safely retrieves fields from profile whether it's a dict, object, or None."""
+    """Safely retrieves fields from profile whether it's a dict or None."""
     if not profile: return default
     if isinstance(profile, dict): return profile.get(field, default)
+    # Fallback if somehow it's still an object (shouldn't happen with new database.py)
     return getattr(profile, field, default)
 
 def _ensure_profile_loaded():
@@ -56,18 +57,17 @@ def _ensure_profile_loaded():
     if st.session_state.get("authenticated") and not st.session_state.get("user_profile"):
         try:
             email = st.session_state.get("user_email")
-            # This call will fail visibly if DB is broken, which is what we want
+            # This now returns a DICT, so it is safe
             profile = database.get_user_profile(email)
             if profile:
                 st.session_state.user_profile = profile
                 st.rerun()
         except Exception as e:
-            st.error(f"Critical Database Error: {e}")
+            st.error(f"Database Error: {e}")
 
 # --- ACCESSIBILITY & STYLE INJECTOR ---
 def inject_custom_css(text_size=16):
-    """Injects CSS for text size, layout, and visual polish."""
-    # NOTE: We use {{ }} to escape curly braces in f-strings
+    """Injects CSS. Fixed the visibility bug by escaping curly braces."""
     st.markdown(f"""
         <style>
         /* Base Text Sizing */
@@ -83,7 +83,7 @@ def inject_custom_css(text_size=16):
             padding: 20px;
             text-align: center;
             border: 1px solid #e0e0e0;
-            height: 180px; /* Fixed height for alignment */
+            height: 180px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.05);
             display: flex;
             flex-direction: column;
@@ -151,7 +151,7 @@ def inject_custom_css(text_size=16):
             color: #000;
         }}
         
-        /* Hide Branding */
+        /* FIX: Double Curly Braces to escape f-string */
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
@@ -173,22 +173,23 @@ def load_address_book():
         return {}
     try:
         user_email = st.session_state.get("user_email")
+        # Now returns list of dicts, which is safe
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
-            name = c.get('name') if isinstance(c, dict) else getattr(c, 'name', '')
-            city = c.get('city') if isinstance(c, dict) else getattr(c, 'city', 'Unknown')
+            # c is now a dictionary, so use .get()
+            name = c.get('name', '')
+            city = c.get('city', 'Unknown')
             contact_data = {
                 'name': name,
-                'street': c.get('street') if isinstance(c, dict) else getattr(c, 'street', ''),
+                'street': c.get('street', ''),
                 'city': city,
-                'state': c.get('state') if isinstance(c, dict) else getattr(c, 'state', ''),
-                'zip': c.get('zip_code') if isinstance(c, dict) else getattr(c, 'zip_code', '')
+                'state': c.get('state', ''),
+                'zip': c.get('zip_code', '')
             }
             result[f"{name} ({city})"] = contact_data
         return result
     except Exception as e:
-        # Don't crash here, just log it
         print(f"Address Book Error: {e}")
         return {}
 
@@ -215,7 +216,6 @@ def render_store_page():
     
     u_email = st.session_state.get("user_email", "")
     
-    # Auth Guard
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
         if st.button("Go to Login"):
@@ -223,7 +223,6 @@ def render_store_page():
             st.rerun()
         return
 
-    # Help Section
     with st.expander("❓ How VerbaPost Works", expanded=False):
         st.markdown("""
         1. **Select Service:** Choose your letter tier below.
@@ -243,7 +242,6 @@ def render_store_page():
 
     # --- PRICING GRID LAYOUT ---
     
-    # ROW 1: Info Cards
     c1, c2, c3, c4 = st.columns(4)
     
     def html_card(title, qty_text, price, desc):
@@ -265,7 +263,6 @@ def render_store_page():
     with c4:
         st.markdown(html_card("Santa", "One Letter", "9.99", "North Pole Postmark. Golden Ticket. Magical."), unsafe_allow_html=True)
 
-    # ROW 2: Buttons
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
@@ -331,7 +328,6 @@ def render_campaign_uploader():
 
 def render_workspace_page():
     """Step 2 & 3: Composition & Addressing."""
-    # Ensure profile is loaded for auto-population
     _ensure_profile_loaded()
 
     col_slide, col_gap = st.columns([1, 2])
