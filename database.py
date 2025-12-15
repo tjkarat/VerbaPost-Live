@@ -26,6 +26,19 @@ class UserProfile(Base):
     country = Column(String, default="US")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
+    def to_dict(self):
+        """Helper to convert ORM object to dictionary"""
+        return {
+            "id": self.id,
+            "email": self.email,
+            "full_name": self.full_name,
+            "address_line1": self.address_line1,
+            "address_city": self.address_city,
+            "address_state": self.address_state,
+            "address_zip": self.address_zip,
+            "country": self.country
+        }
+
 class LetterDraft(Base):
     __tablename__ = "letter_drafts"
     id = Column(Integer, primary_key=True, index=True)
@@ -54,7 +67,7 @@ class SavedContact(Base):
 class PromoCode(Base):
     __tablename__ = "promo_codes"
     code = Column(String, primary_key=True)
-    discount_amount = Column(Float)
+    discount_amount = Column(Float, default=0.0)
     max_uses = Column(Integer, default=100)
     current_uses = Column(Integer, default=0)
     active = Column(Boolean, default=True)
@@ -75,24 +88,16 @@ def get_engine():
     if _engine: return _engine
     
     db_url = None
-    
-    # FIX: STRICT PRIORITY
-    # Only accept keys that are explicitly meant for SQL connections.
-    # We DO NOT look at "SUPABASE_URL" here because that is an HTTPS API endpoint.
     if secrets_manager:
-        db_url = secrets_manager.get_secret("DATABASE_URL") or secrets_manager.get_secret("postgresql.url")
-
-    # Fallback for Streamlit Cloud specific config structure
+        db_url = secrets_manager.get_secret("DATABASE_URL")
+    
     if not db_url and "supabase" in st.secrets:
-        # Check if the user put the postgres string in a specific 'db_url' key under [supabase]
         db_url = st.secrets["supabase"].get("db_url")
 
-    # Fallback to Local SQLite (Prevent Crash in Dev)
     if not db_url:
         logger.warning("⚠️ No DATABASE_URL found. Using local SQLite.")
         db_url = "sqlite:///./local_dev.db"
     
-    # Handle the "postgres://" vs "postgresql://" dialect issue (SQLAlchemy needs postgresql://)
     if db_url and db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
@@ -121,7 +126,6 @@ def get_db_session():
     """Safe session management."""
     engine = get_engine() 
     if not engine:
-        # Fallback to memory to prevent UI crash
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
     
@@ -162,10 +166,16 @@ def create_user_profile(profile_data):
         return False
 
 def get_user_profile(email):
+    """Returns a Dictionary, not an ORM object, to prevent DetachedInstanceError"""
     try:
         with get_db_session() as db:
-            return db.query(UserProfile).filter(UserProfile.email == email).first()
-    except: return None
+            profile = db.query(UserProfile).filter(UserProfile.email == email).first()
+            if profile:
+                return profile.to_dict() # <--- CRITICAL FIX
+            return None
+    except Exception as e:
+        logger.error(f"Get Profile Error: {e}")
+        return None
 
 def save_draft(user_email, content, tier, price):
     try:
