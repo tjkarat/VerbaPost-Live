@@ -1,27 +1,25 @@
 import requests
 import secrets_manager
 import logging
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 
 def find_representatives(address_input):
     """
     Looks up US Senators and Representatives for a given address.
-    
-    Args:
-        address_input (dict or str): The user's address.
-        
-    Returns:
-        list: A list of dicts [{'name':..., 'office':..., 'address':...}]
+    Args: address_input (dict or str)
     """
-    api_key = secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCIDIO_API_KEY")
+    # Try both key formats to be safe
+    api_key = secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCODIO_API_KEY")
+    
     if not api_key:
-        logger.error("Geocodio API Key missing")
+        print("❌ Civic Error: Geocodio API Key is MISSING in secrets.")
         return []
 
-    # 1. Format Address String
+    # 1. Format Address
     if isinstance(address_input, dict):
-        # Convert dict to single string for API
+        # Join non-empty parts
         parts = [
             address_input.get("street", ""),
             address_input.get("city", ""),
@@ -32,6 +30,8 @@ def find_representatives(address_input):
     else:
         address_str = str(address_input)
 
+    print(f"🔍 Civic Lookup: Searching for '{address_str}'...")
+
     # 2. Call API
     url = "https://api.geocod.io/v1.7/geocode"
     params = {
@@ -41,9 +41,10 @@ def find_representatives(address_input):
     }
 
     try:
-        r = requests.get(url, params=params, timeout=5)
+        r = requests.get(url, params=params, timeout=10)
+        
         if r.status_code != 200:
-            logger.error(f"Geocodio API Error: {r.text}")
+            print(f"❌ Civic API Error {r.status_code}: {r.text}")
             return []
             
         data = r.json()
@@ -53,47 +54,35 @@ def find_representatives(address_input):
             # Parse Congress data
             fields = data['results'][0].get('fields', {}).get('congress', {})
             
-            # Helper to format the official's DC address
-            def _format_dc_address(addr_list):
-                # Geocodio returns addresses as a list of strings sometimes, or logic varies
-                # We will construct a generic DC address if detailed one is missing
-                return {
-                    "street": "United States Capitol",
-                    "city": "Washington",
-                    "state": "DC",
-                    "zip": "20510"
-                }
-
-            # A. Process Senators
+            # Senators
             for rep in fields.get('senate', []):
                 results.append({
                     "name": f"Sen. {rep['name']['first']} {rep['name']['last']}",
                     "office": "Senate",
-                    # Geocodio usually provides contact info, but address structure varies.
-                    # We default to a standard structure for the UI to consume.
                     "address": {
-                        "street": rep.get('address', 'United States Senate'),
+                        "street": "United States Senate", # Geocodio addresses vary, safe default
                         "city": "Washington",
                         "state": "DC",
                         "zip": "20510"
                     }
                 })
                 
-            # B. Process House Reps
+            # House Reps
             for rep in fields.get('house', []):
                 results.append({
                     "name": f"Rep. {rep['name']['first']} {rep['name']['last']}",
                     "office": "House of Representatives",
                     "address": {
-                        "street": rep.get('address', 'US House of Representatives'),
+                        "street": "US House of Representatives",
                         "city": "Washington",
                         "state": "DC",
                         "zip": "20515"
                     }
                 })
-                
+        
+        print(f"✅ Civic Success: Found {len(results)} officials.")
         return results
 
     except Exception as e:
-        logger.error(f"Civic Lookup Failed: {e}")
+        print(f"❌ Civic Exception: {e}")
         return []
