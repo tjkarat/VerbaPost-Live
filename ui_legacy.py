@@ -20,6 +20,19 @@ except ImportError: ai_engine = None
 try: import mailer  # Essential for verification
 except ImportError: mailer = None
 
+# --- HELPER: SAFE PROFILE ACCESS (CRITICAL FIX) ---
+def safe_get_profile_field(profile, field, default=""):
+    """
+    Safely extracts field from profile whether it's None, dict, or SQLAlchemy Object.
+    Prevents AttributeError crashes for new users.
+    """
+    if not profile:
+        return default
+    if isinstance(profile, dict):
+        return profile.get(field, default)
+    # Assume object
+    return getattr(profile, field, default)
+
 # --- CSS INJECTOR ---
 def inject_legacy_accessibility_css():
     st.markdown("""
@@ -58,8 +71,10 @@ def load_address_book():
     if not database or not st.session_state.get("authenticated"): return {}
     try:
         user_email = st.session_state.get("user_email")
+        # get_contacts now returns dicts!
         contacts = database.get_contacts(user_email)
-        return {f"{c.name} ({c.city})": c for c in contacts}
+        # Handle dict vs object safely just in case
+        return {f"{c.get('name')} ({c.get('city')})" if isinstance(c, dict) else f"{c.name} ({c.city})": c for c in contacts}
     except: return {}
 
 def _save_legacy_draft():
@@ -125,11 +140,19 @@ def render_legacy_page():
         sel = st.selectbox("📂 Load from Address Book", ["Select..."] + list(addr_opts.keys()))
         if sel != "Select...":
             d = addr_opts[sel]
-            st.session_state.leg_r_name = d.name if hasattr(d, 'name') else d.get('name', '')
-            st.session_state.leg_r_street = d.street if hasattr(d, 'street') else d.get('street', '')
-            st.session_state.leg_r_city = d.city if hasattr(d, 'city') else d.get('city', '')
-            st.session_state.leg_r_state = d.state if hasattr(d, 'state') else d.get('state', '')
-            st.session_state.leg_r_zip = d.zip_code if hasattr(d, 'zip_code') else d.get('zip_code', '')
+            # Handle dicts vs objects
+            if isinstance(d, dict):
+                st.session_state.leg_r_name = d.get('name', '')
+                st.session_state.leg_r_street = d.get('street', '')
+                st.session_state.leg_r_city = d.get('city', '')
+                st.session_state.leg_r_state = d.get('state', '')
+                st.session_state.leg_r_zip = d.get('zip_code', '')
+            else:
+                st.session_state.leg_r_name = d.name
+                st.session_state.leg_r_street = d.street
+                st.session_state.leg_r_city = d.city
+                st.session_state.leg_r_state = d.state
+                st.session_state.leg_r_zip = d.zip_code
 
     # --- THE FORM (WITH IMMEDIATE VERIFICATION) ---
     with st.form("legacy_address_form"):
@@ -138,13 +161,13 @@ def render_legacy_page():
         # --- SENDER SECTION ---
         with c1:
             st.markdown("#### 🏠 From (You)")
+            # CRITICAL FIX: Safe Profile Access for New Users
             prof = st.session_state.get("user_profile", {})
-            # Use safe gets for profile data
-            p_name = prof.get("full_name", "") if isinstance(prof, dict) else getattr(prof, "full_name", "")
-            p_addr = prof.get("address_line1", "") if isinstance(prof, dict) else getattr(prof, "address_line1", "")
-            p_city = prof.get("address_city", "") if isinstance(prof, dict) else getattr(prof, "address_city", "")
-            p_state = prof.get("address_state", "") if isinstance(prof, dict) else getattr(prof, "address_state", "")
-            p_zip = prof.get("address_zip", "") if isinstance(prof, dict) else getattr(prof, "address_zip", "")
+            p_name = safe_get_profile_field(prof, "full_name")
+            p_addr = safe_get_profile_field(prof, "address_line1")
+            p_city = safe_get_profile_field(prof, "address_city")
+            p_state = safe_get_profile_field(prof, "address_state")
+            p_zip = safe_get_profile_field(prof, "address_zip")
             
             sn = st.text_input("Your Name", value=p_name, key="leg_s_name")
             ss = st.text_input("Your Street", value=p_addr, key="leg_s_street")
@@ -206,6 +229,11 @@ def render_legacy_page():
                             "zip": r_data.get("postalOrZip", rz)
                         }
                         st.session_state.legacy_signature = sig
+                        
+                        # Save verified contact
+                        if database and st.session_state.get("authenticated"):
+                            database.save_contact(st.session_state.user_email, st.session_state.legacy_recipient)
+
                         st.success("✅ Addresses Verified & Saved!")
                         time.sleep(1) # Visual feedback
                         st.rerun()
