@@ -63,7 +63,7 @@ def get_module(module_name):
         logger.error(f"Failed to load {module_name}: {e}")
         return None
 
-# --- SECRET MANAGER IMPORT (Added for Admin Check) ---
+# --- SECRET MANAGER IMPORT ---
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
@@ -149,31 +149,6 @@ def main():
 
     # 6. SIDEBAR
     with st.sidebar:
-        st.divider()
-        st.error("🔍 DEBUG MODE")
-        
-        # Check 1: Is the module loaded?
-        if secrets_manager is None:
-            st.warning("⚠️ secrets_manager.py failed to import!")
-        else:
-            st.success("✅ Module Loaded")
-            
-            # Check 2: What are the exact values?
-            u_email = st.session_state.get("user_email", "Not Logged In")
-            # Try getting secret directly, then from Streamlit secrets
-            a_email = secrets_manager.get_secret("admin.email")
-            
-            st.write(f"**You:** `{u_email}`")
-            st.write(f"**Admin Secret:** `{a_email}`")
-            
-            # Check 3: Do they match?
-            if u_email and a_email:
-                match = (u_email.lower().strip() == a_email.lower().strip())
-                st.write(f"**Match?** {match}")
-            else:
-                st.write("**Match?** Cannot compare (One is empty)")
-        st.divider()
-    # --- END DEBUG BLOCK ---
         st.header("VerbaPost System")
         st.markdown("---")
         if st.button("🏠 Home", use_container_width=True):
@@ -181,11 +156,15 @@ def main():
             st.rerun()
             
         # --- FIXED ADMIN VISIBILITY LOGIC ---
-        # Get current user and admin email (case-insensitive check)
+        # FIX: Handle secrets carefully to avoid TypeError
         current_email = st.session_state.get("user_email", "").lower().strip()
         admin_email = ""
+        
         if secrets_manager:
-            admin_email = secrets_manager.get_secret("admin.email", "").lower().strip()
+            # FIX: Only pass ONE argument to get_secret()
+            raw_admin = secrets_manager.get_secret("admin.email")
+            if raw_admin:
+                admin_email = raw_admin.lower().strip()
         
         # Show button if:
         # 1. Already authenticated as admin in this session (via admin login)
@@ -214,7 +193,7 @@ def main():
     elif mode == "admin":
         m = get_module("ui_admin")
         if m: m.render_admin_page()
-    elif mode == "legal":   # <--- THIS BLOCK WAS MISSING
+    elif mode == "legal":
         m = get_module("ui_legal")
         if m: m.render_legal_page()
     elif mode in ["store", "workspace", "review"]:
