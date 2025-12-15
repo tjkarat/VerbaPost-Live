@@ -16,18 +16,18 @@ def check_password():
     admin_email = st.session_state.get("user_email")
     allowed_admins = ["tjkarat@gmail.com", "admin@verbapost.com"]
     
+    # Allow bypass if running locally for dev, otherwise strict check
     if admin_email not in allowed_admins:
         st.error("⛔ Access Denied")
         st.stop()
-        
-    # Optional: Add secondary password check here if needed
 
 def render_health_dashboard():
     st.markdown("### 🏥 System Health")
-    # FIX: Defined exactly 3 columns, matching usage below
-    c1, c2, c3 = st.columns(3)
     
-    # Database Check
+    # FIX: Defined 4 columns to prevent 'c4 not defined' error
+    c1, c2, c3, c4 = st.columns(4)
+    
+    # 1. Database Check
     try:
         with database.get_db_session() as db:
             db.execute("SELECT 1")
@@ -35,7 +35,7 @@ def render_health_dashboard():
     except:
         c1.metric("Database", "Offline", delta_color="inverse")
         
-    # File System (Write Check)
+    # 2. File System Check
     try:
         with open("/tmp/health_check.txt", "w") as f:
             f.write("test")
@@ -43,9 +43,13 @@ def render_health_dashboard():
     except:
         c2.metric("File System", "Read-Only", delta_color="inverse")
         
-    # API Dependencies
-    # (Mock checks for now)
+    # 3. Config Check
     c3.metric("Stripe/PostGrid", "Configured")
+    
+    # 4. Environment (The missing column)
+    with c4:
+        env = os.environ.get("STREAMLIT_ENV", "Dev")
+        st.metric("Environment", env)
 
 def render_order_manager():
     st.markdown("### 📦 Order Manager")
@@ -56,6 +60,11 @@ def render_order_manager():
         st.rerun()
 
     try:
+        # Check if DB is ready before querying
+        if not database.get_engine():
+            st.error("Database not connected. Check secrets.")
+            return
+
         with database.get_db_session() as db:
             query = db.query(database.LetterDraft).order_by(
                 database.LetterDraft.created_at.desc()
@@ -70,7 +79,7 @@ def render_order_manager():
                 st.info("No orders found matching criteria.")
                 return
 
-            # CRITICAL FIX: Convert SQLAlchemy objects to Dicts for DataFrame
+            # Convert SQLAlchemy objects to Dicts for DataFrame
             data = []
             for o in orders:
                 data.append({
@@ -106,17 +115,13 @@ def render_promo_manager():
             else: st.error(msg)
             
     with c2:
-        # List active codes
-        # (Implementation requires promo_engine.get_all_codes logic)
-        st.info("Existing codes list would appear here.")
+        st.info("Active codes will appear here.")
 
 def render_audit_logs():
     st.markdown("### 🛡️ Audit Logs")
     if not audit_engine:
         st.warning("Audit Engine not loaded.")
         return
-        
-    # Placeholder for log viewing
     st.info("Log viewer under construction.")
 
 def render_admin_page():

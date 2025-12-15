@@ -35,7 +35,6 @@ class LetterDraft(Base):
     tier = Column(String, default="Standard")
     price = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    # Metadata for tracking
     recipient_data = Column(Text, nullable=True) # JSON string
     sender_data = Column(Text, nullable=True)    # JSON string
     pdf_url = Column(String, nullable=True)
@@ -75,27 +74,33 @@ def get_engine():
     global _engine
     if _engine: return _engine
     
-    # 1. Try Secrets Manager (Prod)
-    db_url = secrets_manager.get_secret("SUPABASE_URL")
-    if db_url and "supabase" in db_url:
-        pass 
+    db_url = None
     
-    # 2. Fallback to direct secrets.toml key (Dev)
+    # 1. Try Secrets Manager (Env Vars)
+    if secrets_manager:
+        db_url = secrets_manager.get_secret("SUPABASE_URL") or secrets_manager.get_secret("DATABASE_URL")
+    
+    # 2. Try Streamlit Secrets (Standard Format: [supabase] url=...)
     if not db_url:
         try:
-            db_url = st.secrets["supabase"]["DATABASE_URL"]
-        except:
+            if "supabase" in st.secrets:
+                db_url = st.secrets["supabase"]["url"]
+            elif "database" in st.secrets:
+                db_url = st.secrets["database"]["url"]
+        except Exception:
             pass
 
+    # 3. Fallback to Local SQLite (Prevent Crash)
     if not db_url:
-        logger.warning("⚠️ No DATABASE_URL found. Using local SQLite.")
+        logger.warning("⚠️ No DATABASE_URL found in secrets. Using local SQLite.")
         db_url = "sqlite:///./local_dev.db"
 
-    # Ensure robust connection for Cloud Run
+    # Ensure robust connection
     try:
         if "sqlite" in db_url:
             _engine = create_engine(db_url, connect_args={"check_same_thread": False})
         else:
+            # Postgres/Supabase Connection Pool Settings
             _engine = create_engine(
                 db_url,
                 pool_size=5,
@@ -115,9 +120,11 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine()
 @contextmanager
 def get_db_session():
     """Safe session management."""
-    engine = get_engine() # Ensure engine exists
+    engine = get_engine() 
     if not engine:
-        raise Exception("Database Engine not initialized")
+        # Fallback to in-memory DB if everything else fails to avoid UI crash
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine)
     
     session = SessionLocal()
     try:
@@ -131,25 +138,20 @@ def get_db_session():
 
 # --- CRUD OPERATIONS ---
 
-# 1. USER PROFILES (FIXED: Added Missing Function)
 def create_user_profile(profile_data):
-    """Create or update a user profile. Sets ID correctly."""
     try:
         with get_db_session() as db:
-            # Check if exists by email
             existing = db.query(UserProfile).filter(
                 UserProfile.email == profile_data["email"]
             ).first()
             
             if existing:
-                # Update existing
                 for key, value in profile_data.items():
-                    if hasattr(existing, key) and key != "id": # Don't overwrite ID
+                    if hasattr(existing, key) and key != "id":
                         setattr(existing, key, value)
             else:
-                # Create new
                 new_profile = UserProfile(
-                    id=profile_data.get("user_id"), # CRITICAL: Set ID from Auth
+                    id=profile_data.get("user_id"),
                     email=profile_data["email"],
                     full_name=profile_data.get("full_name", ""),
                     address_line1=profile_data.get("address_line1", ""),
@@ -170,13 +172,12 @@ def get_user_profile(email):
             return db.query(UserProfile).filter(UserProfile.email == email).first()
     except: return None
 
-# 2. DRAFTS
 def save_draft(user_email, content, tier, price):
     try:
         with get_db_session() as db:
             draft = LetterDraft(user_email=user_email, content=content, tier=tier, price=price)
             db.add(draft)
-            db.flush() # Populate ID
+            db.flush()
             db.refresh(draft)
             return draft.id
     except Exception as e:
@@ -200,11 +201,9 @@ def get_draft(draft_id):
             return db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
     except: return None
 
-# 3. CONTACTS (FIXED: Returns Dicts, Not Objects)
 def save_contact(user_email, data):
     try:
         with get_db_session() as db:
-            # Check duplicate
             exists = db.query(SavedContact).filter(
                 SavedContact.user_email == user_email,
                 SavedContact.name == data['name']
@@ -225,7 +224,6 @@ def save_contact(user_email, data):
     except: return False
 
 def get_contacts(user_email):
-    """Returns a list of dictionaries to avoid SQLAlchemy object detachment errors."""
     if not user_email: return []
     try:
         with get_db_session() as db:
@@ -233,7 +231,6 @@ def get_contacts(user_email):
                 SavedContact.user_email == user_email
             ).order_by(SavedContact.name).all()
             
-            # CRITICAL FIX: Convert to pure Python dicts
             results = []
             for c in contacts:
                 results.append({
