@@ -116,6 +116,25 @@ def main():
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
     
+    # --- SIDEBAR: SYSTEM MENU & ADMIN ACCESS ---
+    # This block forces the sidebar toggle to appear in the top-left
+    with st.sidebar:
+        st.header("VerbaPost System")
+        st.markdown("---")
+        
+        # Navigation shortcuts
+        if st.button("🏠 Home / Splash", use_container_width=True):
+            st.session_state.app_mode = "splash"
+            st.rerun()
+            
+        st.markdown("### 🛠️ Administration")
+        if st.button("🔐 Admin Console", key="sidebar_admin_btn", use_container_width=True):
+            st.session_state.app_mode = "admin"
+            st.rerun()
+            
+        st.markdown("---")
+        st.caption(f"v3.3.0 | {st.session_state.app_mode}")
+
     # 5. Routing
     mode = st.session_state.app_mode
     
