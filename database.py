@@ -1,6 +1,6 @@
 import streamlit as st
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, Text
+from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.pool import QueuePool
 import datetime
 from contextlib import contextmanager
@@ -16,7 +16,7 @@ Base = declarative_base()
 
 class UserProfile(Base):
     __tablename__ = "user_profiles"
-    id = Column(String, primary_key=True, index=True) # Matches Supabase Auth ID
+    id = Column(String, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     full_name = Column(String, nullable=True)
     address_line1 = Column(String, nullable=True)
@@ -31,12 +31,12 @@ class LetterDraft(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_email = Column(String, index=True)
     content = Column(Text, nullable=True)
-    status = Column(String, default="Draft")  # Draft, Paid, Sent
+    status = Column(String, default="Draft")
     tier = Column(String, default="Standard")
     price = Column(Float, default=0.0)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    recipient_data = Column(Text, nullable=True) # JSON string
-    sender_data = Column(Text, nullable=True)    # JSON string
+    recipient_data = Column(Text, nullable=True) 
+    sender_data = Column(Text, nullable=True)    
     pdf_url = Column(String, nullable=True)
     tracking_number = Column(String, nullable=True)
 
@@ -76,31 +76,30 @@ def get_engine():
     
     db_url = None
     
-    # 1. Try Secrets Manager (Env Vars)
+    # FIX: STRICT PRIORITY
+    # Only accept keys that are explicitly meant for SQL connections.
+    # We DO NOT look at "SUPABASE_URL" here because that is an HTTPS API endpoint.
     if secrets_manager:
-        db_url = secrets_manager.get_secret("SUPABASE_URL") or secrets_manager.get_secret("DATABASE_URL")
-    
-    # 2. Try Streamlit Secrets (Standard Format: [supabase] url=...)
-    if not db_url:
-        try:
-            if "supabase" in st.secrets:
-                db_url = st.secrets["supabase"]["url"]
-            elif "database" in st.secrets:
-                db_url = st.secrets["database"]["url"]
-        except Exception:
-            pass
+        db_url = secrets_manager.get_secret("DATABASE_URL") or secrets_manager.get_secret("postgresql.url")
 
-    # 3. Fallback to Local SQLite (Prevent Crash)
+    # Fallback for Streamlit Cloud specific config structure
+    if not db_url and "supabase" in st.secrets:
+        # Check if the user put the postgres string in a specific 'db_url' key under [supabase]
+        db_url = st.secrets["supabase"].get("db_url")
+
+    # Fallback to Local SQLite (Prevent Crash in Dev)
     if not db_url:
-        logger.warning("⚠️ No DATABASE_URL found in secrets. Using local SQLite.")
+        logger.warning("⚠️ No DATABASE_URL found. Using local SQLite.")
         db_url = "sqlite:///./local_dev.db"
+    
+    # Handle the "postgres://" vs "postgresql://" dialect issue (SQLAlchemy needs postgresql://)
+    if db_url and db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-    # Ensure robust connection
     try:
         if "sqlite" in db_url:
             _engine = create_engine(db_url, connect_args={"check_same_thread": False})
         else:
-            # Postgres/Supabase Connection Pool Settings
             _engine = create_engine(
                 db_url,
                 pool_size=5,
@@ -122,7 +121,7 @@ def get_db_session():
     """Safe session management."""
     engine = get_engine() 
     if not engine:
-        # Fallback to in-memory DB if everything else fails to avoid UI crash
+        # Fallback to memory to prevent UI crash
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(bind=engine)
     
@@ -137,14 +136,10 @@ def get_db_session():
         session.close()
 
 # --- CRUD OPERATIONS ---
-
 def create_user_profile(profile_data):
     try:
         with get_db_session() as db:
-            existing = db.query(UserProfile).filter(
-                UserProfile.email == profile_data["email"]
-            ).first()
-            
+            existing = db.query(UserProfile).filter(UserProfile.email == profile_data["email"]).first()
             if existing:
                 for key, value in profile_data.items():
                     if hasattr(existing, key) and key != "id":
@@ -227,21 +222,11 @@ def get_contacts(user_email):
     if not user_email: return []
     try:
         with get_db_session() as db:
-            contacts = db.query(SavedContact).filter(
-                SavedContact.user_email == user_email
-            ).order_by(SavedContact.name).all()
-            
-            results = []
-            for c in contacts:
-                results.append({
-                    "name": c.name,
-                    "street": c.street,
-                    "city": c.city,
-                    "state": c.state,
-                    "zip_code": c.zip_code,
-                    "country": c.country
-                })
-            return results
+            contacts = db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
+            return [{
+                "name": c.name, "street": c.street, "city": c.city, 
+                "state": c.state, "zip_code": c.zip_code, "country": c.country
+            } for c in contacts]
     except Exception as e:
         logger.error(f"Get Contacts Error: {e}")
         return []
