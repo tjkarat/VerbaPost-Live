@@ -271,7 +271,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # --- ADDRESS BOOK LOADER (RESTORED) ---
+        # --- ADDRESS BOOK LOADER ---
         if st.session_state.get("authenticated"):
             addr_opts = load_address_book()
             if addr_opts:
@@ -283,6 +283,7 @@ def render_workspace_page():
                     if selected_contact != "Select...":
                         data = addr_opts[selected_contact]
                         # Pre-fill session state variables for the form below
+                        # We use st.session_state keys directly to ensure text_input widgets update
                         st.session_state.to_name_input = data.get('name', '')
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
@@ -388,7 +389,7 @@ def render_workspace_page():
             placeholder="Dear..."
         )
         
-        # --- AI POLISH BUTTON (RESTORED) ---
+        # --- AI POLISH BUTTON ---
         if st.button("✨ AI Polish (Improve Grammar & Tone)"):
             if new_text and ai_engine:
                 with st.spinner("Polishing your letter..."):
@@ -480,7 +481,6 @@ def render_workspace_page():
 
     st.divider()
     
-    # Navigation
     col_l, col_r = st.columns([1, 4])
     with col_r:
         if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
@@ -522,13 +522,8 @@ def render_review_page():
                 # Display
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                
-                # Use Embed for compatibility
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                
-                # Add download button
                 st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
-                
                 st.session_state.final_pdf = pdf_bytes
             
             except Exception as e:
@@ -577,6 +572,7 @@ def render_review_page():
             
             if url:
                 st.link_button("👉 Click to Pay", url)
+                st.rerun()
             else:
                 st.error("Payment Gateway Error. Please try again.")
 

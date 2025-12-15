@@ -7,11 +7,9 @@ import ui_legacy
 import ui_splash
 import ui_login
 import ui_admin
-import ui_legal
 import database
 
 # --- CONFIGURATION ---
-# FIX: Sidebar is collapsed by default
 st.set_page_config(
     page_title="VerbaPost", 
     page_icon="📮", 
@@ -40,7 +38,6 @@ def render_sidebar():
             st.rerun()
 
         # 3. Admin Access (RBAC Protected)
-        # FIX: Check Allowlist before showing button
         user_email = st.session_state.get("user_email", "")
         # Add your admin email(s) here
         admin_emails = ["admin@verbapost.com", "tjkarat@gmail.com"]

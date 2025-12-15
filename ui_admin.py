@@ -253,7 +253,7 @@ def render_admin_page():
     if not check_admin_auth():
         return
 
-    st.title("⚙️ VerbaPost Operation Center")
+    st.title("⚙️ VerbaPost Operations")
     
     # Sidebar Navigation
     admin_tab = st.sidebar.radio("Console Section", [
