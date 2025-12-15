@@ -5,6 +5,7 @@ import hashlib
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
+# These handle the heavy lifting (Database, AI, Payments, Mail)
 import ai_engine
 import payment_engine
 import mailer
@@ -160,18 +161,6 @@ def render_store_page():
             st.rerun()
         return
 
-    # Help on Main Page
-    with st.expander("❓ How VerbaPost Works (Help)", expanded=False):
-        st.markdown("""
-        **Simple 4-Step Process:**
-        1. **Select Service:** Choose your letter tier below (Standard, Heirloom, etc.).
-        2. **Write:** Type or use your voice to dictate the letter content.
-        3. **Address:** Load a saved contact or enter a new address.
-        4. **Send:** We print, envelope, and mail it via USPS.
-        
-        **Need Support?** Email `support@verbapost.com`
-        """)
-
     st.markdown("## 📮 Choose Your Letter Service")
     
     # 2. Campaign Mode Toggle
@@ -253,7 +242,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # --- ADDRESS BOOK LOADER (RESTORED) ---
+        # --- ADDRESS BOOK LOADER ---
         if st.session_state.get("authenticated"):
             addr_opts = load_address_book()
             if addr_opts:
@@ -293,36 +282,16 @@ def render_workspace_page():
 
             with col_from:
                 st.markdown("### From: (Return Address)")
+                # Pre-fill from user profile if available
+                u_profile = st.session_state.get("user_profile", {})
                 
-                # Auto-populate from Profile
-                profile = st.session_state.get("user_profile", {})
+                f_name = st.text_input("Your Name", value=u_profile.get("full_name",""), key="from_name")
+                f_street = st.text_input("Your Street", value=u_profile.get("address_line1",""), key="from_street")
+                f_city = st.text_input("Your City", value=u_profile.get("city",""), key="from_city")
                 
-                def_name = ""
-                def_street = ""
-                def_city = ""
-                def_state = ""
-                def_zip = ""
-                
-                if current_tier == "Santa":
-                    def_name = "Santa Claus"
-                    def_street = "123 Elf Lane"
-                    def_city = "North Pole"
-                    def_state = "AK"
-                    def_zip = "99705"
-                elif profile:
-                    # Handle both dict and object access safely
-                    def_name = profile.get("full_name", "") if isinstance(profile, dict) else getattr(profile, "full_name", "")
-                    def_street = profile.get("address_line1", "") if isinstance(profile, dict) else getattr(profile, "address_line1", "")
-                    def_city = profile.get("address_city", "") if isinstance(profile, dict) else getattr(profile, "address_city", "")
-                    def_state = profile.get("address_state", "") if isinstance(profile, dict) else getattr(profile, "address_state", "")
-                    def_zip = profile.get("address_zip", "") if isinstance(profile, dict) else getattr(profile, "address_zip", "")
-
-                f_name = st.text_input("Your Name", value=def_name, key="from_name")
-                f_street = st.text_input("Your Street", value=def_street, key="from_street")
-                f_city = st.text_input("Your City", value=def_city, key="from_city")
                 col_fs, col_fz = st.columns(2)
-                f_state = col_fs.text_input("Your State", value=def_state, key="from_state")
-                f_zip = col_fz.text_input("Your Zip", value=def_zip, key="from_zip")
+                f_state = col_fs.text_input("Your State", value=u_profile.get("state",""), key="from_state")
+                f_zip = col_fz.text_input("Your Zip", value=u_profile.get("zip_code",""), key="from_zip")
             
             # Form Submit Button
             if st.form_submit_button("💾 Save Addresses"):
@@ -337,7 +306,7 @@ def render_workspace_page():
                 # Save to DB
                 d_id = st.session_state.get("current_draft_id")
                 if d_id and database:
-                    # FIX: Correct keyword arguments to match database.py
+                    # FIX: Use correct argument names 'to_addr' and 'from_addr'
                     database.update_draft_data(
                         d_id, 
                         to_addr=st.session_state.addr_to, 
@@ -380,7 +349,7 @@ def render_workspace_page():
             placeholder="Dear..."
         )
         
-        # --- AI POLISH BUTTON (RESTORED) ---
+        # --- AI POLISH BUTTON ---
         if st.button("✨ AI Polish (Improve Grammar & Tone)"):
             if new_text and ai_engine:
                 with st.spinner("Polishing your letter..."):
@@ -581,12 +550,16 @@ def render_application():
     mode = st.session_state.app_mode
 
     if mode == "splash":
-        if ui_splash: ui_splash.render_splash_page()
-        else: st.error("UI Module 'splash' not found.")
+        if ui_splash:
+            ui_splash.render_splash_page()
+        else:
+            st.error("UI Module 'splash' not found.")
 
     elif mode == "login":
-        if ui_login: ui_login.render_login_page()
-        else: st.error("UI Module 'login' not found.")
+        if ui_login:
+            ui_login.render_login_page()
+        else:
+            st.error("UI Module 'login' not found.")
 
     elif mode == "store":
         render_store_page()
@@ -598,16 +571,22 @@ def render_application():
         render_review_page()
 
     elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
-        else: st.error("UI Module 'admin' not found.")
+        if ui_admin:
+            ui_admin.render_admin_page()
+        else:
+            st.error("UI Module 'admin' not found.")
 
     elif mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
-        else: st.error("UI Module 'legal' not found.")
+        if ui_legal:
+            ui_legal.render_legal_page()
+        else:
+            st.error("UI Module 'legal' not found.")
 
     elif mode == "legacy":
-        if ui_legacy: ui_legacy.render_legacy_page()
-        else: st.error("UI Module 'legacy' not found.")
+        if ui_legacy:
+            ui_legacy.render_legacy_page()
+        else:
+            st.error("UI Module 'legacy' not found.")
 
     else:
         st.warning(f"Unknown App Mode: {mode}")
