@@ -1,40 +1,35 @@
 import streamlit as st
 
 def render_legal_page():
-    st.markdown("## ⚖️ Legal Information")
+    st.markdown("## ⚖️ Legal & Privacy")
     
-    tab1, tab2 = st.tabs(["Terms of Service", "Privacy Policy"])
-    
-    with tab1:
-        st.markdown("### Terms of Service")
+    st.info("VerbaPost is a privacy-first service. We do not sell your data.")
+
+    tab_terms, tab_privacy = st.tabs(["Terms of Service", "Privacy Policy"])
+
+    with tab_terms:
         st.markdown("""
-        **1. Service Usage:** VerbaPost provides automated dictation and mailing services. By using this service, you agree not to transmit illegal, threatening, or harassing content.
-        
-        **2. Fulfillment:** We utilize third-party providers (PostGrid) for physical fulfillment. While we strictly monitor performance, VerbaPost is not liable for delays caused by the United States Postal Service (USPS).
-        
-        **3. Payments:** All payments are processed securely via Stripe. Refunds are issued at the sole discretion of VerbaPost management for failed deliveries.
-        
-        **4. Legacy Services:** "End of Life" letters are processed with high priority and certified tracking. It is the user's responsibility to ensure recipient addresses are current.
+        ### Terms of Service
+        **Last Updated: December 2025**
+
+        1. **Service Description**: VerbaPost provides physical mailing services for digital content.
+        2. **User Responsibility**: You are responsible for the content of your letters. We reserve the right to refuse service for illegal or threatening content.
+        3. **Delivery**: We utilize USPS for delivery. While we provide tracking where applicable, we are not liable for USPS delays or lost mail.
+        4. **Refunds**: Orders can be refunded only if they have not yet been processed for printing. Once printed, orders are final.
         """)
-        
-    with tab2:
-        st.markdown("### Privacy Policy")
+
+    with tab_privacy:
         st.markdown("""
-        **1. Data Handling:** Your voice data and transcribed text are processed ephemeral. We do not use your personal correspondence to train public AI models.
-        
-        **2. Third Parties:** To fulfill your order, strictly necessary data (recipient address, PDF content) is transmitted via encrypted API to our print partner, PostGrid.
-        
-        **3. Audio Retention:** Audio files are deleted from our servers immediately after transcription processing is complete.
-        
-        **4. Contact:** For privacy concerns, contact support@verbapost.com.
+        ### Privacy Policy
+        **Last Updated: December 2025**
+
+        * **Data Retention**: We retain letter content only as long as necessary to fulfill the order and provide proof of delivery.
+        * **AI Processing**: Audio recordings are processed via local AI or secure APIs for transcription. They are not used to train public models.
+        * **Payment Data**: We do not store credit card numbers. All payments are processed securely via Stripe.
+        * **Third Parties**: We share necessary address data with our print partner (PostGrid) solely for the purpose of fulfillment.
         """)
 
     st.markdown("---")
-    if st.button("⬅️ Return Home"):
-        st.query_params.clear()
+    if st.button("⬅️ Back to Home", type="primary"):
         st.session_state.app_mode = "splash"
         st.rerun()
-
-# --- SAFETY ALIAS ---
-# Prevents crash if main.py calls the wrong name
-render_legal = render_legal_page
