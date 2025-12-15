@@ -1,63 +1,48 @@
 import streamlit as st
 import logging
 import os
+import requests
+import json
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- ROBUST IMPORT ---
-try:
-    import resend
-except ImportError:
-    resend = None
-    logger.error("❌ CRITICAL: 'resend' library not found. Add it to requirements.txt")
-
-try:
-    from secrets_manager import get_secret
-except ImportError:
-    def get_secret(key):
-        # Quick fallback if secrets_manager missing
-        return os.environ.get(key.upper().replace('.', '_')) or st.secrets.get(key)
-
-# --- CONFIGURATION ---
-API_KEY = None
-try:
-    # 1. Try robust fetcher (Checks Env Vars first, then Secrets.toml)
-    API_KEY = get_secret("email.password") or get_secret("RESEND_API_KEY")
+# --- ROBUST SECRETS FETCHER ---
+def get_api_key():
+    """Retrieves the API key from Env Vars or Secrets."""
+    # 1. Try Environment Variable (Prod)
+    key = os.environ.get("RESEND_API_KEY") or os.environ.get("email_password")
+    if key: return key
     
-    # 2. Hard fallback to Streamlit secrets
-    if not API_KEY and "email" in st.secrets:
-        API_KEY = st.secrets["email"]["password"]
-
-    if API_KEY and resend:
-        resend.api_key = API_KEY
-        logger.info("✅ Email Engine Configured")
-    else:
-        logger.warning("⚠️ Email Engine Missing API Key or Library")
-
-except Exception as e:
-    logger.error(f"Resend Config Error: {e}")
+    # 2. Try Streamlit Secrets (QA)
+    try:
+        if "resend" in st.secrets:
+            return st.secrets["resend"]["api_key"]
+        if "email" in st.secrets:
+            return st.secrets["email"]["password"]
+    except:
+        pass
+    
+    return None
 
 def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None):
     """
-    Sends a transaction receipt with tracking.
+    Sends a transaction receipt using direct HTTP requests (No SDK required).
     """
-    if not resend:
-        logger.error("❌ Cannot send email: 'resend' library missing.")
-        return False
-
-    if not API_KEY:
-        logger.error("❌ Cannot send email: API Key missing.")
+    api_key = get_api_key()
+    
+    if not api_key:
+        logger.error("❌ Email Failed: API Key missing in environment or secrets.")
         return False
 
     if not to_email or "@" not in to_email:
         logger.warning(f"⚠️ Invalid email address: {to_email}")
         return False
 
+    # --- EMAIL CONTENT ---
     subject = f"VerbaPost: {tier} Letter Dispatched"
     
-    # Tracking Block
     track_block = ""
     if tracking_number:
         track_block = f"""
@@ -68,7 +53,7 @@ def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None)
     else:
         track_block = f"<p>Order ID: {order_id}</p>"
 
-    html = f"""
+    html_content = f"""
     <div style="font-family:sans-serif; color:#333; max-width:600px; margin:0 auto;">
         <h2 style="color:#d93025;">Letter Sent! 📮</h2>
         <p>Your <strong>{tier}</strong> letter has been securely generated and is entering the mail stream.</p>
@@ -79,17 +64,31 @@ def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None)
     </div>
     """
 
+    # --- DIRECT API CALL ---
+    url = "https://api.resend.com/emails"
+    
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "from": "VerbaPost <onboarding@resend.dev>",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_content
+    }
+
     try:
-        # NOTE: If you haven't verified a domain, you must send FROM 'onboarding@resend.dev'
-        # and you can ONLY send TO the email address you signed up with.
-        r = resend.Emails.send({
-            "from": "VerbaPost <onboarding@resend.dev>", 
-            "to": to_email,
-            "subject": subject,
-            "html": html
-        })
-        logger.info(f"✅ Email Sent to {to_email}: {r}")
-        return True
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        
+        if response.status_code in [200, 201, 202]:
+            logger.info(f"✅ Email Sent to {to_email}. ID: {response.json().get('id')}")
+            return True
+        else:
+            logger.error(f"❌ Resend API Error {response.status_code}: {response.text}")
+            return False
+            
     except Exception as e:
-        logger.error(f"❌ Email API Error: {e}")
+        logger.error(f"❌ Email Exception: {e}")
         return False
