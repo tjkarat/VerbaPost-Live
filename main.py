@@ -44,9 +44,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- LAZY MODULE LOADER (CRITICAL FOR STABILITY) ---
+# --- LAZY MODULE LOADER ---
 def get_module(module_name):
-    """Safely imports modules to prevent Torch/AI crashes from breaking the router."""
+    """Safely imports modules to prevent crashes."""
     try:
         if module_name == "ui_splash": import ui_splash as m; return m
         if module_name == "ui_login": import ui_login as m; return m
@@ -65,25 +65,25 @@ def get_module(module_name):
 
 # --- MAIN LOGIC ---
 def main():
-    # 1. SEO (Safe)
+    # 1. SEO
     seo = get_module("seo_injector")
     if seo: seo.inject_meta()
 
-    # 2. HANDLE PAYMENT (SAFE LANDING MODE)
-    # We handle the success screen HERE to avoid loading the heavy "ui_legacy" module
-    # which causes the Torch crash loops.
     params = st.query_params
+
+    # 2. ADMIN BACKDOOR (NEW)
+    # To access admin, append /?view=admin to your URL
+    if params.get("view") == "admin":
+        st.session_state.app_mode = "admin"
+
+    # 3. HANDLE PAYMENT
     if "session_id" in params:
         session_id = params["session_id"]
-        
-        # Load Payment Engine
         pay_eng = get_module("payment_engine")
         
-        # Verify
         status = "error"
         if pay_eng:
             try:
-                # Returns dict: {'paid': True, 'email': '...', 'amount': 15.99} or string status
                 result = pay_eng.verify_session(session_id)
                 if isinstance(result, dict) and result.get('paid'):
                     status = "paid"
@@ -94,23 +94,20 @@ def main():
             except Exception as e:
                 logger.error(f"Verify Error: {e}")
 
-        # --- RENDER SUCCESS SCREEN (ISOLATED) ---
+        # Success Screen
         if status == "paid":
-            # 1. Generate Tracking
             import random
             if "tracking_number" not in st.session_state:
                 st.session_state.tracking_number = f"94055{random.randint(10000000,99999999)}"
             
             track_num = st.session_state.tracking_number
 
-            # 2. Send Email (Once)
             if "email_sent" not in st.session_state:
                 email_eng = get_module("email_engine")
                 if email_eng:
                     email_eng.send_confirmation(user_email, track_num, tier="Legacy")
                 st.session_state.email_sent = True
 
-            # 3. Show UI (Directly in main.py)
             st.markdown(f"""
                 <div class="success-box">
                     <div class="success-title">✅ Payment Confirmed!</div>
@@ -119,17 +116,13 @@ def main():
                     <p><small>A confirmation email has been sent to <b>{user_email}</b></small></p>
                 </div>
             """, unsafe_allow_html=True)
-
             st.balloons()
 
             if st.button("🏠 Start Another Letter", type="primary", use_container_width=True):
-                # Clean Reset
                 st.query_params.clear()
                 for key in list(st.session_state.keys()):
                     del st.session_state[key]
                 st.rerun()
-            
-            # STOP here. Do not load other modules.
             return
 
         elif status == "open":
@@ -138,30 +131,38 @@ def main():
             st.rerun()
         else:
             st.warning("⚠️ Verification Pending")
-            st.write("We received the signal from Stripe, but could not verify instantly.")
-            if st.button("🔄 Check Again"):
-                st.rerun()
+            if st.button("🔄 Check Again"): st.rerun()
             return
 
-    # 3. ROUTING (Standard Flow)
+    # 4. PASSWORD RESET
+    elif params.get("type") == "recovery":
+        st.session_state.app_mode = "login"
+
+    # 5. INIT STATE
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
         
     mode = st.session_state.app_mode
 
-    # Sidebar
+    # 6. SIDEBAR (STEALTH MODE APPLIED)
     with st.sidebar:
         st.header("VerbaPost System")
         st.markdown("---")
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.app_mode = "splash"
             st.rerun()
-        if st.button("🔐 Admin", use_container_width=True):
-            st.session_state.app_mode = "admin"
-            st.rerun()
-        st.caption("v3.3.6 Stable")
+            
+        # ONLY SHOW ADMIN IF LOGGED IN
+        if st.session_state.get("admin_authenticated"):
+            st.markdown("### 🛠️ Administration")
+            if st.button("🔐 Admin Console", key="sidebar_admin_btn", use_container_width=True):
+                st.session_state.app_mode = "admin"
+                st.rerun()
+                
+        st.markdown("---")
+        st.caption(f"v3.3.8 | {st.session_state.app_mode}")
 
-    # Module Router
+    # 7. ROUTER
     if mode == "splash":
         m = get_module("ui_splash")
         if m: m.render_splash_page()
