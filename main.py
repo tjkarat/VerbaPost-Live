@@ -10,71 +10,169 @@ import ui_admin
 import ui_legal
 import database
 
-# FIX: Collapsed Sidebar
-st.set_page_config(page_title="VerbaPost", page_icon="📮", layout="wide", initial_sidebar_state="collapsed")
+# --- CONFIGURATION ---
+# FIX: Sidebar is collapsed by default
+st.set_page_config(
+    page_title="VerbaPost", 
+    page_icon="📮", 
+    layout="wide", 
+    initial_sidebar_state="collapsed"
+)
 
+# --- GLOBAL SIDEBAR ---
 def render_sidebar():
+    """
+    Renders the Global Sidebar with Navigation, Admin Access, and Help.
+    """
     with st.sidebar:
+        # 1. Logo / Brand
         st.markdown("# 📮 VerbaPost")
-        if st.button("🏠 Home"): 
+        st.markdown("---")
+        
+        # 2. Navigation
+        st.markdown("### 🧭 Navigation")
+        if st.button("🏠 Home / Splash", use_container_width=True):
             st.session_state.app_mode = "splash"
             st.rerun()
-        if st.button("🔐 Login"): 
+            
+        if st.button("🔐 Login / Account", use_container_width=True):
             st.session_state.app_mode = "login"
             st.rerun()
 
-        # FIX: Admin Access
-        email = st.session_state.get("user_email")
-        if email in ["admin@verbapost.com", "tjkarat@gmail.com"]:
+        # 3. Admin Access (RBAC Protected)
+        # FIX: Check Allowlist before showing button
+        user_email = st.session_state.get("user_email", "")
+        # Add your admin email(s) here
+        admin_emails = ["admin@verbapost.com", "tjkarat@gmail.com"]
+        
+        if st.session_state.get("authenticated") and user_email in admin_emails:
             st.markdown("---")
-            if st.button("⚙️ Admin Console"): 
+            st.markdown("### 🛡️ Admin")
+            if st.button("⚙️ Admin Console", use_container_width=True):
                 st.session_state.app_mode = "admin"
                 st.rerun()
 
+        # 4. Session Info / Debug
+        if st.session_state.get("authenticated"):
+            st.markdown("---")
+            st.success(f"Logged in as:\n{user_email}")
+            if st.button("Logout", use_container_width=True):
+                st.session_state.authenticated = False
+                st.session_state.user_email = ""
+                st.session_state.app_mode = "splash"
+                st.rerun()
+        
         st.markdown("---")
         st.info("Support: support@verbapost.com")
 
 def main():
-    if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
-    
+    # 1. Initialize Global Session State
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = ""
+    if "app_mode" not in st.session_state:
+        st.session_state.app_mode = "splash"
+
+    # 2. Render Global Sidebar
     render_sidebar()
+
+    # 3. Handle URL Parameters (Routing)
+    query_params = st.query_params
     
-    # Check Payment Return
-    qs = st.query_params
-    if "session_id" in qs and qs["session_id"] != st.session_state.get("last_processed"):
-        res = payment_engine.verify_session(qs["session_id"])
-        if res and res.get("paid"):
-            st.session_state.last_processed = qs["session_id"]
-            if res.get("email"): st.session_state.user_email = res["email"]
+    # A. Handle Payment Return (Stripe Redirect)
+    session_id = query_params.get("session_id", None)
+    
+    # Only verify if we haven't already processed this session
+    if session_id and session_id != st.session_state.get("last_processed_session"):
+        with st.spinner("Verifying secure payment..."):
+            # Verify with Stripe
+            result = payment_engine.verify_session(session_id)
             
-            # FIX: Update draft to "Paid"
-            if st.session_state.get("current_legacy_draft_id"):
-                database.update_draft_data(st.session_state.current_legacy_draft_id, status="Paid")
-            
-            # Set Legacy Success Flag
-            st.session_state.paid_success = True
-            
-            # Route to correct view
-            if st.session_state.get("current_legacy_draft_id"):
-                st.session_state.app_mode = "legacy"
-            else:
-                st.session_state.app_mode = "review" # or a success page for main
+            if result and result.get("paid"):
+                st.session_state.last_processed_session = session_id
                 
-            st.toast("Payment Successful!")
+                # CAPTURE EMAIL (Critical for Guests)
+                payer_email = result.get("email")
+                if payer_email:
+                    st.session_state.user_email = payer_email
+                    
+                    # Update the draft record with this email
+                    if st.session_state.get("current_legacy_draft_id"):
+                        database.update_draft_data(
+                            st.session_state.current_legacy_draft_id, 
+                            status="Paid",
+                            price=15.99
+                        )
+
+                # Log Success
+                audit_engine.log_event(st.session_state.user_email, "PAYMENT_SUCCESS", session_id, {})
+                
+                # Set Flags
+                st.session_state.paid_success = True
+                
+                # Force routing to legacy view so it can show the Success Screen
+                if st.session_state.get("current_legacy_draft_id"):
+                     st.session_state.app_mode = "legacy"
+                else:
+                     st.session_state.app_mode = "review"
+                
+                st.success("Payment Confirmed!")
+            else:
+                st.error("Payment Verification Failed or Cancelled.")
+        
+        # Clear URL to prevent re-triggering
         st.query_params.clear()
 
-    mode = st.session_state.app_mode
-    
-    if mode == "splash": ui_splash.render_splash_page()
-    elif mode == "login": ui_login.render_login_page()
-    elif mode == "admin": 
-        # Double check auth
-        if st.session_state.get("user_email") in ["admin@verbapost.com", "tjkarat@gmail.com"]:
-            ui_admin.render_admin_page()
+    # B. Handle View Routing (e.g. ?view=admin)
+    view_param = query_params.get("view", None)
+    if view_param == "legacy":
+        st.session_state.app_mode = "legacy"
+    elif view_param == "legal":
+        st.session_state.app_mode = "legal"
+    elif view_param == "admin":
+        # Security check even for URL routing
+        user_email = st.session_state.get("user_email", "")
+        admin_emails = ["admin@verbapost.com", "tjkarat@gmail.com"]
+        if st.session_state.get("authenticated") and user_email in admin_emails:
+            st.session_state.app_mode = "admin"
         else:
-            st.error("Access Denied")
-    elif mode == "legacy": ui_legacy.render_legacy_page()
-    else: ui_main.render_main()
+            st.error("Access Denied. Please log in as an administrator.")
+            st.session_state.app_mode = "login"
+
+    # 4. Render Application based on App Mode
+    mode = st.session_state.app_mode
+
+    if mode == "splash":
+        if ui_splash: ui_splash.render_splash_page()
+        else: st.error("Splash module missing")
+
+    elif mode == "login":
+        if ui_login: ui_login.render_login_page()
+        
+    elif mode == "legacy":
+        if ui_legacy: ui_legacy.render_legacy_page()
+        
+    elif mode == "legal":
+        if ui_legal: ui_legal.render_legal_page()
+        
+    elif mode == "admin":
+        # Double check in case state was manipulated
+        user_email = st.session_state.get("user_email", "")
+        admin_emails = ["admin@verbapost.com", "tjkarat@gmail.com"]
+        
+        if st.session_state.get("authenticated") and user_email in admin_emails:
+             if ui_admin: ui_admin.render_admin_page()
+        else:
+             st.error("Access Denied. You are not an authorized administrator.")
+        
+    # Default / Standard App Flow
+    elif mode in ["store", "workspace", "review"]:
+        if ui_main: ui_main.render_main()
+    
+    else:
+        # Fallback
+        if ui_main: ui_main.render_main()
 
 if __name__ == "__main__":
     main()
