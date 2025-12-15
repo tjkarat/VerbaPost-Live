@@ -17,7 +17,7 @@ try: import letter_format
 except ImportError: letter_format = None
 try: import ai_engine
 except ImportError: ai_engine = None
-try: import mailer  # Essential for verification
+try: import mailer
 except ImportError: mailer = None
 
 # --- HELPER: SAFE PROFILE ACCESS ---
@@ -104,6 +104,7 @@ def render_success_view():
         st.session_state.current_legacy_draft_id = None
         st.session_state.legacy_text = ""
         st.session_state.tracking_number = None
+        st.session_state.last_mode = None
         st.rerun()
 
 # --- MAIN RENDERER ---
@@ -118,9 +119,8 @@ def render_legacy_page():
 
     with st.expander("ℹ️ How this works & Writing Help", expanded=False): 
         st.write("1. Confirm Identity  2. Choose Style  3. Speak or Type  4. Certified Delivery")
-        st.markdown("---")
         st.markdown("### 💡 Need help writing?")
-        st.info("For guidance, templates, and inspiration on what to say, we highly recommend the **[Stanford Letter Project](https://med.stanford.edu/letter.html)**.")
+        st.info("For guidance, templates, and inspiration, we recommend the **[Stanford Letter Project](https://med.stanford.edu/letter.html)**.")
 
     addr_opts = load_address_book()
     st.markdown("### 📍 Step 1: Delivery Details")
@@ -191,14 +191,8 @@ def render_legacy_page():
                         err = r_data['message'] if isinstance(r_data, dict) and 'message' in r_data else r_data
                         st.error(f"❌ Recipient Address Invalid: {err}")
                     else:
-                        st.session_state.legacy_sender = {
-                            "name": sn, "street": s_data.get("addressLine1", ss),
-                            "city": s_data.get("city", sc), "state": s_data.get("provinceOrState", stt), "zip": s_data.get("postalOrZip", sz)
-                        }
-                        st.session_state.legacy_recipient = {
-                            "name": rn, "street": r_data.get("addressLine1", rs),
-                            "city": r_data.get("city", rc), "state": r_data.get("provinceOrState", rt), "zip": r_data.get("postalOrZip", rz)
-                        }
+                        st.session_state.legacy_sender = s_data
+                        st.session_state.legacy_recipient = r_data
                         st.session_state.legacy_signature = sig
                         if database and st.session_state.get("authenticated"):
                             database.save_contact(st.session_state.user_email, st.session_state.legacy_recipient)
@@ -262,7 +256,18 @@ def render_legacy_page():
                     current_sig = st.session_state.get("legacy_signature", "")
                     if not current_sig: 
                         current_sig = st.session_state.legacy_sender.get("name", "Sincerely")
-                    raw = letter_format.create_pdf(st.session_state.get("legacy_text", ""), st.session_state.legacy_recipient, st.session_state.legacy_sender, tier="Standard", font_choice=st.session_state.legacy_font, signature_text=current_sig)
+                    
+                    # Call PDF generation safely
+                    raw = letter_format.create_pdf(
+                        st.session_state.get("legacy_text", ""), 
+                        st.session_state.legacy_recipient, 
+                        st.session_state.legacy_sender, 
+                        tier="Standard", 
+                        font_choice=st.session_state.legacy_font, 
+                        signature_text=current_sig
+                    )
+                    
+                    # Robust byte casting
                     pdf_bytes = bytes(raw)
                     b64 = base64.b64encode(pdf_bytes).decode('utf-8')
                     st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
@@ -275,10 +280,14 @@ def render_legacy_page():
         if not st.session_state.get("authenticated"):
             guest_email = st.text_input("📧 Enter Email for Tracking Number", placeholder="you@example.com")
             if guest_email: st.session_state.user_email = guest_email
+            
         if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-            if not st.session_state.get("user_email") and not guest_email: st.error("⚠️ Please enter an email address.")
+            if not st.session_state.get("user_email") and not guest_email: 
+                st.error("⚠️ Please enter an email address.")
             elif payment_engine:
                 _save_legacy_draft()
+                # CRITICAL FIX: Tell main.py we are coming from Legacy
+                st.session_state.last_mode = "legacy"
                 url = payment_engine.create_checkout_session(
                     line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Legacy Letter (Certified)"}, "unit_amount": 1599}, "quantity": 1}],
                     user_email=st.session_state.get("user_email"),
