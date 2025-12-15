@@ -5,8 +5,6 @@ import hashlib
 from datetime import datetime
 
 # --- ENGINE IMPORTS ---
-# We wrap these in try/except to prevent the app from crashing 
-# if a specific module is being worked on.
 try: import ai_engine
 except ImportError: ai_engine = None
 try: import payment_engine
@@ -51,9 +49,11 @@ def get_profile_field(profile, field, default=""):
     return getattr(profile, field, default)
 
 
-# --- ACCESSIBILITY CSS INJECTOR ---
+# --- ACCESSIBILITY CSS INJECTOR (FIXED) ---
 def inject_accessibility_css(text_size=16):
     """Injects CSS to make tabs larger, high-contrast, and button-like."""
+    # FIX: All CSS curly braces must be doubled {{ }} inside an f-string
+    # The only single braces { } should be around the python variable {text_size}
     st.markdown(f"""
         <style>
         /* Dynamic Text Size */
@@ -96,9 +96,9 @@ def inject_accessibility_css(text_size=16):
             font-weight: 500;
             color: #000000;
         }}
-        /* Hide Streamlit Branding if needed */
-        #MainMenu {visibility: hidden;}
-        footer {visibility: hidden;}
+        /* Hide Streamlit Branding if needed - FIXED BRACES HERE */
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
         </style>
     """, unsafe_allow_html=True)
 
@@ -314,8 +314,6 @@ def render_workspace_page():
                     chosen_rep = st.selectbox("Select Official to Autofill", rep_names)
                     
                     # Apply selection logic
-                    # Note: Selectbox change requires Rerun to update text_inputs usually, 
-                    # but inside a form it waits. We handle this by updating inputs on next load.
                     for r in reps_list:
                         if f"{r['name']} ({r['office']})" == chosen_rep:
                             st.session_state.to_name_input = r['name']
@@ -375,8 +373,28 @@ def render_workspace_page():
                 if d_id and database:
                     database.update_draft_data(d_id, to_addr=st.session_state.addr_to, from_addr=st.session_state.addr_from)
                 
-                st.session_state.addresses_saved_at = time.time()
-                st.success("✅ Addresses Saved!")
+                # Address Verification Call (using mailer if available)
+                if mailer:
+                    with st.spinner("Validating with USPS/PostGrid..."):
+                        t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
+                        f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
+                        
+                        if not t_valid:
+                            err = t_data.get('error', 'Invalid Recipient Address')
+                            st.error(f"❌ Recipient Address Error: {err}")
+                        if not f_valid:
+                            err = f_data.get('error', 'Invalid Sender Address')
+                            st.error(f"❌ Sender Address Error: {err}")
+                            
+                        if t_valid and f_valid:
+                            # Update with standardized data
+                            st.session_state.addr_to = t_data
+                            st.session_state.addr_from = f_data
+                            st.session_state.addresses_saved_at = time.time()
+                            st.success("✅ Addresses Verified & Saved!")
+                else:
+                    st.session_state.addresses_saved_at = time.time()
+                    st.success("✅ Addresses Saved (Verification Offline)")
         
         # Confirmation Message
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
