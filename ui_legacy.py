@@ -96,7 +96,12 @@ def render_legacy_page():
     c_head.markdown("## 🕊️ Legacy Workspace")
     if c_save.button("💾 Save Progress", key="btn_save_legacy", use_container_width=True): _save_legacy_draft()
 
-    with st.expander("ℹ️ How this works", expanded=False): st.write("1. Confirm Identity  2. Choose Style  3. Speak or Type  4. Certified Delivery")
+    # --- STANFORD PROJECT REFERENCE ---
+    with st.expander("ℹ️ How this works & Writing Help", expanded=False): 
+        st.write("1. Confirm Identity  2. Choose Style  3. Speak or Type  4. Certified Delivery")
+        st.markdown("---")
+        st.markdown("### 💡 Need help writing?")
+        st.info("For guidance, templates, and inspiration on what to say, we highly recommend the **[Stanford Letter Project](https://med.stanford.edu/letter.html)**.")
 
     addr_opts = load_address_book()
     st.markdown("### 📍 Step 1: Delivery Details")
