@@ -69,23 +69,43 @@ def load_address_book():
     except: return {}
 
 def _save_legacy_draft():
+    """
+    Saves Content AND Addresses to DB.
+    Refactor Explanation: Added 'to_addr' and 'from_addr' args to update_draft_data
+    to prevent data loss when session clears during payment redirect.
+    """
     if not database: st.error("Database connection missing."); return
     user_email = st.session_state.get("user_email", "guest")
     try:
         d_id = st.session_state.get("current_legacy_draft_id")
         content = st.session_state.legacy_text
+        
+        # FIX: Capture addresses from session state
+        s_data = st.session_state.get("legacy_sender", {})
+        r_data = st.session_state.get("legacy_recipient", {})
+        
         if d_id:
-            database.update_draft_data(d_id, content=content, tier="Legacy", price=15.99)
-            st.toast("Draft Saved!", icon="💾")
+            # BUG FIX: Now passing sender/recipient data so it persists in Postgres
+            database.update_draft_data(
+                d_id, 
+                content=content, 
+                tier="Legacy", 
+                price=15.99,
+                to_addr=r_data,    # <--- Added
+                from_addr=s_data   # <--- Added
+            )
+            st.toast("Draft & Addresses Saved!", icon="💾")
         else:
             d_id = database.save_draft(user_email, content, "Legacy", 15.99)
+            # Immediately update with addresses if they exist
+            if s_data or r_data:
+                database.update_draft_data(d_id, to_addr=r_data, from_addr=s_data)
+            
             st.session_state.current_legacy_draft_id = d_id
             st.toast("New Draft Created!", icon="✨")
     except Exception as e: st.error(f"Save failed: {e}")
 
 # --- SUCCESS VIEW ---
-# Note: main.py handles the primary success screen now to avoid crashes, 
-# but this is kept as a fallback for internal state transitions.
 def render_success_view():
     st.balloons()
     st.markdown("## ✅ Order Confirmed!")
@@ -198,6 +218,10 @@ def render_legacy_page():
                         st.session_state.legacy_signature = sig
                         if database and st.session_state.get("authenticated"):
                             database.save_contact(st.session_state.user_email, st.session_state.legacy_recipient)
+                        
+                        # --- TRIGGER SAVE IMMEDIATELY ---
+                        _save_legacy_draft()
+                        
                         st.success("✅ Addresses Verified & Saved!")
                         time.sleep(1)
                         st.rerun()
@@ -251,7 +275,6 @@ def render_legacy_page():
     st.markdown("### 👁️ Step 4: Secure & Send")
     c_p, c_c = st.columns([1,1])
     with c_p:
-        # UI FIX: Moved Download Button ABOVE the embed so it's visible instantly
         if st.button("📄 Generate PDF Proof", use_container_width=True):
             if not st.session_state.get("legacy_text"): 
                 st.error("Please write your letter first.")
@@ -273,7 +296,6 @@ def render_legacy_page():
                     pdf_bytes = bytes(raw)
                     b64 = base64.b64encode(pdf_bytes).decode('utf-8')
                     
-                    # 1. DOWNLOAD BUTTON (Now at top)
                     st.download_button(
                         label="⬇️ Download PDF File", 
                         data=pdf_bytes, 
@@ -282,8 +304,6 @@ def render_legacy_page():
                         type="primary", 
                         use_container_width=True
                     )
-                    
-                    # 2. PREVIEW EMBED (Below)
                     st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
                     
                 except Exception as e: 
@@ -300,8 +320,7 @@ def render_legacy_page():
             if not st.session_state.get("user_email") and not guest_email: 
                 st.error("⚠️ Please enter an email address.")
             elif payment_engine:
-                _save_legacy_draft()
-                # CRITICAL: Set last_mode for Safe Landing in main.py
+                _save_legacy_draft()  # <--- CRITICAL: Saves content AND addresses now
                 st.session_state.last_mode = "legacy"
                 
                 url = payment_engine.create_checkout_session(

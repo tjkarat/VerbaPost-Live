@@ -1,18 +1,25 @@
 import streamlit as st
 import pandas as pd
 import time
+import json
 from datetime import datetime
 
 # --- DIRECT IMPORT ---
 import database
 import secrets_manager
+# Import Engines for Retry Functionality
+try: import mailer
+except ImportError: mailer = None
+try: import letter_format
+except ImportError: letter_format = None
+try: import address_standard
+except ImportError: address_standard = None
 
 def render_admin_page():
     # --- AUTH CHECK ---
     admin_email = secrets_manager.get_secret("admin.email")
     admin_pass = secrets_manager.get_secret("admin.password")
     
-    # Bypass login if already authenticated in session
     if not st.session_state.get("admin_authenticated"):
         st.markdown("## 🛡️ Admin Access")
         with st.form("admin_login"):
@@ -29,7 +36,6 @@ def render_admin_page():
     # --- ADMIN DASHBOARD ---
     st.title("⚙️ VerbaPost Admin Console")
     
-    # Top Bar
     c_exit, c_refresh = st.columns([1, 6])
     with c_exit:
         if st.button("⬅️ Exit"):
@@ -39,19 +45,15 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    # RESTORED ALL 5 TABS
     tab_health, tab_orders, tab_promos, tab_users, tab_logs = st.tabs([
         "🏥 Health", "📦 Orders", "🎟️ Promos", "👥 Users", "📜 Logs"
     ])
 
-    # --- TAB 1: SYSTEM HEALTH (VALIDATION) ---
+    # --- TAB 1: HEALTH ---
     with tab_health:
         st.subheader("🔌 Connection Diagnostics")
-        
-        # 1. Database Check
         try:
             with database.get_db_session() as db:
-                # Use text() for safe execution
                 from sqlalchemy import text
                 db.execute(text("SELECT 1"))
             db_status = "✅ Online (Read/Write)"
@@ -60,7 +62,6 @@ def render_admin_page():
             db_status = f"❌ Error: {str(e)[:100]}..."
             db_color = "red"
 
-        # 2. Key Validation
         def check_key(key_names):
             val = None
             for k in key_names:
@@ -87,7 +88,7 @@ def render_admin_page():
             st.markdown(f"**Mail (PostGrid):** {postgrid_s}")
             st.markdown(f"**Email (Resend):** {email_s}")
 
-    # --- TAB 2: ORDERS ---
+    # --- TAB 2: ORDERS (UPGRADED) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
@@ -95,9 +96,7 @@ def render_admin_page():
                 query = db.query(database.LetterDraft).order_by(database.LetterDraft.created_at.desc()).limit(50)
                 orders = query.all()
                 
-                if not orders:
-                    st.info("No orders found.")
-                else:
+                if orders:
                     data = []
                     for o in orders:
                         data.append({
@@ -110,20 +109,89 @@ def render_admin_page():
                         })
                     st.dataframe(pd.DataFrame(data), use_container_width=True)
                     
-                    # Detail View
-                    oid = st.number_input("Inspect Order ID", min_value=0, step=1)
+                    st.divider()
+                    st.markdown("### 🛠️ Repair & Fulfillment")
+                    oid = st.number_input("Enter Order ID to Fix/Retry", min_value=0, step=1)
+                    
                     if oid:
+                        # Fetch the object from current session
                         sel = db.query(database.LetterDraft).filter(database.LetterDraft.id == oid).first()
                         if sel:
-                            st.json({
-                                "content": sel.content,
-                                "recipient": sel.recipient_data,
-                                "sender": sel.sender_data
-                            })
+                            st.info(f"Editing Order #{oid} ({sel.status})")
+                            
+                            c_edit1, c_edit2 = st.columns(2)
+                            
+                            # 1. EDIT ADDRESSES (Fix the NULLs)
+                            with c_edit1:
+                                st.markdown("**Edit Recipient JSON**")
+                                r_val = json.dumps(sel.recipient_data) if sel.recipient_data else "{}"
+                                new_r = st.text_area("Recipient", r_val, height=150)
+                                
+                                st.markdown("**Edit Sender JSON**")
+                                s_val = json.dumps(sel.sender_data) if sel.sender_data else "{}"
+                                new_s = st.text_area("Sender", s_val, height=150)
+                                
+                                if st.button("💾 Save Data Changes"):
+                                    try:
+                                        sel.recipient_data = json.loads(new_r)
+                                        sel.sender_data = json.loads(new_s)
+                                        db.commit()
+                                        st.success("Data Updated!")
+                                        time.sleep(1)
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"JSON Error: {e}")
+
+                            # 2. FORCE SEND (Retry PostGrid)
+                            with c_edit2:
+                                st.markdown("**Force Fulfillment**")
+                                st.warning("Use this if payment succeeded but PostGrid failed/skipped.")
+                                
+                                if st.button("🚀 Force Send to PostGrid"):
+                                    if not mailer or not letter_format or not address_standard:
+                                        st.error("Engines missing")
+                                    else:
+                                        with st.spinner("Generating & Sending..."):
+                                            try:
+                                                # Reconstruct StandardAddress objects
+                                                to_obj = address_standard.StandardAddress.from_dict(sel.recipient_data)
+                                                from_obj = address_standard.StandardAddress.from_dict(sel.sender_data)
+                                                
+                                                # Generate PDF
+                                                pdf_bytes = letter_format.create_pdf(
+                                                    sel.content, 
+                                                    to_obj, 
+                                                    from_obj, 
+                                                    sel.tier
+                                                )
+                                                
+                                                # Send
+                                                ref = f"admin_retry_{oid}_{int(time.time())}"
+                                                tracking = mailer.send_letter(
+                                                    pdf_bytes, 
+                                                    to_obj, 
+                                                    from_obj, 
+                                                    ref_id=ref, 
+                                                    color=True, 
+                                                    certified=(sel.price > 10) # Simple logic for certified check
+                                                )
+                                                
+                                                st.success(f"✅ Sent! Tracking: {tracking}")
+                                                
+                                                # Log success
+                                                sel.status = "Completed (Admin Retry)"
+                                                sel.tracking_number = tracking
+                                                db.commit()
+                                                
+                                            except Exception as ex:
+                                                st.error(f"Send Failed: {ex}")
+                        else:
+                            st.warning("Order ID not found.")
+
         except Exception as e:
             st.error(f"Error loading orders: {e}")
 
-    # --- TAB 3: PROMO CODES ---
+    # --- TAB 3: PROMOS ---
     with tab_promos:
         st.subheader("Manage Discounts")
         with st.expander("➕ Create New Code"):
@@ -158,7 +226,7 @@ def render_admin_page():
         except Exception as e:
             st.error(f"Error loading promos: {e}")
 
-    # --- TAB 4: USERS (RESTORED) ---
+    # --- TAB 4: USERS ---
     with tab_users:
         st.subheader("User Profiles")
         try:
@@ -173,12 +241,10 @@ def render_admin_page():
                         "Joined": u.created_at.strftime("%Y-%m-%d")
                     } for u in users]
                     st.dataframe(pd.DataFrame(u_data), use_container_width=True)
-                else:
-                    st.info("No users found.")
         except Exception as e:
             st.error(f"Error loading users: {e}")
 
-    # --- TAB 5: LOGS (RESTORED) ---
+    # --- TAB 5: LOGS ---
     with tab_logs:
         st.subheader("System Logs")
         try:
@@ -192,8 +258,6 @@ def render_admin_page():
                         "Details": l.details
                     } for l in logs]
                     st.dataframe(pd.DataFrame(l_data), use_container_width=True)
-                else:
-                    st.info("No logs found.")
         except Exception as e:
             st.error(f"Error loading logs: {e}")
 
