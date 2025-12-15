@@ -1,6 +1,11 @@
 import streamlit as st
 import time
 import os
+import logging
+
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -15,29 +20,41 @@ st.set_page_config(
     }
 )
 
-# --- IMPORTS ---
+# --- ROBUST IMPORTS ---
+# We use generic Exception catching to prevent "Torch" or "AI" crashes 
+# from breaking the entire router.
 try: import ui_splash
-except ImportError: ui_splash = None
+except Exception as e: ui_splash = None; logger.error(f"Splash Import Error: {e}")
+
 try: import ui_login
-except ImportError: ui_login = None
+except Exception as e: ui_login = None; logger.error(f"Login Import Error: {e}")
+
 try: import ui_main
-except ImportError: ui_main = None
+except Exception as e: ui_main = None; logger.error(f"Main UI Import Error: {e}")
+
 try: import ui_admin
-except ImportError: ui_admin = None
+except Exception as e: ui_admin = None; logger.error(f"Admin Import Error: {e}")
+
 try: import ui_legal
-except ImportError: ui_legal = None
+except Exception as e: ui_legal = None; logger.error(f"Legal Import Error: {e}")
+
 try: import ui_legacy
-except ImportError: ui_legacy = None
+except Exception as e: ui_legacy = None; logger.error(f"Legacy Import Error: {e}")
+
 try: import payment_engine
-except ImportError: payment_engine = None
+except Exception as e: payment_engine = None; logger.error(f"Payment Engine Import Error: {e}")
+
 try: import auth_engine
-except ImportError: auth_engine = None
+except Exception as e: auth_engine = None; logger.error(f"Auth Engine Import Error: {e}")
+
 try: import audit_engine
-except ImportError: audit_engine = None
+except Exception as e: audit_engine = None; logger.error(f"Audit Engine Import Error: {e}")
+
 try: import seo_injector
-except ImportError: seo_injector = None
+except Exception as e: seo_injector = None; logger.error(f"SEO Import Error: {e}")
+
 try: import email_engine
-except ImportError: email_engine = None
+except Exception as e: email_engine = None; logger.error(f"Email Engine Import Error: {e}")
 
 # --- CSS STYLING ---
 st.markdown("""
@@ -50,37 +67,9 @@ st.markdown("""
         color: white !important; 
         font-weight: 600;
     }
-    button[kind="secondary"] {
-        background-color: #ffffff !important;
-        color: #333 !important;
-        border: 1px solid #ccc !important;
-    }
-    .stTextInput input:focus {
-        border-color: #d93025 !important;
-        box-shadow: 0 0 0 1px #d93025 !important;
-    }
+    .stStatusWidget {border: 1px solid #e0e0e0; border-radius: 8px; padding: 15px;}
 </style>
 """, unsafe_allow_html=True)
-
-# --- HELPER: ROBUST PAYMENT CHECK ---
-def verify_payment_with_retries(session_id, retries=3):
-    """Attempts to verify payment multiple times to handle race conditions."""
-    if not payment_engine:
-        return "error"
-        
-    for i in range(retries):
-        try:
-            status = payment_engine.verify_session(session_id)
-            if status == "paid":
-                return "paid"
-            elif status == "open":
-                time.sleep(1.5) # Wait for Stripe webhook/processing
-                continue
-        except Exception as e:
-            print(f"Payment Check Fail (Attempt {i+1}): {e}")
-            time.sleep(1)
-            
-    return "failed"
 
 # --- MAIN APP LOGIC ---
 def main():
@@ -91,18 +80,24 @@ def main():
     if "session_id" in params:
         session_id = params["session_id"]
         
-        # UI Feedback for User
-        with st.status("🔐 Verifying secure payment...", expanded=True) as status_box:
-            st.write("Connecting to payment gateway...")
+        # UI Container for Verification Status
+        with st.container():
+            st.markdown("### 🔐 Verifying Order...")
             
-            # Smart Retry Logic
-            pay_status = verify_payment_with_retries(session_id)
+            # ATTEMPT VERIFICATION
+            status = "error"
+            if payment_engine:
+                try:
+                    status = payment_engine.verify_session(session_id)
+                except Exception as e:
+                    logger.error(f"Verify Crash: {e}")
             
-            if pay_status == "paid":
-                status_box.update(label="✅ Payment Confirmed!", state="complete", expanded=False)
+            # SUCCESS HANDLER
+            if status == "paid":
+                st.success("✅ Payment Confirmed!")
                 st.session_state.paid_success = True
                 
-                # A. Determine User Logic
+                # A. Get User
                 current_user = st.session_state.get("user_email", "guest")
                 if auth_engine and st.session_state.get("authenticated"):
                     current_user = st.session_state.get("user_email")
@@ -111,52 +106,61 @@ def main():
                 if audit_engine:
                     audit_engine.log_event("PAYMENT_SUCCESS", current_user, f"Session: {session_id}")
 
-                # C. Generate Mock Tracking (Real system would fetch from DB/PostGrid)
+                # C. Generate Mock Tracking (Placeholder)
                 import random
                 track_num = f"94055{random.randint(10000000,99999999)}"
                 st.session_state.tracking_number = track_num
 
-                # D. SEND EMAIL
+                # D. SEND EMAIL (CRITICAL FIX)
                 if email_engine:
-                    st.write("Sending confirmation email...")
-                    # Determine Tier for email subject
-                    tier_sold = "Legacy" if st.session_state.get("last_mode") == "legacy" else "Standard"
+                    # Heuristic: If we are on splash but paid $15.99, it's Legacy.
+                    # Ideally, we read this from the Stripe Session metadata, but this works for now.
+                    tier_sold = "Standard"
+                    if st.session_state.get("last_mode") == "legacy":
+                        tier_sold = "Legacy"
+                    
                     email_engine.send_confirmation(current_user, track_num, tier=tier_sold)
 
-                # E. CLEAR & ROUTE
+                # E. ROUTE USER
                 time.sleep(1)
                 st.query_params.clear()
                 
-                # Route back to the correct engine
+                # If state was wiped, guess based on Context or Default to Workspace
                 if st.session_state.get("last_mode") == "legacy":
                     st.session_state.app_mode = "legacy"
                 else:
+                    # Default for standard users
                     st.session_state.app_mode = "workspace"
                 
                 st.rerun()
 
-            elif pay_status == "open":
-                status_box.update(label="⏳ Payment Processing", state="running")
-                st.info("Your payment is still processing. Please wait a moment and refresh.")
-                if st.button("🔄 Refresh Status"):
-                    st.rerun()
+            # PENDING/PROCESSING HANDLER
+            elif status == "open":
+                st.info("⏳ Payment is processing... Please wait.")
+                time.sleep(2)
+                st.rerun()
+
+            # FAILURE/RACE CONDITION HANDLER
             else:
-                status_box.update(label="⚠️ Payment Verification Issue", state="error")
-                st.warning("We couldn't confirm the payment instantly.")
-                st.markdown("If you received a receipt from Stripe, your order **is safe**.")
+                st.warning("⚠️ Could not verify instantly.")
+                st.markdown("This happens if the bank connection is slow. Your money is safe.")
                 
                 c1, c2 = st.columns(2)
                 with c1:
-                    if st.button("🔄 Try Again"):
+                    # The Magic Button: Re-runs the check without full page reload
+                    if st.button("🔄 Click to Verify Again", type="primary"):
                         st.rerun()
                 with c2:
-                    st.link_button("💬 Contact Support", "mailto:support@verbapost.com")
+                    st.link_button("💬 Support", "mailto:support@verbapost.com")
+
+                # Stop execution here so we don't render the Splash page underneath the error
+                st.stop()
 
     # 2. PASSWORD RESET
     elif "type" in params and params["type"] == "recovery":
         st.session_state.app_mode = "login"
 
-    # 3. INIT STATE
+    # 3. INIT STATE (If wiped by Torch crash)
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
     
@@ -172,10 +176,11 @@ def main():
             st.session_state.app_mode = "admin"
             st.rerun()
         st.markdown("---")
-        st.caption(f"v3.3.2 | {st.session_state.app_mode}")
+        st.caption(f"v3.3.4 | {st.session_state.app_mode}")
 
     # 5. ROUTING SWITCHBOARD
     mode = st.session_state.app_mode
+    
     if mode == "splash":
         if ui_splash: ui_splash.render_splash_page()
     elif mode == "login":
@@ -189,6 +194,7 @@ def main():
     elif mode in ["store", "workspace", "review"]:
         if ui_main: ui_main.render_main()
     else:
+        # Fallback if state is weird
         if ui_splash: ui_splash.render_splash_page()
 
 if __name__ == "__main__":
