@@ -1,104 +1,122 @@
 from fpdf import FPDF
-import os
+import datetime
 
-class LetterPDF(FPDF):
-    def header(self):
-        # Header is usually blank for these letters to look personal
-        pass
-
-    def footer(self):
-        # Position at 1.5 cm from bottom
-        self.set_y(-15)
-        self.set_font("Helvetica", "I", 8)
-        self.set_text_color(128)
-        self.cell(0, 10, "Sent via VerbaPost", align="C")
-
-def create_pdf(body_text, to_addr, from_addr, tier="Standard", font_choice=None, signature_text=None):
+def create_pdf(text, recipient_data, sender_data, tier="Standard", font_choice="Caveat", signature_text=""):
     """
-    Generates a PDF byte array.
-    Robustly handles string vs bytearray return types to fix 'encode' errors.
-    Added signature_text for custom sign-offs.
+    Generates a PDF for the physical letter.
+    
+    Args:
+        text (str): The body of the letter.
+        recipient_data (dict): To address.
+        sender_data (dict): From address.
+        tier (str): Current tier (Standard, Legacy, etc).
+        font_choice (str): One of "Caveat", "Great Vibes", "Indie Flower", "Schoolbell".
+        signature_text (str): The sign-off text.
+        
+    Returns:
+        bytes: The PDF binary data.
     """
-    pdf = LetterPDF()
+    
+    class PDF(FPDF):
+        def header(self):
+            # Clean, ample top margin for professional look
+            self.ln(10)
+
+        def footer(self):
+            # Positioning at 1.5 cm from bottom
+            self.set_y(-15)
+            self.set_font("Helvetica", "I", 8)
+            # Tier-based footer branding
+            brand = "VerbaPost Legacy Service" if tier == "Legacy" else "VerbaPost"
+            self.cell(0, 10, f"Sent via {brand}", 0, 0, "C")
+
+    # 1. Initialize PDF
+    pdf = PDF()
+    pdf.set_margins(25.4, 25.4, 25.4)  # 1-inch margins
+    pdf.set_auto_page_break(auto=True, margin=25.4)
     pdf.add_page()
-    
-    # --- 1. Fonts Setup ---
-    chosen_font_name = "Helvetica" # Default
-    
-    # Safe font loading logic
-    try:
-        # If specific font requested (Legacy flow)
-        if font_choice and "Caveat" in font_choice and os.path.exists("Caveat-Regular.ttf"):
-            pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
-            chosen_font_name = "Caveat"
-        # Or if tier defaults to handwriting (Standard/Heirloom)
-        elif tier in ["Standard", "Heirloom"] and os.path.exists("Caveat-Regular.ttf"):
-            pdf.add_font("Caveat", "", "Caveat-Regular.ttf")
-            chosen_font_name = "Caveat"
-    except Exception as e:
-        print(f"Font loading error: {e}")
-    
-    # --- 2. Return Address ---
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(100, 100, 100) # Grey
-    
-    # Handle object vs dict input safely
-    s_name = from_addr.get("name") if isinstance(from_addr, dict) else getattr(from_addr, "name", "")
-    s_str = from_addr.get("street") if isinstance(from_addr, dict) else getattr(from_addr, "street", "")
-    s_city = from_addr.get("city") if isinstance(from_addr, dict) else getattr(from_addr, "city", "")
-    s_state = from_addr.get("state") if isinstance(from_addr, dict) else getattr(from_addr, "state", "")
-    s_zip = from_addr.get("zip") if isinstance(from_addr, dict) else getattr(from_addr, "zip_code", "")
-    
-    pdf.multi_cell(0, 5, f"{s_name}\n{s_str}\n{s_city}, {s_state} {s_zip}")
-    pdf.ln(10)
-    
-    # --- 3. Date ---
-    from datetime import datetime
-    date_str = datetime.now().strftime("%B %d, %Y")
-    pdf.cell(0, 10, date_str, ln=True)
-    pdf.ln(5)
 
-    # --- 4. Recipient ---
-    pdf.set_text_color(0, 0, 0) # Black
-    r_name = to_addr.get("name") if isinstance(to_addr, dict) else getattr(to_addr, "name", "")
-    r_str = to_addr.get("street") if isinstance(to_addr, dict) else getattr(to_addr, "street", "")
-    r_city = to_addr.get("city") if isinstance(to_addr, dict) else getattr(to_addr, "city", "")
-    r_state = to_addr.get("state") if isinstance(to_addr, dict) else getattr(to_addr, "state", "")
-    r_zip = to_addr.get("zip") if isinstance(to_addr, dict) else getattr(to_addr, "zip_code", "")
-    
-    pdf.multi_cell(0, 5, f"{r_name}\n{r_str}\n{r_city}, {r_state} {r_zip}")
-    pdf.ln(15)
+    # 2. Register Custom Fonts
+    # NOTE: Ensure these .ttf files are in your root directory!
+    fonts_to_register = [
+        ("Caveat", "Caveat-Regular.ttf"),
+        ("Great Vibes", "GreatVibes-Regular.ttf"),
+        ("Indie Flower", "IndieFlower-Regular.ttf"),
+        ("Schoolbell", "Schoolbell-Regular.ttf")
+    ]
 
-    # --- 5. Body ---
-    if chosen_font_name == "Caveat":
-        pdf.set_font("Caveat", "", 16)
-    else:
-        pdf.set_font("Times", "", 12)
-        
-    pdf.multi_cell(0, 8, body_text)
+    registered_fonts = []
     
-    # --- 6. Signature ---
-    pdf.ln(15)
-    pdf.cell(0, 10, "Sincerely,", ln=True)
-    pdf.ln(15)
-    
-    # Use custom signature if provided, otherwise default to Sender Name
-    sign_name = signature_text if signature_text else s_name
-    pdf.cell(0, 10, sign_name, ln=True)
+    for font_name, file_name in fonts_to_register:
+        try:
+            pdf.add_font(font_name, style="", fname=file_name)
+            registered_fonts.append(font_name)
+        except Exception:
+            print(f"⚠️ Warning: Font file '{file_name}' not found. Skipping.")
 
-    # --- 7. CRITICAL OUTPUT FIX ---
-    try:
-        # FPDF2 returns bytearray, Old FPDF returns string
-        raw_output = pdf.output(dest='S')
-        
-        if isinstance(raw_output, str):
-            # Convert string to bytes
-            return raw_output.encode('latin-1')
+    # 3. Determine Font to Use
+    # If selected font didn't load, fallback to Caveat, then Helvetica
+    use_font = font_choice
+    if use_font not in registered_fonts:
+        if "Caveat" in registered_fonts:
+            use_font = "Caveat"
         else:
-            # Already bytes/bytearray - return as bytes
-            return bytes(raw_output)
-            
-    except Exception as e:
-        print(f"PDF Output Error: {e}")
-        # Return empty bytes to prevent crash, allowing UI to handle error
-        return b""
+            use_font = "Helvetica"
+
+    # 4. Draw Sender Address (Top Left, Small)
+    pdf.set_font("Helvetica", size=10)
+    pdf.set_text_color(100, 100, 100) # Dark Gray
+    
+    s_name = sender_data.get("name", "")
+    s_street = sender_data.get("street", "")
+    s_city = sender_data.get("city", "")
+    s_state = sender_data.get("state", "")
+    s_zip = sender_data.get("zip", "")
+    
+    pdf.cell(0, 5, s_name, ln=True)
+    pdf.cell(0, 5, s_street, ln=True)
+    pdf.cell(0, 5, f"{s_city}, {s_state} {s_zip}", ln=True)
+    
+    # 5. Draw Date
+    pdf.ln(5)
+    current_date = datetime.datetime.now().strftime("%B %d, %Y")
+    pdf.cell(0, 5, current_date, ln=True)
+    
+    # 6. Draw Recipient Block (Standard Position for Window Envelopes)
+    pdf.ln(15)
+    pdf.set_text_color(0, 0, 0) # Black
+    
+    r_name = recipient_data.get("name", "")
+    r_street = recipient_data.get("street", "")
+    r_city = recipient_data.get("city", "")
+    r_state = recipient_data.get("state", "")
+    r_zip = recipient_data.get("zip", "")
+    
+    pdf.cell(0, 5, r_name, ln=True)
+    pdf.cell(0, 5, r_street, ln=True)
+    pdf.cell(0, 5, f"{r_city}, {r_state} {r_zip}", ln=True)
+
+    # 7. Write Body Content
+    pdf.ln(20)
+    
+    # Adjust sizing based on font quirks
+    base_size = 14
+    if use_font == "Great Vibes": base_size = 16  # Runs small
+    if use_font == "Schoolbell": base_size = 13   # Runs large
+    
+    pdf.set_font(use_font, size=base_size)
+    
+    # Handles encoding specific characters if necessary (latin-1 is standard for FPDF)
+    safe_text = text.encode('latin-1', 'replace').decode('latin-1')
+    pdf.multi_cell(0, 8, safe_text)
+
+    # 8. Signature
+    pdf.ln(15)
+    if signature_text:
+        pdf.cell(0, 10, signature_text, ln=True)
+    else:
+        pdf.cell(0, 10, "Sincerely,", ln=True)
+        pdf.cell(0, 10, s_name, ln=True)
+
+    # 9. Return Bytes
+    return pdf.output(dest='S')
