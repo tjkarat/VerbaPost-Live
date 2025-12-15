@@ -1,22 +1,17 @@
 import requests
 import secrets_manager
 import logging
-import streamlit as st
 
-# Configure Logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def find_representatives(address_input):
     """
     Looks up US Senators and Representatives for a given address.
-    Args: address_input (dict or str)
     """
     # 1. KEY RETRIEVAL (Try all common variations)
     api_key = (
         secrets_manager.get_secret("geocodio.api_key") or 
-        secrets_manager.get_secret("GEOCODIO_API_KEY") or
-        st.secrets.get("geocodio", {}).get("api_key")
+        secrets_manager.get_secret("GEOCODIO_API_KEY")
     )
     
     if not api_key:
@@ -57,8 +52,7 @@ def find_representatives(address_input):
         
         if 'results' in data and len(data['results']) > 0:
             # Check for Congress data block
-            result_block = data['results'][0]
-            fields = result_block.get('fields', {}).get('congress', {})
+            fields = data['results'][0].get('fields', {}).get('congress', {})
             
             # --- PARSE SENATE ---
             for rep in fields.get('senate', []):
@@ -87,7 +81,7 @@ def find_representatives(address_input):
                 })
         
         if not results:
-            print(f"⚠️ CIVIC: API returned success but no officials found for this address.")
+            print(f"⚠️ CIVIC: API returned success but no officials found.")
         else:
             print(f"✅ CIVIC: Found {len(results)} officials.")
             

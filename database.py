@@ -7,13 +7,12 @@ from contextlib import contextmanager
 import logging
 import secrets_manager
 
-# --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- DATABASE MODELS ---
 Base = declarative_base()
 
+# --- MODELS ---
 class UserProfile(Base):
     __tablename__ = "user_profiles"
     id = Column(String, primary_key=True, index=True)
@@ -27,7 +26,6 @@ class UserProfile(Base):
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     def to_dict(self):
-        """Converts ORM object to dictionary to prevent DetachedInstanceError"""
         return {
             "id": self.id,
             "email": self.email,
@@ -88,7 +86,7 @@ class AuditEvent(Base):
     details = Column(Text)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
-# --- ENGINE & SESSION ---
+# --- ENGINE ---
 _engine = None
 
 def get_engine():
@@ -102,13 +100,11 @@ def get_engine():
     if not db_url and "supabase" in st.secrets:
         db_url = st.secrets["supabase"].get("db_url")
 
-    # Fallback to local
     if not db_url:
         logger.warning("⚠️ No DATABASE_URL found. Using local SQLite.")
         db_url = "sqlite:///./local_dev.db"
     
-    # Fix Dialect
-    if db_url and db_url.startswith("postgres://"):
+    if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
     try:
@@ -121,8 +117,8 @@ def get_engine():
                 max_overflow=10,
                 pool_timeout=30,
                 pool_recycle=1800,
-                poolclass=QueuePool
-                connect_args={'options': '-csearch_path=public'},
+                poolclass=QueuePool,  # <--- COMMA FIXED HERE
+                connect_args={'options': '-csearch_path=public'}
             )
         Base.metadata.create_all(bind=_engine)
         return _engine
@@ -134,7 +130,6 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine()
 
 @contextmanager
 def get_db_session():
-    """Safe session management."""
     engine = get_engine() 
     if not engine:
         engine = create_engine("sqlite:///:memory:")
@@ -150,8 +145,7 @@ def get_db_session():
     finally:
         session.close()
 
-# --- CRUD OPERATIONS ---
-
+# --- CRUD ---
 def create_user_profile(profile_data):
     try:
         with get_db_session() as db:
@@ -178,12 +172,11 @@ def create_user_profile(profile_data):
         return False
 
 def get_user_profile(email):
-    """Fetches profile and converts to DICT to avoid DetachedInstanceError."""
     try:
         with get_db_session() as db:
             profile = db.query(UserProfile).filter(UserProfile.email == email).first()
             if profile:
-                return profile.to_dict() # <--- CRITICAL FIX
+                return profile.to_dict()
             return None
     except Exception as e:
         logger.error(f"Get Profile Error: {e}")
@@ -245,7 +238,6 @@ def get_contacts(user_email):
     try:
         with get_db_session() as db:
             contacts = db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
-            # Return LIST OF DICTS, not objects
             return [{
                 "name": c.name, "street": c.street, "city": c.city, 
                 "state": c.state, "zip_code": c.zip_code, "country": c.country
