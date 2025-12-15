@@ -1,7 +1,6 @@
 import streamlit as st
 
 # --- FUNCTION DEFINITION ---
-# FIX: Matches main.py call signature
 def render_splash_page():
     # --- PROFESSIONAL MINIMALIST CSS ---
     st.markdown("""
@@ -66,3 +65,6 @@ def render_splash_page():
         if st.button("⚖️ Legal / Terms", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
+
+    # Explicit return avoids "None" printing in main.py
+    return
