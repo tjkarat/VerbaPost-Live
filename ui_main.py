@@ -677,7 +677,9 @@ def render_main():
     # This logic forces the admin button to appear even if main.py fails
     if secrets_manager:
         user_email = st.session_state.get("user_email", "").lower().strip()
-        admin_email = secrets_manager.get_secret("admin.email", "").lower().strip()
+        # FIX: Remove the second argument "" which caused TypeError
+        raw_admin = secrets_manager.get_secret("admin.email")
+        admin_email = raw_admin.lower().strip() if raw_admin else ""
         
         if user_email and admin_email and user_email == admin_email:
             with st.sidebar:
