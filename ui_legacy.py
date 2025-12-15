@@ -84,6 +84,8 @@ def _save_legacy_draft():
     except Exception as e: st.error(f"Save failed: {e}")
 
 # --- SUCCESS VIEW ---
+# Note: main.py handles the primary success screen now to avoid crashes, 
+# but this is kept as a fallback for internal state transitions.
 def render_success_view():
     st.balloons()
     st.markdown("## ✅ Order Confirmed!")
@@ -249,15 +251,16 @@ def render_legacy_page():
     st.markdown("### 👁️ Step 4: Secure & Send")
     c_p, c_c = st.columns([1,1])
     with c_p:
-        if st.button("📄 Generate PDF Proof"):
-            if not st.session_state.get("legacy_text"): st.error("Please write your letter first.")
+        # UI FIX: Moved Download Button ABOVE the embed so it's visible instantly
+        if st.button("📄 Generate PDF Proof", use_container_width=True):
+            if not st.session_state.get("legacy_text"): 
+                st.error("Please write your letter first.")
             elif letter_format:
                 try:
                     current_sig = st.session_state.get("legacy_signature", "")
                     if not current_sig: 
                         current_sig = st.session_state.legacy_sender.get("name", "Sincerely")
                     
-                    # Call PDF generation safely
                     raw = letter_format.create_pdf(
                         st.session_state.get("legacy_text", ""), 
                         st.session_state.legacy_recipient, 
@@ -267,12 +270,24 @@ def render_legacy_page():
                         signature_text=current_sig
                     )
                     
-                    # Robust byte casting
                     pdf_bytes = bytes(raw)
                     b64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                    
+                    # 1. DOWNLOAD BUTTON (Now at top)
+                    st.download_button(
+                        label="⬇️ Download PDF File", 
+                        data=pdf_bytes, 
+                        file_name="legacy_letter.pdf", 
+                        mime="application/pdf", 
+                        type="primary", 
+                        use_container_width=True
+                    )
+                    
+                    # 2. PREVIEW EMBED (Below)
                     st.markdown(f'<embed src="data:application/pdf;base64,{b64}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                    st.download_button("⬇️ Download PDF", pdf_bytes, "legacy_letter.pdf", "application/pdf")
-                except Exception as e: st.error(f"PDF Error: {e}")
+                    
+                except Exception as e: 
+                    st.error(f"PDF Error: {e}")
 
     with c_c:
         st.markdown(f"""<div style="background-color: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 15px;"><h4 style="margin:0;">Total: $15.99</h4><ul style="font-size: 0.9rem; color: #555; padding-left: 20px;"><li>Archival Bond Paper</li><li>USPS Certified Mail Tracking</li><li>Digital & Physical Proof</li></ul></div>""", unsafe_allow_html=True)
@@ -286,8 +301,9 @@ def render_legacy_page():
                 st.error("⚠️ Please enter an email address.")
             elif payment_engine:
                 _save_legacy_draft()
-                # CRITICAL FIX: Tell main.py we are coming from Legacy
+                # CRITICAL: Set last_mode for Safe Landing in main.py
                 st.session_state.last_mode = "legacy"
+                
                 url = payment_engine.create_checkout_session(
                     line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Legacy Letter (Certified)"}, "unit_amount": 1599}, "quantity": 1}],
                     user_email=st.session_state.get("user_email"),
