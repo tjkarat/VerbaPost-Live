@@ -18,12 +18,12 @@ def _get_api_key():
 def _to_postgrid_addr(addr_dict):
     """
     Maps internal address keys to PostGrid's required format.
-    Returns None if critical fields (Street, City, State, Zip) are empty.
+    Returns None if critical fields are missing.
     """
     if not addr_dict:
         return None
 
-    # 1. Extract values safely with multiple fallback keys
+    # Handle various key names safely
     line1 = (addr_dict.get("street") or addr_dict.get("address_line1") or "").strip()
     line2 = (addr_dict.get("street2") or addr_dict.get("address_line2") or addr_dict.get("apt") or "").strip()
     city = (addr_dict.get("city") or "").strip()
@@ -31,8 +31,7 @@ def _to_postgrid_addr(addr_dict):
     zip_code = (addr_dict.get("zip") or addr_dict.get("postalOrZip") or addr_dict.get("zip_code") or "").strip()
     name = (addr_dict.get("name") or addr_dict.get("full_name") or "Valued Customer").strip()
 
-    # 2. CRITICAL VALIDATION: Fail if any required field is empty
-    # This prevents sending {"addressLine1": ""} to the API
+    # CRITICAL VALIDATION
     if not line1 or not city or not state or not zip_code:
         return None
 
@@ -49,13 +48,14 @@ def _to_postgrid_addr(addr_dict):
 def validate_address(address_dict):
     """
     Uses PostGrid's Verification API.
+    Returns: (bool is_valid, dict details)
     """
     api_key = _get_api_key()
-    if not api_key: return False, None
+    if not api_key: return False, {"error": "API Key Missing"}
 
     pg_addr = _to_postgrid_addr(address_dict)
     if not pg_addr:
-        return False, {"error": "Missing required fields (Street, City, State, or Zip)"}
+        return False, {"error": "Missing critical fields (Street, City, State, Zip)"}
 
     try:
         response = requests.post(
@@ -70,14 +70,13 @@ def validate_address(address_dict):
             if data.get("status") == "verified":
                 return True, data.get("data")
             else:
-                return False, data.get("data")
+                # Return the error message from PostGrid if available
+                return False, data.get("error", "Address not found or invalid.")
         else:
-            print(f"PostGrid Verification Error: {response.text}")
-            return False, None # Fail closed to save money on bad addresses
+            return False, f"API Error: {response.text}"
 
     except Exception as e:
-        print(f"Address Validation Exception: {e}")
-        return False, None
+        return False, f"Exception: {str(e)}"
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", extra_service=None):
     """
@@ -90,8 +89,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
     pg_to = _to_postgrid_addr(to_addr)
     pg_from = _to_postgrid_addr(from_addr)
 
-    # 2. CIRCUIT BREAKER: Stop immediately if address conversion failed
-    # This catches empty Autofill strings before they hit the API
+    # 2. CIRCUIT BREAKER
     if not pg_to:
         print(f"❌ Aborting Send: Invalid TO address. Data received: {to_addr}")
         return False

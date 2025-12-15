@@ -17,6 +17,8 @@ try: import letter_format
 except ImportError: letter_format = None
 try: import ai_engine
 except ImportError: ai_engine = None
+try: import mailer  # Essential for verification
+except ImportError: mailer = None
 
 # --- CSS INJECTOR ---
 def inject_legacy_accessibility_css():
@@ -32,7 +34,6 @@ def inject_legacy_accessibility_css():
         .fp-IndieFlower { font-family: 'Indie Flower', cursive; }
         .fp-Schoolbell { font-family: 'Schoolbell', cursive; }
         .instruction-box { background-color: #FEF3C7; border-left: 10px solid #F59E0B; padding: 20px; margin-bottom: 25px; font-size: 20px; font-weight: 500; color: #000000; }
-        /* Make form inputs larger for seniors */
         div[data-testid="stForm"] input { font-size: 1.1rem; }
         </style>
     """, unsafe_allow_html=True)
@@ -116,7 +117,7 @@ def render_legacy_page():
         st.markdown("### 💡 Need help writing?")
         st.info("For guidance, templates, and inspiration on what to say, we highly recommend the **[Stanford Letter Project](https://med.stanford.edu/letter.html)**.")
 
-    # --- ADDRESS BOOK LOGIC (Outside Form to allow State Update) ---
+    # --- ADDRESS BOOK LOGIC ---
     addr_opts = load_address_book()
     st.markdown("### 📍 Step 1: Delivery Details")
     
@@ -130,24 +131,21 @@ def render_legacy_page():
             st.session_state.leg_r_state = d.state if hasattr(d, 'state') else d.get('state', '')
             st.session_state.leg_r_zip = d.zip_code if hasattr(d, 'zip_code') else d.get('zip_code', '')
 
-    # --- THE FORM (Fixes Autofill Issue) ---
-    # Using st.form guarantees that browser autofill values are synced 
-    # to Python before the submit button code executes.
+    # --- THE FORM (WITH IMMEDIATE VERIFICATION) ---
     with st.form("legacy_address_form"):
         c1, c2 = st.columns(2)
         
         # --- SENDER SECTION ---
         with c1:
             st.markdown("#### 🏠 From (You)")
-            # Pre-fill from User Profile if available
             prof = st.session_state.get("user_profile", {})
+            # Use safe gets for profile data
             p_name = prof.get("full_name", "") if isinstance(prof, dict) else getattr(prof, "full_name", "")
             p_addr = prof.get("address_line1", "") if isinstance(prof, dict) else getattr(prof, "address_line1", "")
             p_city = prof.get("address_city", "") if isinstance(prof, dict) else getattr(prof, "address_city", "")
             p_state = prof.get("address_state", "") if isinstance(prof, dict) else getattr(prof, "address_state", "")
             p_zip = prof.get("address_zip", "") if isinstance(prof, dict) else getattr(prof, "address_zip", "")
             
-            # Sender Inputs
             sn = st.text_input("Your Name", value=p_name, key="leg_s_name")
             ss = st.text_input("Your Street", value=p_addr, key="leg_s_street")
             x1, x2, x3 = st.columns(3)
@@ -156,15 +154,12 @@ def render_legacy_page():
             sz = x3.text_input("Zip", value=p_zip, key="leg_s_zip")
             
             st.markdown("#### ✍️ Signature")
-            st.info("This will appear at the bottom of your letter.")
             sig = st.text_input("Sign-off (e.g. Love, Grandma)", value=p_name, key="leg_s_sig")
 
         # --- RECIPIENT SECTION ---
         with c2:
             st.markdown("#### 📬 To (Recipient)")
             st.warning("⚠️ Certified Mail: Recipient must sign.")
-            
-            # Recipient Inputs (Values pull from Session State if Address Book was used)
             rn = st.text_input("Recipient Name", key="leg_r_name")
             rs = st.text_input("Recipient Street", key="leg_r_street")
             y1, y2, y3 = st.columns(3)
@@ -172,23 +167,54 @@ def render_legacy_page():
             rt = y2.text_input("State", key="leg_r_state")
             rz = y3.text_input("Zip", key="leg_r_zip")
 
-        # --- FORM ACTION ---
-        submitted = st.form_submit_button("✅ Save & Confirm Addresses", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("✅ Verify & Save Addresses", type="primary", use_container_width=True)
 
         if submitted:
-            # 1. Validation
+            # 1. Basic Field Check
             if not sn or not ss or not rn or not rs or not rc or not sc:
-                st.error("⚠️ Please fill in all required address fields (Name, Street, City, State, Zip).")
-            else:
-                # 2. Save to Session State (Explicit Sync)
-                st.session_state.legacy_sender = {"name": sn, "street": ss, "city": sc, "state": stt, "zip": sz}
-                st.session_state.legacy_recipient = {"name": rn, "street": rs, "city": rc, "state": rt, "zip": rz}
-                st.session_state.legacy_signature = sig
-                st.success("Addresses Saved Successfully.")
+                st.error("⚠️ Please fill in all required address fields.")
+            
+            # 2. PostGrid Verification (Real-time)
+            elif mailer:
+                with st.spinner("Verifying addresses with PostGrid..."):
+                    # Construct temp dicts for validation
+                    sender_temp = {"name": sn, "street": ss, "city": sc, "state": stt, "zip": sz}
+                    recipient_temp = {"name": rn, "street": rs, "city": rc, "state": rt, "zip": rz}
+                    
+                    # Call Mailer Validation
+                    s_valid, s_data = mailer.validate_address(sender_temp)
+                    r_valid, r_data = mailer.validate_address(recipient_temp)
 
-    # Block progress if addresses aren't saved yet
+                    if not s_valid:
+                        st.error(f"❌ Sender Address Invalid: {s_data}")
+                    elif not r_valid:
+                        st.error(f"❌ Recipient Address Invalid: {r_data}")
+                    else:
+                        # 3. Save VERIFIED data (Standardized by PostGrid)
+                        st.session_state.legacy_sender = {
+                            "name": sn,
+                            "street": s_data.get("addressLine1", ss),
+                            "city": s_data.get("city", sc),
+                            "state": s_data.get("provinceOrState", stt),
+                            "zip": s_data.get("postalOrZip", sz)
+                        }
+                        st.session_state.legacy_recipient = {
+                            "name": rn,
+                            "street": r_data.get("addressLine1", rs),
+                            "city": r_data.get("city", rc),
+                            "state": r_data.get("provinceOrState", rt),
+                            "zip": r_data.get("postalOrZip", rz)
+                        }
+                        st.session_state.legacy_signature = sig
+                        st.success("✅ Addresses Verified & Saved!")
+                        time.sleep(1) # Visual feedback
+                        st.rerun()
+            else:
+                st.error("Mailer module missing. Cannot verify.")
+
+    # Block progress if addresses aren't saved/verified
     if not st.session_state.get("legacy_sender") or not st.session_state.get("legacy_recipient"):
-        st.info("👆 Please save addresses above to continue.")
+        st.info("👆 Please verify addresses above to continue.")
         st.stop()
 
     st.markdown("---")
@@ -239,10 +265,8 @@ def render_legacy_page():
             if not st.session_state.get("legacy_text"): st.error("Please write your letter first.")
             elif letter_format:
                 try:
-                    # Pass the Saved Signature explicitly here
                     current_sig = st.session_state.get("legacy_signature", "")
                     if not current_sig: 
-                        # Fallback if signature empty
                         current_sig = st.session_state.legacy_sender.get("name", "Sincerely")
 
                     raw = letter_format.create_pdf(
