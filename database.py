@@ -1,336 +1,146 @@
 import streamlit as st
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, Text
+import sqlalchemy
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Text, DateTime, func
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.pool import QueuePool
-import datetime
 from contextlib import contextmanager
 import logging
-import secrets_manager
+import datetime
+import uuid
 
-# --- LOGGING SETUP ---
-logging.basicConfig(level=logging.INFO)
+# --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
-# --- DATABASE MODELS ---
+# Connect to Supabase using the URL from secrets
+# Note: specific 'postgresql://' protocol is required for SQLAlchemy
+DB_URL = st.secrets["supabase"]["url"].replace("https://", "postgresql://postgres:").replace(".supabase.co", ".supabase.co:5432/postgres") + f"?password={st.secrets['supabase']['key']}"
+
+# If you use the connection string directly from secrets:
+# DB_URL = st.secrets["postgres"]["url"] 
+
+engine = create_engine(DB_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-class UserProfile(Base):
-    __tablename__ = "user_profiles"
-    id = Column(String, primary_key=True, index=True)
-    email = Column(String, unique=True, index=True)
-    full_name = Column(String, nullable=True)
-    address_line1 = Column(String, nullable=True)
-    address_city = Column(String, nullable=True)
-    address_state = Column(String, nullable=True)
-    address_zip = Column(String, nullable=True)
-    country = Column(String, default="US")
-    credits_remaining = Column(Integer, default=4)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+# --- MODELS ---
 
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "email": self.email,
-            "full_name": self.full_name,
-            "address_line1": self.address_line1,
-            "address_city": self.address_city,
-            "address_state": self.address_state,
-            "address_zip": self.address_zip,
-            "country": self.country
-        }
+class UserProfile(Base):
+    __tablename__ = 'user_profiles'
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    email = Column(String, unique=True, index=True)
+    full_name = Column(String)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Address / Physical Mail Data
+    address_line1 = Column(String)
+    address_city = Column(String)
+    address_state = Column(String)
+    country_code = Column(String, default="US")
+    
+    # Heirloom Specifics (Phase 1 & 2)
+    parent_name = Column(String)
+    parent_phone = Column(String, index=True) # Indexed for fast lookup by Twilio
+    heirloom_status = Column(String, default="inactive")
+    credits_remaining = Column(Integer, default=4)
+    current_prompt = Column(Text, default="Tell me about your favorite childhood memory.")
 
 class LetterDraft(Base):
-    __tablename__ = "letter_drafts"
-    id = Column(Integer, primary_key=True, index=True)
+    __tablename__ = 'letter_drafts'
+    
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_email = Column(String, index=True)
-    content = Column(Text, nullable=True)
-    status = Column(String, default="Draft")
-    tier = Column(String, default="Standard")
-    price = Column(Float, default=0.0)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    recipient_data = Column(Text, nullable=True) 
-    sender_data = Column(Text, nullable=True)    
-    pdf_url = Column(String, nullable=True)
-    tracking_number = Column(String, nullable=True)
+    content = Column(Text)
+    status = Column(String, default="draft") # draft, sent
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-class SavedContact(Base):
-    __tablename__ = "saved_contacts"
-    id = Column(Integer, primary_key=True, index=True)
-    user_email = Column(String, index=True)
-    name = Column(String)
-    street = Column(String)
-    city = Column(String)
-    state = Column(String)
-    zip_code = Column(String)
-    country = Column(String, default="US")
-
-class PromoCode(Base):
-    __tablename__ = "promo_codes"
-    code = Column(String, primary_key=True)
-    discount_amount = Column(Float, default=0.0)
-    max_uses = Column(Integer, default=100)
-    current_uses = Column(Integer, default=0)
-    active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-class PromoLog(Base):
-    __tablename__ = "promo_logs"
-    id = Column(Integer, primary_key=True, index=True)
-    code = Column(String, index=True)
-    user_email = Column(String)
-    used_at = Column(DateTime, default=datetime.datetime.utcnow)
-
-class AuditEvent(Base):
-    __tablename__ = "audit_events"
-    id = Column(Integer, primary_key=True, index=True)
-    event_type = Column(String)
-    user_email = Column(String, nullable=True)
-    details = Column(Text)
-    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
-
-# --- ENGINE & SESSION ---
-_engine = None
-
-def get_engine():
-    global _engine
-    if _engine: return _engine
-    
-    db_url = None
-    if secrets_manager:
-        db_url = secrets_manager.get_secret("DATABASE_URL")
-    
-    if not db_url and "supabase" in st.secrets:
-        db_url = st.secrets["supabase"].get("db_url")
-
-    # Fallback to local
-    if not db_url:
-        logger.warning("⚠️ No DATABASE_URL found. Using local SQLite.")
-        db_url = "sqlite:///./local_dev.db"
-    
-    # Fix Dialect
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-    try:
-        if "sqlite" in db_url:
-            _engine = create_engine(db_url, connect_args={"check_same_thread": False})
-        else:
-            _engine = create_engine(
-                db_url,
-                pool_size=5,
-                max_overflow=10,
-                pool_timeout=30,
-                pool_recycle=1800,
-                poolclass=QueuePool,
-                connect_args={'options': '-csearch_path=public'}
-            )
-        Base.metadata.create_all(bind=_engine)
-        return _engine
-    except Exception as e:
-        logger.error(f"DB Connection Error: {e}")
-        return None
-
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
+# --- CORE UTILITIES ---
 
 @contextmanager
 def get_db_session():
-    """Safe session management."""
-    engine = get_engine() 
-    if not engine:
-        engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(bind=engine)
-    
+    """Provides a transactional scope around a series of operations."""
     session = SessionLocal()
     try:
         yield session
         session.commit()
-    except Exception:
+    except Exception as e:
         session.rollback()
-        raise
+        raise e
     finally:
         session.close()
 
-# --- CRUD OPERATIONS ---
-
-def create_user_profile(profile_data):
-    try:
-        with get_db_session() as db:
-            existing = db.query(UserProfile).filter(UserProfile.email == profile_data["email"]).first()
-            if existing:
-                for key, value in profile_data.items():
-                    if hasattr(existing, key) and key != "id":
-                        setattr(existing, key, value)
-            else:
-                new_profile = UserProfile(
-                    id=profile_data.get("user_id"),
-                    email=profile_data["email"],
-                    full_name=profile_data.get("full_name", ""),
-                    address_line1=profile_data.get("address_line1", ""),
-                    address_city=profile_data.get("address_city", ""),
-                    address_state=profile_data.get("address_state", ""),
-                    address_zip=profile_data.get("address_zip", ""),
-                    country=profile_data.get("country", "US")
-                )
-                db.add(new_profile)
-            return True
-    except Exception as e:
-        logger.error(f"Create Profile Error: {e}")
-        return False
-
 def get_user_profile(email):
-    """Fetches profile and converts to DICT."""
+    """
+    Returns user profile as a dictionary to be safe for Streamlit.
+    """
     try:
         with get_db_session() as db:
-            profile = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if profile:
-                return profile.to_dict()
+            user = db.query(UserProfile).filter(UserProfile.email == email).first()
+            if user:
+                # Convert SQLAlchemy object to standard dict
+                return {k: v for k, v in user.__dict__.items() if not k.startswith('_')}
             return None
     except Exception as e:
         logger.error(f"Get Profile Error: {e}")
         return None
 
-def save_draft(user_email, content, tier, price):
+def create_user(email, full_name):
+    """Creates a new user if they don't exist."""
     try:
         with get_db_session() as db:
-            draft = LetterDraft(user_email=user_email, content=content, tier=tier, price=price)
-            db.add(draft)
-            db.flush()
-            db.refresh(draft)
-            return draft.id
-    except Exception as e:
-        logger.error(f"Save Draft Error: {e}")
-        return None
-
-def update_draft_data(draft_id, **kwargs):
-    try:
-        with get_db_session() as db:
-            draft = db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
-            if draft:
-                for k, v in kwargs.items():
-                    setattr(draft, k, v)
-                return True
-            return False
-    except: return False
-
-def get_draft(draft_id):
-    try:
-        with get_db_session() as db:
-            return db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
-    except: return None
-
-def save_contact(user_email, data):
-    try:
-        with get_db_session() as db:
-            exists = db.query(SavedContact).filter(
-                SavedContact.user_email == user_email,
-                SavedContact.name == data['name']
-            ).first()
-            if not exists:
-                c = SavedContact(
-                    user_email=user_email,
-                    name=data.get('name'),
-                    street=data.get('street'),
-                    city=data.get('city'),
-                    state=data.get('state'),
-                    zip_code=data.get('zip'),
-                    country=data.get('country', 'US')
-                )
-                db.add(c)
-                return True
-            return False
-    except: return False
-
-def get_contacts(user_email):
-    if not user_email: return []
-    try:
-        with get_db_session() as db:
-            contacts = db.query(SavedContact).filter(SavedContact.user_email == user_email).order_by(SavedContact.name).all()
-            return [{
-                "name": c.name, "street": c.street, "city": c.city, 
-                "state": c.state, "zip_code": c.zip_code, "country": c.country
-            } for c in contacts]
-    except Exception as e:
-        logger.error(f"Get Contacts Error: {e}")
-        return []
-
-# --- HEIRLOOM FUNCTIONS ---
-
-def update_heirloom_profile(email, parent_name, parent_phone):
-    """
-    Updates the user's profile with Heirloom details using Supabase Client.
-    """
-    try:
-        # NOTE: Ensure 'supabase' is configured in .streamlit/secrets.toml
-        from supabase import create_client
-        
-        url = st.secrets["supabase"]["url"]
-        key = st.secrets["supabase"]["key"]
-        supabase = create_client(url, key)
-
-        data = {
-            "parent_name": parent_name,
-            "parent_phone": parent_phone,
-            "heirloom_status": "active"
-        }
-        
-        response = supabase.table("user_profiles").update(data).eq("email", email).execute()
-        
-        # Supabase-py v2 returns an object with .data
-        if response.data:
+            user = UserProfile(email=email, full_name=full_name)
+            db.add(user)
+            db.commit()
             return True
-        return False
-        
     except Exception as e:
-        logger.error(f"Error updating heirloom profile: {e}")
+        logger.error(f"Create User Error: {e}")
         return False
+
+# --- HEIRLOOM / DASHBOARD FUNCTIONS ---
 
 def get_user_drafts(email):
-    """
-    Fetches all drafts for a specific user, ordered by newest first.
-    Returns a LIST OF DICTIONARIES to prevent DetachedInstanceError.
-    """
+    """Fetches all stories/drafts for a user."""
     try:
         with get_db_session() as db:
             drafts = db.query(LetterDraft).filter(
                 LetterDraft.user_email == email
             ).order_by(LetterDraft.created_at.desc()).all()
             
-            # --- CRITICAL FIX: Convert to Dicts ---
-            results = []
-            for d in drafts:
-                results.append({
-                    "id": d.id,
-                    "content": d.content,
-                    "status": d.status,
-                    "created_at": d.created_at
-                })
-            return results
-            # --------------------------------------
-            
+            return [{k: v for k, v in d.__dict__.items() if not k.startswith('_')} for d in drafts]
     except Exception as e:
-        logger.error(f"Get User Drafts Error: {e}")
+        logger.error(f"Get Drafts Error: {e}")
         return []
-    # --- APPEND TO BOTTOM OF database.py ---
+
+def update_draft_data(draft_id, content):
+    """Updates the text of a story."""
+    try:
+        with get_db_session() as db:
+            draft = db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
+            if draft:
+                draft.content = content
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Draft Error: {e}")
+        return False
 
 def decrement_user_credits(email):
     """
-    Decreases user credits by 1. Returns True if successful, False if 0 credits.
+    Decreases user credits by 1. Returns (Success, New_Balance).
     """
     try:
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if user and user.credits_remaining > 0:
+            if user and user.credits_remaining is not None and user.credits_remaining > 0:
                 user.credits_remaining -= 1
                 return True, user.credits_remaining
-            return False, 0
+            return False, (user.credits_remaining if user else 0)
     except Exception as e:
         logger.error(f"Credit Error: {e}")
         return False, 0
-    # --- PHASE 2: AI BIOGRAPHER FUNCTIONS ---
 
 def update_user_prompt(email, new_prompt):
     """
-    Updates the question the AI will ask the next time the user calls.
+    Updates the 'Brain' topic for the next call.
     """
     try:
         with get_db_session() as db:
@@ -343,20 +153,33 @@ def update_user_prompt(email, new_prompt):
         logger.error(f"Update Prompt Error: {e}")
         return False
 
-def get_user_by_phone(phone_number):
+def update_heirloom_profile(email, parent_name, parent_phone):
     """
-    Finds a user by their Parent's Phone Number.
-    Used by the Voice Engine to identify who is calling.
+    Updates parent details AND fixes phone formatting for Twilio.
+    Example: '615-555-0100' -> '+16155550100'
     """
-    # Clean the phone number (remove +1, spaces, dashes for matching)
-    # Ideally, we standardize on E.164 format (+1615...)
+    # 1. Clean the phone (digits only)
+    if parent_phone:
+        clean_phone = "".join(filter(str.isdigit, str(parent_phone)))
+        
+        # 2. Add +1 (US Country Code) if missing
+        if len(clean_phone) == 10:
+            clean_phone = "+1" + clean_phone
+        elif len(clean_phone) == 11 and clean_phone.startswith("1"):
+            clean_phone = "+" + clean_phone
+        # Else: leave it alone (could be international or already formatted)
+    else:
+        clean_phone = None
+
     try:
         with get_db_session() as db:
-            # Simple match for now. In production, use rigorous phone normalization.
-            user = db.query(UserProfile).filter(UserProfile.parent_phone == phone_number).first()
+            user = db.query(UserProfile).filter(UserProfile.email == email).first()
             if user:
-                return user.to_dict()
-            return None
+                user.parent_name = parent_name
+                user.parent_phone = clean_phone
+                user.heirloom_status = "active"
+                return True
+            return False
     except Exception as e:
-        logger.error(f"Lookup by Phone Error: {e}")
-        return None
+        logger.error(f"Update Heirloom Profile Error: {e}")
+        return False
