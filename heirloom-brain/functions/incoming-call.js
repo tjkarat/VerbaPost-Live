@@ -8,7 +8,6 @@ exports.handler = async function(context, event, callback) {
   console.log(`Incoming call from: ${callerPhone}`);
 
   try {
-    // 1. Look up the caller in your database
     let { data: users, error } = await supabase
       .from('user_profiles')
       .select('full_name, parent_name, current_prompt')
@@ -18,27 +17,45 @@ exports.handler = async function(context, event, callback) {
     if (error) throw error;
 
     if (users && users.length > 0) {
-      // ✅ KNOWN USER: Greeting by Name + Custom Topic
+      // ✅ KNOWN USER
       const user = users[0];
       const parentName = user.parent_name || "Mom";
       const topic = user.current_prompt || "tell me about your day.";
       
-      twiml.say({ voice: 'polly.joanna-neural' }, 
-        `Hi ${parentName}. We are ready for your story.`);
+      // 1. Greeting (Amy / British / Formal)
+      twiml.say({ 
+          voice: 'Polly.Amy-Neural', 
+          language: 'en-GB' 
+        }, 
+        `Greetings from Nashville, ${parentName}. We are ready for your story.`);
+        
       twiml.pause({ length: 1 });
       
-      twiml.say({ voice: 'polly.joanna-neural' }, 
+      // 2. Topic
+      twiml.say({ 
+          voice: 'Polly.Amy-Neural', 
+          language: 'en-GB' 
+        }, 
         `Here is this week's topic: ${topic}`);
+        
       twiml.pause({ length: 1 });
       
-      twiml.say("Please start speaking after the beep. Press hash when finished.");
+      // 3. Instruction
+      twiml.say({ 
+          voice: 'Polly.Amy-Neural', 
+          language: 'en-GB' 
+        }, 
+        "Please start speaking after the beep. Press hash when finished.");
       
     } else {
-      // ❌ UNKNOWN CALLER: Generic Greeting
-      twiml.say("Welcome to the Family Archive. We didn't recognize this number, but you can still record a story.");
+      // UNKNOWN CALLER
+      twiml.say({ 
+          voice: 'Polly.Amy-Neural', 
+          language: 'en-GB' 
+        }, 
+        "Welcome to the Family Archive. We didn't recognize this number, but you can still record a story.");
     }
 
-    // 2. Record the Audio
     twiml.record({ maxLength: 3600, finishOnKey: '#' });
 
   } catch (err) {
