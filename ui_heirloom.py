@@ -53,40 +53,29 @@ def render_dashboard():
         st.header("📥 Inbox")
         
         # 1. Fetch Drafts from DB
-        drafts = database.get_user_drafts(user_email)
-        
-        if not drafts:
-            st.info("No stories found. Upload a recording below or wait for Mom to call!")
-        else:
-            for draft in drafts:
-                # Create a readable date string
-                date_str = draft.created_at.strftime("%b %d, %Y")
-                preview = draft.content[:60] + "..." if draft.content else "No content"
-                
-                # Expandable card for each story
-                with st.expander(f"🎙️ {date_str} - {preview}"):
-                    st.caption(f"ID: {draft.id} | Status: {draft.status}")
-                    
-                    # EDITOR: Allow the user to fix typos
-                    new_content = st.text_area(
-                        "Edit Transcript", 
-                        value=draft.content, 
-                        height=200,
-                        key=f"editor_{draft.id}"
-                    )
-                    
-                    col_save, col_print = st.columns([1, 4])
-                    with col_save:
-                        if st.button("💾 Save Edits", key=f"save_{draft.id}"):
-                            database.update_draft_data(draft.id, content=new_content)
-                            st.success("Updated!")
-                            time.sleep(1)
-                            st.rerun()
-                            
-                    with col_print:
-                        # Placeholder for the print engine
-                        st.button("🖨️ Generate PDF", key=f"print_{draft.id}", help="Coming soon!")
-
+def get_user_drafts(email):
+    """
+    Fetches all drafts and converts them to dictionaries to avoid DetachedInstanceError.
+    """
+    try:
+        with get_db_session() as db:
+            drafts = db.query(LetterDraft).filter(
+                LetterDraft.user_email == email
+            ).order_by(LetterDraft.created_at.desc()).all()
+            
+            # CRITICAL FIX: Convert to dicts before session closes
+            results = []
+            for d in drafts:
+                results.append({
+                    "id": d.id,
+                    "content": d.content,
+                    "status": d.status,
+                    "created_at": d.created_at
+                })
+            return results
+    except Exception as e:
+        logger.error(f"Get User Drafts Error: {e}")
+        return []
         # --- MANUAL UPLOAD (Still useful for testing) ---
         st.markdown("---")
         with st.expander("🛠️ Admin: Upload Audio Manually"):
