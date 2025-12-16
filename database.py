@@ -6,74 +6,70 @@ from contextlib import contextmanager
 import logging
 import uuid
 import urllib.parse
+import os
 
 # --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 Base = declarative_base()
 
-# Global engine (Starts as None, loads only when needed)
+# Global variables for Lazy Loading
 _engine = None
 _SessionLocal = None
 
 def get_db_url():
     """
-    Constructs the connection string for Streamlit Cloud.
-    Target format: postgresql://postgres:[PASSWORD]@[HOST]:5432/postgres
+    Constructs the database URL.
+    PRIORITY 1: st.secrets["DATABASE_URL"] (The specific line in your secrets)
+    PRIORITY 2: st.secrets["supabase"] (Fallback construction)
     """
     try:
-        # 1. Grab secrets from Streamlit Cloud
-        if "supabase" not in st.secrets:
-            return None
+        # --- PRIORITY 1: The Explicit Variable (Your Setup) ---
+        # This is the line: DATABASE_URL = "postgresql+psycopg2://..."
+        if "DATABASE_URL" in st.secrets:
+            return st.secrets["DATABASE_URL"]
+            
+        # --- PRIORITY 2: Manual Construction (Fallback) ---
+        if "supabase" in st.secrets:
+            sb_url = st.secrets["supabase"]["url"]
+            sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
+            
+            clean_host = sb_url.replace("https://", "").replace("/", "")
+            if not clean_host.startswith("db."):
+                 db_host = f"db.{clean_host}"
+            else:
+                 db_host = clean_host
 
-        # 2. Get the parts
-        sb_url = st.secrets["supabase"]["url"]
+            encoded_pass = urllib.parse.quote_plus(sb_pass)
+            return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
+
+        return None
         
-        # TRY to find a specific database password. 
-        # If missing, fall back to the API key (sometimes works, but usually fails Auth).
-        sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"].get("key"))
-
-        if not sb_url or not sb_pass:
-            return None
-
-        # 3. Clean the Hostname
-        # Turn "https://phqnppks...supabase.co" into "db.phqnppks...supabase.co"
-        clean_host = sb_url.replace("https://", "").replace("/", "")
-        if not clean_host.startswith("db."):
-             db_host = f"db.{clean_host}"
-        else:
-             db_host = clean_host
-
-        # 4. Escape the password (The fix for the original error)
-        encoded_pass = urllib.parse.quote_plus(sb_pass)
-
-        # 5. Build the string
-        return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
-
     except Exception as e:
-        logger.error(f"URL Construction Error: {e}")
+        logger.error(f"Failed to find DB URL: {e}")
         return None
 
-def get_engine():
-    """Lazy Loader: Only connects when we actually ask for data."""
+def init_db():
+    """Lazy initialization of the database engine."""
     global _engine, _SessionLocal
     
-    if _engine:
-        return _engine
+    if _engine is not None:
+        return _engine, _SessionLocal
         
     url = get_db_url()
     if not url:
-        raise ValueError("❌ Could not build DB URL. Check st.secrets['supabase'].")
+        # Don't crash on import. Just return None so UI can show a nice error.
+        return None, None
         
     try:
-        # Create engine
         _engine = create_engine(url, pool_pre_ping=True)
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
-        return _engine
+        return _engine, _SessionLocal
     except Exception as e:
-        logger.error(f"Engine Creation Error: {e}")
-        return None
+        logger.error(f"DB Init Error: {e}")
+        return None, None
 
 # --- MODELS ---
+
 class UserProfile(Base):
     __tablename__ = 'user_profiles'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -103,11 +99,11 @@ class LetterDraft(Base):
 @contextmanager
 def get_db_session():
     """Provides a transactional scope."""
-    get_engine() # Ensure DB is ready
-    if not _SessionLocal:
-        raise ConnectionError("DB Session failed to initialize.")
+    engine, Session = init_db()
+    if not Session:
+        raise ConnectionError("Database not initialized. Check DATABASE_URL in secrets.")
         
-    session = _SessionLocal()
+    session = Session()
     try:
         yield session
         session.commit()
