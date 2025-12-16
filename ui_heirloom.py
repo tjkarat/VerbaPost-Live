@@ -1,6 +1,7 @@
 import streamlit as st
 import database
 import ai_engine
+import letter_engine  # <--- NEW IMPORT for PDF generation
 import time
 from datetime import datetime
 
@@ -41,7 +42,7 @@ def render_dashboard():
                 ### 📞 How it works
                 1. **Tell Mom to call:** `(615) 555-0199` (Your Twilio Number)
                 2. **She talks:** We record her story.
-                3. **You review:** You'll see the text here. Edit it, then click 'Print'.
+                3. **You review:** You'll see the text here. Edit it, then click 'Preview PDF'.
                 """
             )
         with col2:
@@ -53,16 +54,13 @@ def render_dashboard():
         st.header("📥 Inbox")
         
         # 1. Fetch Drafts from Database
-        # Note: We call the function in database.py, we do NOT define it here.
         drafts = database.get_user_drafts(user_email)
         
         if not drafts:
             st.info("No stories found. Upload a recording below or wait for Mom to call!")
         else:
             for draft in drafts:
-                # --- THIS IS THE CONTENT CODE YOU WERE MISSING ---
-                
-                # Use brackets for dictionary access
+                # Safe dictionary access
                 content = draft.get('content', '') or ""
                 created_at = draft.get('created_at')
                 draft_id = draft.get('id')
@@ -84,15 +82,61 @@ def render_dashboard():
                     )
                     
                     col_save, col_print = st.columns([1, 4])
+                    
+                    # SAVE BUTTON
                     with col_save:
-                        if st.button("💾 Save Edits", key=f"save_{draft_id}"):
+                        if st.button("💾 Save", key=f"save_{draft_id}"):
                             database.update_draft_data(draft_id, content=new_content)
-                            st.success("Updated!")
+                            st.success("Saved!")
                             time.sleep(1)
                             st.rerun()
                             
+                    # PRINT / GENERATE PDF SECTION
                     with col_print:
-                        st.button("🖨️ Generate PDF", key=f"print_{draft_id}", help="Coming soon!")
+                        # 1. Generate PDF Button
+                        if st.button("📄 Preview PDF", key=f"gen_{draft_id}"):
+                            try:
+                                # Get user first name for the letter salutation
+                                full_name = user.get('full_name', 'Family')
+                                recipient_name = full_name.split(" ")[0]
+                                
+                                # Call the engine
+                                pdf_path = letter_engine.create_pdf(
+                                    text_content=new_content,
+                                    recipient_name=recipient_name,
+                                    date_str=date_str
+                                )
+                                
+                                # Save path to session state so download button persists
+                                st.session_state[f"pdf_{draft_id}"] = pdf_path
+                                st.rerun()
+                                
+                            except Exception as e:
+                                st.error(f"PDF Error: {e}")
+
+                        # 2. Download Button (Only shows if PDF exists)
+                        if f"pdf_{draft_id}" in st.session_state:
+                            pdf_file = st.session_state[f"pdf_{draft_id}"]
+                            
+                            # Read file binary for download
+                            try:
+                                with open(pdf_file, "rb") as f:
+                                    st.download_button(
+                                        label="⬇️ Download Letter",
+                                        data=f,
+                                        file_name=f"Letter_{draft_id}.pdf",
+                                        mime="application/pdf",
+                                        key=f"dl_{draft_id}"
+                                    )
+                                
+                                # 3. Send via PostGrid (Mockup)
+                                if st.button("📮 Send via Mail ($0.80)", key=f"send_{draft_id}"):
+                                    with st.spinner("Connecting to PostGrid..."):
+                                        time.sleep(1.5)
+                                        st.success("Sent to printer!")
+                                        # Future: database.update_status(draft_id, 'Sent')
+                            except FileNotFoundError:
+                                st.warning("PDF expired. Click 'Preview PDF' again.")
 
         # --- MANUAL UPLOAD ---
         st.markdown("---")
