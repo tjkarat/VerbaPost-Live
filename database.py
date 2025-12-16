@@ -6,59 +6,84 @@ from contextlib import contextmanager
 import logging
 import datetime
 import uuid
-import urllib.parse  # Required for safe URL formatting
+import urllib.parse
+import os
 
 # --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
+# Global variables for Lazy Loading (Prevents "Module Not Found" crashes)
+_engine = None
+_SessionLocal = None
+
 def get_db_url():
     """
-    Constructs a valid SQLAlchemy connection string safely.
-    Format: postgresql://postgres:password@host:5432/postgres
+    Constructs the database URL.
+    PRIORITY 1: st.secrets["supabase"] (Local & Streamlit Cloud)
+    PRIORITY 2: os.environ (Cloud Run / Production)
     """
+    sb_url = None
+    sb_pass = None
+
     try:
-        # 1. Get Secrets
-        # Try to find the URL and Key/Password in st.secrets
+        # --- PRIORITY 1: Check st.secrets (Your Setup) ---
         if "supabase" in st.secrets:
             sb_url = st.secrets["supabase"]["url"]
-            # Use db_password if available, otherwise fallback to key (common in development)
-            sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
-        else:
-            # Fallback for environment variables (Cloud Run / Production)
-            import os
-            sb_url = os.environ.get("SUPABASE_URL", "")
-            sb_pass = os.environ.get("SUPABASE_DB_PASSWORD", os.environ.get("SUPABASE_KEY", ""))
+            # We use 'key' as the password, but safely encode it later
+            sb_pass = st.secrets["supabase"]["key"]
+            
+        # --- PRIORITY 2: Check Environment Variables (Backup) ---
+        elif "SUPABASE_URL" in os.environ:
+            sb_url = os.environ.get("SUPABASE_URL")
+            sb_pass = os.environ.get("SUPABASE_DB_PASSWORD") or os.environ.get("SUPABASE_KEY")
 
+        # If we still don't have credentials, return None to handle gracefully
         if not sb_url or not sb_pass:
-            return "postgresql://" # Return dummy to prevent immediate crash, will fail at connection
+            return None
 
-        # 2. Extract Hostname (e.g. 'xyz.supabase.co')
-        # We strip https:// and trailing slashes to get just the domain
+        # --- FIX: Construct the Safe URL ---
+        
+        # 1. Clean the Hostname (Remove https:// and trailing slashes)
         clean_host = sb_url.replace("https://", "").replace("/", "")
         
-        # Supabase direct DB connections usually require the 'db.' prefix
-        # e.g. db.phqnppksrypylqpzmlxv.supabase.co
+        # 2. Add 'db.' prefix if missing (Standard for Supabase direct connections)
         if not clean_host.startswith("db."):
              db_host = f"db.{clean_host}"
         else:
              db_host = clean_host
 
-        # 3. URL Encode the password (crucial if it has symbols like @, :, /)
+        # 3. URL Encode the Password (Crucial fix for your 'int' error)
+        # This allows special characters in your API key to work as a password
         encoded_pass = urllib.parse.quote_plus(sb_pass)
 
-        # 4. Construct the Final URL
-        # Standard Supabase port is 5432, user is 'postgres', db is 'postgres'
-        # The '@' symbol here is what was likely missing before
+        # 4. Return the formatted connection string
         return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
         
     except Exception as e:
         logger.error(f"Failed to construct DB URL: {e}")
-        return "postgresql://" 
+        return None
 
-# Initialize Engine
-DB_URL = get_db_url()
-engine = create_engine(DB_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def init_db():
+    """Lazy initialization of the database engine."""
+    global _engine, _SessionLocal
+    
+    if _engine is not None:
+        return _engine, _SessionLocal
+        
+    url = get_db_url()
+    if not url:
+        # Stop here if secrets are missing, but don't crash the module import
+        return None, None
+        
+    try:
+        _engine = create_engine(url, pool_pre_ping=True)
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
+        return _engine, _SessionLocal
+    except Exception as e:
+        logger.error(f"DB Init Error: {e}")
+        return None, None
+
+# Initialize Base (Must happen at module level)
 Base = declarative_base()
 
 # --- MODELS ---
@@ -97,8 +122,12 @@ class LetterDraft(Base):
 
 @contextmanager
 def get_db_session():
-    """Provides a transactional scope around a series of operations."""
-    session = SessionLocal()
+    """Provides a transactional scope, initializing DB if needed."""
+    engine, Session = init_db() # Lazy load here
+    if not Session:
+        raise ConnectionError("Database not initialized. Check secrets.")
+        
+    session = Session()
     try:
         yield session
         session.commit()
@@ -110,13 +139,12 @@ def get_db_session():
 
 def get_user_profile(email):
     """
-    Returns user profile as a dictionary to be safe for Streamlit.
+    Returns user profile as a dictionary.
     """
     try:
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
             if user:
-                # Convert SQLAlchemy object to standard dict
                 return {k: v for k, v in user.__dict__.items() if not k.startswith('_')}
             return None
     except Exception as e:
@@ -173,53 +201,4 @@ def decrement_user_credits(email):
             if user and user.credits_remaining is not None and user.credits_remaining > 0:
                 user.credits_remaining -= 1
                 return True, user.credits_remaining
-            return False, (user.credits_remaining if user else 0)
-    except Exception as e:
-        logger.error(f"Credit Error: {e}")
-        return False, 0
-
-def update_user_prompt(email, new_prompt):
-    """
-    Updates the 'Brain' topic for the next call.
-    """
-    try:
-        with get_db_session() as db:
-            user = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if user:
-                user.current_prompt = new_prompt
-                return True
-            return False
-    except Exception as e:
-        logger.error(f"Update Prompt Error: {e}")
-        return False
-
-def update_heirloom_profile(email, parent_name, parent_phone):
-    """
-    Updates parent details AND fixes phone formatting for Twilio.
-    Example: '615-555-0100' -> '+16155550100'
-    """
-    # 1. Clean the phone (digits only)
-    if parent_phone:
-        clean_phone = "".join(filter(str.isdigit, str(parent_phone)))
-        
-        # 2. Add +1 (US Country Code) if missing
-        if len(clean_phone) == 10:
-            clean_phone = "+1" + clean_phone
-        elif len(clean_phone) == 11 and clean_phone.startswith("1"):
-            clean_phone = "+" + clean_phone
-        # Else: leave it alone (could be international or already formatted)
-    else:
-        clean_phone = None
-
-    try:
-        with get_db_session() as db:
-            user = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if user:
-                user.parent_name = parent_name
-                user.parent_phone = clean_phone
-                user.heirloom_status = "active"
-                return True
-            return False
-    except Exception as e:
-        logger.error(f"Update Heirloom Profile Error: {e}")
-        return False
+            return False, (user.credits_remaining if user else
