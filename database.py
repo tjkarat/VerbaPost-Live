@@ -24,6 +24,7 @@ class UserProfile(Base):
     address_state = Column(String, nullable=True)
     address_zip = Column(String, nullable=True)
     country = Column(String, default="US")
+    credits_remaining = Column(Integer, default=4)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 
     def to_dict(self):
@@ -309,3 +310,19 @@ def get_user_drafts(email):
     except Exception as e:
         logger.error(f"Get User Drafts Error: {e}")
         return []
+    # --- APPEND TO BOTTOM OF database.py ---
+
+def decrement_user_credits(email):
+    """
+    Decreases user credits by 1. Returns True if successful, False if 0 credits.
+    """
+    try:
+        with get_db_session() as db:
+            user = db.query(UserProfile).filter(UserProfile.email == email).first()
+            if user and user.credits_remaining > 0:
+                user.credits_remaining -= 1
+                return True, user.credits_remaining
+            return False, 0
+    except Exception as e:
+        logger.error(f"Credit Error: {e}")
+        return False, 0
