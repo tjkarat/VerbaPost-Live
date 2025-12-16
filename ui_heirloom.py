@@ -11,7 +11,7 @@ def render_dashboard():
         st.error("Please log in.")
         return
 
-    # Fetch profile (Now includes credits!)
+    # Fetch profile
     user_data = database.get_user_profile(user_email)
     if not user_data:
         st.error("Profile not found.")
@@ -19,7 +19,7 @@ def render_dashboard():
         
     credits = user_data.get("credits_remaining", 4)
 
-    # --- HEADER WITH CREDITS ---
+    # --- HEADER ---
     col_head, col_cred = st.columns([3, 1])
     with col_head:
         st.markdown("## 🕰️ The Family Archive")
@@ -28,8 +28,7 @@ def render_dashboard():
 
     tab_overview, tab_stories, tab_settings = st.tabs(["🏠 Overview", "📖 Stories", "⚙️ Settings"])
 
-    # --- TAB: OVERVIEW ---
-# --- TAB: OVERVIEW ---
+    # --- TAB: OVERVIEW (AI DIRECTOR MODE) ---
     with tab_overview:
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -38,24 +37,27 @@ def render_dashboard():
             
             st.info(f"Welcome back, {first_name}. Your Story Line is active.")
             
-            # --- PHASE 2: THE AI DIRECTOR ---
+            # --- THE NEW AI DIRECTOR SECTION ---
             st.markdown("### 🎬 This Week's Topic")
+            st.caption("This is what the AI will ask Mom when she calls.")
             
-            current_prompt = user_data.get("current_prompt", "Tell me about your favorite childhood memory.")
+            # Fetch current prompt safely
+            current_prompt = user_data.get("current_prompt") or "Tell me about your favorite childhood memory."
             
             # Editable Prompt Area
-            new_prompt = st.text_area("When Mom calls, the AI will ask:", value=current_prompt, height=100)
+            new_prompt = st.text_area("AI Interview Question:", value=current_prompt, height=100)
             
             if st.button("Update Topic"):
-                # We need a small helper in database.py to save this, or use raw SQL here for speed
-                # Let's assume we add update_prompt to database.py next
                 if hasattr(database, "update_user_prompt"):
-                    database.update_user_prompt(user_email, new_prompt)
-                    st.success("Topic updated! Next call will use this.")
-                    time.sleep(1)
-                    st.rerun()
+                    success = database.update_user_prompt(user_email, new_prompt)
+                    if success:
+                        st.success("Topic updated! Next call will use this.")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Database update failed.")
                 else:
-                    st.warning("Please update database.py first (Step 3).")
+                    st.error("Missing function in database.py. Did you paste Step 3?")
 
             st.markdown(
                 """
@@ -68,8 +70,9 @@ def render_dashboard():
             )
 
         with col2:
-            st.metric("Stories Captured", len(drafts) if drafts else 0)
+            st.metric("Stories Captured", "0") # You can make this dynamic later
             st.metric("Next Letter Due", "Jan 15")
+
     # --- TAB: STORIES (Inbox) ---
     with tab_stories:
         st.header("📥 Inbox")
@@ -109,7 +112,6 @@ def render_dashboard():
                         col_dl, col_send = st.columns(2)
                         with col_dl:
                             with open(pdf_path, "rb") as f:
-                                # FIX: Added 'key' argument to prevent Duplicate ID Error
                                 st.download_button(
                                     "⬇️ Download PDF", 
                                     f, 
