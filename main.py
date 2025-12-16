@@ -155,20 +155,14 @@ def main():
             st.session_state.app_mode = "splash"
             st.rerun()
             
-        # --- FIXED ADMIN VISIBILITY LOGIC ---
-        # FIX: Handle secrets carefully to avoid TypeError
         current_email = st.session_state.get("user_email", "").lower().strip()
         admin_email = ""
         
         if secrets_manager:
-            # FIX: Only pass ONE argument to get_secret()
             raw_admin = secrets_manager.get_secret("admin.email")
             if raw_admin:
                 admin_email = raw_admin.lower().strip()
         
-        # Show button if:
-        # 1. Already authenticated as admin in this session (via admin login)
-        # OR 2. The logged-in user matches the admin email secret
         is_admin = st.session_state.get("admin_authenticated", False)
         
         if is_admin or (current_email and admin_email and current_email == admin_email):
@@ -178,16 +172,23 @@ def main():
                 st.rerun()
                 
         st.markdown("---")
-        st.caption(f"v3.3.9 | {st.session_state.app_mode}")
+        st.caption(f"v3.3.10 | {st.session_state.app_mode}")
 
-  # --- ROUTER LOGIC ---
-view_param = st.query_params.get("view", "store") # Default to store
+    # --- ROUTER LOGIC ---
+    view_param = st.query_params.get("view", "store")
 
-if view_param == "heirloom":
-    import ui_heirloom
-    ui_heirloom.render_dashboard()
-    # CRITICAL: Stop execution so the old UI doesn't load below
-    st.stop() 
+    # 1. Check for Heirloom View FIRST
+    if view_param == "heirloom":
+        try:
+            import ui_heirloom
+            ui_heirloom.render_dashboard()
+            # CRITICAL: Stop execution so the old UI doesn't load below
+            st.stop() 
+        except ImportError:
+            st.error("Heirloom module not found. Check deployments.")
+            st.stop()
+
+    # 2. If NOT heirloom, run the standard app logic (Dedented correctly now)
     if mode == "splash":
         m = get_module("ui_splash")
         if m: m.render_splash_page()
