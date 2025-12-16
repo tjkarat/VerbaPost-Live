@@ -52,31 +52,49 @@ def render_dashboard():
     with tab_stories:
         st.header("📥 Inbox")
         
-        # 1. Fetch Drafts from DB
-def get_user_drafts(email):
-    """
-    Fetches all drafts and converts them to dictionaries to avoid DetachedInstanceError.
-    """
-    try:
-        with get_db_session() as db:
-            drafts = db.query(LetterDraft).filter(
-                LetterDraft.user_email == email
-            ).order_by(LetterDraft.created_at.desc()).all()
-            
-            # CRITICAL FIX: Convert to dicts before session closes
-            results = []
-            for d in drafts:
-                results.append({
-                    "id": d.id,
-                    "content": d.content,
-                    "status": d.status,
-                    "created_at": d.created_at
-                })
-            return results
-    except Exception as e:
-        logger.error(f"Get User Drafts Error: {e}")
-        return []
-        # --- MANUAL UPLOAD (Still useful for testing) ---
+        # 1. Fetch Drafts from Database
+        # Note: We call the function in database.py, we do NOT define it here.
+        drafts = database.get_user_drafts(user_email)
+        
+        if not drafts:
+            st.info("No stories found. Upload a recording below or wait for Mom to call!")
+        else:
+            for draft in drafts:
+                # --- THIS IS THE CONTENT CODE YOU WERE MISSING ---
+                
+                # Use brackets for dictionary access
+                content = draft.get('content', '') or ""
+                created_at = draft.get('created_at')
+                draft_id = draft.get('id')
+                draft_status = draft.get('status', 'Draft')
+                
+                date_str = created_at.strftime("%b %d, %Y") if created_at else "Unknown Date"
+                preview = content[:60] + "..." if content else "No content"
+                
+                # Expandable card for each story
+                with st.expander(f"🎙️ {date_str} - {preview}"):
+                    st.caption(f"ID: {draft_id} | Status: {draft_status}")
+                    
+                    # EDITOR
+                    new_content = st.text_area(
+                        "Edit Transcript", 
+                        value=content, 
+                        height=200,
+                        key=f"editor_{draft_id}"
+                    )
+                    
+                    col_save, col_print = st.columns([1, 4])
+                    with col_save:
+                        if st.button("💾 Save Edits", key=f"save_{draft_id}"):
+                            database.update_draft_data(draft_id, content=new_content)
+                            st.success("Updated!")
+                            time.sleep(1)
+                            st.rerun()
+                            
+                    with col_print:
+                        st.button("🖨️ Generate PDF", key=f"print_{draft_id}", help="Coming soon!")
+
+        # --- MANUAL UPLOAD ---
         st.markdown("---")
         with st.expander("🛠️ Admin: Upload Audio Manually"):
             uploaded_file = st.file_uploader("Upload MP3/WAV", type=['mp3', 'wav', 'm4a'], key="heirloom_uploader")
