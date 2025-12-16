@@ -1,5 +1,6 @@
 import streamlit as st
 import database
+import ai_engine
 from datetime import datetime
 
 def render_dashboard():
@@ -82,3 +83,29 @@ def render_dashboard():
                         st.error("Database update failed.")
                 else:
                     st.error("Missing function: update_heirloom_profile in database.py")
+                    # --- MANUAL UPLOAD (Active) ---
+        st.markdown("---")
+        with st.expander("🛠️ Admin: Upload Audio Manually"):
+            uploaded_file = st.file_uploader("Upload MP3/WAV", type=['mp3', 'wav', 'm4a'])
+            
+            if uploaded_file and st.button("Transcribe & Save"):
+                with st.spinner("🎧 AI is listening to Mom..."):
+                    try:
+                        # 1. Transcribe using your existing engine
+                        transcription = ai_engine.transcribe_audio(uploaded_file)
+                        
+                        if transcription:
+                            # 2. Save to drafts
+                            database.save_draft(
+                                user_email=user_email,
+                                content=transcription,
+                                tier="Heirloom",
+                                price=0.0
+                            )
+                            st.success("✅ Story captured! Look in the 'Stories' tab (refresh may be needed).")
+                            st.rerun()
+                        else:
+                            st.error("AI returned empty text.")
+                            
+                    except Exception as e:
+                        st.error(f"Error processing audio: {e}")
