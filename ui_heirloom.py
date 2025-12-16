@@ -4,6 +4,7 @@ import ai_engine
 import letter_engine
 import postgrid_engine
 import time
+from datetime import datetime
 
 def render_dashboard():
     user_email = st.session_state.get("user_email")
@@ -19,10 +20,8 @@ def render_dashboard():
         
     credits = user_data.get("credits_remaining", 4)
 
-    # --- 🚨 FIX: FETCH DRAFTS HERE (Global Scope for this function) ---
-    # This ensures both the Overview tab and Stories tab can see 'drafts'
+    # --- FETCH DRAFTS ---
     drafts = database.get_user_drafts(user_email)
-    # ------------------------------------------------------------------
 
     # --- HEADER ---
     col_head, col_cred = st.columns([3, 1])
@@ -76,7 +75,6 @@ def render_dashboard():
             )
 
         with col2:
-            # Now 'drafts' is available here!
             st.metric("Stories Captured", len(drafts) if drafts else 0)
             st.metric("Next Letter Due", "Jan 15")
 
@@ -119,15 +117,20 @@ def render_dashboard():
         st.divider()
 
         # --- DRAFT LIST ---
-        # 'drafts' was already fetched at the top
-        
         if not drafts:
             st.info("No stories found. Waiting for Mom to call!")
         else:
             for draft in drafts:
                 draft_id = draft.get('id')
                 content = draft.get('content', '')
-                date_str = draft.get('created_at').strftime("%b %d, %Y")
+                
+                # --- FIX: SAFE DATE FORMATTING ---
+                raw_date = draft.get('created_at')
+                if raw_date:
+                    date_str = raw_date.strftime("%b %d, %Y")
+                else:
+                    date_str = "Unknown Date"
+                # ---------------------------------
                 
                 with st.expander(f"🎙️ {date_str} - {content[:40]}..."):
                     # EDIT AREA
