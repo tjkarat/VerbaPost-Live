@@ -146,14 +146,19 @@ def main():
         st.session_state.app_mode = "splash"
         
     mode = st.session_state.app_mode
+    current_email = st.session_state.get("user_email") # <--- RESTORED VARIABLE
 
     # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
-# --- INSERT INTO MAIN.PY SIDEBAR ---
-    with st.sidebar:
-        st.header("VerbaPost System")
-        
+        if st.button("🏠 Home", use_container_width=True):
+            st.session_state.app_mode = "splash"
+            st.rerun()
+            
+        if st.button("🕰️ Heirloom Dashboard", use_container_width=True):
+            st.query_params["view"] = "heirloom"
+            st.rerun()
+            
         # 🛠️ TEMPORARY REPAIR BUTTON
         if st.button("🔧 Fix Database Schema"):
             import sqlalchemy
@@ -168,8 +173,11 @@ def main():
             except Exception as e:
                 st.error(f"Fix failed: {e}")
         # -------------------------------
+        
         st.markdown("---")
         
+        # Admin Logic
+        admin_email = None
         if secrets_manager:
             raw_admin = secrets_manager.get_secret("admin.email")
             if raw_admin:
@@ -183,8 +191,7 @@ def main():
                 st.session_state.app_mode = "admin"
                 st.rerun()
                 
-        st.markdown("---")
-        st.caption(f"v3.3.10 | {st.session_state.app_mode}")
+        st.caption(f"v3.3.11 | {st.session_state.app_mode}")
 
     # --- ROUTER LOGIC ---
     view_param = st.query_params.get("view", "store")
@@ -194,13 +201,12 @@ def main():
         try:
             import ui_heirloom
             ui_heirloom.render_dashboard()
-            # CRITICAL: Stop execution so the old UI doesn't load below
             st.stop() 
         except ImportError:
             st.error("Heirloom module not found. Check deployments.")
             st.stop()
 
-    # 2. If NOT heirloom, run the standard app logic (Dedented correctly now)
+    # 2. If NOT heirloom, run standard logic
     if mode == "splash":
         m = get_module("ui_splash")
         if m: m.render_splash_page()
