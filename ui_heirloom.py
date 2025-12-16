@@ -14,9 +14,7 @@ def render_dashboard():
         st.error("Please log in.")
         return
 
-    # Fetch the full profile to get parent_name, parent_phone, etc.
-    # Note: We assume database.get_user_profile(email) returns a dict or object
-    # If not, we might need to add a helper in database.py
+    # Fetch the full profile (Returns a Dictionary)
     user = database.get_user_profile(user_email)
     
     # 2. HEADER
@@ -33,7 +31,11 @@ def render_dashboard():
     with tab_overview:
         col1, col2 = st.columns([2, 1])
         with col1:
-            st.info(f"Welcome back, {user.first_name}. Your Story Line is active.")
+            # FIX: Use dictionary syntax (.get) instead of dot notation
+            full_name = user.get('full_name', 'User')
+            first_name = full_name.split(" ")[0] if full_name else "User"
+            
+            st.info(f"Welcome back, {first_name}. Your Story Line is active.")
             st.markdown(
                 """
                 ### 📞 How it works
@@ -49,7 +51,6 @@ def render_dashboard():
     # --- TAB: STORIES (The Inbox) ---
     with tab_stories:
         st.write("### 📥 Incoming Stories")
-        # Placeholder for now - eventually we list database rows here
         st.markdown("*No stories recorded yet.*")
         
         # --- MANUAL UPLOAD (For your testing) ---
@@ -63,18 +64,21 @@ def render_dashboard():
     with tab_settings:
         st.write("### 👵 Parent Details")
         with st.form("heirloom_setup"):
-            # Pre-fill with existing data if we have it
-            current_parent = getattr(user, 'parent_name', '') or ""
-            current_phone = getattr(user, 'parent_phone', '') or ""
+            # FIX: Use dictionary syntax for these fields too
+            current_parent = user.get('parent_name', '') or ""
+            current_phone = user.get('parent_phone', '') or ""
 
             p_name = st.text_input("Parent's Name", value=current_parent, placeholder="e.g. Grandma Mary")
             p_phone = st.text_input("Parent's Phone Number", value=current_phone, placeholder="e.g. +1615...")
             
             if st.form_submit_button("Save Details"):
-                # We need to add this function to database.py next!
-                success = database.update_heirloom_profile(user_email, p_name, p_phone)
-                if success:
-                    st.success("Saved!")
-                    st.rerun()
+                # Ensure database.py has this function!
+                if hasattr(database, 'update_heirloom_profile'):
+                    success = database.update_heirloom_profile(user_email, p_name, p_phone)
+                    if success:
+                        st.success("Saved!")
+                        st.rerun()
+                    else:
+                        st.error("Database update failed.")
                 else:
-                    st.error("Database update failed.")
+                    st.error("Missing function: update_heirloom_profile in database.py")

@@ -251,3 +251,36 @@ def get_contacts(user_email):
     except Exception as e:
         logger.error(f"Get Contacts Error: {e}")
         return []
+    # --- APPEND THIS TO THE BOTTOM OF database.py ---
+
+def update_heirloom_profile(email, parent_name, parent_phone):
+    """
+    Updates the user's profile with Heirloom details using Supabase Client.
+    """
+    try:
+        # Assuming you store the Supabase client in st.session_state or import it
+        # If your app initializes it in a separate file, you might need to import it here.
+        # For this quick fix, we'll try to use the raw request or existing client logic.
+        
+        from supabase import create_client
+        
+        url = st.secrets["supabase"]["url"]
+        key = st.secrets["supabase"]["key"]
+        supabase = create_client(url, key)
+
+        data = {
+            "parent_name": parent_name,
+            "parent_phone": parent_phone,
+            "heirloom_status": "active"
+        }
+        
+        response = supabase.table("user_profiles").update(data).eq("email", email).execute()
+        
+        # Supabase-py v2 returns an object with .data
+        if response.data:
+            return True
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error updating heirloom profile: {e}")
+        return False
