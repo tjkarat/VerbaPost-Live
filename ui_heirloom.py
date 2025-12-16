@@ -50,36 +50,64 @@ def render_dashboard():
 
     # --- TAB: STORIES (The Inbox) ---
     with tab_stories:
-        st.write("### 📥 Incoming Stories")
+        st.header("📥 Inbox")
         
-        # In the future, we will list database rows here.
-        # For now, we show the manual uploader.
+        # 1. Fetch Drafts from DB
+        drafts = database.get_user_drafts(user_email)
         
+        if not drafts:
+            st.info("No stories found. Upload a recording below or wait for Mom to call!")
+        else:
+            for draft in drafts:
+                # Create a readable date string
+                date_str = draft.created_at.strftime("%b %d, %Y")
+                preview = draft.content[:60] + "..." if draft.content else "No content"
+                
+                # Expandable card for each story
+                with st.expander(f"🎙️ {date_str} - {preview}"):
+                    st.caption(f"ID: {draft.id} | Status: {draft.status}")
+                    
+                    # EDITOR: Allow the user to fix typos
+                    new_content = st.text_area(
+                        "Edit Transcript", 
+                        value=draft.content, 
+                        height=200,
+                        key=f"editor_{draft.id}"
+                    )
+                    
+                    col_save, col_print = st.columns([1, 4])
+                    with col_save:
+                        if st.button("💾 Save Edits", key=f"save_{draft.id}"):
+                            database.update_draft_data(draft.id, content=new_content)
+                            st.success("Updated!")
+                            time.sleep(1)
+                            st.rerun()
+                            
+                    with col_print:
+                        # Placeholder for the print engine
+                        st.button("🖨️ Generate PDF", key=f"print_{draft.id}", help="Coming soon!")
+
+        # --- MANUAL UPLOAD (Still useful for testing) ---
         st.markdown("---")
-        with st.expander("🛠️ Admin: Upload Audio Manually", expanded=True):
-            # Ensure unique key just in case
+        with st.expander("🛠️ Admin: Upload Audio Manually"):
             uploaded_file = st.file_uploader("Upload MP3/WAV", type=['mp3', 'wav', 'm4a'], key="heirloom_uploader")
             
             if uploaded_file and st.button("Transcribe & Save", key="heirloom_btn"):
                 with st.spinner("🎧 AI is listening to Mom..."):
                     try:
-                        # 1. Transcribe
                         transcription = ai_engine.transcribe_audio(uploaded_file)
-                        
                         if transcription:
-                            # 2. Save to drafts
                             database.save_draft(
                                 user_email=user_email,
                                 content=transcription,
                                 tier="Heirloom",
                                 price=0.0
                             )
-                            st.success("✅ Story captured! Check your drafts.")
-                            time.sleep(1) # Give user time to see success
+                            st.success("✅ Story captured!")
+                            time.sleep(1)
                             st.rerun()
                         else:
                             st.error("AI returned empty text.")
-                            
                     except Exception as e:
                         st.error(f"Error processing audio: {e}")
 
@@ -102,4 +130,4 @@ def render_dashboard():
                     else:
                         st.error("Database update failed.")
                 else:
-                    st.error("Missing function: update_heirloom_profile in database.py")
+                    st.error("Missing function: update_heirloom_profile")

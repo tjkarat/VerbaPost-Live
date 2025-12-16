@@ -284,3 +284,18 @@ def update_heirloom_profile(email, parent_name, parent_phone):
     except Exception as e:
         logger.error(f"Error updating heirloom profile: {e}")
         return False
+    # --- APPEND TO BOTTOM OF database.py ---
+
+def get_user_drafts(email):
+    """
+    Fetches all drafts for a specific user, ordered by newest first.
+    """
+    try:
+        with get_db_session() as db:
+            drafts = db.query(LetterDraft).filter(
+                LetterDraft.user_email == email
+            ).order_by(LetterDraft.created_at.desc()).all()
+            return drafts
+    except Exception as e:
+        logger.error(f"Get User Drafts Error: {e}")
+        return []
