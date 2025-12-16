@@ -201,4 +201,53 @@ def decrement_user_credits(email):
             if user and user.credits_remaining is not None and user.credits_remaining > 0:
                 user.credits_remaining -= 1
                 return True, user.credits_remaining
-            return False, (user.credits_remaining if user else
+            return False, (user.credits_remaining if user else 0)
+    except Exception as e:
+        logger.error(f"Credit Error: {e}")
+        return False, 0
+
+def update_user_prompt(email, new_prompt):
+    """
+    Updates the 'Brain' topic for the next call.
+    """
+    try:
+        with get_db_session() as db:
+            user = db.query(UserProfile).filter(UserProfile.email == email).first()
+            if user:
+                user.current_prompt = new_prompt
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Prompt Error: {e}")
+        return False
+
+def update_heirloom_profile(email, parent_name, parent_phone):
+    """
+    Updates parent details AND fixes phone formatting for Twilio.
+    Example: '615-555-0100' -> '+16155550100'
+    """
+    # 1. Clean the phone (digits only)
+    if parent_phone:
+        clean_phone = "".join(filter(str.isdigit, str(parent_phone)))
+        
+        # 2. Add +1 (US Country Code) if missing
+        if len(clean_phone) == 10:
+            clean_phone = "+1" + clean_phone
+        elif len(clean_phone) == 11 and clean_phone.startswith("1"):
+            clean_phone = "+" + clean_phone
+        # Else: leave it alone
+    else:
+        clean_phone = None
+
+    try:
+        with get_db_session() as db:
+            user = db.query(UserProfile).filter(UserProfile.email == email).first()
+            if user:
+                user.parent_name = parent_name
+                user.parent_phone = clean_phone
+                user.heirloom_status = "active"
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Heirloom Profile Error: {e}")
+        return False
