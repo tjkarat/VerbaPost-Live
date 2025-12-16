@@ -180,7 +180,14 @@ def main():
         st.markdown("---")
         st.caption(f"v3.3.9 | {st.session_state.app_mode}")
 
-    # 7. ROUTER
+  # --- ROUTER LOGIC ---
+view_param = st.query_params.get("view", "store") # Default to store
+
+if view_param == "heirloom":
+    import ui_heirloom
+    ui_heirloom.render_dashboard()
+    # CRITICAL: Stop execution so the old UI doesn't load below
+    st.stop() 
     if mode == "splash":
         m = get_module("ui_splash")
         if m: m.render_splash_page()
