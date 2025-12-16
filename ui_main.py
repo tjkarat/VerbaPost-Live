@@ -627,7 +627,7 @@ def render_application():
         else: st.error("Login missing")
     elif mode == "store":
         render_store_page()
-    elif mode == "heirloom": # ✅ NEW HEIRLOOM ROUTE
+    elif mode == "heirloom": # ✅ HEIRLOOM ROUTE
         if ui_heirloom: ui_heirloom.render_dashboard()
         else: st.error("Heirloom Module Missing")
     elif mode == "workspace":
@@ -659,26 +659,26 @@ def render_main():
         with st.sidebar:
             st.title("VerbaPost System")
             
-            # 🏠 HOME BUTTON
-            if st.button("🏠 Home", use_container_width=True):
+            # 🏠 HOME BUTTON (Fixed with key)
+            if st.button("🏠 Home", use_container_width=True, key="sb_home"):
                 st.session_state.app_mode = "store"
                 st.rerun()
                 
-            # 🕰️ HEIRLOOM BUTTON
-            if st.button("🕰️ Heirloom Dashboard", use_container_width=True):
+            # 🕰️ HEIRLOOM BUTTON (Fixed with key)
+            if st.button("🕰️ Heirloom Dashboard", use_container_width=True, key="sb_heirloom"):
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
                 
             st.markdown("---")
 
-            # 🔐 ADMIN BUTTON (Only if email matches admin secret)
+            # 🔐 ADMIN BUTTON (Fixed with key)
             if secrets_manager:
                 user_email = st.session_state.get("user_email", "").lower().strip()
                 raw_admin = secrets_manager.get_secret("admin.email")
                 admin_email = raw_admin.lower().strip() if raw_admin else ""
                 
                 if user_email and admin_email and user_email == admin_email:
-                    if st.button("🔐 Admin Console", use_container_width=True):
+                    if st.button("🔐 Admin Console", use_container_width=True, key="sb_admin"):
                         st.session_state.app_mode = "admin"
                         st.rerun()
     
