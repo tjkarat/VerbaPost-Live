@@ -69,7 +69,6 @@ def _ensure_profile_loaded():
 
 # --- CSS INJECTOR (UPDATED FOR ALIGNMENT) ---
 def inject_custom_css(text_size=16):
-    """Injects CSS. Aligned cards to top for cleaner look."""
     st.markdown(f"""
         <style>
         /* Base Text Sizing */
@@ -169,7 +168,6 @@ def inject_custom_css(text_size=16):
 
 # --- HELPER FUNCTIONS ---
 def reset_app_state():
-    """Clears session state for a fresh start, keeping auth."""
     keys_to_keep = ["authenticated", "user_email", "user_name", "user_role", "user_profile", "profile_synced"]
     for key in list(st.session_state.keys()):
         if key not in keys_to_keep:
@@ -210,9 +208,7 @@ def _handle_draft_creation(email, tier, price):
 # --- PAGE RENDERERS ---
 
 def render_store_page():
-    """Step 1: The Store (Pricing & Tier Selection)."""
     inject_custom_css(16)
-    
     u_email = st.session_state.get("user_email", "")
     
     if not u_email:
@@ -239,8 +235,6 @@ def render_store_page():
         render_campaign_uploader()
         return
 
-    # --- PRICING GRID LAYOUT ---
-    
     c1, c2, c3, c4 = st.columns(4)
     
     def html_card(title, qty_text, price, desc):
@@ -283,7 +277,6 @@ def render_store_page():
 
 
 def render_campaign_uploader():
-    """Handles CSV upload for Bulk Tier."""
     st.markdown("### 📁 Upload Recipient List (CSV)")
     st.markdown("**Format Required:** `name, street, city, state, zip`")
     
@@ -313,7 +306,6 @@ def render_campaign_uploader():
 
 
 def render_workspace_page():
-    """Step 2 & 3: Composition & Addressing."""
     _ensure_profile_loaded()
 
     col_slide, col_gap = st.columns([1, 2])
@@ -324,7 +316,6 @@ def render_workspace_page():
     current_tier = st.session_state.get('locked_tier', 'Draft')
     st.markdown(f"## 📝 Workspace: {current_tier}")
 
-    # --- STEP 2: ADDRESSING ---
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
@@ -641,6 +632,7 @@ def render_application():
 def render_main():
     if secrets_manager:
         user_email = st.session_state.get("user_email", "").lower().strip()
+        # FIX: ONLY ONE ARGUMENT ALLOWED
         raw_admin = secrets_manager.get_secret("admin.email")
         admin_email = raw_admin.lower().strip() if raw_admin else ""
         
