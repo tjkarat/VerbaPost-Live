@@ -154,7 +154,9 @@ def main():
         if st.button("🏠 Home", use_container_width=True):
             st.session_state.app_mode = "splash"
             st.rerun()
-            
+        if st.button("🕰️ Heirloom Dashboard", use_container_width=True):
+            st.query_params["view"] = "heirloom"
+            st.rerun()
         current_email = st.session_state.get("user_email", "").lower().strip()
         admin_email = ""
         
