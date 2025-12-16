@@ -17,7 +17,6 @@ def render_dashboard():
         st.error("Profile not found.")
         return
         
-    # Default to 4 if the column is empty/new
     credits = user_data.get("credits_remaining", 4)
 
     # --- HEADER WITH CREDITS ---
@@ -25,7 +24,6 @@ def render_dashboard():
     with col_head:
         st.markdown("## 🕰️ The Family Archive")
     with col_cred:
-        # Display the credit balance clearly
         st.metric("💌 Letter Credits", f"{credits}/4")
 
     tab_overview, tab_stories, tab_settings = st.tabs(["🏠 Overview", "📖 Stories", "⚙️ Settings"])
@@ -89,18 +87,21 @@ def render_dashboard():
                         col_dl, col_send = st.columns(2)
                         with col_dl:
                             with open(pdf_path, "rb") as f:
-                                st.download_button("⬇️ Download PDF", f, file_name="letter.pdf")
+                                # FIX: Added 'key' argument to prevent Duplicate ID Error
+                                st.download_button(
+                                    "⬇️ Download PDF", 
+                                    f, 
+                                    file_name="letter.pdf", 
+                                    key=f"dl_{draft_id}"
+                                )
                                 
                         with col_send:
                             if credits > 0:
-                                # --- THE FIXED BUTTON IS HERE ---
                                 if st.button(f"📮 Send Mail (1 Credit)", key=f"send_{draft_id}"):
                                     with st.spinner("Dispatching to PostGrid..."):
-                                        # A. Deduct Credit
                                         success, new_balance = database.decrement_user_credits(user_email)
                                         
                                         if success:
-                                            # B. Send to PostGrid
                                             recipient = {
                                                 "first_name": user_data.get("full_name"),
                                                 "address_line1": user_data.get("address_line1", "123 Main St"),
