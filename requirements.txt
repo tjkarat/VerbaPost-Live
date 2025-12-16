@@ -18,3 +18,4 @@ openai
 tenacity
 ffmpeg-python
 geocodio
+twilio
