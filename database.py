@@ -20,9 +20,11 @@ _SessionLocal = None
 def get_db_url():
     """Constructs the database URL safely."""
     try:
+        # Priority 1: Direct Connection String (Best for Production)
         if "DATABASE_URL" in st.secrets:
             return st.secrets["DATABASE_URL"]
             
+        # Priority 2: Construct from Supabase parts (Fallback)
         if "supabase" in st.secrets:
             sb_url = st.secrets["supabase"]["url"]
             sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
@@ -181,14 +183,21 @@ def get_user_drafts(email):
 def update_draft_data(draft_id, content=None, status=None, price=None, to_addr=None, from_addr=None, tier=None):
     try:
         with get_db_session() as db:
+            # Try finding in LetterDraft first
             draft = db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
             if not draft:
+                # Fallback to Legacy Letter table
                 draft = db.query(Letter).filter(Letter.id == draft_id).first()
+            
             if draft:
                 if content is not None: draft.content = content
                 if status is not None: draft.status = status
                 if price is not None: draft.price = price
                 if tier is not None: draft.tier = tier
+                # For Legacy Letters, we might update address fields
+                if to_addr and hasattr(draft, 'to_name'):
+                    draft.to_name = to_addr.get('name')
+                    draft.to_city = to_addr.get('city')
                 return True
             return False
     except Exception: return False
@@ -279,8 +288,25 @@ def log_event(event_type, desc):
     except Exception: pass
 
 def get_all_orders():
+    """Fetches both Legacy Letters and Heirloom Drafts for Admin Console"""
     try:
         with get_db_session() as db:
-            orders = db.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).all()
-            return [{k: v for k, v in o.__dict__.items() if not k.startswith('_')} for o in orders]
-    except Exception: return []
+            # 1. Get Paid Legacy Letters
+            legacy = db.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).all()
+            # 2. Get Heirloom Drafts (that are ready/active)
+            heirloom = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(20).all()
+            
+            combined = []
+            for o in legacy:
+                combined.append({k: v for k, v in o.__dict__.items() if not k.startswith('_')})
+            for h in heirloom:
+                # Map Heirloom fields to what Admin expects
+                d = {k: v for k, v in h.__dict__.items() if not k.startswith('_')}
+                # Ensure tier exists if missing
+                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom' 
+                combined.append(d)
+                
+            return combined
+    except Exception as e:
+        logger.error(f"Get Orders Error: {e}")
+        return []
