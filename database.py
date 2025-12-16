@@ -18,15 +18,11 @@ _engine = None
 _SessionLocal = None
 
 def get_db_url():
-    """
-    Constructs the database URL safely.
-    """
+    """Constructs the database URL safely."""
     try:
-        # PRIORITY 1: Explicit 'DATABASE_URL' in secrets
         if "DATABASE_URL" in st.secrets:
             return st.secrets["DATABASE_URL"]
             
-        # PRIORITY 2: Construct from 'supabase' section
         if "supabase" in st.secrets:
             sb_url = st.secrets["supabase"]["url"]
             sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
@@ -39,23 +35,17 @@ def get_db_url():
 
             encoded_pass = urllib.parse.quote_plus(sb_pass)
             return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
-
         return None
-        
     except Exception as e:
         logger.error(f"Failed to find DB URL: {e}")
         return None
 
 def init_db():
-    """Lazy initialization of the database engine."""
     global _engine, _SessionLocal
-    
-    if _engine is not None:
-        return _engine, _SessionLocal
+    if _engine is not None: return _engine, _SessionLocal
         
     url = get_db_url()
-    if not url:
-        return None, None
+    if not url: return None, None
         
     try:
         _engine = create_engine(url, pool_pre_ping=True)
@@ -65,15 +55,10 @@ def init_db():
         logger.error(f"DB Init Error: {e}")
         return None, None
 
-# --- CORE UTILITIES ---
-
 @contextmanager
 def get_db_session():
-    """Provides a transactional scope."""
     engine, Session = init_db()
-    if not Session:
-        raise ConnectionError("Database not initialized. Check secrets.")
-        
+    if not Session: raise ConnectionError("Database not initialized.")
     session = Session()
     try:
         yield session
@@ -94,15 +79,11 @@ class UserProfile(Base):
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # Address
     address_line1 = Column(String)
     address_city = Column(String)
     address_state = Column(String)
-    address_zip = Column(String) # Restored for legacy compatibility
+    address_zip = Column(String) 
     country_code = Column(String, default="US")
-    
-    # Heirloom
     parent_name = Column(String)
     parent_phone = Column(String, index=True) 
     heirloom_status = Column(String, default="inactive")
@@ -117,15 +98,17 @@ class LetterDraft(Base):
     content = Column(Text)
     status = Column(String, default="draft")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    price = Column(Float, default=0.0) # Added for compatibility
+    price = Column(Float, default=0.0)
+    # FIX: Added 'tier' to prevent Admin Console crash
+    tier = Column(String, default="Heirloom") 
 
 class Letter(Base):
-    """Used for Legacy/Store Orders (Paid Letters)"""
+    """Used for Legacy/Store Orders"""
     __tablename__ = 'letters'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_email = Column(String, index=True)
     content = Column(Text)
-    status = Column(String, default="Draft") # Draft, Paid, Sent
+    status = Column(String, default="Draft") 
     tier = Column(String, default="Standard")
     price = Column(Float, default=0.0)
     tracking_number = Column(String)
@@ -160,18 +143,15 @@ class Contact(Base):
     state = Column(String)
     zip_code = Column(String)
 
-
 # ==========================================
 # 🛠️ FUNCTIONS
 # ==========================================
 
-# --- USER FUNCTIONS ---
 def get_user_profile(email):
     try:
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if user:
-                return {k: v for k, v in user.__dict__.items() if not k.startswith('_')}
+            if user: return {k: v for k, v in user.__dict__.items() if not k.startswith('_')}
             return None
     except Exception: return None
 
@@ -185,14 +165,12 @@ def create_user(email, full_name):
     except Exception: return False
 
 def get_all_users():
-    """For Admin Console"""
     try:
         with get_db_session() as db:
             users = db.query(UserProfile).all()
             return [{k: v for k, v in u.__dict__.items() if not k.startswith('_')} for u in users]
     except Exception: return []
 
-# --- HEIRLOOM FUNCTIONS ---
 def get_user_drafts(email):
     try:
         with get_db_session() as db:
@@ -201,20 +179,16 @@ def get_user_drafts(email):
     except Exception: return []
 
 def update_draft_data(draft_id, content=None, status=None, price=None, to_addr=None, from_addr=None, tier=None):
-    """Universal update function for both Drafts and Letters"""
     try:
         with get_db_session() as db:
-            # Try finding in LetterDraft first
             draft = db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
             if not draft:
-                # Fallback to Legacy Letter table
                 draft = db.query(Letter).filter(Letter.id == draft_id).first()
-            
             if draft:
                 if content is not None: draft.content = content
                 if status is not None: draft.status = status
                 if price is not None: draft.price = price
-                # Add other fields as needed
+                if tier is not None: draft.tier = tier
                 return True
             return False
     except Exception: return False
@@ -257,9 +231,7 @@ def update_heirloom_profile(email, parent_name, parent_phone):
             return False
     except Exception: return False
 
-# --- LEGACY / STORE FUNCTIONS ---
 def save_draft(email, content, tier, price):
-    """Creates a legacy 'Letter' for store purchase"""
     try:
         with get_db_session() as db:
             letter = Letter(user_email=email, content=content, tier=tier, price=price)
@@ -275,7 +247,6 @@ def get_contacts(email):
             return [{k: v for k, v in c.__dict__.items() if not k.startswith('_')} for c in contacts]
     except Exception: return []
 
-# --- ADMIN FUNCTIONS (Restored) ---
 def get_all_promos():
     try:
         with get_db_session() as db:
@@ -308,10 +279,8 @@ def log_event(event_type, desc):
     except Exception: pass
 
 def get_all_orders():
-    """Fetches paid letters for Admin Orders tab"""
     try:
         with get_db_session() as db:
-            # We look for letters that are NOT drafts
             orders = db.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).all()
             return [{k: v for k, v in o.__dict__.items() if not k.startswith('_')} for o in orders]
     except Exception: return []
