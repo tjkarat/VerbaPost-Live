@@ -6,17 +6,58 @@ from contextlib import contextmanager
 import logging
 import datetime
 import uuid
+import urllib.parse  # Added for safe URL construction
 
 # --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
-# Connect to Supabase using the URL from secrets
-# Note: specific 'postgresql://' protocol is required for SQLAlchemy
-DB_URL = st.secrets["supabase"]["url"].replace("https://", "postgresql://postgres:").replace(".supabase.co", ".supabase.co:5432/postgres") + f"?password={st.secrets['supabase']['key']}"
+def get_db_url():
+    """
+    Constructs a valid SQLAlchemy connection string safely.
+    Format: postgresql://user:password@host:port/database
+    """
+    try:
+        # 1. Get Secrets
+        # We try to find the URL and Key/Password in st.secrets
+        if "supabase" in st.secrets:
+            sb_url = st.secrets["supabase"]["url"]
+            # Try to use a specific DB password first, otherwise fall back to the API key
+            # (Note: Using API key as DB password only works if Supabase is configured for it, 
+            # usually you need the specific postgres password)
+            sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
+        else:
+            # Fallback for environment variables (Cloud Run)
+            import os
+            sb_url = os.environ.get("SUPABASE_URL", "")
+            sb_pass = os.environ.get("SUPABASE_DB_PASSWORD", os.environ.get("SUPABASE_KEY", ""))
 
-# If you use the connection string directly from secrets:
-# DB_URL = st.secrets["postgres"]["url"] 
+        if not sb_url or not sb_pass:
+            return "postgresql://" # Return dummy to prevent immediate import crash
 
+        # 2. Extract Hostname (e.g. 'xyz.supabase.co')
+        # We strip https:// and trailing slashes to get just the domain
+        clean_host = sb_url.replace("https://", "").replace("/", "")
+        
+        # Supabase direct DB connections usually require the 'db.' prefix
+        # e.g. db.phqnppksrypylqpzmlxv.supabase.co
+        if not clean_host.startswith("db."):
+             db_host = f"db.{clean_host}"
+        else:
+             db_host = clean_host
+
+        # 3. URL Encode the password (crucial if it has symbols like @, :, /)
+        encoded_pass = urllib.parse.quote_plus(sb_pass)
+
+        # 4. Construct the Final URL
+        # Standard Supabase port is 5432, user is 'postgres', db is 'postgres'
+        return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
+        
+    except Exception as e:
+        logger.error(f"Failed to construct DB URL: {e}")
+        return "postgresql://" 
+
+# Initialize Engine
+DB_URL = get_db_url()
 engine = create_engine(DB_URL, pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
