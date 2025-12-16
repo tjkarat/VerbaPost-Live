@@ -326,3 +326,37 @@ def decrement_user_credits(email):
     except Exception as e:
         logger.error(f"Credit Error: {e}")
         return False, 0
+    # --- PHASE 2: AI BIOGRAPHER FUNCTIONS ---
+
+def update_user_prompt(email, new_prompt):
+    """
+    Updates the question the AI will ask the next time the user calls.
+    """
+    try:
+        with get_db_session() as db:
+            user = db.query(UserProfile).filter(UserProfile.email == email).first()
+            if user:
+                user.current_prompt = new_prompt
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Prompt Error: {e}")
+        return False
+
+def get_user_by_phone(phone_number):
+    """
+    Finds a user by their Parent's Phone Number.
+    Used by the Voice Engine to identify who is calling.
+    """
+    # Clean the phone number (remove +1, spaces, dashes for matching)
+    # Ideally, we standardize on E.164 format (+1615...)
+    try:
+        with get_db_session() as db:
+            # Simple match for now. In production, use rigorous phone normalization.
+            user = db.query(UserProfile).filter(UserProfile.parent_phone == phone_number).first()
+            if user:
+                return user.to_dict()
+            return None
+    except Exception as e:
+        logger.error(f"Lookup by Phone Error: {e}")
+        return None

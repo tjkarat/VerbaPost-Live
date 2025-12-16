@@ -163,7 +163,27 @@ def main():
         if st.button("🔧 Fix Database Schema"):
             import sqlalchemy
             from database import get_db_session
+            # 🛠️ REPAIR BUTTON (UPDATED FOR PHASE 2)
+        if st.button("🔧 Fix Database Schema (Phase 2)"):
+            import sqlalchemy
+            from database import get_db_session
             
+            try:
+                with get_db_session() as session:
+                    # 1. Add Credits (Phase 1 legacy)
+                    session.execute(sqlalchemy.text("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS credits_remaining INTEGER DEFAULT 4;"))
+                    
+                    # 2. Add Prompt Tracking (Phase 2 NEW)
+                    session.execute(sqlalchemy.text("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS current_prompt TEXT DEFAULT 'Tell me about your favorite childhood memory.';"))
+                    
+                    # 3. Add Phone Number Indexing (Speed up lookup)
+                    # We need to find users by phone number quickly when they call
+                    session.execute(sqlalchemy.text("CREATE INDEX IF NOT EXISTS idx_parent_phone ON user_profiles(parent_phone);"))
+                    
+                    session.commit()
+                st.success("✅ Database Upgraded for AI Biographer!")
+            except Exception as e:
+                st.error(f"Fix failed: {e}")
             try:
                 with get_db_session() as session:
                     # This SQL command adds the missing column

@@ -29,6 +29,7 @@ def render_dashboard():
     tab_overview, tab_stories, tab_settings = st.tabs(["🏠 Overview", "📖 Stories", "⚙️ Settings"])
 
     # --- TAB: OVERVIEW ---
+# --- TAB: OVERVIEW ---
     with tab_overview:
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -36,18 +37,39 @@ def render_dashboard():
             first_name = full_name.split(" ")[0] if full_name else "User"
             
             st.info(f"Welcome back, {first_name}. Your Story Line is active.")
+            
+            # --- PHASE 2: THE AI DIRECTOR ---
+            st.markdown("### 🎬 This Week's Topic")
+            
+            current_prompt = user_data.get("current_prompt", "Tell me about your favorite childhood memory.")
+            
+            # Editable Prompt Area
+            new_prompt = st.text_area("When Mom calls, the AI will ask:", value=current_prompt, height=100)
+            
+            if st.button("Update Topic"):
+                # We need a small helper in database.py to save this, or use raw SQL here for speed
+                # Let's assume we add update_prompt to database.py next
+                if hasattr(database, "update_user_prompt"):
+                    database.update_user_prompt(user_email, new_prompt)
+                    st.success("Topic updated! Next call will use this.")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Please update database.py first (Step 3).")
+
             st.markdown(
                 """
-                ### 📞 How it works
-                1. **Tell Mom to call:** `(615) 656-7667`
-                2. **She talks:** We record her story.
-                3. **You review:** You'll see the text here. Edit it, then click 'Send'.
+                ---
+                **Suggested Topics:**
+                * *How did you meet Dad?*
+                * *What was your first job like?*
+                * *Tell me about the house you grew up in.*
                 """
             )
-        with col2:
-            st.metric("Stories Captured", "0")
-            st.metric("Next Letter Due", "Jan 15")
 
+        with col2:
+            st.metric("Stories Captured", len(drafts) if drafts else 0)
+            st.metric("Next Letter Due", "Jan 15")
     # --- TAB: STORIES (Inbox) ---
     with tab_stories:
         st.header("📥 Inbox")
