@@ -130,7 +130,6 @@ class Letter(Base):
     price = Column(Float, default=0.0)
     tracking_number = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    # JSON storage for addresses if needed, or simple text fields
     to_name = Column(String)
     to_city = Column(String)
 
