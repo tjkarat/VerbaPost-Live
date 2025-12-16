@@ -42,6 +42,8 @@ try: import ui_legal
 except ImportError: ui_legal = None
 try: import ui_legacy
 except ImportError: ui_legacy = None
+try: import ui_heirloom  # ✅ ADDED HEIRLOOM IMPORT
+except ImportError: ui_heirloom = None
 
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -84,11 +86,11 @@ def inject_custom_css(text_size=16):
             padding: 20px 15px;
             text-align: center;
             border: 1px solid #e0e0e0;
-            height: 220px; /* Increased Fixed Height */
+            height: 220px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
             display: flex;
             flex-direction: column;
-            justify-content: flex-start; /* Align to TOP */
+            justify-content: flex-start;
             gap: 5px;
         }}
         .price-header {{
@@ -97,7 +99,7 @@ def inject_custom_css(text_size=16):
             font-size: 1.4rem;
             color: #1f2937;
             margin-bottom: 2px;
-            height: 35px; /* Fixed Header Height */
+            height: 35px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -120,7 +122,7 @@ def inject_custom_css(text_size=16):
             font-size: 0.9rem;
             color: #4b5563;
             line-height: 1.3;
-            margin-top: auto; /* Pushes text to bottom */
+            margin-top: auto;
             padding-bottom: 5px;
             min-height: 50px;
         }}
@@ -168,10 +170,17 @@ def inject_custom_css(text_size=16):
 
 # --- HELPER FUNCTIONS ---
 def reset_app_state():
+    """Resets app to initial state but keeps login info."""
     keys_to_keep = ["authenticated", "user_email", "user_name", "user_role", "user_profile", "profile_synced"]
     for key in list(st.session_state.keys()):
         if key not in keys_to_keep:
             del st.session_state[key]
+    
+    # If logged in, go to store. If not, go to splash.
+    if st.session_state.get("authenticated"):
+        st.session_state.app_mode = "store"
+    else:
+        st.session_state.app_mode = "splash"
     st.rerun()
 
 def load_address_book():
@@ -265,11 +274,17 @@ def render_store_page():
         _handle_draft_creation(u_email, tier, price)
         st.session_state.app_mode = "workspace"
         st.rerun()
+        
+    # --- HEIRLOOM LINK ---
+    def go_to_heirloom():
+        st.session_state.app_mode = "heirloom"
+        st.rerun()
 
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=select_tier, args=("Standard", 2.99))
     with b2:
-        st.button("Select Heirloom", use_container_width=True, on_click=select_tier, args=("Heirloom", 5.99))
+        # Heirloom button redirects to the special dashboard now
+        st.button("Select Heirloom", use_container_width=True, on_click=go_to_heirloom)
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=select_tier, args=("Civic", 6.99))
     with b4:
@@ -612,6 +627,9 @@ def render_application():
         else: st.error("Login missing")
     elif mode == "store":
         render_store_page()
+    elif mode == "heirloom": # ✅ NEW HEIRLOOM ROUTE
+        if ui_heirloom: ui_heirloom.render_dashboard()
+        else: st.error("Heirloom Module Missing")
     elif mode == "workspace":
         render_workspace_page()
     elif mode == "review":
@@ -626,23 +644,45 @@ def render_application():
         if ui_legacy: ui_legacy.render_legacy_page()
         else: st.error("Legacy missing")
     else:
-        st.warning(f"Unknown Mode: {mode}")
-        if st.button("Reset"): reset_app_state()
+        # ✅ FALLBACK: If mode is unknown (like URL params reset), go to Splash
+        st.session_state.app_mode = "splash"
+        st.rerun()
 
 def render_main():
-    if secrets_manager:
-        user_email = st.session_state.get("user_email", "").lower().strip()
-        # FIX: ONLY ONE ARGUMENT ALLOWED
-        raw_admin = secrets_manager.get_secret("admin.email")
-        admin_email = raw_admin.lower().strip() if raw_admin else ""
-        
-        if user_email and admin_email and user_email == admin_email:
-            with st.sidebar:
-                st.markdown("---")
-                if st.button("🔐 Admin Console (UI)", use_container_width=True):
-                    st.session_state.app_mode = "admin"
-                    st.rerun()
+    """
+    Main Entry Point.
+    Handles Sidebar Navigation and then renders the correct page.
+    """
     
+    # --- SIDEBAR NAVIGATION (Visible when logged in) ---
+    if st.session_state.get("authenticated"):
+        with st.sidebar:
+            st.title("VerbaPost System")
+            
+            # 🏠 HOME BUTTON
+            if st.button("🏠 Home", use_container_width=True):
+                st.session_state.app_mode = "store"
+                st.rerun()
+                
+            # 🕰️ HEIRLOOM BUTTON
+            if st.button("🕰️ Heirloom Dashboard", use_container_width=True):
+                st.session_state.app_mode = "heirloom"
+                st.rerun()
+                
+            st.markdown("---")
+
+            # 🔐 ADMIN BUTTON (Only if email matches admin secret)
+            if secrets_manager:
+                user_email = st.session_state.get("user_email", "").lower().strip()
+                raw_admin = secrets_manager.get_secret("admin.email")
+                admin_email = raw_admin.lower().strip() if raw_admin else ""
+                
+                if user_email and admin_email and user_email == admin_email:
+                    if st.button("🔐 Admin Console", use_container_width=True):
+                        st.session_state.app_mode = "admin"
+                        st.rerun()
+    
+    # --- RENDER MAIN CONTENT ---
     render_application()
 
 if __name__ == "__main__":
