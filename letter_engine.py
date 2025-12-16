@@ -34,17 +34,21 @@ def create_pdf(text_content, recipient_name, date_str):
     # 2. The Story Body
     # multi_cell handles wrapping text automatically
     pdf.set_font("Courier", "", 12)
-    pdf.multi_cell(0, 6, text_content)
+    # Convert standard text to latin-1 to avoid encoding errors with FPDF
+    safe_text = text_content.encode('latin-1', 'replace').decode('latin-1')
+    pdf.multi_cell(0, 6, safe_text)
     
     # 3. Sign-off
     pdf.ln(10)
     pdf.cell(0, 10, "With love,", ln=True)
-    pdf.cell(0, 10, "Mom", ln=True) # In future, make this dynamic based on 'Parent Name'
+    pdf.cell(0, 10, "Mom", ln=True)
     
     # 4. Save to Temp File
     # We save to a temporary folder so Streamlit can read it, then delete it later
     temp_dir = tempfile.gettempdir()
-    file_name = f"Letter_{date_str.replace(' ', '_')}.pdf"
+    # Sanitize filename
+    safe_date = date_str.replace(' ', '_').replace(',', '')
+    file_name = f"Letter_{safe_date}.pdf"
     file_path = os.path.join(temp_dir, file_name)
     
     pdf.output(file_path)

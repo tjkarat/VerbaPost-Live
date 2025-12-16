@@ -1,7 +1,7 @@
 import streamlit as st
 import database
 import ai_engine
-import letter_engine  # <--- NEW IMPORT for PDF generation
+import letter_engine
 import time
 from datetime import datetime
 
@@ -81,7 +81,7 @@ def render_dashboard():
                         key=f"editor_{draft_id}"
                     )
                     
-                    col_save, col_print = st.columns([1, 4])
+                    col_save, col_print = st.columns([1, 2])
                     
                     # SAVE BUTTON
                     with col_save:
@@ -91,7 +91,7 @@ def render_dashboard():
                             time.sleep(1)
                             st.rerun()
                             
-                    # PRINT / GENERATE PDF SECTION
+                    # PDF / DOWNLOAD SECTION
                     with col_print:
                         # 1. Generate PDF Button
                         if st.button("📄 Preview PDF", key=f"gen_{draft_id}"):
@@ -114,7 +114,7 @@ def render_dashboard():
                             except Exception as e:
                                 st.error(f"PDF Error: {e}")
 
-                        # 2. Download Button (Only shows if PDF exists)
+                        # 2. Download Button (Only shows if PDF exists in session)
                         if f"pdf_{draft_id}" in st.session_state:
                             pdf_file = st.session_state[f"pdf_{draft_id}"]
                             
@@ -134,11 +134,10 @@ def render_dashboard():
                                     with st.spinner("Connecting to PostGrid..."):
                                         time.sleep(1.5)
                                         st.success("Sent to printer!")
-                                        # Future: database.update_status(draft_id, 'Sent')
                             except FileNotFoundError:
                                 st.warning("PDF expired. Click 'Preview PDF' again.")
 
-        # --- MANUAL UPLOAD ---
+        # --- MANUAL UPLOAD (Admin Tool) ---
         st.markdown("---")
         with st.expander("🛠️ Admin: Upload Audio Manually"):
             uploaded_file = st.file_uploader("Upload MP3/WAV", type=['mp3', 'wav', 'm4a'], key="heirloom_uploader")
