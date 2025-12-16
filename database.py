@@ -120,7 +120,7 @@ def get_engine():
                 max_overflow=10,
                 pool_timeout=30,
                 pool_recycle=1800,
-                poolclass=QueuePool,  # <--- CRITICAL FIX: Added comma here
+                poolclass=QueuePool,
                 connect_args={'options': '-csearch_path=public'}
             )
         Base.metadata.create_all(bind=_engine)
@@ -251,17 +251,15 @@ def get_contacts(user_email):
     except Exception as e:
         logger.error(f"Get Contacts Error: {e}")
         return []
-    # --- APPEND THIS TO THE BOTTOM OF database.py ---
+
+# --- HEIRLOOM FUNCTIONS ---
 
 def update_heirloom_profile(email, parent_name, parent_phone):
     """
     Updates the user's profile with Heirloom details using Supabase Client.
     """
     try:
-        # Assuming you store the Supabase client in st.session_state or import it
-        # If your app initializes it in a separate file, you might need to import it here.
-        # For this quick fix, we'll try to use the raw request or existing client logic.
-        
+        # NOTE: Ensure 'supabase' is configured in .streamlit/secrets.toml
         from supabase import create_client
         
         url = st.secrets["supabase"]["url"]
@@ -284,18 +282,30 @@ def update_heirloom_profile(email, parent_name, parent_phone):
     except Exception as e:
         logger.error(f"Error updating heirloom profile: {e}")
         return False
-    # --- APPEND TO BOTTOM OF database.py ---
 
 def get_user_drafts(email):
     """
     Fetches all drafts for a specific user, ordered by newest first.
+    Returns a LIST OF DICTIONARIES to prevent DetachedInstanceError.
     """
     try:
         with get_db_session() as db:
             drafts = db.query(LetterDraft).filter(
                 LetterDraft.user_email == email
             ).order_by(LetterDraft.created_at.desc()).all()
-            return drafts
+            
+            # --- CRITICAL FIX: Convert to Dicts ---
+            results = []
+            for d in drafts:
+                results.append({
+                    "id": d.id,
+                    "content": d.content,
+                    "status": d.status,
+                    "created_at": d.created_at
+                })
+            return results
+            # --------------------------------------
+            
     except Exception as e:
         logger.error(f"Get User Drafts Error: {e}")
         return []
