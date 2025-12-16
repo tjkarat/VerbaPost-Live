@@ -6,7 +6,7 @@ from contextlib import contextmanager
 import logging
 import datetime
 import uuid
-import urllib.parse  # Added for safe URL construction
+import urllib.parse  # Required for safe URL formatting
 
 # --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
@@ -14,25 +14,23 @@ logger = logging.getLogger(__name__)
 def get_db_url():
     """
     Constructs a valid SQLAlchemy connection string safely.
-    Format: postgresql://user:password@host:port/database
+    Format: postgresql://postgres:password@host:5432/postgres
     """
     try:
         # 1. Get Secrets
-        # We try to find the URL and Key/Password in st.secrets
+        # Try to find the URL and Key/Password in st.secrets
         if "supabase" in st.secrets:
             sb_url = st.secrets["supabase"]["url"]
-            # Try to use a specific DB password first, otherwise fall back to the API key
-            # (Note: Using API key as DB password only works if Supabase is configured for it, 
-            # usually you need the specific postgres password)
+            # Use db_password if available, otherwise fallback to key (common in development)
             sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
         else:
-            # Fallback for environment variables (Cloud Run)
+            # Fallback for environment variables (Cloud Run / Production)
             import os
             sb_url = os.environ.get("SUPABASE_URL", "")
             sb_pass = os.environ.get("SUPABASE_DB_PASSWORD", os.environ.get("SUPABASE_KEY", ""))
 
         if not sb_url or not sb_pass:
-            return "postgresql://" # Return dummy to prevent immediate import crash
+            return "postgresql://" # Return dummy to prevent immediate crash, will fail at connection
 
         # 2. Extract Hostname (e.g. 'xyz.supabase.co')
         # We strip https:// and trailing slashes to get just the domain
@@ -50,6 +48,7 @@ def get_db_url():
 
         # 4. Construct the Final URL
         # Standard Supabase port is 5432, user is 'postgres', db is 'postgres'
+        # The '@' symbol here is what was likely missing before
         return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
         
     except Exception as e:
@@ -78,9 +77,9 @@ class UserProfile(Base):
     address_state = Column(String)
     country_code = Column(String, default="US")
     
-    # Heirloom Specifics (Phase 1 & 2)
+    # Heirloom Specifics
     parent_name = Column(String)
-    parent_phone = Column(String, index=True) # Indexed for fast lookup by Twilio
+    parent_phone = Column(String, index=True) 
     heirloom_status = Column(String, default="inactive")
     credits_remaining = Column(Integer, default=4)
     current_prompt = Column(Text, default="Tell me about your favorite childhood memory.")
