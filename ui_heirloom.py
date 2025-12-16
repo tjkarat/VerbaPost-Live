@@ -19,6 +19,11 @@ def render_dashboard():
         
     credits = user_data.get("credits_remaining", 4)
 
+    # --- 🚨 FIX: FETCH DRAFTS HERE (Global Scope for this function) ---
+    # This ensures both the Overview tab and Stories tab can see 'drafts'
+    drafts = database.get_user_drafts(user_email)
+    # ------------------------------------------------------------------
+
     # --- HEADER ---
     col_head, col_cred = st.columns([3, 1])
     with col_head:
@@ -71,7 +76,8 @@ def render_dashboard():
             )
 
         with col2:
-            st.metric("Stories Captured", len(database.get_user_drafts(user_email)))
+            # Now 'drafts' is available here!
+            st.metric("Stories Captured", len(drafts) if drafts else 0)
             st.metric("Next Letter Due", "Jan 15")
 
     # --- TAB: STORIES (INBOX + SYNC) ---
@@ -113,7 +119,7 @@ def render_dashboard():
         st.divider()
 
         # --- DRAFT LIST ---
-        drafts = database.get_user_drafts(user_email)
+        # 'drafts' was already fetched at the top
         
         if not drafts:
             st.info("No stories found. Waiting for Mom to call!")
