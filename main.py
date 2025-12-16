@@ -150,15 +150,25 @@ def main():
     # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
+# --- INSERT INTO MAIN.PY SIDEBAR ---
+    with st.sidebar:
+        st.header("VerbaPost System")
+        
+        # 🛠️ TEMPORARY REPAIR BUTTON
+        if st.button("🔧 Fix Database Schema"):
+            import sqlalchemy
+            from database import get_db_session
+            
+            try:
+                with get_db_session() as session:
+                    # This SQL command adds the missing column
+                    session.execute(sqlalchemy.text("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS credits_remaining INTEGER DEFAULT 4;"))
+                    session.commit()
+                st.success("✅ Database Fixed! You can reload now.")
+            except Exception as e:
+                st.error(f"Fix failed: {e}")
+        # -------------------------------
         st.markdown("---")
-        if st.button("🏠 Home", use_container_width=True):
-            st.session_state.app_mode = "splash"
-            st.rerun()
-        if st.button("🕰️ Heirloom Dashboard", use_container_width=True):
-            st.query_params["view"] = "heirloom"
-            st.rerun()
-        current_email = st.session_state.get("user_email", "").lower().strip()
-        admin_email = ""
         
         if secrets_manager:
             raw_admin = secrets_manager.get_secret("admin.email")
