@@ -3,6 +3,10 @@ import os
 import tempfile
 
 class HeirloomLetter(FPDF):
+    def __init__(self):
+        # FIX: Explicitly set format to 'Letter' (8.5x11) for US Mail compatibility
+        super().__init__(orientation='P', unit='mm', format='Letter')
+
     def header(self):
         # Optional: Add a subtle logo or "The Family Archive" at the top
         self.set_font('Courier', 'B', 12)
@@ -17,9 +21,9 @@ class HeirloomLetter(FPDF):
 
 def create_pdf(text_content, recipient_name, date_str):
     """
-    Generates a PDF file from the story text.
-    Returns the file path of the generated PDF.
+    Generates a US LETTER sized PDF file.
     """
+    # Initialize with the new class that forces 'Letter' size
     pdf = HeirloomLetter()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -32,10 +36,12 @@ def create_pdf(text_content, recipient_name, date_str):
     pdf.ln(10)
     
     # 2. The Story Body
-    # multi_cell handles wrapping text automatically
-    pdf.set_font("Courier", "", 12)
-    # Convert standard text to latin-1 to avoid encoding errors with FPDF
-    safe_text = text_content.encode('latin-1', 'replace').decode('latin-1')
+    # Convert standard text to latin-1 to avoid encoding errors
+    try:
+        safe_text = text_content.encode('latin-1', 'replace').decode('latin-1')
+    except:
+        safe_text = text_content
+        
     pdf.multi_cell(0, 6, safe_text)
     
     # 3. Sign-off
@@ -44,9 +50,7 @@ def create_pdf(text_content, recipient_name, date_str):
     pdf.cell(0, 10, "Mom", ln=True)
     
     # 4. Save to Temp File
-    # We save to a temporary folder so Streamlit can read it, then delete it later
     temp_dir = tempfile.gettempdir()
-    # Sanitize filename
     safe_date = date_str.replace(' ', '_').replace(',', '')
     file_name = f"Letter_{safe_date}.pdf"
     file_path = os.path.join(temp_dir, file_name)
