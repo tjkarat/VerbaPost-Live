@@ -4,6 +4,8 @@ import ai_engine
 import letter_format
 import postgrid_engine
 import time
+import tempfile # Added for PDF bridge
+import os       # Added for safe file handling
 from datetime import datetime
 
 # --- HELPER: ADDRESS BOOK ---
@@ -195,49 +197,60 @@ def render_dashboard():
                     # PREVIEW PDF BUTTON
                     with col_prev:
                         if st.button("📄 Preview PDF", key=f"prev_{draft_id}"):
-                             # Pass FULL address objects, not just strings
-                             path = letter_format.create_pdf(
+                             # FIX: letter_format now returns BYTES, not a path.
+                             # We write to a temp file to maintain compatibility with downstream 'open()' logic.
+                             pdf_bytes = letter_format.create_pdf(
                                  content=new_content, 
                                  to_addr=recipient_addr,
                                  from_addr=from_address,
                                  tier="Heirloom",
                                  date_str=date_str
                              )
-                             st.session_state[f"pdf_{draft_id}"] = path
+                             
+                             # Create Temp File Bridge
+                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
+                                 tf.write(pdf_bytes)
+                                 temp_path = tf.name
+                             
+                             st.session_state[f"pdf_{draft_id}"] = temp_path
                              st.rerun()
 
                     # MAIL/DOWNLOAD ACTION
                     if f"pdf_{draft_id}" in st.session_state:
                         pdf_path = st.session_state[f"pdf_{draft_id}"]
                         
-                        st.caption(f"Preview generated for: {recipient_addr['name']}")
-                        
-                        with col_mail:
-                            # Download
-                            with open(pdf_path, "rb") as f:
-                                st.download_button("⬇️ Download", f, file_name="letter.pdf", key=f"dl_{draft_id}")
+                        # Only show if file actually still exists
+                        if os.path.exists(pdf_path):
+                            st.caption(f"Preview generated for: {recipient_addr['name']}")
                             
-                            # Send
-                            if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
-                                if credits > 0:
-                                    with st.spinner("Dispatching..."):
-                                        success, new_balance = database.decrement_user_credits(user_email)
-                                        
-                                        if success:
-                                            # Use raw_recipient for PostGrid (it has the right keys like address_line1)
-                                            result = postgrid_engine.send_letter(pdf_path, raw_recipient)
+                            with col_mail:
+                                # Download
+                                # This logic (open) caused the crash because pdf_path was bytes. 
+                                # Now it is a valid file path again.
+                                with open(pdf_path, "rb") as f:
+                                    st.download_button("⬇️ Download", f, file_name="letter.pdf", key=f"dl_{draft_id}")
+                                
+                                # Send
+                                if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
+                                    if credits > 0:
+                                        with st.spinner("Dispatching..."):
+                                            success, new_balance = database.decrement_user_credits(user_email)
                                             
-                                            if result["success"]:
-                                                st.balloons()
-                                                st.success(f"✅ Sent! Credits left: {new_balance}")
-                                                time.sleep(2)
-                                                st.rerun()
+                                            if success:
+                                                # Use raw_recipient for PostGrid (it has the right keys like address_line1)
+                                                result = postgrid_engine.send_letter(pdf_path, raw_recipient)
+                                                
+                                                if result["success"]:
+                                                    st.balloons()
+                                                    st.success(f"✅ Sent! Credits left: {new_balance}")
+                                                    time.sleep(2)
+                                                    st.rerun()
+                                                else:
+                                                    st.error(f"PostGrid Error: {result['error']}")
                                             else:
-                                                st.error(f"PostGrid Error: {result['error']}")
-                                        else:
-                                            st.error("Credit deduction failed.")
-                                else:
-                                    st.warning("⚠️ 0 Credits.")
+                                                st.error("Credit deduction failed.")
+                                    else:
+                                        st.warning("⚠️ 0 Credits.")
 
     # --- TAB: SETTINGS ---
     with tab_settings:
