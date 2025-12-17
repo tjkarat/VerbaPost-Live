@@ -193,7 +193,7 @@ def render_dashboard():
 
                     col_prev, col_mail = st.columns([1, 1])
                     
-                    # --- FIX: MEMORY BASED PREVIEW ---
+                    # --- PREVIEW (Addresses Shown) ---
                     with col_prev:
                         if st.button("📄 Preview PDF", key=f"prev_{draft_id}"):
                              pdf_bytes = letter_format.create_pdf(
@@ -201,7 +201,8 @@ def render_dashboard():
                                  to_addr=recipient_addr,
                                  from_addr=from_address,
                                  tier="Heirloom",
-                                 date_str=date_str
+                                 date_str=date_str,
+                                 clean_render=False # SHOW addresses for user preview
                              )
                              # STORE BYTES IN SESSION STATE
                              st.session_state[f"pdf_bytes_{draft_id}"] = pdf_bytes
@@ -218,9 +219,20 @@ def render_dashboard():
                                 if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
                                     if credits > 0:
                                         with st.spinner("Connecting to PostGrid..."):
-                                            # PASS BYTES DIRECTLY
+                                            # RE-GENERATE CLEAN PDF (Addresses Hidden)
+                                            # This prevents the 'Content overlap' error because
+                                            # PostGrid will insert a blank cover page with addresses.
+                                            clean_bytes = letter_format.create_pdf(
+                                                content=new_content, 
+                                                to_addr=recipient_addr,
+                                                from_addr=from_address,
+                                                tier="Heirloom",
+                                                date_str=date_str,
+                                                clean_render=True # HIDE addresses for mailing
+                                            )
+                                            
                                             letter_id = mailer.send_letter(
-                                                stored_bytes, 
+                                                clean_bytes, 
                                                 recipient_addr, 
                                                 from_address, 
                                                 description=f"Heirloom: {date_str}"
@@ -228,6 +240,11 @@ def render_dashboard():
                                             if letter_id:
                                                 database.decrement_user_credits(user_email)
                                                 database.update_draft_data(draft_id, status=f"Sent: {letter_id}")
+                                                
+                                                # AUDIT LOG
+                                                if audit_engine:
+                                                    audit_engine.log_event(user_email, "LETTER_SENT", metadata={"id": letter_id, "tier": "Heirloom"})
+                                                
                                                 st.balloons()
                                                 st.success(f"✅ Mailed! Tracking ID: {letter_id}")
                                                 del st.session_state[f"pdf_bytes_{draft_id}"]
