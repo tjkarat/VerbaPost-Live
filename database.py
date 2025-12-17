@@ -114,7 +114,7 @@ class UserProfile(Base):
     parent_name = Column(String)
     parent_phone = Column(String, index=True) 
     heirloom_status = Column(String, default="inactive")
-    credits_remaining = Column(Integer, default=4)
+    credits_remaining = Column(Integer, default=1)
     current_prompt = Column(Text, default="Tell me about your favorite childhood memory.")
 
 class LetterDraft(Base):
