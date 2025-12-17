@@ -254,22 +254,55 @@ def render_dashboard():
 
     # --- TAB: SETTINGS ---
     with tab_settings:
-        st.write("### 👵 Parent Details")
-        st.info("The system uses the phone number below to recognize Mom when she calls.")
+        c1, c2 = st.columns(2)
         
-        with st.form("heirloom_setup"):
-            current_parent = user_data.get('parent_name', '') or ""
-            current_phone = user_data.get('parent_phone', '') or ""
-
-            p_name = st.text_input("Parent's Name", value=current_parent)
-            p_phone = st.text_input("Parent's Phone Number", value=current_phone, help="Use US format e.g. 615-555-1234")
+        with c1:
+            st.write("### 👵 Parent Details")
+            st.info("The system uses this phone number to recognize Mom when she calls.")
             
-            if st.form_submit_button("Save Details"):
-                if hasattr(database, 'update_heirloom_profile'):
-                    success = database.update_heirloom_profile(user_email, p_name, p_phone)
-                    if success:
-                        st.success("Details saved!")
-                        time.sleep(1)
-                        st.rerun()
-                    else: st.error("Save failed.")
-                else: st.error("Database function missing.")
+            with st.form("heirloom_setup"):
+                current_parent = user_data.get('parent_name', '') or ""
+                current_phone = user_data.get('parent_phone', '') or ""
+
+                p_name = st.text_input("Parent's Name", value=current_parent)
+                p_phone = st.text_input("Parent's Phone Number", value=current_phone, help="Use US format e.g. 615-555-1234")
+                
+                if st.form_submit_button("Save Details"):
+                    if hasattr(database, 'update_heirloom_profile'):
+                        success = database.update_heirloom_profile(user_email, p_name, p_phone)
+                        if success:
+                            st.success("Details saved!")
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.error("Save failed.")
+                    else: st.error("Database function missing.")
+
+        # --- ADDRESS BOOK SECTION ---
+        with c2:
+            st.write("### 📖 Address Book")
+            st.info("Add relatives here to send them stories.")
+            
+            with st.form("add_contact_form"):
+                cn = st.text_input("Full Name")
+                ca = st.text_input("Street Address")
+                cc = st.text_input("City")
+                c_s, c_z = st.columns(2)
+                cs = c_s.text_input("State")
+                cz = c_z.text_input("Zip")
+                
+                if st.form_submit_button("➕ Add Contact"):
+                    if not cn or not ca or not cc or not cs or not cz:
+                        st.error("Please fill all fields.")
+                    else:
+                        contact_data = {
+                            "name": cn, "street": ca, "city": cc, "state": cs, "zip": cz
+                        }
+                        if hasattr(database, "save_contact"):
+                            if database.save_contact(user_email, contact_data):
+                                st.success(f"Added {cn}!")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Failed to save.")
+                        else:
+                            st.error("Database missing save_contact function.")

@@ -327,6 +327,39 @@ def get_contacts(email):
             return [{k: v for k, v in c.__dict__.items() if not k.startswith('_')} for c in contacts]
     except Exception: return []
 
+def save_contact(email, data):
+    """Saves a new contact to the address book."""
+    try:
+        with get_db_session() as db:
+            # Check for duplicates (basic check on name)
+            existing = db.query(Contact).filter(
+                Contact.user_email == email,
+                Contact.name == data.get("name")
+            ).first()
+            
+            if existing:
+                # Update existing
+                existing.street = data.get("street")
+                existing.city = data.get("city")
+                existing.state = data.get("state")
+                existing.zip_code = data.get("zip") or data.get("zip_code")
+            else:
+                # Create new
+                c = Contact(
+                    user_email=email,
+                    name=data.get("name"),
+                    street=data.get("street"),
+                    city=data.get("city"),
+                    state=data.get("state"),
+                    zip_code=data.get("zip") or data.get("zip_code")
+                )
+                db.add(c)
+            db.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Save Contact Error: {e}")
+        return False
+
 # --- ADMIN FUNCTIONS ---
 
 def get_all_promos():

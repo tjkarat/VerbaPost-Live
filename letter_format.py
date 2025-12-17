@@ -98,7 +98,9 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
     pdf.set_font(main_font, '', font_size)
     
     clean_content = content.strip()
-    if not clean_content.lower().startswith("dear"):
+    
+    # FIX: Do NOT auto-insert "Dear X" if this is an Heirloom letter
+    if tier != "Heirloom" and not clean_content.lower().startswith("dear"):
         to_name = to_lines[0] if to_lines else "Friend"
         first_name = to_name.split()[0]
         pdf.multi_cell(0, line_height, f"Dear {first_name},\n\n")
