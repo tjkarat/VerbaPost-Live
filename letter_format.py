@@ -14,7 +14,7 @@ class LetterPDF(FPDF):
         # Page number
         self.cell(0, 10, 'Page ' + str(self.page_no()) + '/{nb}', 0, 0, 'C')
 
-def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None):
+def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None, date_str=None):
     """
     Generates a PDF with the proper font and address layout.
     """
@@ -35,7 +35,7 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         main_font = "TypeRight"
         header_font = "TypeRight"
         font_size = 12
-        line_height = 8
+        line_height = 6 # Tighter for typewriter feel
     elif tier == "Santa":
         main_font = "Times" # Or a script font if you have one
         header_font = "Times"
@@ -78,9 +78,10 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
     for line in from_lines:
         pdf.cell(0, 5, line, ln=True, align='L') # Align L relative to the 120 margin
     
-    # Add Date
+    # Add Date (Use passed date_str if available)
     pdf.set_xy(120, pdf.get_y() + 2)
-    pdf.cell(0, 5, datetime.date.today().strftime("%B %d, %Y"), ln=True, align='L')
+    final_date = date_str if date_str else datetime.date.today().strftime("%B %d, %Y")
+    pdf.cell(0, 5, final_date, ln=True, align='L')
 
     # --- 3. RENDER TO ADDRESS (Top Left - for Window Envelopes) ---
     pdf.set_xy(20, 45) # Standard window position
@@ -103,17 +104,25 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         
     pdf.multi_cell(0, line_height, content)
 
-    # --- 5. SIGNATURE ---
-    pdf.ln(15)
+    # --- 5. SIGNATURE (Fixed: No Double Signatures) ---
     
-    # If a signature was provided in the UI form
-    if signature_text:
-        sign_off = signature_text
-    else:
-        # Fallback to From Name
-        sign_off = "Sincerely,\n\n" + (from_lines[0] if from_lines else "")
+    # Check if user already typed a closing
+    content_lower = content.lower().strip()
+    common_closings = ["love,", "sincerely,", "best,", "warmly,", "yours,", "love mom", "love, mom"]
+    has_closing = any(content_lower.endswith(s) for s in common_closings)
+    
+    if not has_closing:
+        pdf.ln(15)
+        
+        # If a signature was provided in the UI form
+        if signature_text:
+            sign_off = signature_text
+        else:
+            # Fallback to From Name
+            sender_name = from_lines[0] if from_lines else ""
+            sign_off = "Sincerely,\n\n" + sender_name
 
-    pdf.multi_cell(0, line_height, sign_off)
+        pdf.multi_cell(0, line_height, sign_off)
 
     # --- 6. OUTPUT ---
     # Save to temp path

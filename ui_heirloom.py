@@ -1,7 +1,7 @@
 import streamlit as st
 import database
 import ai_engine
-import letter_engine
+import letter_format
 import postgrid_engine
 import time
 from datetime import datetime
@@ -22,7 +22,7 @@ def load_heirloom_contacts(user_email):
                 "city": user_profile.get("address_city"),
                 "state": user_profile.get("address_state"),
                 "country_code": "US",
-                "zip": user_profile.get("address_zip") # PostGrid expects 'address_zip' or 'metadata' often, but we normalize below
+                "zip": user_profile.get("address_zip") 
             }
         
         # Option 2: Saved Contacts
@@ -57,6 +57,15 @@ def render_dashboard():
         
     credits = user_data.get("credits_remaining", 4)
     drafts = database.get_user_drafts(user_email)
+
+    # --- PREPARE SENDER ADDRESS (Needed for PDF) ---
+    from_address = {
+        "name": user_data.get("full_name"),
+        "street": user_data.get("address_line1"),
+        "city": user_data.get("address_city"),
+        "state": user_data.get("address_state"),
+        "zip_code": user_data.get("address_zip")
+    }
 
     # --- HEADER ---
     col_head, col_cred = st.columns([3, 1])
@@ -150,81 +159,85 @@ def render_dashboard():
                 
                 # Safe Date
                 raw_date = draft.get('created_at')
-                date_str = raw_date.strftime("%b %d, %Y") if raw_date else "Unknown Date"
+                date_str = raw_date.strftime("%B %d, %Y") if raw_date else "Unknown Date"
                 
                 with st.expander(f"🎙️ {date_str} - {content[:40]}..."):
+                    # EDIT CONTENT
                     new_content = st.text_area("Edit", content, height=150, key=f"edit_{draft_id}")
                     
-                    # --- ACTION BAR ---
-                    col_act1, col_act2 = st.columns([1, 1])
-                    with col_act1:
-                        if st.button("💾 Save Changes", key=f"save_{draft_id}"):
-                            database.update_draft_data(draft_id, content=new_content)
-                            st.success("Saved!")
-                            st.rerun()
-                    with col_act2:
+                    if st.button("💾 Save Changes", key=f"save_{draft_id}"):
+                        database.update_draft_data(draft_id, content=new_content)
+                        st.success("Saved!")
+                        st.rerun()
+
+                    st.divider()
+
+                    # SELECT RECIPIENT (Needed for PDF generation)
+                    selected_label = st.selectbox(
+                        "Send To:", 
+                        options=list(address_options.keys()),
+                        key=f"dest_{draft_id}"
+                    )
+                    
+                    # Convert selected option back to address dict
+                    raw_recipient = address_options.get(selected_label)
+                    # Normalize keys for letter_format (needs 'name', 'street') vs PostGrid (needs 'first_name', 'address_line1')
+                    recipient_addr = {
+                        "name": raw_recipient.get("first_name"),
+                        "street": raw_recipient.get("address_line1"),
+                        "city": raw_recipient.get("city"),
+                        "state": raw_recipient.get("state"),
+                        "zip_code": raw_recipient.get("zip")
+                    }
+
+                    col_prev, col_mail = st.columns([1, 1])
+                    
+                    # PREVIEW PDF BUTTON
+                    with col_prev:
                         if st.button("📄 Preview PDF", key=f"prev_{draft_id}"):
-                             path = letter_engine.create_pdf(
-                                 new_content, 
-                                 user_data.get('full_name', 'Family').split()[0], 
-                                 date_str
+                             # Pass FULL address objects, not just strings
+                             path = letter_format.create_pdf(
+                                 content=new_content, 
+                                 to_addr=recipient_addr,
+                                 from_addr=from_address,
+                                 tier="Heirloom",
+                                 date_str=date_str
                              )
                              st.session_state[f"pdf_{draft_id}"] = path
                              st.rerun()
 
-                    # --- SENDING LOGIC ---
+                    # MAIL/DOWNLOAD ACTION
                     if f"pdf_{draft_id}" in st.session_state:
-                        st.divider()
-                        st.markdown("### 📮 Send Letter")
-                        
-                        # 2. SELECT RECIPIENT (The Fix)
-                        selected_label = st.selectbox(
-                            "Send To:", 
-                            options=list(address_options.keys()),
-                            key=f"dest_{draft_id}"
-                        )
-                        
-                        recipient_data = address_options.get(selected_label)
-                        
-                        # Display selected address for confirmation
-                        if recipient_data:
-                            st.caption(f"📍 {recipient_data.get('address_line1')}, {recipient_data.get('city')}, {recipient_data.get('state')}")
-                        
-                        col_dl, col_send = st.columns(2)
-                        
-                        # Download
                         pdf_path = st.session_state[f"pdf_{draft_id}"]
-                        with col_dl:
+                        
+                        st.caption(f"Preview generated for: {recipient_addr['name']}")
+                        
+                        with col_mail:
+                            # Download
                             with open(pdf_path, "rb") as f:
-                                st.download_button("⬇️ Download PDF", f, file_name="letter.pdf", key=f"dl_{draft_id}")
-                                
-                        # Send Button
-                        with col_send:
-                            if st.button(f"🚀 Mail Letter (1 Credit)", key=f"send_{draft_id}"):
+                                st.download_button("⬇️ Download", f, file_name="letter.pdf", key=f"dl_{draft_id}")
+                            
+                            # Send
+                            if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
                                 if credits > 0:
-                                    if not recipient_data or not recipient_data.get("address_line1"):
-                                        st.error("❌ Invalid Address selected.")
-                                    else:
-                                        with st.spinner("Dispatching to PostGrid..."):
-                                            # Deduct Credit
-                                            success, new_balance = database.decrement_user_credits(user_email)
+                                    with st.spinner("Dispatching..."):
+                                        success, new_balance = database.decrement_user_credits(user_email)
+                                        
+                                        if success:
+                                            # Use raw_recipient for PostGrid (it has the right keys like address_line1)
+                                            result = postgrid_engine.send_letter(pdf_path, raw_recipient)
                                             
-                                            if success:
-                                                # Send to PostGrid with ACTUAL recipient
-                                                result = postgrid_engine.send_letter(pdf_path, recipient_data)
-                                                
-                                                if result["success"]:
-                                                    st.balloons()
-                                                    st.success(f"✅ Sent! Credits left: {new_balance}")
-                                                    time.sleep(2)
-                                                    st.rerun()
-                                                else:
-                                                    st.error(f"PostGrid Error: {result['error']}")
-                                                    # Refund credit if failed? (Optional future logic)
+                                            if result["success"]:
+                                                st.balloons()
+                                                st.success(f"✅ Sent! Credits left: {new_balance}")
+                                                time.sleep(2)
+                                                st.rerun()
                                             else:
-                                                st.error("Credit deduction failed.")
+                                                st.error(f"PostGrid Error: {result['error']}")
+                                        else:
+                                            st.error("Credit deduction failed.")
                                 else:
-                                    st.warning("⚠️ 0 Credits. Upgrade to send.")
+                                    st.warning("⚠️ 0 Credits.")
 
     # --- TAB: SETTINGS ---
     with tab_settings:
