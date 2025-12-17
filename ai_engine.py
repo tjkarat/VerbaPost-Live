@@ -33,7 +33,7 @@ def get_openai_client():
         
     return openai.OpenAI(api_key=api_key)
 
-# --- PHASE 1: MANUAL UPLOAD TRANSCRIPTION ---
+# --- PHASE 1: AUDIO TRANSCRIPTION ---
 
 def transcribe_audio(audio_file_obj):
     """
@@ -68,7 +68,59 @@ def transcribe_audio(audio_file_obj):
     except Exception as e:
         return f"Transcription Error: {e}"
 
-# --- PHASE 2: TWILIO INTEGRATION ---
+# --- PHASE 2: TEXT REFINEMENT (RESTORED) ---
+
+def refine_text(text, style="Professional"):
+    """
+    Uses GPT-4o to polish the letter text.
+    """
+    client = get_openai_client()
+    if not client: return text
+
+    prompt_map = {
+        "Professional": "Rewrite the following letter to be more professional, clear, and concise, but keep the original meaning.",
+        "Grammar": "Fix all grammar, spelling, and punctuation errors in the following text. Do not change the tone.",
+        "Warm": "Rewrite the following letter to sound warmer, friendlier, and more affectionate."
+    }
+    
+    system_prompt = prompt_map.get(style, prompt_map["Professional"])
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text}
+            ],
+            temperature=0.7
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.error(f"Refine Error: {e}")
+        return text # Return original if AI fails
+
+def enhance_transcription_for_seniors(text):
+    """
+    Lightly edits transcriptions to remove 'ums', 'ahs', and repetitive stammers.
+    Used by Heirloom & Legacy modules.
+    """
+    client = get_openai_client()
+    if not client: return text
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": "You are a helpful editor. Clean up the following speech-to-text transcript. Remove filler words (um, uh, like, you know) and fix stuttering. Keep the tone natural and conversational. Do not summarize."},
+                {"role": "user", "content": text}
+            ],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        return text
+
+# --- PHASE 3: TWILIO INTEGRATION ---
 
 def _get_twilio_client():
     """Helper to get authenticated Twilio client."""
