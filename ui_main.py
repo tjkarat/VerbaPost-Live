@@ -246,22 +246,21 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
+    # --- CALLBACKS (UPDATED: REMOVED st.rerun()) ---
     def select_tier(tier, price):
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
         _handle_draft_creation(u_email, tier, price)
         st.session_state.app_mode = "workspace"
-        st.rerun()
+        # FIX: No st.rerun() here. It happens automatically.
         
-    # --- HEIRLOOM LINK ---
     def go_to_heirloom():
         st.session_state.app_mode = "heirloom"
-        st.rerun()
+        # FIX: No st.rerun() here. It happens automatically.
 
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=select_tier, args=("Standard", 2.99))
     with b2:
-        # Heirloom button redirects to the special dashboard now
         st.button("Select Heirloom", use_container_width=True, on_click=go_to_heirloom)
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=select_tier, args=("Civic", 6.99))
