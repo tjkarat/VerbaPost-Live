@@ -18,34 +18,54 @@ _engine = None
 _SessionLocal = None
 
 def get_db_url():
-    """Constructs the database URL safely."""
+    """
+    Constructs the database URL safely.
+    CHECKS:
+    1. os.environ (Production / Google Cloud Run) - PRIORITY
+    2. st.secrets (Local / QA Streamlit Cloud) - FALLBACK
+    """
     try:
-        if "DATABASE_URL" in st.secrets:
-            return st.secrets["DATABASE_URL"]
-            
-        if "supabase" in st.secrets:
-            sb_url = st.secrets["supabase"]["url"]
-            sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
-            
-            clean_host = sb_url.replace("https://", "").replace("/", "")
-            if not clean_host.startswith("db."):
-                 db_host = f"db.{clean_host}"
-            else:
-                 db_host = clean_host
+        # --- FIX START: Check GCP Environment Variable First ---
+        # This is the specific fix for Production "Profile Not Found" errors.
+        env_url = os.environ.get("DATABASE_URL")
+        if env_url:
+            return env_url
+        # --- FIX END ---
 
-            encoded_pass = urllib.parse.quote_plus(sb_pass)
-            return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
+        # Fallback to Streamlit Secrets (QA)
+        if hasattr(st, "secrets"):
+            if "DATABASE_URL" in st.secrets:
+                return st.secrets["DATABASE_URL"]
+            
+            # Construct from Supabase parts if full URL isn't explicitly set
+            if "supabase" in st.secrets:
+                sb_url = st.secrets["supabase"]["url"]
+                sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
+                
+                clean_host = sb_url.replace("https://", "").replace("/", "")
+                if not clean_host.startswith("db."):
+                     db_host = f"db.{clean_host}"
+                else:
+                     db_host = clean_host
+
+                encoded_pass = urllib.parse.quote_plus(sb_pass)
+                return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
+
         return None
     except Exception as e:
         logger.error(f"Failed to find DB URL: {e}")
         return None
 
 def init_db():
+    """Lazy initialization of the database engine."""
     global _engine, _SessionLocal
-    if _engine is not None: return _engine, _SessionLocal
+    
+    if _engine is not None:
+        return _engine, _SessionLocal
         
     url = get_db_url()
-    if not url: return None, None
+    if not url:
+        return None, None
         
     try:
         _engine = create_engine(url, pool_pre_ping=True)
@@ -57,8 +77,11 @@ def init_db():
 
 @contextmanager
 def get_db_session():
+    """Provides a transactional scope."""
     engine, Session = init_db()
-    if not Session: raise ConnectionError("Database not initialized.")
+    if not Session:
+        raise ConnectionError("Database not initialized. Check secrets.")
+        
     session = Session()
     try:
         yield session
@@ -70,7 +93,7 @@ def get_db_session():
         session.close()
 
 # ==========================================
-# 🏛️ MODELS (Synced with your SQL)
+# 🏛️ MODELS (Unified Schema)
 # ==========================================
 
 class UserProfile(Base):
@@ -79,11 +102,15 @@ class UserProfile(Base):
     email = Column(String, unique=True, index=True)
     full_name = Column(String)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Address
     address_line1 = Column(String)
     address_city = Column(String)
     address_state = Column(String)
     address_zip = Column(String) 
     country_code = Column(String, default="US")
+    
+    # Heirloom Specifics
     parent_name = Column(String)
     parent_phone = Column(String, index=True) 
     heirloom_status = Column(String, default="inactive")
@@ -99,15 +126,15 @@ class LetterDraft(Base):
     status = Column(String, default="draft")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     price = Column(Float, default=0.0)
-    tier = Column(String, default="Heirloom") 
+    tier = Column(String, default="Heirloom") # Added to prevent Admin Console crash
 
 class Letter(Base):
-    """Used for Legacy/Store Orders"""
+    """Used for Legacy/Store Orders (Paid Letters)"""
     __tablename__ = 'letters'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_email = Column(String, index=True)
     content = Column(Text)
-    status = Column(String, default="Draft") 
+    status = Column(String, default="Draft") # Draft, Paid, Sent
     tier = Column(String, default="Standard")
     price = Column(Float, default=0.0)
     tracking_number = Column(String)
@@ -119,24 +146,24 @@ class PromoCode(Base):
     """Refined to match your SQL exactly"""
     __tablename__ = 'promo_codes'
     code = Column(String, primary_key=True)
-    active = Column(Boolean, default=True)        # From SQL
-    is_active = Column(Boolean, default=True)     # From SQL (Duplicate field support)
+    active = Column(Boolean, default=True)        # From SQL schema
+    is_active = Column(Boolean, default=True)     # Redundant but kept for safety
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    max_uses = Column(BigInteger)                 # From SQL
+    max_uses = Column(BigInteger)                 # From SQL schema
     discount_amount = Column(Float, default=0.0)
-    current_uses = Column(Integer, default=0)     # From SQL (Fixes your error)
-    uses = Column(Integer, default=0)             # From SQL
+    current_uses = Column(Integer, default=0)     # Fixed AttributeError
+    uses = Column(Integer, default=0)             # Fixed AttributeError
 
 class AuditEvent(Base):
     """Refined to match your SQL exactly"""
     __tablename__ = 'audit_events'
     # Changed ID to Integer/Serial to match SQL 'serial' type
     id = Column(Integer, primary_key=True, autoincrement=True) 
-    timestamp = Column(DateTime, server_default=func.now()) # Matches timestamp w/o timezone
-    user_email = Column(String)          # From SQL (Fixes your error)
-    stripe_session_id = Column(String)   # From SQL
+    timestamp = Column(DateTime, server_default=func.now()) 
+    user_email = Column(String)          # Fixed AttributeError
+    stripe_session_id = Column(String)   # From SQL schema
     event_type = Column(String)
-    details = Column(Text)               # From SQL
+    details = Column(Text)               # From SQL schema
     description = Column(Text)
 
 class Contact(Base):
@@ -150,17 +177,23 @@ class Contact(Base):
     state = Column(String)
     zip_code = Column(String)
 
+
 # ==========================================
 # 🛠️ FUNCTIONS
 # ==========================================
+
+# --- USER FUNCTIONS ---
 
 def get_user_profile(email):
     try:
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if user: return {k: v for k, v in user.__dict__.items() if not k.startswith('_')}
+            if user:
+                return {k: v for k, v in user.__dict__.items() if not k.startswith('_')}
             return None
-    except Exception: return None
+    except Exception as e:
+        logger.error(f"Get Profile Error: {e}")
+        return None
 
 def create_user(email, full_name):
     try:
@@ -169,49 +202,69 @@ def create_user(email, full_name):
             db.add(user)
             db.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Create User Error: {e}")
+        return False
 
 def get_all_users():
+    """For Admin Console"""
     try:
         with get_db_session() as db:
             users = db.query(UserProfile).all()
             return [{k: v for k, v in u.__dict__.items() if not k.startswith('_')} for u in users]
     except Exception: return []
 
+# --- HEIRLOOM FUNCTIONS ---
+
 def get_user_drafts(email):
     try:
         with get_db_session() as db:
-            drafts = db.query(LetterDraft).filter(LetterDraft.user_email == email).order_by(LetterDraft.created_at.desc()).all()
+            drafts = db.query(LetterDraft).filter(
+                LetterDraft.user_email == email
+            ).order_by(LetterDraft.created_at.desc()).all()
             return [{k: v for k, v in d.__dict__.items() if not k.startswith('_')} for d in drafts]
-    except Exception: return []
+    except Exception as e:
+        logger.error(f"Get Drafts Error: {e}")
+        return []
 
 def update_draft_data(draft_id, content=None, status=None, price=None, to_addr=None, from_addr=None, tier=None):
+    """Universal update function for both Drafts and Letters"""
     try:
         with get_db_session() as db:
+            # Try finding in LetterDraft first
             draft = db.query(LetterDraft).filter(LetterDraft.id == draft_id).first()
             if not draft:
+                # Fallback to Legacy Letter table
                 draft = db.query(Letter).filter(Letter.id == draft_id).first()
+            
             if draft:
                 if content is not None: draft.content = content
                 if status is not None: draft.status = status
                 if price is not None: draft.price = price
                 if tier is not None: draft.tier = tier
+                
+                # For Legacy Letters, we might update address fields
                 if to_addr and hasattr(draft, 'to_name'):
                     draft.to_name = to_addr.get('name')
                     draft.to_city = to_addr.get('city')
+                
                 return True
             return False
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Update Draft Error: {e}")
+        return False
 
 def decrement_user_credits(email):
     try:
         with get_db_session() as db:
             user = db.query(UserProfile).filter(UserProfile.email == email).first()
-            if user and user.credits_remaining > 0:
+            if user and user.credits_remaining is not None and user.credits_remaining > 0:
                 user.credits_remaining -= 1
                 return True, user.credits_remaining
-            return False, 0
-    except Exception: return False, 0
+            return False, (user.credits_remaining if user else 0)
+    except Exception as e:
+        logger.error(f"Credit Error: {e}")
+        return False, 0
 
 def update_user_prompt(email, new_prompt):
     try:
@@ -221,14 +274,19 @@ def update_user_prompt(email, new_prompt):
                 user.current_prompt = new_prompt
                 return True
             return False
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Update Prompt Error: {e}")
+        return False
 
 def update_heirloom_profile(email, parent_name, parent_phone):
-    clean_phone = None
     if parent_phone:
         clean_phone = "".join(filter(str.isdigit, str(parent_phone)))
-        if len(clean_phone) == 10: clean_phone = "+1" + clean_phone
-        elif len(clean_phone) == 11 and clean_phone.startswith("1"): clean_phone = "+" + clean_phone
+        if len(clean_phone) == 10:
+            clean_phone = "+1" + clean_phone
+        elif len(clean_phone) == 11 and clean_phone.startswith("1"):
+            clean_phone = "+" + clean_phone
+    else:
+        clean_phone = None
 
     try:
         with get_db_session() as db:
@@ -239,9 +297,14 @@ def update_heirloom_profile(email, parent_name, parent_phone):
                 user.heirloom_status = "active"
                 return True
             return False
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Update Heirloom Profile Error: {e}")
+        return False
+
+# --- LEGACY / STORE FUNCTIONS ---
 
 def save_draft(email, content, tier, price):
+    """Creates a legacy 'Letter' for store purchase"""
     try:
         with get_db_session() as db:
             letter = Letter(user_email=email, content=content, tier=tier, price=price)
@@ -257,6 +320,8 @@ def get_contacts(email):
             return [{k: v for k, v in c.__dict__.items() if not k.startswith('_')} for c in contacts]
     except Exception: return []
 
+# --- ADMIN FUNCTIONS ---
+
 def get_all_promos():
     try:
         with get_db_session() as db:
@@ -267,7 +332,15 @@ def get_all_promos():
 def create_promo_code(code, amount):
     try:
         with get_db_session() as db:
-            p = PromoCode(code=code, discount_amount=amount, active=True, is_active=True, current_uses=0, uses=0)
+            # Initialize all fields to satisfy strict SQL constraints
+            p = PromoCode(
+                code=code, 
+                discount_amount=amount, 
+                active=True, 
+                is_active=True, 
+                current_uses=0, 
+                uses=0
+            )
             db.add(p)
             db.commit()
             return True
@@ -289,16 +362,21 @@ def log_event(event_type, desc, user_email=None):
     except Exception: pass
 
 def get_all_orders():
+    """Fetches both Legacy Letters and Heirloom Drafts for Admin Console"""
     try:
         with get_db_session() as db:
+            # 1. Get Paid Legacy Letters
             legacy = db.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).all()
+            # 2. Get Heirloom Drafts (that are ready/active)
             heirloom = db.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(20).all()
             
             combined = []
             for o in legacy:
                 combined.append({k: v for k, v in o.__dict__.items() if not k.startswith('_')})
             for h in heirloom:
+                # Map Heirloom fields to what Admin expects
                 d = {k: v for k, v in h.__dict__.items() if not k.startswith('_')}
+                # Ensure tier exists if missing
                 if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom' 
                 combined.append(d)
                 
