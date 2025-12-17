@@ -4,7 +4,8 @@ import datetime
 
 class LetterPDF(FPDF):
     def header(self):
-        pass  # We handle the header manually in the body to control positioning
+        # We handle the header manually in the body to control positioning exactly
+        pass
 
     def footer(self):
         # Position at 1.5 cm from bottom
@@ -23,37 +24,46 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
     pdf.add_page()
     
     # --- 1. SETUP FONTS ---
-    # Register the custom Typewriter font
+    # We look for the custom font in the current directory
     font_path = "type_right.ttf"
     has_custom_font = os.path.exists(font_path)
     
     if has_custom_font:
+        # 'uni=True' is critical for special characters
         pdf.add_font('TypeRight', '', font_path, uni=True)
+    else:
+        # Fallback if the file is missing in Production
+        print(f"WARNING: Font {font_path} not found. Falling back to Standard.")
 
     # Determine which font to use based on Tier
+    # We also define 'bold_style' here to prevent crashes on custom fonts that lack bold versions
     if tier == "Heirloom" and has_custom_font:
         main_font = "TypeRight"
         header_font = "TypeRight"
         font_size = 12
-        line_height = 6 # Tighter for typewriter feel
+        line_height = 6 # Tighter line height for typewriter feel
+        bold_style = '' # FIX: Custom TTF often doesn't have a Bold variant loaded, so we force Regular
     elif tier == "Santa":
         main_font = "Times" # Or a script font if you have one
         header_font = "Times"
         font_size = 14
         line_height = 9
+        bold_style = 'B'
     else:
-        # Standard / Civic
+        # Standard / Civic tiers
         main_font = "Times"
         header_font = "Helvetica" 
         font_size = 12
         line_height = 6
+        bold_style = 'B' # Standard fonts support fake bolding
 
     # --- 2. RENDER FROM ADDRESS (Top Right) ---
-    pdf.set_font(header_font, '', 10)
     
-    # Helper to format address block
+    # Helper to safely format address block from either Dict or Object
     def format_addr(addr_obj):
-        # Handle dictionary or object inputs
+        if not addr_obj: return []
+        
+        # Handle dictionary inputs (from Address Book)
         if isinstance(addr_obj, dict):
             name = addr_obj.get("name") or addr_obj.get("first_name", "")
             street = addr_obj.get("street") or addr_obj.get("address_line1", "")
@@ -61,7 +71,7 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
             state = addr_obj.get("state", "")
             zip_code = addr_obj.get("zip_code") or addr_obj.get("zip", "")
         else:
-            # Assume it's a StandardAddress object
+            # Handle Class Object inputs (from Database/StandardAddress)
             name = getattr(addr_obj, "name", "")
             street = getattr(addr_obj, "street", "")
             city = getattr(addr_obj, "city", "")
@@ -71,23 +81,30 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         lines = [name, street, f"{city}, {state} {zip_code}"]
         return [l for l in lines if l.strip()]
 
+    # Format the sender address
     from_lines = format_addr(from_addr)
     
-    # Move to right side
+    # Set font for addresses
+    pdf.set_font(header_font, '', 10)
+    
+    # Move to right side (120mm from left margin)
     pdf.set_xy(120, 15) 
     for line in from_lines:
         pdf.cell(0, 5, line, ln=True, align='L') # Align L relative to the 120 margin
     
-    # Add Date (Use passed date_str if available)
+    # Add Date
     pdf.set_xy(120, pdf.get_y() + 2)
-    final_date = date_str if date_str else datetime.date.today().strftime("%B %d, %Y")
+    # Use the passed date string, or fallback to Today if it's missing or "Unknown"
+    final_date = date_str if date_str and "Unknown" not in date_str else datetime.date.today().strftime("%B %d, %Y")
     pdf.cell(0, 5, final_date, ln=True, align='L')
 
     # --- 3. RENDER TO ADDRESS (Top Left - for Window Envelopes) ---
-    pdf.set_xy(20, 45) # Standard window position
+    pdf.set_xy(20, 45) # Standard window envelope position
     to_lines = format_addr(to_addr)
     
-    pdf.set_font(header_font, 'B', 11)
+    # Use the bold_style variable (either 'B' or '') to prevent crashing
+    pdf.set_font(header_font, bold_style, 11)
+    
     for line in to_lines:
         pdf.cell(0, 5, line, ln=True)
 
@@ -95,23 +112,29 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
     pdf.set_y(80) # Start body below the address area
     pdf.set_font(main_font, '', font_size)
     
-    # Handle the "Dear X," if not present
-    if "Dear" not in content[:20]:
+    # Handle the "Dear X," if not present in the user's text
+    clean_content = content.strip()
+    if not clean_content.lower().startswith("dear"):
         # Try to extract first name from recipient
         to_name = to_lines[0] if to_lines else "Friend"
         first_name = to_name.split()[0]
         pdf.multi_cell(0, line_height, f"Dear {first_name},\n\n")
         
-    pdf.multi_cell(0, line_height, content)
+    pdf.multi_cell(0, line_height, clean_content)
 
-    # --- 5. SIGNATURE (Fixed: No Double Signatures) ---
+    # --- 5. SIGNATURE ---
+    # Smart Logic: Don't add a signature if the user already typed "Love, Mom"
     
-    # Check if user already typed a closing
-    content_lower = content.lower().strip()
-    common_closings = ["love,", "sincerely,", "best,", "warmly,", "yours,", "love mom", "love, mom"]
-    has_closing = any(content_lower.endswith(s) for s in common_closings)
+    content_lower = clean_content.lower()[-50:] # Only check the end
+    common_closings = ["love,", "sincerely,", "best,", "warmly,", "yours,", "love mom", "love, mom", "mom", "dad"]
     
-    if not has_closing:
+    has_signoff = False
+    for closing in common_closings:
+        if closing in content_lower:
+            has_signoff = True
+            break
+    
+    if not has_signoff:
         pdf.ln(15)
         
         # If a signature was provided in the UI form
