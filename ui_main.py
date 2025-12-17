@@ -440,7 +440,10 @@ def render_workspace_page():
                     else: st.warning("⚠️ No speech detected.")
                 except Exception as e: st.error(f"Error: {e}")
                 finally:
-                    if os.path.exists(tmp_path): os.remove(tmp_path)
+                    # FIX: Robust file cleanup to prevent Windows/Container lock crashes
+                    if os.path.exists(tmp_path):
+                        try: os.remove(tmp_path)
+                        except: pass 
 
     st.divider()
     
