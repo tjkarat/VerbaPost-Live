@@ -2,10 +2,10 @@ import streamlit as st
 import database
 import ai_engine
 import letter_format
-import postgrid_engine
+import mailer  # FIX: Switched from postgrid_engine to the robust mailer
 import time
-import tempfile # Added for PDF bridge
-import os       # Added for safe file handling
+import tempfile
+import os
 from datetime import datetime
 
 # --- HELPER: ADDRESS BOOK ---
@@ -158,12 +158,16 @@ def render_dashboard():
             for draft in drafts:
                 draft_id = draft.get('id')
                 content = draft.get('content', '')
+                status = draft.get('status', 'draft')
                 
                 # Safe Date
                 raw_date = draft.get('created_at')
                 date_str = raw_date.strftime("%B %d, %Y") if raw_date else "Unknown Date"
                 
-                with st.expander(f"🎙️ {date_str} - {content[:40]}..."):
+                # Visual Indicator if sent
+                icon = "✅" if "Sent" in status else "🎙️"
+                
+                with st.expander(f"{icon} {date_str} - {content[:40]}..."):
                     # EDIT CONTENT
                     new_content = st.text_area("Edit", content, height=150, key=f"edit_{draft_id}")
                     
@@ -174,7 +178,7 @@ def render_dashboard():
 
                     st.divider()
 
-                    # SELECT RECIPIENT (Needed for PDF generation)
+                    # SELECT RECIPIENT
                     selected_label = st.selectbox(
                         "Send To:", 
                         options=list(address_options.keys()),
@@ -183,7 +187,6 @@ def render_dashboard():
                     
                     # Convert selected option back to address dict
                     raw_recipient = address_options.get(selected_label)
-                    # Normalize keys for letter_format (needs 'name', 'street') vs PostGrid (needs 'first_name', 'address_line1')
                     recipient_addr = {
                         "name": raw_recipient.get("first_name"),
                         "street": raw_recipient.get("address_line1"),
@@ -197,8 +200,6 @@ def render_dashboard():
                     # PREVIEW PDF BUTTON
                     with col_prev:
                         if st.button("📄 Preview PDF", key=f"prev_{draft_id}"):
-                             # FIX: letter_format now returns BYTES, not a path.
-                             # We write to a temp file to maintain compatibility with downstream 'open()' logic.
                              pdf_bytes = letter_format.create_pdf(
                                  content=new_content, 
                                  to_addr=recipient_addr,
@@ -207,7 +208,7 @@ def render_dashboard():
                                  date_str=date_str
                              )
                              
-                             # Create Temp File Bridge
+                             # Temp Bridge
                              with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tf:
                                  tf.write(pdf_bytes)
                                  temp_path = tf.name
@@ -219,54 +220,58 @@ def render_dashboard():
                     if f"pdf_{draft_id}" in st.session_state:
                         pdf_path = st.session_state[f"pdf_{draft_id}"]
                         
-                        # Only show if file actually still exists
                         if os.path.exists(pdf_path):
                             st.caption(f"Preview generated for: {recipient_addr['name']}")
                             
                             with col_mail:
                                 # Download
-                                # This logic (open) caused the crash because pdf_path was bytes. 
-                                # Now it is a valid file path again.
                                 with open(pdf_path, "rb") as f:
                                     st.download_button("⬇️ Download", f, file_name="letter.pdf", key=f"dl_{draft_id}")
                                 
-                                # Send
-                                if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
-                                    if credits > 0:
-                                        with st.spinner("Dispatching..."):
-                                            success, new_balance = database.decrement_user_credits(user_email)
-                                            
-                                            if success:
-                                                # Use raw_recipient for PostGrid (it has the right keys like address_line1)
-                                                result = postgrid_engine.send_letter(pdf_path, raw_recipient)
+                                # Send (If not already sent)
+                                if "Sent" in status:
+                                    st.success(f"Already Sent! ({status})")
+                                else:
+                                    if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
+                                        if credits > 0:
+                                            with st.spinner("Connecting to PostGrid..."):
+                                                # FIX: READ BYTES AND USE MAILER.PY
+                                                with open(pdf_path, "rb") as f:
+                                                    pdf_bytes = f.read()
                                                 
-                                                if result["success"]:
+                                                # Use the robust mailer module
+                                                letter_id = mailer.send_letter(
+                                                    pdf_bytes, 
+                                                    recipient_addr, 
+                                                    from_address, 
+                                                    description=f"Heirloom: {date_str}"
+                                                )
+                                                
+                                                if letter_id:
+                                                    # Success! Now update DB.
+                                                    success, new_balance = database.decrement_user_credits(user_email)
+                                                    database.update_draft_data(draft_id, status=f"Sent: {letter_id}")
+                                                    
                                                     st.balloons()
-                                                    st.success(f"✅ Sent! Credits left: {new_balance}")
+                                                    st.success(f"✅ Mailed! Tracking ID: {letter_id}")
                                                     time.sleep(2)
                                                     st.rerun()
                                                 else:
-                                                    st.error(f"PostGrid Error: {result['error']}")
-                                            else:
-                                                st.error("Credit deduction failed.")
-                                    else:
-                                        st.warning("⚠️ 0 Credits.")
+                                                    st.error("Mailing Failed. Please check address.")
+                                        else:
+                                            st.warning("⚠️ 0 Credits.")
 
     # --- TAB: SETTINGS ---
     with tab_settings:
         c1, c2 = st.columns(2)
-        
         with c1:
             st.write("### 👵 Parent Details")
             st.info("The system uses this phone number to recognize Mom when she calls.")
-            
             with st.form("heirloom_setup"):
                 current_parent = user_data.get('parent_name', '') or ""
                 current_phone = user_data.get('parent_phone', '') or ""
-
                 p_name = st.text_input("Parent's Name", value=current_parent)
                 p_phone = st.text_input("Parent's Phone Number", value=current_phone, help="Use US format e.g. 615-555-1234")
-                
                 if st.form_submit_button("Save Details"):
                     if hasattr(database, 'update_heirloom_profile'):
                         success = database.update_heirloom_profile(user_email, p_name, p_phone)
@@ -277,11 +282,9 @@ def render_dashboard():
                         else: st.error("Save failed.")
                     else: st.error("Database function missing.")
 
-        # --- ADDRESS BOOK SECTION ---
         with c2:
             st.write("### 📖 Address Book")
             st.info("Add relatives here to send them stories.")
-            
             with st.form("add_contact_form"):
                 cn = st.text_input("Full Name")
                 ca = st.text_input("Street Address")
@@ -289,20 +292,15 @@ def render_dashboard():
                 c_s, c_z = st.columns(2)
                 cs = c_s.text_input("State")
                 cz = c_z.text_input("Zip")
-                
                 if st.form_submit_button("➕ Add Contact"):
                     if not cn or not ca or not cc or not cs or not cz:
                         st.error("Please fill all fields.")
                     else:
-                        contact_data = {
-                            "name": cn, "street": ca, "city": cc, "state": cs, "zip": cz
-                        }
+                        contact_data = {"name": cn, "street": ca, "city": cc, "state": cs, "zip": cz}
                         if hasattr(database, "save_contact"):
                             if database.save_contact(user_email, contact_data):
                                 st.success(f"Added {cn}!")
                                 time.sleep(1)
                                 st.rerun()
-                            else:
-                                st.error("Failed to save.")
-                        else:
-                            st.error("Database missing save_contact function.")
+                            else: st.error("Failed to save.")
+                        else: st.error("Database missing save_contact function.")
