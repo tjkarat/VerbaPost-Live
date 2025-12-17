@@ -154,6 +154,14 @@ class PromoCode(Base):
     current_uses = Column(Integer, default=0)     # Fixed AttributeError
     uses = Column(Integer, default=0)             # Fixed AttributeError
 
+# --- ADD THIS TO database.py ---
+class PromoLog(Base):
+    __tablename__ = 'promo_logs'
+    id = Column(Integer, primary_key=True)
+    code = Column(String, index=True)
+    user_email = Column(String)
+    used_at = Column(DateTime, default=datetime.utcnow)
+
 class AuditEvent(Base):
     """Refined to match your SQL exactly"""
     __tablename__ = 'audit_events'

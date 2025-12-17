@@ -482,16 +482,28 @@ def render_review_page():
     discount = 0.0
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
-            code = st.text_input("Enter Code").upper()
+            # FIX: Added Unique key and safety check for string methods
+            raw_code = st.text_input("Enter Code", key="promo_input_field")
+            code = raw_code.upper().strip() if raw_code else ""
+            
             if st.button("Apply Code"):
-                # FIX: Now correctly unpacks the tuple (bool, value)
-                valid, val = promo_engine.validate_code(code)
-                if valid:
-                    st.session_state.applied_promo = code
-                    st.session_state.promo_val = val
-                    st.success(f"Applied! ${val} off")
-                    st.rerun()
-                else: st.error("Invalid Code")
+                if not code:
+                    st.error("Please enter a code.")
+                else:
+                    # FIX: Handle tuple return robustly
+                    result = promo_engine.validate_code(code)
+                    if isinstance(result, tuple) and len(result) == 2:
+                        valid, val = result
+                    else:
+                        valid, val = False, "Engine Error"
+
+                    if valid:
+                        st.session_state.applied_promo = code
+                        st.session_state.promo_val = val
+                        st.success(f"Applied! ${val} off")
+                        st.rerun()
+                    else: st.error(f"Invalid Code: {val}")
+                    
     if st.session_state.get("applied_promo"):
         discount = st.session_state.get("promo_val", 0)
         total = max(0, total - discount)

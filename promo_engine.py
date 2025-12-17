@@ -15,81 +15,81 @@ def validate_code(code):
     if not code: 
         return False, "Code is empty"
     
-    # Normalize
     code = code.strip().upper()
     
     if not database:
-        logger.error("Database module missing.")
         return False, "Database Error"
 
     try:
         with database.get_db_session() as db:
-            # 1. Check if code exists and is active
+            # 1. Check if code exists
             promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
             
             if not promo:
                 return False, "Code not found"
-
-            # Check active status
             if not promo.active:
                 return False, "Code is inactive"
 
-            # 2. Check usage count via logs (using the separate table)
-            usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
-            
-            if usage_count < promo.max_uses:
-                # Return a tuple (True, Value)
-                discount_val = getattr(promo, 'value', 0.0)
-                if discount_val == 0.0:
-                    discount_val = getattr(promo, 'discount_amount', 5.00) # Fallback
+            # 2. Check usage count (DEFENSIVE: Handle missing table)
+            # This prevents the "AttributeError: module 'database' has no attribute 'PromoLog'" crash
+            if hasattr(database, 'PromoLog'):
+                usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
                 
-                return True, discount_val
+                if usage_count >= promo.max_uses:
+                    logger.warning(f"Promo code {code} exhausted ({usage_count}/{promo.max_uses})")
+                    return False, "Limit Reached"
             else:
-                logger.warning(f"Promo code {code} exhausted ({usage_count}/{promo.max_uses})")
-                return False, "Limit Reached"
+                # If table is missing, we log a warning but ALLOW the code (fail open) 
+                # or block it. Here we allow it to prevent checkout blocking.
+                logger.warning("PromoLog table missing in database. Skipping usage limit check.")
+
+            # 3. Return success tuple
+            discount_val = getattr(promo, 'value', 0.0)
+            if discount_val == 0.0:
+                discount_val = getattr(promo, 'discount_amount', 5.00) # Fallback
+            
+            return True, discount_val
             
     except Exception as e:
         logger.error(f"Error validating code {code}: {e}")
-        return False, "System Error"
+        return False, f"System Error: {str(e)}"
 
 def log_usage(code, user_email):
     """
     Records usage by inserting a record into promo_logs.
-    FIX: Atomic Check-Then-Write prevents race condition double-spend.
     """
     if not code: return False
-    
     code = code.strip().upper()
     
+    # DEFENSIVE: Exit if table missing
+    if not hasattr(database, 'PromoLog'):
+        logger.warning("Cannot log promo usage: PromoLog model missing.")
+        return False
+
     try:
         with database.get_db_session() as db:
-            # 1. Fetch Promo Settings
+            # Atomic check inside transaction
             promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
             if not promo: return False
 
-            # 2. Atomic Count Check inside Transaction
             current_usage = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
             
             if current_usage < promo.max_uses:
-                # Safe to insert
                 log_entry = database.PromoLog(
                     code=code,
                     user_email=user_email,
                     used_at=datetime.utcnow()
                 )
                 db.add(log_entry)
-                db.commit() # Commit explicitly to lock in the use
-                logger.info(f"💰 Promo {code} successfully claimed by {user_email} ({current_usage + 1}/{promo.max_uses})")
+                db.commit() # Commit explicitly
                 return True
-            else:
-                logger.warning(f"❌ Promo {code} usage rejected (Limit Reached)")
-                return False
+            return False
             
     except Exception as e:
         logger.error(f"Failed to log usage for {code}: {e}")
         return False
 
-def create_code(code, max_uses=1):
+def create_code(code, max_uses=1, discount_amount=5.00):
     """
     Admin function to generate new promo codes.
     """
@@ -104,12 +104,20 @@ def create_code(code, max_uses=1):
             if existing:
                 return False, f"Code '{code}' already exists."
             
+            # Handle dynamic model attributes (value vs discount_amount)
             new_promo = database.PromoCode(
                 code=code,
                 max_uses=max_uses,
                 active=True,
                 created_at=datetime.utcnow()
             )
+            
+            # Set value if the column exists
+            if hasattr(new_promo, 'value'):
+                new_promo.value = discount_amount
+            elif hasattr(new_promo, 'discount_amount'):
+                new_promo.discount_amount = discount_amount
+                
             db.add(new_promo)
             
         return True, f"✅ Created code: {code} (Limit: {max_uses})"
@@ -128,8 +136,9 @@ def get_all_codes_with_usage():
             
             results = []
             for p in promos:
-                # Calculate current usage on the fly by counting logs
-                usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == p.code).scalar()
+                usage_count = 0
+                if hasattr(database, 'PromoLog'):
+                     usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == p.code).scalar()
                 
                 results.append({
                     "Code": p.code,
