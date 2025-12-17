@@ -151,22 +151,26 @@ def _handle_draft_creation(email, tier, price):
         st.session_state.current_draft_id = d_id
     return d_id
 
-# --- GLOBAL CALLBACKS (Prevents Scope Issues) ---
+# --- GLOBAL CALLBACKS (Now with URL Cleaning) ---
 def cb_select_tier(tier, price, user_email):
     """
-    Robust callback that sets the tier and moves to workspace.
-    Now accepts user_email as an argument to avoid closure issues.
+    Sets the tier, cleans the URL, and moves to workspace.
     """
     try:
+        # 1. Clean URL to prevent router traps (e.g. ?view=heirloom)
+        st.query_params.clear()
+        
+        # 2. Set State
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
+        st.session_state.app_mode = "workspace"
+        
+        # 3. Create Draft
         if user_email:
             _handle_draft_creation(user_email, tier, price)
+            
     except Exception as e:
         print(f"Draft creation warning: {e}")
-    
-    # Force the app mode to workspace
-    st.session_state.app_mode = "workspace"
 
 # --- PAGE RENDERERS ---
 
@@ -226,7 +230,7 @@ def render_store_page():
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        # FIX: Ensure key is unique and callback is robust
+        # FIX: Ensure key is unique
         st.button("Select Heirloom", key="btn_heirloom_store", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
