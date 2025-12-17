@@ -2,11 +2,13 @@ import streamlit as st
 import pandas as pd
 import time
 import json
+import os
 from datetime import datetime
 
 # --- DIRECT IMPORT ---
 import database
 import secrets_manager
+
 # Import Engines for Retry Functionality
 try: import mailer
 except ImportError: mailer = None
@@ -16,9 +18,10 @@ try: import address_standard
 except ImportError: address_standard = None
 
 def render_admin_page():
-    # --- AUTH CHECK ---
-    admin_email = secrets_manager.get_secret("admin.email")
-    admin_pass = secrets_manager.get_secret("admin.password")
+    # --- AUTH CHECK (Production Safe) ---
+    # Prioritize Env Vars (GCP), Fallback to Secrets (QA)
+    admin_email = os.environ.get("ADMIN_EMAIL") or secrets_manager.get_secret("admin.email")
+    admin_pass = os.environ.get("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
     
     if not st.session_state.get("admin_authenticated"):
         st.markdown("## 🛡️ Admin Access")
@@ -26,7 +29,9 @@ def render_admin_page():
             email = st.text_input("Admin Email")
             pwd = st.text_input("Password", type="password")
             if st.form_submit_button("Unlock Console"):
-                if email == admin_email and pwd == admin_pass:
+                if not admin_email: 
+                    st.error("Admin credentials not configured on server.")
+                elif email.strip() == admin_email and pwd.strip() == admin_pass:
                     st.session_state.admin_authenticated = True
                     st.rerun()
                 else:
@@ -62,147 +67,121 @@ def render_admin_page():
             db_status = f"❌ Error: {str(e)[:100]}..."
             db_color = "red"
 
-        def check_key(key_names):
-            val = None
-            for k in key_names:
-                val = secrets_manager.get_secret(k)
-                if val: break
-            if val:
-                masked = f"{val[:4]}...{val[-4:]}" if len(val) > 8 else "****"
-                return f"✅ Configured ({masked})"
-            return "❌ Missing"
-
-        stripe_s = check_key(["stripe.secret_key", "STRIPE_SECRET_KEY"])
-        postgrid_s = check_key(["postgrid.api_key", "POSTGRID_API_KEY"])
-        openai_s = check_key(["openai.api_key", "OPENAI_API_KEY"])
-        geo_s = check_key(["geocodio.api_key", "GEOCODIO_API_KEY"])
-        email_s = check_key(["email.password", "RESEND_API_KEY"])
-
         c1, c2 = st.columns(2)
         with c1:
             st.markdown(f"**Database:** :{db_color}[{db_status}]")
-            st.markdown(f"**Civic (Geocodio):** {geo_s}")
-            st.markdown(f"**AI (OpenAI):** {openai_s}")
-        with c2:
-            st.markdown(f"**Payments (Stripe):** {stripe_s}")
-            st.markdown(f"**Mail (PostGrid):** {postgrid_s}")
-            st.markdown(f"**Email (Resend):** {email_s}")
 
-    # --- TAB 2: ORDERS (FIXED) ---
+    # --- TAB 2: ORDERS (RESTORED REPAIR TOOL) ---
     with tab_orders:
         st.subheader("Order Manager")
+        
+        # 1. VIEW ORDERS
         try:
-            with database.get_db_session() as db:
-                query = db.query(database.LetterDraft).order_by(database.LetterDraft.created_at.desc()).limit(50)
-                orders = query.all()
-                
-                if orders:
-                    data = []
-                    for o in orders:
-                        # FIX: Handle missing dates safely
-                        if o.created_at:
-                            date_str = o.created_at.strftime("%Y-%m-%d %H:%M")
-                        else:
-                            date_str = "Unknown Date"
+            # Use the new clean function from database.py
+            orders = database.get_all_orders()
+            if orders:
+                data = []
+                for o in orders:
+                    # Handle missing dates safely
+                    raw_date = o.get('created_at')
+                    date_str = raw_date.strftime("%Y-%m-%d %H:%M") if raw_date else "Unknown"
 
-                        data.append({
-                            "ID": o.id,
-                            "Date": date_str,
-                            "User": o.user_email,
-                            "Tier": o.tier,
-                            "Status": o.status,
-                            "Price": f"${o.price:.2f}" if o.price else "$0.00"
-                        })
-                    st.dataframe(pd.DataFrame(data), use_container_width=True)
-                    
-                    st.divider()
-                    st.markdown("### 🛠️ Repair & Fulfillment")
-                    oid = st.number_input("Enter Order ID to Fix/Retry", min_value=0, step=1)
-                else:
-                    st.info("No orders found.")
-                    oid = None
-                    
-                if oid:
+                    data.append({
+                        "ID": o.get('id'),
+                        "Date": date_str,
+                        "User": o.get('user_email'),
+                        "Tier": o.get('tier'),
+                        "Status": o.get('status'),
+                        "Price": f"${o.get('price', 0):.2f}"
+                    })
+                st.dataframe(pd.DataFrame(data), use_container_width=True)
+                
+                st.divider()
+                
+                # 2. THE RESTORED REPAIR TOOL
+                st.markdown("### 🛠️ Repair & Fulfillment")
+                oid = st.text_input("Enter Order UUID to Fix/Retry") # Changed to text_input for UUIDs
+            else:
+                st.info("No orders found.")
+                oid = None
+                
+            if oid:
+                # We need direct session access for repairs
+                with database.get_db_session() as db:
+                    # Look in both tables
                     sel = db.query(database.LetterDraft).filter(database.LetterDraft.id == oid).first()
-                    if sel:
-                        st.info(f"Editing Order #{oid} ({sel.status})")
+                    if not sel:
+                        sel = db.query(database.Letter).filter(database.Letter.id == oid).first()
                         
-                        json_template = """{
-  "name": "John Doe",
-  "street": "123 Main St Apt 4B",
-  "city": "New York",
-  "state": "NY",
-  "zip_code": "10001",
-  "country": "US"
-}"""
+                    if sel:
+                        st.info(f"Editing Order: {sel.status}")
+                        
                         c_left, c_right = st.columns([1.5, 1])
                         
                         with c_left:
                             st.markdown("#### 1. Data Repair")
-                            st.caption("Recipient (To)")
-                            # FIX: Handle missing JSON data
-                            r_val = json.dumps(sel.recipient_data, indent=2) if hasattr(sel, 'recipient_data') and sel.recipient_data else "{}"
-                            new_r = st.text_area("Recipient JSON", r_val, height=200, label_visibility="collapsed")
+                            # Try to get raw JSON data if it exists (legacy letters often have it)
+                            # If not, we might rely on the new unified columns
+                            current_content = sel.content
+                            new_content = st.text_area("Letter Content", current_content, height=200)
                             
-                            st.caption("Sender (From)")
-                            s_val = json.dumps(sel.sender_data, indent=2) if hasattr(sel, 'sender_data') and sel.sender_data else "{}"
-                            new_s = st.text_area("Sender JSON", s_val, height=200, label_visibility="collapsed")
-                            
-                            if st.button("💾 Save Changes", use_container_width=True):
-                                try:
-                                    sel.recipient_data = json.loads(new_r)
-                                    sel.sender_data = json.loads(new_s)
-                                    db.commit()
-                                    st.success("Data Updated!")
-                                    time.sleep(1)
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"JSON Error: {e}")
+                            if st.button("💾 Save Content Changes"):
+                                sel.content = new_content
+                                db.commit()
+                                st.success("Updated!")
+                                time.sleep(1)
+                                st.rerun()
 
                         with c_right:
-                            st.markdown("#### 📖 Format Guide")
-                            st.info("Copy this format if data is missing (NULL).")
-                            st.code(json_template, language="json")
-                            st.markdown("---")
-                            st.markdown("#### 2. Force Send")
-                            st.warning("Only use this if PostGrid failed but payment succeeded.")
+                            st.markdown("#### 2. Force Actions")
+                            st.warning("Only use if paid but failed.")
                             
-                            if st.button("🚀 Force Send to PostGrid", type="primary"):
-                                if not mailer or not letter_format or not address_standard:
-                                    st.error("Engines missing")
-                                else:
-                                    with st.spinner("Generating & Sending..."):
-                                        try:
-                                            to_obj = address_standard.StandardAddress.from_dict(sel.recipient_data)
-                                            from_obj = address_standard.StandardAddress.from_dict(sel.sender_data)
-                                            
-                                            pdf_bytes = letter_format.create_pdf(
-                                                sel.content, 
-                                                to_obj, 
-                                                from_obj, 
-                                                sel.tier
-                                            )
-                                            
-                                            ref = f"admin_retry_{oid}_{int(time.time())}"
-                                            tracking = mailer.send_letter(
-                                                pdf_bytes, 
-                                                to_obj, 
-                                                from_obj, 
-                                                ref_id=ref, 
-                                                color=True, 
-                                                certified=(sel.price > 10)
-                                            )
-                                            
-                                            st.success(f"✅ Sent! Tracking: {tracking}")
-                                            sel.status = "Completed (Admin Retry)"
-                                            sel.tracking_number = tracking
-                                            db.commit()
-                                            
-                                        except Exception as ex:
-                                            st.error(f"Send Failed: {ex}")
+                            if st.button("🚀 Force Send (Retry)"):
+                                if not mailer: st.error("Mailer Missing"); st.stop()
+                                
+                                with st.spinner("Retrying..."):
+                                    # Construct addresses (Fallback logic)
+                                    # In the new schema, addresses are often in the profile or separate
+                                    # This is a 'Best Effort' retry using the profile address
+                                    user_p = database.get_user_profile(sel.user_email)
+                                    
+                                    to_obj = {
+                                        "name": getattr(sel, 'to_name', 'Valued Customer'),
+                                        "address_line1": getattr(sel, 'to_street', 'See Profile'),
+                                        "city": getattr(sel, 'to_city', ''),
+                                        "state": getattr(sel, 'to_state', ''),
+                                        "zip": getattr(sel, 'to_zip', '')
+                                    }
+                                    
+                                    # If 'to' data is empty, try to use the user profile (self-mail)
+                                    if not to_obj['address_line1'] or to_obj['address_line1'] == 'See Profile':
+                                        to_obj = {
+                                            "name": user_p.get('full_name'),
+                                            "address_line1": user_p.get('address_line1'),
+                                            "city": user_p.get('address_city'),
+                                            "state": user_p.get('address_state'),
+                                            "zip": user_p.get('address_zip')
+                                        }
 
-                    else:
-                        st.warning("Order ID not found.")
+                                    from_obj = {
+                                        "name": "VerbaPost Center",
+                                        "address_line1": "123 Memory Lane",
+                                        "city": "Nashville",
+                                        "state": "TN",
+                                        "zip": "37203"
+                                    }
+
+                                    # Generate PDF
+                                    pdf = letter_format.create_pdf(sel.content, to_obj, from_obj, tier=sel.tier)
+                                    
+                                    # Send
+                                    res = mailer.send_letter(pdf, to_obj, from_obj)
+                                    if res:
+                                        st.success("Sent!")
+                                        sel.status = "Sent (Admin Retry)"
+                                        db.commit()
+                                    else:
+                                        st.error("Failed.")
 
         except Exception as e:
             st.error(f"Error loading orders: {e}")
@@ -214,74 +193,30 @@ def render_admin_page():
             with st.form("new_promo"):
                 c_code = st.text_input("Code").upper()
                 c_val = st.number_input("Discount ($)", min_value=0.0)
-                c_max = st.number_input("Max Uses", min_value=1, value=100)
                 if st.form_submit_button("Create"):
-                    try:
-                        with database.get_db_session() as db:
-                            new_p = database.PromoCode(code=c_code, discount_amount=c_val, max_uses=c_max)
-                            db.add(new_p)
-                            st.success(f"Created {c_code}")
-                            time.sleep(1)
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+                    if database.create_promo_code(c_code, c_val):
+                        st.success(f"Created {c_code}")
+                        time.sleep(1); st.rerun()
+                    else:
+                        st.error("Failed to create promo.")
 
-        try:
-            with database.get_db_session() as db:
-                codes = db.query(database.PromoCode).all()
-                if codes:
-                    df = pd.DataFrame([{
-                        "Code": c.code, 
-                        "Discount": f"${c.discount_amount}", 
-                        "Uses": f"{c.current_uses}/{c.max_uses}", 
-                        "Active": c.active
-                    } for c in codes])
-                    st.dataframe(df, use_container_width=True)
-                else:
-                    st.info("No active codes.")
-        except Exception as e:
-            st.error(f"Error loading promos: {e}")
+        promos = database.get_all_promos()
+        if promos:
+            st.dataframe(pd.DataFrame(promos), use_container_width=True)
 
     # --- TAB 4: USERS ---
     with tab_users:
         st.subheader("User Profiles")
-        try:
-            with database.get_db_session() as db:
-                users = db.query(database.UserProfile).limit(50).all()
-                if users:
-                    u_data = []
-                    for u in users:
-                        joined = u.created_at.strftime("%Y-%m-%d") if u.created_at else "Unknown"
-                        u_data.append({
-                            "Email": u.email,
-                            "Name": u.full_name,
-                            "City": u.address_city,
-                            "State": u.address_state,
-                            "Joined": joined
-                        })
-                    st.dataframe(pd.DataFrame(u_data), use_container_width=True)
-        except Exception as e:
-            st.error(f"Error loading users: {e}")
+        users = database.get_all_users()
+        if users:
+            st.dataframe(pd.DataFrame(users), use_container_width=True)
 
     # --- TAB 5: LOGS ---
     with tab_logs:
         st.subheader("System Logs")
-        try:
-            with database.get_db_session() as db:
-                logs = db.query(database.AuditEvent).order_by(database.AuditEvent.timestamp.desc()).limit(50).all()
-                if logs:
-                    l_data = []
-                    for l in logs:
-                        ts = l.timestamp.strftime("%H:%M:%S") if l.timestamp else "--:--"
-                        l_data.append({
-                            "Time": ts,
-                            "Event": l.event_type,
-                            "User": l.user_email,
-                            "Details": l.details
-                        })
-                    st.dataframe(pd.DataFrame(l_data), use_container_width=True)
-        except Exception as e:
-            st.error(f"Error loading logs: {e}")
+        logs = database.get_system_logs()
+        if logs:
+            st.dataframe(pd.DataFrame(logs), use_container_width=True)
 
 # Safety Alias
 render_admin = render_admin_page
