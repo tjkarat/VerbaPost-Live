@@ -1,118 +1,123 @@
 from fpdf import FPDF
+import os
 import datetime
 
-def _get_addr_field(data, keys):
-    """
-    Helper to find a value from a list of possible keys.
-    Prevents blank lines if data keys vary (e.g. 'street' vs 'addressLine1').
-    """
-    if not data: return ""
-    for k in keys:
-        if k in data and data[k]:
-            return str(data[k]).strip()
-    return ""
+class LetterPDF(FPDF):
+    def header(self):
+        pass  # We handle the header manually in the body to control positioning
 
-def create_pdf(text, recipient_data, sender_data, tier="Standard", font_choice="Caveat", signature_text=""):
-    """
-    Generates a PDF for the physical letter.
-    Robust against missing fonts and varying data keys.
-    """
-    
-    class PDF(FPDF):
-        def header(self):
-            # Top margin
-            self.ln(10)
+    def footer(self):
+        # Position at 1.5 cm from bottom
+        self.set_y(-15)
+        # Arial italic 8
+        self.set_font('Arial', 'I', 8)
+        # Page number
+        self.cell(0, 10, 'Page ' + str(self.page_no()) + '/{nb}', 0, 0, 'C')
 
-        def footer(self):
-            # 1.5cm from bottom
-            self.set_y(-15)
-            self.set_font("Helvetica", "I", 8)
-            brand = "VerbaPost Legacy Service" if tier == "Legacy" else "VerbaPost"
-            self.cell(0, 10, f"Sent via {brand}", 0, 0, "C")
-
-    # 1. Setup PDF
-    pdf = PDF()
-    pdf.set_margins(25.4, 25.4, 25.4)  # 1-inch margins
-    pdf.set_auto_page_break(auto=True, margin=25.4)
+def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None):
+    """
+    Generates a PDF with the proper font and address layout.
+    """
+    pdf = LetterPDF()
+    pdf.alias_nb_pages()
     pdf.add_page()
+    
+    # --- 1. SETUP FONTS ---
+    # Register the custom Typewriter font
+    font_path = "type_right.ttf"
+    has_custom_font = os.path.exists(font_path)
+    
+    if has_custom_font:
+        pdf.add_font('TypeRight', '', font_path, uni=True)
 
-    # 2. Register Fonts (Safe Mode)
-    # Ensure these files exist in root, otherwise fallback to Helvetica
-    fonts_to_register = [
-        ("Caveat", "Caveat-Regular.ttf"),
-        ("Great Vibes", "GreatVibes-Regular.ttf"),
-        ("Indie Flower", "IndieFlower-Regular.ttf"),
-        ("Schoolbell", "Schoolbell-Regular.ttf")
-    ]
-
-    registered_fonts = []
-    for font_name, file_name in fonts_to_register:
-        try:
-            pdf.add_font(font_name, style="", fname=file_name)
-            registered_fonts.append(font_name)
-        except Exception:
-            print(f"⚠️ Font {file_name} missing. Skipping.")
-
-    # 3. Smart Data Mapping (The Fix)
-    # Maps 'street' (Internal) -> 'addressLine1' (PostGrid) -> 'line1' (Civic)
-    def extract_address(addr_dict):
-        return {
-            "name": _get_addr_field(addr_dict, ["name", "full_name", "firstName"]),
-            "street": _get_addr_field(addr_dict, ["street", "address_line1", "addressLine1", "line1"]),
-            "city": _get_addr_field(addr_dict, ["city", "address_city"]),
-            "state": _get_addr_field(addr_dict, ["state", "address_state", "provinceOrState"]),
-            "zip": _get_addr_field(addr_dict, ["zip", "zip_code", "address_zip", "postalOrZip"])
-        }
-
-    s = extract_address(sender_data)
-    r = extract_address(recipient_data)
-
-    # 4. Draw Sender (Return Address) - Top Left
-    pdf.set_font("Helvetica", size=10)
-    pdf.set_text_color(100, 100, 100) # Dark Gray
-    
-    pdf.cell(0, 5, s['name'], ln=True)
-    pdf.cell(0, 5, s['street'], ln=True)
-    pdf.cell(0, 5, f"{s['city']}, {s['state']} {s['zip']}", ln=True)
-    
-    # 5. Date
-    pdf.ln(5)
-    current_date = datetime.datetime.now().strftime("%B %d, %Y")
-    pdf.cell(0, 5, current_date, ln=True)
-    
-    # 6. Draw Recipient (Window Envelope Position)
-    pdf.ln(15)
-    pdf.set_text_color(0, 0, 0) # Black
-    
-    pdf.cell(0, 5, r['name'], ln=True)
-    pdf.cell(0, 5, r['street'], ln=True)
-    pdf.cell(0, 5, f"{r['city']}, {r['state']} {r['zip']}", ln=True)
-
-    # 7. Body Text
-    pdf.ln(20)
-    
-    # Font Selection
-    use_font = font_choice
-    if use_font not in registered_fonts:
-        use_font = "Helvetica" # Fallback
-    
-    # Sizing Tweaks
-    base_size = 14
-    if use_font == "Great Vibes": base_size = 16
-    if use_font == "Schoolbell": base_size = 13
-    
-    pdf.set_font(use_font, size=base_size)
-    
-    # Safe Encoding
-    safe_text = text.encode('latin-1', 'replace').decode('latin-1')
-    pdf.multi_cell(0, 8, safe_text)
-
-    # 8. Signature
-    pdf.ln(15)
-    if signature_text:
-        pdf.cell(0, 10, signature_text, ln=True)
+    # Determine which font to use based on Tier
+    if tier == "Heirloom" and has_custom_font:
+        main_font = "TypeRight"
+        header_font = "TypeRight"
+        font_size = 12
+        line_height = 8
+    elif tier == "Santa":
+        main_font = "Times" # Or a script font if you have one
+        header_font = "Times"
+        font_size = 14
+        line_height = 9
     else:
-        pdf.cell(0, 10, "Sincerely,", ln=True)
-        pdf.cell(0, 10, s['name'], ln=True)
+        # Standard / Civic
+        main_font = "Times"
+        header_font = "Helvetica" 
+        font_size = 12
+        line_height = 6
 
-    return pdf.output(dest='S')
+    # --- 2. RENDER FROM ADDRESS (Top Right) ---
+    pdf.set_font(header_font, '', 10)
+    
+    # Helper to format address block
+    def format_addr(addr_obj):
+        # Handle dictionary or object inputs
+        if isinstance(addr_obj, dict):
+            name = addr_obj.get("name") or addr_obj.get("first_name", "")
+            street = addr_obj.get("street") or addr_obj.get("address_line1", "")
+            city = addr_obj.get("city", "")
+            state = addr_obj.get("state", "")
+            zip_code = addr_obj.get("zip_code") or addr_obj.get("zip", "")
+        else:
+            # Assume it's a StandardAddress object
+            name = getattr(addr_obj, "name", "")
+            street = getattr(addr_obj, "street", "")
+            city = getattr(addr_obj, "city", "")
+            state = getattr(addr_obj, "state", "")
+            zip_code = getattr(addr_obj, "zip_code", "")
+            
+        lines = [name, street, f"{city}, {state} {zip_code}"]
+        return [l for l in lines if l.strip()]
+
+    from_lines = format_addr(from_addr)
+    
+    # Move to right side
+    pdf.set_xy(120, 15) 
+    for line in from_lines:
+        pdf.cell(0, 5, line, ln=True, align='L') # Align L relative to the 120 margin
+    
+    # Add Date
+    pdf.set_xy(120, pdf.get_y() + 2)
+    pdf.cell(0, 5, datetime.date.today().strftime("%B %d, %Y"), ln=True, align='L')
+
+    # --- 3. RENDER TO ADDRESS (Top Left - for Window Envelopes) ---
+    pdf.set_xy(20, 45) # Standard window position
+    to_lines = format_addr(to_addr)
+    
+    pdf.set_font(header_font, 'B', 11)
+    for line in to_lines:
+        pdf.cell(0, 5, line, ln=True)
+
+    # --- 4. RENDER BODY CONTENT ---
+    pdf.set_y(80) # Start body below the address area
+    pdf.set_font(main_font, '', font_size)
+    
+    # Handle the "Dear X," if not present
+    if "Dear" not in content[:20]:
+        # Try to extract first name from recipient
+        to_name = to_lines[0] if to_lines else "Friend"
+        first_name = to_name.split()[0]
+        pdf.multi_cell(0, line_height, f"Dear {first_name},\n\n")
+        
+    pdf.multi_cell(0, line_height, content)
+
+    # --- 5. SIGNATURE ---
+    pdf.ln(15)
+    
+    # If a signature was provided in the UI form
+    if signature_text:
+        sign_off = signature_text
+    else:
+        # Fallback to From Name
+        sign_off = "Sincerely,\n\n" + (from_lines[0] if from_lines else "")
+
+    pdf.multi_cell(0, line_height, sign_off)
+
+    # --- 6. OUTPUT ---
+    # Save to temp path
+    output_path = f"/tmp/letter_{int(datetime.datetime.now().timestamp())}.pdf"
+    pdf.output(output_path)
+    
+    return output_path
