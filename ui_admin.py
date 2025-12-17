@@ -100,7 +100,7 @@ def render_admin_page():
                 
                 # 2. THE RESTORED REPAIR TOOL
                 st.markdown("### 🛠️ Repair & Fulfillment")
-                oid = st.text_input("Enter Order UUID to Fix/Retry") # Changed to text_input for UUIDs
+                oid = st.text_input("Enter Order UUID to Fix/Retry") 
             else:
                 st.info("No orders found.")
                 oid = None
@@ -120,9 +120,7 @@ def render_admin_page():
                         
                         with c_left:
                             st.markdown("#### 1. Data Repair")
-                            # Try to get raw JSON data if it exists (legacy letters often have it)
-                            # If not, we might rely on the new unified columns
-                            current_content = sel.content
+                            current_content = getattr(sel, 'content', '') or ""
                             new_content = st.text_area("Letter Content", current_content, height=200)
                             
                             if st.button("💾 Save Content Changes"):
@@ -140,9 +138,6 @@ def render_admin_page():
                                 if not mailer: st.error("Mailer Missing"); st.stop()
                                 
                                 with st.spinner("Retrying..."):
-                                    # Construct addresses (Fallback logic)
-                                    # In the new schema, addresses are often in the profile or separate
-                                    # This is a 'Best Effort' retry using the profile address
                                     user_p = database.get_user_profile(sel.user_email)
                                     
                                     to_obj = {
@@ -153,7 +148,6 @@ def render_admin_page():
                                         "zip": getattr(sel, 'to_zip', '')
                                     }
                                     
-                                    # If 'to' data is empty, try to use the user profile (self-mail)
                                     if not to_obj['address_line1'] or to_obj['address_line1'] == 'See Profile':
                                         to_obj = {
                                             "name": user_p.get('full_name'),
@@ -171,10 +165,7 @@ def render_admin_page():
                                         "zip": "37203"
                                     }
 
-                                    # Generate PDF
-                                    pdf = letter_format.create_pdf(sel.content, to_obj, from_obj, tier=sel.tier)
-                                    
-                                    # Send
+                                    pdf = letter_format.create_pdf(sel.content, to_obj, from_obj, tier=getattr(sel, 'tier', 'Standard'))
                                     res = mailer.send_letter(pdf, to_obj, from_obj)
                                     if res:
                                         st.success("Sent!")

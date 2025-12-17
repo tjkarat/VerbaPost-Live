@@ -158,15 +158,20 @@ def cb_select_tier(tier, price, user_email):
     Robust callback that sets the tier and moves to workspace.
     """
     try:
+        # 1. Clean URL to prevent router traps
         st.query_params.clear()
+        
+        # 2. Set State
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
-        st.session_state.app_mode = "workspace"
+        st.session_state.app_mode = "workspace" # <--- Critical: Force to Workspace
         
+        # 3. Create Draft (Safely)
         if user_email:
             _handle_draft_creation(user_email, tier, price)
             
     except Exception as e:
+        # Log error but DO NOT crash. Ensure user gets to workspace.
         print(f"Draft creation warning: {e}")
         st.session_state.app_mode = "workspace"
 
@@ -224,9 +229,11 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
+    # Pass `u_email` explicitly to the callback
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
+        # Unique key avoids conflicts
         st.button("Select Heirloom", key="btn_store_heirloom_product", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
