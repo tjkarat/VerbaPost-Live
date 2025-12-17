@@ -67,7 +67,8 @@ def _ensure_profile_loaded():
                 st.session_state.profile_synced = True 
                 st.rerun()
         except Exception as e:
-            st.error(f"Database Error: {e}")
+            # Swallow error to prevent crash loop, but log it
+            print(f"Profile Load Error: {e}")
 
 # --- CSS INJECTOR ---
 def inject_custom_css(text_size=16):
@@ -155,23 +156,17 @@ def _handle_draft_creation(email, tier, price):
 def cb_select_tier(tier, price, user_email):
     """
     Robust callback that sets the tier and moves to workspace.
-    Handles 'Heirloom' safely.
     """
     try:
-        # 1. Clean URL to prevent router traps
         st.query_params.clear()
-        
-        # 2. Set State
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
-        st.session_state.app_mode = "workspace" # <--- Critical: Force to Workspace
+        st.session_state.app_mode = "workspace"
         
-        # 3. Create Draft (Safely)
         if user_email:
             _handle_draft_creation(user_email, tier, price)
             
     except Exception as e:
-        # Log error but DO NOT crash. Ensure user gets to workspace.
         print(f"Draft creation warning: {e}")
         st.session_state.app_mode = "workspace"
 
@@ -232,7 +227,6 @@ def render_store_page():
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        # FIX: Unique key 'btn_store_heirloom_product' avoids conflict with Dashboard button
         st.button("Select Heirloom", key="btn_store_heirloom_product", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
@@ -548,28 +542,7 @@ def render_application():
         st.rerun()
 
 def render_main():
-    def nav_to_store():
-        st.session_state.app_mode = "store"
-    def nav_to_heirloom():
-        st.session_state.app_mode = "heirloom"
-        if "view" in st.query_params:
-            del st.query_params["view"]
-    def nav_to_admin():
-        st.session_state.app_mode = "admin"
-
-    if st.session_state.get("authenticated"):
-        with st.sidebar:
-            st.title("VerbaPost System")
-            st.button("🏠 Home", use_container_width=True, key="sb_home", on_click=nav_to_store)
-            st.button("🕰️ Heirloom Dashboard", use_container_width=True, key="sb_heirloom", on_click=nav_to_heirloom)
-            st.markdown("---")
-            if secrets_manager:
-                user_email = st.session_state.get("user_email", "").lower().strip()
-                raw_admin = secrets_manager.get_secret("admin.email")
-                admin_email = raw_admin.lower().strip() if raw_admin else ""
-                if user_email and admin_email and user_email == admin_email:
-                    st.button("🔐 Admin Console", use_container_width=True, key="sb_admin", on_click=nav_to_admin)
-    
+    # Only render content. Sidebar is handled by main.py
     render_application()
 
 if __name__ == "__main__":
