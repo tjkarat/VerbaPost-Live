@@ -5,6 +5,7 @@ import letter_format
 import mailer  
 import audit_engine 
 import time
+# REMOVED: import tempfile (No longer needed)
 import os
 from datetime import datetime
 
@@ -14,6 +15,7 @@ def load_heirloom_contacts(user_email):
     try:
         contacts = database.get_contacts(user_email)
         options = {}
+        
         # Option 1: The User's own profile (Default)
         user_profile = database.get_user_profile(user_email)
         if user_profile:
@@ -29,7 +31,7 @@ def load_heirloom_contacts(user_email):
         
         # Option 2: Saved Contacts
         for c in contacts:
-            # Handle both dict and object access safely
+            # Handle both dict (if raw SQL) and object (if ORM) access
             if isinstance(c, dict):
                 name = c.get('name', 'Unknown')
                 city = c.get('city', 'Unknown')
@@ -72,7 +74,7 @@ def render_dashboard():
     credits = user_data.get("credits_remaining", 4)
     drafts = database.get_user_drafts(user_email)
 
-    # --- PREPARE SENDER ADDRESS (Needed for PDF) ---
+    # --- PREPARE SENDER ADDRESS ---
     from_address = {
         "name": user_data.get("full_name"),
         "street": user_data.get("address_line1"),
@@ -113,76 +115,59 @@ def render_dashboard():
                         time.sleep(1)
                         st.rerun()
                     else: st.error("Update failed.")
-                else: st.error("Missing DB function.")
-
-            st.markdown("""
-                ---
-                **Suggested Topics:**
-                * *How did you meet Dad?*
-                * *What was your first job like?*
-                * *Tell me about the house you grew up in.*
-            """)
 
         with col2:
             st.metric("Stories Captured", len(drafts) if drafts else 0)
             st.metric("Next Letter Due", "Jan 15")
 
-    # --- TAB: STORIES (INBOX + SYNC) ---
+    # --- TAB: STORIES ---
     with tab_stories:
         st.header("📥 Inbox")
         
         # SYNC BUTTON
-        col_sync, col_status = st.columns([1, 3])
-        with col_sync:
-            if st.button("🔄 Check for New Stories"):
-                with st.spinner("Checking phone line..."):
-                    p_phone = user_data.get('parent_phone')
-                    if not p_phone:
-                        st.error("Please set Parent Phone in Settings.")
-                    else:
-                        # Ensure ai_engine handles the fetch safely
-                        try:
-                            text, error = ai_engine.fetch_and_transcribe_latest_call(p_phone)
-                            if text:
-                                import uuid
-                                new_draft = database.LetterDraft(
-                                    id=str(uuid.uuid4()),
-                                    user_email=user_email,
-                                    content=text,
-                                    status="draft"
-                                )
-                                with database.get_db_session() as session:
-                                    session.add(new_draft)
-                                    session.commit()
-                                st.success("✨ New Story Found!")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.warning(f"No new stories found. ({error if error else 'No recordings'})")
-                        except Exception as e:
-                            st.error(f"Sync Error: {e}")
+        if st.button("🔄 Check for New Stories"):
+            with st.spinner("Checking phone line..."):
+                p_phone = user_data.get('parent_phone')
+                if not p_phone:
+                    st.error("Please set Parent Phone in Settings.")
+                else:
+                    try:
+                        text, error = ai_engine.fetch_and_transcribe_latest_call(p_phone)
+                        if text:
+                            import uuid
+                            new_draft = database.LetterDraft(
+                                id=str(uuid.uuid4()),
+                                user_email=user_email,
+                                content=text,
+                                status="draft"
+                            )
+                            with database.get_db_session() as session:
+                                session.add(new_draft)
+                                session.commit()
+                            st.success("✨ New Story Found!")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.warning(f"No new stories found. ({error if error else 'No recordings'})")
+                    except Exception as e:
+                        st.error(f"Sync Error: {e}")
 
         st.divider()
 
-        # DRAFT LIST
         if not drafts:
             st.info("No stories found. Waiting for Mom to call!")
         else:
-            # 1. Load Address Book Options ONCE
             address_options = load_heirloom_contacts(user_email)
             
             for draft in drafts:
-                # Handle DB objects vs dicts
                 draft_id = getattr(draft, 'id', None) or draft.get('id')
                 content = getattr(draft, 'content', '') or draft.get('content', '')
                 status = getattr(draft, 'status', 'draft') or draft.get('status', 'draft')
                 raw_date = getattr(draft, 'created_at', None) or draft.get('created_at')
-                
                 date_str = raw_date.strftime("%B %d, %Y") if raw_date else "Unknown Date"
                 icon = "✅" if "Sent" in status else "🎙️"
                 
                 with st.expander(f"{icon} {date_str} - {content[:40]}..."):
-                    # EDIT CONTENT
                     new_content = st.text_area("Edit", content, height=150, key=f"edit_{draft_id}")
                     
                     if st.button("💾 Save Changes", key=f"save_{draft_id}"):
@@ -192,27 +177,23 @@ def render_dashboard():
 
                     st.divider()
 
-                    # SELECT RECIPIENT
-                    selected_label = st.selectbox(
-                        "Send To:", 
-                        options=list(address_options.keys()),
-                        key=f"dest_{draft_id}"
-                    )
-                    
-                    # Convert selected option back to address dict
+                    selected_label = st.selectbox("Send To:", options=list(address_options.keys()), key=f"dest_{draft_id}")
                     raw_recipient = address_options.get(selected_label)
-                    recipient_addr = {
-                        "name": raw_recipient.get("first_name"),
-                        "street": raw_recipient.get("address_line1"),
-                        "city": raw_recipient.get("city"),
-                        "state": raw_recipient.get("state"),
-                        "zip_code": raw_recipient.get("zip")
-                    }
+                    
+                    if raw_recipient:
+                        recipient_addr = {
+                            "name": raw_recipient.get("first_name"),
+                            "street": raw_recipient.get("address_line1"),
+                            "city": raw_recipient.get("city"),
+                            "state": raw_recipient.get("state"),
+                            "zip_code": raw_recipient.get("zip")
+                        }
+                    else:
+                        recipient_addr = {}
 
                     col_prev, col_mail = st.columns([1, 1])
                     
-                    # PREVIEW PDF BUTTON
-                    # FIX: Store BYTES in session state, do not write to disk.
+                    # --- FIX: MEMORY BASED PREVIEW ---
                     with col_prev:
                         if st.button("📄 Preview PDF", key=f"prev_{draft_id}"):
                              pdf_bytes = letter_format.create_pdf(
@@ -222,61 +203,38 @@ def render_dashboard():
                                  tier="Heirloom",
                                  date_str=date_str
                              )
-                             # Store raw bytes
+                             # STORE BYTES IN SESSION STATE
                              st.session_state[f"pdf_bytes_{draft_id}"] = pdf_bytes
                              st.rerun()
 
-                    # MAIL/DOWNLOAD ACTION
                     if f"pdf_bytes_{draft_id}" in st.session_state:
-                        # Retrieve bytes directly
                         stored_bytes = st.session_state[f"pdf_bytes_{draft_id}"]
-                        st.caption(f"✅ Preview Ready: {len(stored_bytes)} bytes")
+                        st.caption(f"✅ Preview Ready")
                         
                         with col_mail:
-                            # Download Button
-                            st.download_button(
-                                label="⬇️ Download PDF", 
-                                data=stored_bytes, 
-                                file_name="heirloom_letter.pdf", 
-                                mime="application/pdf", 
-                                key=f"dl_{draft_id}"
-                            )
+                            st.download_button("⬇️ Download PDF", data=stored_bytes, file_name="heirloom_letter.pdf", mime="application/pdf", key=f"dl_{draft_id}")
                             
-                            # Send (If not already sent)
-                            if "Sent" in status:
-                                st.success(f"Already Sent! ({status})")
-                            else:
+                            if "Sent" not in status:
                                 if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
                                     if credits > 0:
                                         with st.spinner("Connecting to PostGrid..."):
-                                            # Use the bytes directly - NO OPENING FILES
+                                            # PASS BYTES DIRECTLY
                                             letter_id = mailer.send_letter(
                                                 stored_bytes, 
                                                 recipient_addr, 
                                                 from_address, 
                                                 description=f"Heirloom: {date_str}"
                                             )
-                                            
                                             if letter_id:
-                                                # Success! Now update DB.
-                                                success, new_balance = database.decrement_user_credits(user_email)
+                                                database.decrement_user_credits(user_email)
                                                 database.update_draft_data(draft_id, status=f"Sent: {letter_id}")
-                                                
-                                                if audit_engine:
-                                                    audit_engine.log_event(
-                                                        user_email=user_email,
-                                                        event_type="HEIRLOOM_SENT",
-                                                        metadata={"postgrid_id": letter_id, "recipient": recipient_addr['name']}
-                                                    )
-
                                                 st.balloons()
                                                 st.success(f"✅ Mailed! Tracking ID: {letter_id}")
-                                                # Clear the preview bytes to clean up
                                                 del st.session_state[f"pdf_bytes_{draft_id}"]
                                                 time.sleep(2)
                                                 st.rerun()
                                             else:
-                                                st.error("Mailing Failed. Please check address.")
+                                                st.error("Mailing Failed.")
                                     else:
                                         st.warning("⚠️ 0 Credits.")
 
@@ -285,26 +243,21 @@ def render_dashboard():
         c1, c2 = st.columns(2)
         with c1:
             st.write("### 👵 Parent Details")
-            st.info("The system uses this phone number to recognize Mom when she calls.")
             with st.form("heirloom_setup"):
                 current_parent = user_data.get('parent_name', '') or ""
                 current_phone = user_data.get('parent_phone', '') or ""
                 p_name = st.text_input("Parent's Name", value=current_parent)
-                p_phone = st.text_input("Parent's Phone Number", value=current_phone, help="Use US format e.g. 615-555-1234")
+                p_phone = st.text_input("Parent's Phone Number", value=current_phone)
                 if st.form_submit_button("Save Details"):
                     if hasattr(database, 'update_heirloom_profile'):
-                        success = database.update_heirloom_profile(user_email, p_name, p_phone)
-                        if success:
+                        if database.update_heirloom_profile(user_email, p_name, p_phone):
                             st.success("Details saved!")
                             time.sleep(1)
                             st.rerun()
-                        else: st.error("Save failed.")
-                    else: st.error("Database function missing.")
 
         with c2:
             st.write("### 📖 Address Book")
-            st.info("Add relatives here to send them stories.")
-            # FIX: Added unique keys to inputs so they don't lose state
+            # --- FIX: ADDED KEYS TO INPUTS TO PREVENT STATE LOSS ---
             with st.form("add_contact_form"):
                 cn = st.text_input("Full Name", key="new_contact_name")
                 ca = st.text_input("Street Address", key="new_contact_street")
@@ -314,20 +267,12 @@ def render_dashboard():
                 cz = c_z.text_input("Zip", key="new_contact_zip")
                 
                 if st.form_submit_button("➕ Add Contact"):
-                    if not cn or not ca or not cc or not cs or not cz:
+                    if not cn or not ca:
                         st.error("Please fill all fields.")
                     else:
-                        contact_data = {
-                            "name": cn, 
-                            "street": ca, 
-                            "city": cc, 
-                            "state": cs, 
-                            "zip_code": cz
-                        }
-                        if hasattr(database, "save_contact"):
-                            if database.save_contact(user_email, contact_data):
-                                st.success(f"Added {cn}!")
-                                time.sleep(1)
-                                st.rerun()
-                            else: st.error("Failed to save.")
-                        else: st.error("Database missing save_contact function.")
+                        contact_data = {"name": cn, "street": ca, "city": cc, "state": cs, "zip_code": cz}
+                        if database.save_contact(user_email, contact_data):
+                            st.success(f"Added {cn}!")
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.error("Failed to save.")

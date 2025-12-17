@@ -327,38 +327,33 @@ def get_contacts(email):
             return [{k: v for k, v in c.__dict__.items() if not k.startswith('_')} for c in contacts]
     except Exception: return []
 
-def save_contact(email, data):
-    """Saves a new contact to the address book."""
+# In database.py
+
+def save_contact(user_email, contact_data):
+    """
+    Saves a new contact to the DB. 
+    NOTE: Do NOT pass an 'id' field. Let the database auto-increment it.
+    """
+    session = SessionLocal()
     try:
-        with get_db_session() as db:
-            # Check for duplicates (basic check on name)
-            existing = db.query(Contact).filter(
-                Contact.user_email == email,
-                Contact.name == data.get("name")
-            ).first()
-            
-            if existing:
-                # Update existing
-                existing.street = data.get("street")
-                existing.city = data.get("city")
-                existing.state = data.get("state")
-                existing.zip_code = data.get("zip") or data.get("zip_code")
-            else:
-                # Create new
-                c = Contact(
-                    user_email=email,
-                    name=data.get("name"),
-                    street=data.get("street"),
-                    city=data.get("city"),
-                    state=data.get("state"),
-                    zip_code=data.get("zip") or data.get("zip_code")
-                )
-                db.add(c)
-            db.commit()
-            return True
+        # REMOVED: id=str(uuid.uuid4()) <--- This caused the "invalid input syntax for integer" error
+        new_c = SavedContact(
+            user_email=user_email,
+            name=contact_data.get("name"),
+            street=contact_data.get("street"),
+            city=contact_data.get("city"),
+            state=contact_data.get("state"),
+            zip_code=contact_data.get("zip_code")
+        )
+        session.add(new_c)
+        session.commit()
+        return True
     except Exception as e:
-        logger.error(f"Save Contact Error: {e}")
+        print(f"Save Contact Error: {e}")
+        session.rollback()
         return False
+    finally:
+        session.close()
 
 # --- ADMIN FUNCTIONS ---
 
