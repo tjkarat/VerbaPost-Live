@@ -56,21 +56,16 @@ def validate_address(address_dict):
         return False, {"error": "Missing critical fields"}
 
     try:
-        # FIX: Use /contacts to validate instead of /verifications
-        # This works with your Print & Mail key.
+        # Use /contacts to validate address syntax
         response = requests.post(
             url = f"{BASE_URL}/contacts", 
             auth=(api_key, ""),
-            json=pg_addr,  # Payload is the same
+            json=pg_addr,
             timeout=10
         )
         
         if response.status_code in [200, 201]:
-            # Success! The address is valid and PostGrid accepted it.
             data = response.json()
-            
-            # Map the returned 'contact' data back to our expected format
-            # so the UI can autofill the "corrected" address
             standardized_data = {
                 "address_line1": data.get("addressLine1"),
                 "address_line2": data.get("addressLine2"),
@@ -82,7 +77,6 @@ def validate_address(address_dict):
             return True, standardized_data
             
         elif response.status_code == 400:
-            # 400 usually means validation failed (e.g. invalid state/zip combo)
             err_msg = response.json().get("error", {}).get("message", "Invalid Address")
             return False, {"error": err_msg}
             
@@ -106,14 +100,33 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
         return False
 
     try:
+        # 1. Create Contacts First (Recommended by PostGrid Best Practices)
+        # This ensures we get valid IDs before trying to send the letter
+        
+        # Create To Contact
+        r_to = requests.post(f"{BASE_URL}/contacts", auth=(api_key, ""), json=pg_to)
+        if r_to.status_code not in [200, 201]:
+            print(f"❌ Recipient Error: {r_to.text}")
+            return False
+        to_id = r_to.json().get("id")
+        
+        # Create From Contact
+        r_from = requests.post(f"{BASE_URL}/contacts", auth=(api_key, ""), json=pg_from)
+        if r_from.status_code not in [200, 201]:
+            print(f"❌ Sender Error: {r_from.text}")
+            return False
+        from_id = r_from.json().get("id")
+
+        # 2. Upload PDF & Create Letter
+        # We use multipart/form-data for the PDF file
         files = { 'pdf': ('letter.pdf', pdf_bytes, 'application/pdf') }
         
         data = {
-            'to': json.dumps(pg_to),
-            'from': json.dumps(pg_from),
+            'to': to_id,     # Use ID reference
+            'from': from_id, # Use ID reference
             'description': description,
-            'color': True,
-            'express': True,
+            'color': 'true',
+            'express': 'true',
             'addressPlacement': 'top_first_page',
             'envelopeType': 'standard_double_window'
         }
@@ -121,6 +134,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
         if extra_service:
             data['extraService'] = extra_service
 
+        # The endpoint MUST be /letters in the print-mail/v1 namespace
         response = requests.post(
             f"{BASE_URL}/letters",
             auth=(api_key, ""),
@@ -133,7 +147,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
             print(f"✅ Letter Sent! ID: {response.json().get('id')}")
             return True
         else:
-            print(f"❌ PostGrid Error: {response.text}")
+            print(f"❌ PostGrid Letter Error: {response.text}")
             return False
 
     except Exception as e:
