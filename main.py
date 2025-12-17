@@ -64,9 +64,12 @@ def get_module(module_name):
         logger.error(f"Failed to load {module_name}: {e}")
         return None
 
-# --- SECRET MANAGER IMPORT ---
-try: import secrets_manager
-except ImportError: secrets_manager = None
+# --- SECRET MANAGER IMPORT (HARDENED) ---
+# FIX: Catch general Exception because Streamlit sometimes throws KeyError on hot-reload
+try: 
+    import secrets_manager
+except Exception: 
+    secrets_manager = None
 
 # --- MAIN LOGIC ---
 def main():
