@@ -151,26 +151,29 @@ def _handle_draft_creation(email, tier, price):
         st.session_state.current_draft_id = d_id
     return d_id
 
-# --- GLOBAL CALLBACKS (Now with URL Cleaning) ---
+# --- GLOBAL CALLBACKS ---
 def cb_select_tier(tier, price, user_email):
     """
-    Sets the tier, cleans the URL, and moves to workspace.
+    Robust callback that sets the tier and moves to workspace.
+    Handles 'Heirloom' safely.
     """
     try:
-        # 1. Clean URL to prevent router traps (e.g. ?view=heirloom)
+        # 1. Clean URL to prevent router traps
         st.query_params.clear()
         
         # 2. Set State
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
-        st.session_state.app_mode = "workspace"
+        st.session_state.app_mode = "workspace" # <--- Critical: Force to Workspace
         
-        # 3. Create Draft
+        # 3. Create Draft (Safely)
         if user_email:
             _handle_draft_creation(user_email, tier, price)
             
     except Exception as e:
+        # Log error but DO NOT crash. Ensure user gets to workspace.
         print(f"Draft creation warning: {e}")
+        st.session_state.app_mode = "workspace"
 
 # --- PAGE RENDERERS ---
 
@@ -226,12 +229,11 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
-    # We now pass `u_email` explicitly to the callback
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        # FIX: Ensure key is unique
-        st.button("Select Heirloom", key="btn_heirloom_store", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
+        # FIX: Unique key 'btn_store_heirloom_product' avoids conflict with Dashboard button
+        st.button("Select Heirloom", key="btn_store_heirloom_product", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
     with b4:
