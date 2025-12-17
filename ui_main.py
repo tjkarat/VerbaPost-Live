@@ -648,39 +648,63 @@ def render_application():
         st.session_state.app_mode = "splash"
         st.rerun()
 
+# --- MODIFIED: RENDER_MAIN WITH CALLBACKS ---
 def render_main():
     """
     Main Entry Point.
     Handles Sidebar Navigation and then renders the correct page.
     """
     
+    # --- NAVIGATION CALLBACKS (Fixes the Rerun/State issues) ---
+    def nav_to_store():
+        st.session_state.app_mode = "store"
+        
+    def nav_to_heirloom():
+        st.session_state.app_mode = "heirloom"
+        # Clear 'view' param so it doesn't get stuck
+        if "view" in st.query_params:
+            del st.query_params["view"]
+
+    def nav_to_admin():
+        st.session_state.app_mode = "admin"
+
     # --- SIDEBAR NAVIGATION (Visible when logged in) ---
     if st.session_state.get("authenticated"):
         with st.sidebar:
             st.title("VerbaPost System")
             
-            # 🏠 HOME BUTTON (Fixed with key)
-            if st.button("🏠 Home", use_container_width=True, key="sb_home"):
-                st.session_state.app_mode = "store"
-                st.rerun()
+            # 🏠 HOME BUTTON (Updated to use Callback)
+            # Note: on_click triggers a rerun automatically, so no st.rerun() needed
+            st.button(
+                "🏠 Home", 
+                use_container_width=True, 
+                key="sb_home", 
+                on_click=nav_to_store
+            )
                 
-            # 🕰️ HEIRLOOM BUTTON (Fixed with key)
-            if st.button("🕰️ Heirloom Dashboard", use_container_width=True, key="sb_heirloom"):
-                st.session_state.app_mode = "heirloom"
-                st.rerun()
+            # 🕰️ HEIRLOOM BUTTON (Updated to use Callback)
+            st.button(
+                "🕰️ Heirloom Dashboard", 
+                use_container_width=True, 
+                key="sb_heirloom", 
+                on_click=nav_to_heirloom
+            )
                 
             st.markdown("---")
 
-            # 🔐 ADMIN BUTTON (Fixed with key)
+            # 🔐 ADMIN BUTTON (Updated to use Callback)
             if secrets_manager:
                 user_email = st.session_state.get("user_email", "").lower().strip()
                 raw_admin = secrets_manager.get_secret("admin.email")
                 admin_email = raw_admin.lower().strip() if raw_admin else ""
                 
                 if user_email and admin_email and user_email == admin_email:
-                    if st.button("🔐 Admin Console", use_container_width=True, key="sb_admin"):
-                        st.session_state.app_mode = "admin"
-                        st.rerun()
+                    st.button(
+                        "🔐 Admin Console", 
+                        use_container_width=True, 
+                        key="sb_admin", 
+                        on_click=nav_to_admin
+                    )
     
     # --- RENDER MAIN CONTENT ---
     render_application()
