@@ -331,29 +331,26 @@ def get_contacts(email):
 
 def save_contact(user_email, contact_data):
     """
-    Saves a new contact to the DB. 
-    NOTE: Do NOT pass an 'id' field. Let the database auto-increment it.
+    Saves a new contact to the DB.
+    Uses get_db_session() to avoid NameErrors.
     """
-    session = SessionLocal()
     try:
-        # REMOVED: id=str(uuid.uuid4()) <--- This caused the "invalid input syntax for integer" error
-        new_c = SavedContact(
-            user_email=user_email,
-            name=contact_data.get("name"),
-            street=contact_data.get("street"),
-            city=contact_data.get("city"),
-            state=contact_data.get("state"),
-            zip_code=contact_data.get("zip_code")
-        )
-        session.add(new_c)
-        session.commit()
-        return True
+        with get_db_session() as session:
+            # Create contact WITHOUT manually setting an ID (Let DB handle it)
+            new_c = SavedContact(
+                user_email=user_email,
+                name=contact_data.get("name"),
+                street=contact_data.get("street"),
+                city=contact_data.get("city"),
+                state=contact_data.get("state"),
+                zip_code=contact_data.get("zip_code")
+            )
+            session.add(new_c)
+            session.commit()
+            return True
     except Exception as e:
         print(f"Save Contact Error: {e}")
-        session.rollback()
         return False
-    finally:
-        session.close()
 
 # --- ADMIN FUNCTIONS ---
 
