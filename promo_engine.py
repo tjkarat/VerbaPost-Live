@@ -52,6 +52,7 @@ def validate_code(code):
             
     except Exception as e:
         logger.error(f"Error validating code {code}: {e}")
+        # SAFEGUARD: Return tuple to prevent UI crash
         return False, f"System Error: {str(e)}"
 
 def log_usage(code, user_email):

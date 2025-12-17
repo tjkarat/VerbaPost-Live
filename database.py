@@ -392,3 +392,13 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Get Orders Error: {e}")
         return []
+    from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from datetime import datetime  # <--- Make sure this is "from datetime import datetime"
+
+# --- ADD THIS MISSING CLASS ---
+class PromoLog(Base):
+    __tablename__ = 'promo_logs'
+    id = Column(Integer, primary_key=True)
+    code = Column(String, index=True)
+    user_email = Column(String)
+    used_at = Column(DateTime, default=datetime.utcnow) # This requires "from datetime import datetime"
