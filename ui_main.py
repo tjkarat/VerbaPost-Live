@@ -465,8 +465,10 @@ def render_review_page():
                 else:
                     std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                 std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                raw_pdf = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                pdf_bytes = bytes(raw_pdf)
+                
+                # FIX: Receive bytes directly from letter_format
+                pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
+                
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
@@ -482,6 +484,7 @@ def render_review_page():
         with st.expander("🎟️ Have a Promo Code?"):
             code = st.text_input("Enter Code").upper()
             if st.button("Apply Code"):
+                # FIX: Now correctly unpacks the tuple (bool, value)
                 valid, val = promo_engine.validate_code(code)
                 if valid:
                     st.session_state.applied_promo = code

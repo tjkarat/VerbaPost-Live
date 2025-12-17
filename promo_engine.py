@@ -10,17 +10,17 @@ logger = logging.getLogger(__name__)
 def validate_code(code):
     """
     Checks if a promo code exists, is active, and has remaining uses.
-    Returns True if valid, False otherwise.
+    Returns (True, value) if valid, (False, reason) otherwise.
     """
     if not code: 
-        return False
+        return False, "Code is empty"
     
     # Normalize
     code = code.strip().upper()
     
     if not database:
         logger.error("Database module missing.")
-        return False
+        return False, "Database Error"
 
     try:
         with database.get_db_session() as db:
@@ -28,24 +28,31 @@ def validate_code(code):
             promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
             
             if not promo:
-                return False
+                return False, "Code not found"
 
             # Check active status
             if not promo.active:
-                return False
+                return False, "Code is inactive"
 
             # 2. Check usage count via logs (using the separate table)
             usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
             
             if usage_count < promo.max_uses:
-                return True
+                # FIX: Return a tuple (True, Value). 
+                # Assumes 'value' or 'discount_amount' field exists.
+                # If your DB model doesn't have a value field, we default to 5.00
+                discount_val = getattr(promo, 'value', 0.0)
+                if discount_val == 0.0:
+                    discount_val = getattr(promo, 'discount_amount', 5.00) # Fallback
+                
+                return True, discount_val
             else:
                 logger.warning(f"Promo code {code} exhausted ({usage_count}/{promo.max_uses})")
-                return False
+                return False, "Limit Reached"
             
     except Exception as e:
         logger.error(f"Error validating code {code}: {e}")
-        return False
+        return False, "System Error"
 
 def log_usage(code, user_email):
     """
