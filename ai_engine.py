@@ -33,23 +33,21 @@ def get_openai_client():
         
     return openai.OpenAI(api_key=api_key)
 
-# --- PHASE 1: MANUAL UPLOAD TRANSCRIPTION (FIXED) ---
+# --- PHASE 1: MANUAL UPLOAD TRANSCRIPTION ---
 
 def transcribe_audio(audio_file_obj):
     """
-    Transcribes audio.
-    FIX: Handles both direct file objects AND string file paths.
+    Transcribes audio. Handles both direct file objects AND string file paths.
     """
     client = get_openai_client()
     if not client:
         return "Error: Client not configured."
 
     try:
-        # CASE A: Input is a file path (String) - e.g. from ui_main.py
+        # CASE A: Input is a file path (String)
         if isinstance(audio_file_obj, str):
             if not os.path.exists(audio_file_obj):
                 return "Error: Temporary audio file not found."
-                
             with open(audio_file_obj, "rb") as f:
                 transcript = client.audio.transcriptions.create(
                     model="whisper-1", 
@@ -70,13 +68,10 @@ def transcribe_audio(audio_file_obj):
     except Exception as e:
         return f"Transcription Error: {e}"
 
-# --- PHASE 2: TWILIO FETCH & TRANSCRIBE ---
+# --- PHASE 2: TWILIO INTEGRATION ---
 
-def fetch_and_transcribe_latest_call(parent_phone):
-    """
-    Connects to Twilio, finds the last call, downloads audio, and transcribes it.
-    """
-    # 1. Setup Twilio Credentials safely
+def _get_twilio_client():
+    """Helper to get authenticated Twilio client."""
     account_sid = None
     auth_token = None
 
@@ -84,22 +79,28 @@ def fetch_and_transcribe_latest_call(parent_phone):
         account_sid = secrets_manager.get_secret("twilio.account_sid")
         auth_token = secrets_manager.get_secret("twilio.auth_token")
     
-    # QA Fallback
     if not account_sid and "twilio" in st.secrets:
         account_sid = st.secrets["twilio"]["account_sid"]
         auth_token = st.secrets["twilio"]["auth_token"]
 
     if not account_sid or not auth_token:
-        return None, "Twilio credentials missing. Check secrets/env vars."
-
+        return None
+    
     try:
-        client = Client(account_sid, auth_token)
+        return Client(account_sid, auth_token)
     except Exception as e:
-        return None, f"Twilio Connection Error: {e}"
+        logger.error(f"Twilio Client Error: {e}")
+        return None
 
-    # 2. Find calls from this specific phone number
+def fetch_and_transcribe_latest_call(parent_phone):
+    """
+    Finds the last call from a specific number, downloads, and transcribes.
+    """
+    client = _get_twilio_client()
+    if not client: return None, "Twilio Config Missing"
+
     try:
-        # Clean phone number just in case (remove spaces/dashes)
+        # Clean phone number
         clean_phone = "".join(filter(lambda x: x.isdigit() or x == '+', str(parent_phone)))
         calls = client.calls.list(from_=clean_phone, limit=5)
     except Exception as e:
@@ -108,19 +109,14 @@ def fetch_and_transcribe_latest_call(parent_phone):
     if not calls:
         return None, "No recent calls found from this number."
 
-    # 3. Look for a call with a recording
+    # Look for recording
     target_recording_url = None
-    
     for call in calls:
         try:
             recordings = call.recordings.list()
             if recordings:
-                # FIX: Build the URL manually using the relative URI.
-                # 'media_url' attribute is unreliable in some library versions.
                 rec = recordings[0]
-                # Construct: https://api.twilio.com + uri + .mp3
-                # rec.uri typically looks like "/2010-04-01/Accounts/AC.../Recordings/RE..."
-                base_uri = rec.uri.replace(".json", "") # Ensure we don't double extension
+                base_uri = rec.uri.replace(".json", "")
                 target_recording_url = f"https://api.twilio.com{base_uri}.mp3"
                 break
         except Exception:
@@ -129,29 +125,23 @@ def fetch_and_transcribe_latest_call(parent_phone):
     if not target_recording_url:
         return None, "Found calls, but no recordings found."
 
-    # 4. Download the Audio
+    # Download & Transcribe
     try:
-        # We must authorize the download request itself
+        account_sid = client.username
+        auth_token = client.password
         response = requests.get(target_recording_url, auth=(account_sid, auth_token))
+        
         if response.status_code != 200:
-            return None, f"Failed to download audio. Status: {response.status_code}"
-    except Exception as e:
-        return None, f"Download Exception: {e}"
-
-    # 5. Save to a temporary file for OpenAI
-    temp_dir = tempfile.gettempdir()
-    temp_path = os.path.join(temp_dir, f"temp_story_{int(time.time())}.mp3")
-    
-    try:
+            return None, f"Download failed: {response.status_code}"
+            
+        temp_dir = tempfile.gettempdir()
+        temp_path = os.path.join(temp_dir, f"temp_story_{int(time.time())}.mp3")
+        
         with open(temp_path, "wb") as f:
             f.write(response.content)
 
-        # 6. Transcribe (Using internal logic which handles file opening)
-        # Note: We can reuse the logic above, or call client directly.
-        # Calling client directly here to ensure the temp file is open correctly in this specific context.
         client_ai = get_openai_client()
-        if not client_ai:
-             return None, "OpenAI Client failed."
+        if not client_ai: return None, "OpenAI Failed"
 
         with open(temp_path, "rb") as audio_file:
             transcript = client_ai.audio.transcriptions.create(
@@ -160,12 +150,32 @@ def fetch_and_transcribe_latest_call(parent_phone):
                 response_format="text"
             )
         
+        if os.path.exists(temp_path): os.remove(temp_path)
         return transcript, None
 
     except Exception as e:
-        return None, f"Transcription failed: {e}"
-        
-    finally:
-        # Cleanup temp file
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        return None, f"Process failed: {e}"
+
+def get_recent_call_logs(limit=20):
+    """
+    ADMIN TOOL: Fetches raw call log metadata to find 'Ghost Calls'.
+    """
+    client = _get_twilio_client()
+    if not client: return []
+
+    try:
+        calls = client.calls.list(limit=limit)
+        data = []
+        for c in calls:
+            data.append({
+                "from": c.from_,
+                "to": c.to,
+                "status": c.status,
+                "duration": c.duration,
+                "date": c.date_created,
+                "sid": c.sid
+            })
+        return data
+    except Exception as e:
+        logger.error(f"Log Fetch Error: {e}")
+        return []

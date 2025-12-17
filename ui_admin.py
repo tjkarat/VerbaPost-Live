@@ -9,17 +9,18 @@ from datetime import datetime
 import database
 import secrets_manager
 
-# Import Engines for Retry Functionality
+# Import Engines
 try: import mailer
 except ImportError: mailer = None
 try: import letter_format
 except ImportError: letter_format = None
 try: import address_standard
 except ImportError: address_standard = None
+try: import ai_engine  # Added for Ghost Call tracking
+except ImportError: ai_engine = None
 
 def render_admin_page():
-    # --- AUTH CHECK (Production Safe) ---
-    # Prioritize Env Vars (GCP), Fallback to Secrets (QA)
+    # --- AUTH CHECK ---
     admin_email = os.environ.get("ADMIN_EMAIL") or secrets_manager.get_secret("admin.email")
     admin_pass = os.environ.get("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
     
@@ -38,7 +39,7 @@ def render_admin_page():
                     st.error("Invalid Credentials")
         return
 
-    # --- ADMIN DASHBOARD ---
+    # --- DASHBOARD ---
     st.title("⚙️ VerbaPost Admin Console")
     
     c_exit, c_refresh = st.columns([1, 6])
@@ -50,8 +51,9 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    tab_health, tab_orders, tab_promos, tab_users, tab_logs = st.tabs([
-        "🏥 Health", "📦 Orders", "🎟️ Promos", "👥 Users", "📜 Logs"
+    # ADDED "📞 Ghost Calls" TAB
+    tab_health, tab_orders, tab_ghosts, tab_promos, tab_users, tab_logs = st.tabs([
+        "🏥 Health", "📦 Orders", "📞 Ghost Calls", "🎟️ Promos", "👥 Users", "📜 Logs"
     ])
 
     # --- TAB 1: HEALTH ---
@@ -66,26 +68,18 @@ def render_admin_page():
         except Exception as e:
             db_status = f"❌ Error: {str(e)[:100]}..."
             db_color = "red"
+        st.markdown(f"**Database:** :{db_color}[{db_status}]")
 
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown(f"**Database:** :{db_color}[{db_status}]")
-
-    # --- TAB 2: ORDERS (RESTORED REPAIR TOOL) ---
+    # --- TAB 2: ORDERS ---
     with tab_orders:
         st.subheader("Order Manager")
-        
-        # 1. VIEW ORDERS
         try:
-            # Use the new clean function from database.py
             orders = database.get_all_orders()
             if orders:
                 data = []
                 for o in orders:
-                    # Handle missing dates safely
                     raw_date = o.get('created_at')
                     date_str = raw_date.strftime("%Y-%m-%d %H:%M") if raw_date else "Unknown"
-
                     data.append({
                         "ID": o.get('id'),
                         "Date": date_str,
@@ -97,87 +91,93 @@ def render_admin_page():
                 st.dataframe(pd.DataFrame(data), use_container_width=True)
                 
                 st.divider()
-                
-                # 2. THE RESTORED REPAIR TOOL
                 st.markdown("### 🛠️ Repair & Fulfillment")
                 oid = st.text_input("Enter Order UUID to Fix/Retry") 
+                
+                if oid:
+                    with database.get_db_session() as db:
+                        sel = db.query(database.LetterDraft).filter(database.LetterDraft.id == oid).first()
+                        if not sel:
+                            sel = db.query(database.Letter).filter(database.Letter.id == oid).first()
+                            
+                        if sel:
+                            st.info(f"Editing: {sel.status}")
+                            if st.button("🚀 Force Send (Retry)"):
+                                if not mailer: st.error("Mailer Missing")
+                                else:
+                                    with st.spinner("Retrying..."):
+                                        # Minimal Retry Logic
+                                        user_p = database.get_user_profile(sel.user_email)
+                                        to_obj = {
+                                            "name": getattr(sel, 'to_name', user_p.get('full_name')),
+                                            "address_line1": getattr(sel, 'to_street', user_p.get('address_line1')),
+                                            "city": getattr(sel, 'to_city', user_p.get('address_city')),
+                                            "state": getattr(sel, 'to_state', user_p.get('address_state')),
+                                            "zip": getattr(sel, 'to_zip', user_p.get('address_zip'))
+                                        }
+                                        from_obj = {"name": "VerbaPost", "address_line1": "123 Memory Lane", "city": "Nashville", "state": "TN", "zip": "37203"}
+                                        pdf = letter_format.create_pdf(sel.content, to_obj, from_obj, tier=getattr(sel, 'tier', 'Standard'))
+                                        if mailer.send_letter(pdf, to_obj, from_obj):
+                                            st.success("Sent!")
+                                            sel.status = "Sent (Admin Retry)"
+                                            db.commit()
+                                        else: st.error("Failed.")
             else:
                 st.info("No orders found.")
-                oid = None
-                
-            if oid:
-                # We need direct session access for repairs
-                with database.get_db_session() as db:
-                    # Look in both tables
-                    sel = db.query(database.LetterDraft).filter(database.LetterDraft.id == oid).first()
-                    if not sel:
-                        sel = db.query(database.Letter).filter(database.Letter.id == oid).first()
-                        
-                    if sel:
-                        st.info(f"Editing Order: {sel.status}")
-                        
-                        c_left, c_right = st.columns([1.5, 1])
-                        
-                        with c_left:
-                            st.markdown("#### 1. Data Repair")
-                            current_content = getattr(sel, 'content', '') or ""
-                            new_content = st.text_area("Letter Content", current_content, height=200)
-                            
-                            if st.button("💾 Save Content Changes"):
-                                sel.content = new_content
-                                db.commit()
-                                st.success("Updated!")
-                                time.sleep(1)
-                                st.rerun()
-
-                        with c_right:
-                            st.markdown("#### 2. Force Actions")
-                            st.warning("Only use if paid but failed.")
-                            
-                            if st.button("🚀 Force Send (Retry)"):
-                                if not mailer: st.error("Mailer Missing"); st.stop()
-                                
-                                with st.spinner("Retrying..."):
-                                    user_p = database.get_user_profile(sel.user_email)
-                                    
-                                    to_obj = {
-                                        "name": getattr(sel, 'to_name', 'Valued Customer'),
-                                        "address_line1": getattr(sel, 'to_street', 'See Profile'),
-                                        "city": getattr(sel, 'to_city', ''),
-                                        "state": getattr(sel, 'to_state', ''),
-                                        "zip": getattr(sel, 'to_zip', '')
-                                    }
-                                    
-                                    if not to_obj['address_line1'] or to_obj['address_line1'] == 'See Profile':
-                                        to_obj = {
-                                            "name": user_p.get('full_name'),
-                                            "address_line1": user_p.get('address_line1'),
-                                            "city": user_p.get('address_city'),
-                                            "state": user_p.get('address_state'),
-                                            "zip": user_p.get('address_zip')
-                                        }
-
-                                    from_obj = {
-                                        "name": "VerbaPost Center",
-                                        "address_line1": "123 Memory Lane",
-                                        "city": "Nashville",
-                                        "state": "TN",
-                                        "zip": "37203"
-                                    }
-
-                                    pdf = letter_format.create_pdf(sel.content, to_obj, from_obj, tier=getattr(sel, 'tier', 'Standard'))
-                                    res = mailer.send_letter(pdf, to_obj, from_obj)
-                                    if res:
-                                        st.success("Sent!")
-                                        sel.status = "Sent (Admin Retry)"
-                                        db.commit()
-                                    else:
-                                        st.error("Failed.")
-
         except Exception as e:
-            st.error(f"Error loading orders: {e}")
+            st.error(f"Error: {e}")
 
-    # --- TAB 3: PROMOS ---
+    # --- TAB 3: GHOST CALLS (NEW) ---
+    with tab_ghosts:
+        st.subheader("👻 Unclaimed Heirloom Calls")
+        st.info("These are phone calls to your Twilio number that did NOT match any user's 'Parent Phone'.")
+        
+        if not ai_engine:
+            st.error("AI Engine missing (Twilio connection required).")
+        else:
+            with st.spinner("Fetching logs from Twilio & Database..."):
+                # 1. Get Twilio Logs
+                calls = ai_engine.get_recent_call_logs(limit=20)
+                
+                # 2. Get Known User Phones
+                users = database.get_all_users()
+                known_numbers = set()
+                for u in users:
+                    p = u.get('parent_phone')
+                    if p:
+                        # Normalize: Remove spaces, dashes, parens
+                        clean = "".join(filter(lambda x: x.isdigit() or x == '+', str(p)))
+                        known_numbers.add(clean)
+                        # Also add version without +1 for safety
+                        if clean.startswith("+1"): known_numbers.add(clean[2:])
+                
+                # 3. Compare
+                ghosts = []
+                for c in calls:
+                    c_from = str(c['from'])
+                    # Strict Check
+                    is_known = False
+                    for k in known_numbers:
+                        if k in c_from: # Loose matching (if known is substring of caller ID)
+                            is_known = True
+                            break
+                    
+                    if not is_known:
+                        ghosts.append({
+                            "Caller ID": c_from,
+                            "Time": c['date'].strftime("%m/%d %H:%M") if c['date'] else "?",
+                            "Duration": f"{c['duration']}s",
+                            "Status": c['status'],
+                            "Action": "UNCLAIMED"
+                        })
+                
+                if ghosts:
+                    st.dataframe(pd.DataFrame(ghosts), use_container_width=True)
+                    st.warning(f"⚠️ Found {len(ghosts)} unclaimed calls. A user might have entered their parent's number incorrectly.")
+                else:
+                    st.success("✅ No ghost calls found. All recent calls match a user account.")
+
+    # --- TAB 4: PROMOS ---
     with tab_promos:
         st.subheader("Manage Discounts")
         with st.expander("➕ Create New Code"):
@@ -188,26 +188,31 @@ def render_admin_page():
                     if database.create_promo_code(c_code, c_val):
                         st.success(f"Created {c_code}")
                         time.sleep(1); st.rerun()
-                    else:
-                        st.error("Failed to create promo.")
-
+                    else: st.error("Failed.")
         promos = database.get_all_promos()
-        if promos:
-            st.dataframe(pd.DataFrame(promos), use_container_width=True)
+        if promos: st.dataframe(pd.DataFrame(promos), use_container_width=True)
 
-    # --- TAB 4: USERS ---
+    # --- TAB 5: USERS ---
     with tab_users:
         st.subheader("User Profiles")
         users = database.get_all_users()
         if users:
-            st.dataframe(pd.DataFrame(users), use_container_width=True)
+            # Mask emails slightly for privacy in screenshot
+            safe_users = []
+            for u in users:
+                safe_users.append({
+                    "Name": u.get("full_name"),
+                    "Email": u.get("email"),
+                    "Parent Phone": u.get("parent_phone", "--"),
+                    "Credits": u.get("credits_remaining")
+                })
+            st.dataframe(pd.DataFrame(safe_users), use_container_width=True)
 
-    # --- TAB 5: LOGS ---
+    # --- TAB 6: LOGS ---
     with tab_logs:
         st.subheader("System Logs")
         logs = database.get_system_logs()
-        if logs:
-            st.dataframe(pd.DataFrame(logs), use_container_width=True)
+        if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
 
 # Safety Alias
 render_admin = render_admin_page
