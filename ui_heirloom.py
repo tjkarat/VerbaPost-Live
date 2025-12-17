@@ -2,7 +2,8 @@ import streamlit as st
 import database
 import ai_engine
 import letter_format
-import mailer  # FIX: Switched from postgrid_engine to the robust mailer
+import mailer  
+import audit_engine # FIX: Import Audit Engine
 import time
 import tempfile
 import os
@@ -252,6 +253,14 @@ def render_dashboard():
                                                     success, new_balance = database.decrement_user_credits(user_email)
                                                     database.update_draft_data(draft_id, status=f"Sent: {letter_id}")
                                                     
+                                                    # FIX: LOG TO AUDIT ENGINE
+                                                    if audit_engine:
+                                                        audit_engine.log_event(
+                                                            user_email=user_email,
+                                                            event_type="HEIRLOOM_SENT",
+                                                            metadata={"postgrid_id": letter_id, "recipient": recipient_addr['name']}
+                                                        )
+
                                                     st.balloons()
                                                     st.success(f"✅ Mailed! Tracking ID: {letter_id}")
                                                     time.sleep(2)
