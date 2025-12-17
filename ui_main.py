@@ -71,10 +71,47 @@ def _ensure_profile_loaded():
 
 # --- CSS INJECTOR (UPDATED FOR ALIGNMENT) ---
 def inject_custom_css(text_size=16):
+    import base64
+    
+    # 1. Load the Custom Font (type_right.ttf)
+    font_face_css = ""
+    try:
+        # ✅ UPDATED FILENAME HERE
+        with open("type_right.ttf", "rb") as f:
+            b64_font = base64.b64encode(f.read()).decode()
+        
+        font_face_css = f"""
+            @font-face {{
+                font-family: 'TypeRight';
+                src: url('data:font/ttf;base64,{b64_font}') format('truetype');
+            }}
+        """
+    except FileNotFoundError:
+        # Fallback if file is missing so app doesn't crash
+        font_face_css = ""
+
+    # 2. Inject CSS
     st.markdown(f"""
         <style>
-        /* Base Text Sizing */
-        .stTextArea textarea, .stTextInput input, p, li, .stMarkdown {{
+        {font_face_css}
+
+        /* Apply Typewriter Font to the Text Input Area */
+        .stTextArea textarea {{
+            font-family: 'TypeRight', 'Courier New', Courier, monospace !important;
+            font-size: {text_size}px !important;
+            line-height: 1.6 !important;
+            background-color: #fdfbf7; /* Slight cream color for paper feel */
+            color: #333;
+        }}
+
+        /* Keep standard inputs readable */
+        .stTextInput input {{
+            font-family: 'Helvetica Neue', sans-serif !important;
+        }}
+        
+        /* Rest of the UI styling */
+        p, li, .stMarkdown {{
+            font-family: 'Helvetica Neue', sans-serif;
             font-size: {text_size}px !important;
             line-height: 1.6 !important;
         }}
@@ -93,81 +130,22 @@ def inject_custom_css(text_size=16):
             justify-content: flex-start;
             gap: 5px;
         }}
-        .price-header {{
-            font-family: 'Helvetica Neue', sans-serif;
-            font-weight: 700;
-            font-size: 1.4rem;
-            color: #1f2937;
-            margin-bottom: 2px;
-            height: 35px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }}
-        .price-sub {{
-            font-size: 0.75rem;
-            font-weight: 600;
-            color: #9ca3af;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin-bottom: 5px;
-        }}
-        .price-tag {{
-            font-size: 2.4rem;
-            font-weight: 800;
-            color: #d93025;
-            margin: 5px 0;
-        }}
-        .price-desc {{
-            font-size: 0.9rem;
-            color: #4b5563;
-            line-height: 1.3;
-            margin-top: auto;
-            padding-bottom: 5px;
-            min-height: 50px;
-        }}
-
-        /* Tab Styling */
-        .stTabs [data-baseweb="tab"] p {{
-            font-size: 1.2rem !important;
-            font-weight: 600 !important;
-        }}
-        .stTabs [data-baseweb="tab"] {{
-            height: 60px;
-            white-space: pre-wrap;
-            background-color: #F0F2F6;
-            border-radius: 8px 8px 0px 0px;
-            gap: 2px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-bottom: none;
-            color: #333;
-        }}
-        .stTabs [aria-selected="true"] {{
-            background-color: #FF4B4B !important;
-            border: 1px solid #FF4B4B !important;
-            color: white !important;
-        }}
-        .stTabs [aria-selected="true"] p {{
-            color: white !important;
-        }}
+        .price-header {{ font-weight: 700; font-size: 1.4rem; color: #1f2937; margin-bottom: 2px; height: 35px; display: flex; align-items: center; justify-content: center; }}
+        .price-sub {{ font-size: 0.75rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 5px; }}
+        .price-tag {{ font-size: 2.4rem; font-weight: 800; color: #d93025; margin: 5px 0; }}
+        .price-desc {{ font-size: 0.9rem; color: #4b5563; line-height: 1.3; margin-top: auto; padding-bottom: 5px; min-height: 50px; }}
         
-        /* Instruction Box */
-        .instruction-box {{
-            background-color: #FEF3C7;
-            border-left: 6px solid #F59E0B;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 4px;
-            color: #000;
-        }}
+        .stTabs [data-baseweb="tab"] p {{ font-size: 1.2rem !important; font-weight: 600 !important; }}
+        .stTabs [data-baseweb="tab"] {{ height: 60px; white-space: pre-wrap; background-color: #F0F2F6; border-radius: 8px 8px 0px 0px; gap: 2px; padding: 10px; border: 1px solid #ccc; border-bottom: none; color: #333; }}
+        .stTabs [aria-selected="true"] {{ background-color: #FF4B4B !important; border: 1px solid #FF4B4B !important; color: white !important; }}
+        .stTabs [aria-selected="true"] p {{ color: white !important; }}
+        
+        .instruction-box {{ background-color: #FEF3C7; border-left: 6px solid #F59E0B; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #000; }}
         
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
     """, unsafe_allow_html=True)
-
-
 # --- HELPER FUNCTIONS ---
 def reset_app_state():
     """Resets app to initial state but keeps login info."""
