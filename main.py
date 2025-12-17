@@ -59,7 +59,6 @@ def get_module(module_name):
         if module_name == "audit_engine": import audit_engine as m; return m
         if module_name == "auth_engine": import auth_engine as m; return m
         if module_name == "seo_injector": import seo_injector as m; return m
-        # ✅ ADDED ANALYTICS MODULE
         if module_name == "analytics": import analytics as m; return m
     except Exception as e:
         logger.error(f"Failed to load {module_name}: {e}")
@@ -71,11 +70,11 @@ except ImportError: secrets_manager = None
 
 # --- MAIN LOGIC ---
 def main():
-    # 1. SEO INJECTION (Phase 1 Goal)
+    # 1. SEO INJECTION
     seo = get_module("seo_injector")
     if seo: seo.inject_meta()
 
-    # 2. ANALYTICS INJECTION (Restored Phase 3 Goal)
+    # 2. ANALYTICS INJECTION
     analytics = get_module("analytics")
     if analytics: analytics.inject_ga()
 
@@ -154,10 +153,13 @@ def main():
     mode = st.session_state.app_mode
     current_email = st.session_state.get("user_email")
 
-    # 7. SIDEBAR
+    # 7. SIDEBAR (FIXED NAVIGATION)
     with st.sidebar:
         st.header("VerbaPost System")
+        
+        # FIX: Explicitly Clear Query Params to escape the "view=heirloom" trap
         if st.button("🏠 Home", use_container_width=True):
+            st.query_params.clear()
             st.session_state.app_mode = "splash"
             st.rerun()
             
@@ -167,7 +169,7 @@ def main():
             
         st.markdown("---")
         
-        # Admin Logic (Hidden unless authorized)
+        # Admin Logic
         admin_email = None
         if secrets_manager:
             raw_admin = secrets_manager.get_secret("admin.email")
@@ -179,10 +181,11 @@ def main():
         if is_admin or (current_email and admin_email and current_email == admin_email):
             st.markdown("### 🛠️ Administration")
             if st.button("🔐 Admin Console", key="sidebar_admin_btn", use_container_width=True):
+                st.query_params.clear() # FIX: Escape trap here too
                 st.session_state.app_mode = "admin"
                 st.rerun()
                 
-        st.caption(f"v3.3.12 | {st.session_state.app_mode}")
+        st.caption(f"v3.3.13 | {st.session_state.app_mode}")
 
     # --- ROUTER LOGIC ---
     view_param = st.query_params.get("view", "store")
@@ -194,10 +197,10 @@ def main():
             ui_heirloom.render_dashboard()
             st.stop() 
         except ImportError:
-            st.error("Heirloom module not found. Check deployments.")
+            st.error("Heirloom module not found.")
             st.stop()
 
-    # 2. If NOT heirloom, run standard logic
+    # 2. Router
     if mode == "splash":
         m = get_module("ui_splash")
         if m: m.render_splash_page()
