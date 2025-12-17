@@ -33,21 +33,40 @@ def get_openai_client():
         
     return openai.OpenAI(api_key=api_key)
 
-# --- PHASE 1: MANUAL UPLOAD TRANSCRIPTION ---
+# --- PHASE 1: MANUAL UPLOAD TRANSCRIPTION (FIXED) ---
 
 def transcribe_audio(audio_file_obj):
-    """Transcribes an uploaded audio file object."""
+    """
+    Transcribes audio.
+    FIX: Handles both direct file objects AND string file paths.
+    """
     client = get_openai_client()
     if not client:
         return "Error: Client not configured."
 
     try:
-        transcript = client.audio.transcriptions.create(
-            model="whisper-1", 
-            file=audio_file_obj,
-            response_format="text"
-        )
-        return transcript
+        # CASE A: Input is a file path (String) - e.g. from ui_main.py
+        if isinstance(audio_file_obj, str):
+            if not os.path.exists(audio_file_obj):
+                return "Error: Temporary audio file not found."
+                
+            with open(audio_file_obj, "rb") as f:
+                transcript = client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=f,
+                    response_format="text"
+                )
+            return transcript
+
+        # CASE B: Input is already an open file / BytesIO
+        else:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file_obj,
+                response_format="text"
+            )
+            return transcript
+
     except Exception as e:
         return f"Transcription Error: {e}"
 
@@ -127,7 +146,9 @@ def fetch_and_transcribe_latest_call(parent_phone):
         with open(temp_path, "wb") as f:
             f.write(response.content)
 
-        # 6. Transcribe
+        # 6. Transcribe (Using internal logic which handles file opening)
+        # Note: We can reuse the logic above, or call client directly.
+        # Calling client directly here to ensure the temp file is open correctly in this specific context.
         client_ai = get_openai_client()
         if not client_ai:
              return None, "OpenAI Client failed."
