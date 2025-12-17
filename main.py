@@ -59,6 +59,8 @@ def get_module(module_name):
         if module_name == "audit_engine": import audit_engine as m; return m
         if module_name == "auth_engine": import auth_engine as m; return m
         if module_name == "seo_injector": import seo_injector as m; return m
+        # ✅ ADDED ANALYTICS MODULE
+        if module_name == "analytics": import analytics as m; return m
     except Exception as e:
         logger.error(f"Failed to load {module_name}: {e}")
         return None
@@ -69,17 +71,21 @@ except ImportError: secrets_manager = None
 
 # --- MAIN LOGIC ---
 def main():
-    # 1. SEO
+    # 1. SEO INJECTION (Phase 1 Goal)
     seo = get_module("seo_injector")
     if seo: seo.inject_meta()
 
+    # 2. ANALYTICS INJECTION (Restored Phase 3 Goal)
+    analytics = get_module("analytics")
+    if analytics: analytics.inject_ga()
+
     params = st.query_params
 
-    # 2. ADMIN BACKDOOR
+    # 3. ADMIN BACKDOOR
     if params.get("view") == "admin":
         st.session_state.app_mode = "admin"
 
-    # 3. HANDLE PAYMENT
+    # 4. HANDLE PAYMENT
     if "session_id" in params:
         session_id = params["session_id"]
         pay_eng = get_module("payment_engine")
@@ -137,18 +143,18 @@ def main():
             if st.button("🔄 Check Again"): st.rerun()
             return
 
-    # 4. PASSWORD RESET
+    # 5. PASSWORD RESET
     elif params.get("type") == "recovery":
         st.session_state.app_mode = "login"
 
-    # 5. INIT STATE
+    # 6. INIT STATE
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
         
     mode = st.session_state.app_mode
     current_email = st.session_state.get("user_email")
 
-    # 6. SIDEBAR
+    # 7. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
         if st.button("🏠 Home", use_container_width=True):
