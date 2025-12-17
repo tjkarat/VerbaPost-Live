@@ -74,10 +74,30 @@ def render_admin_page():
     with tab_orders:
         st.subheader("Order Manager")
         try:
-            orders = database.get_all_orders()
-            if orders:
+            all_orders = database.get_all_orders()
+            if all_orders:
+                # --- PAGINATION LOGIC START ---
+                total_orders = len(all_orders)
+                PAGE_SIZE = 50
+                
+                col_pg1, col_pg2 = st.columns([1, 3])
+                with col_pg1:
+                    # Calculate total pages needed
+                    total_pages = max(1, (total_orders // PAGE_SIZE) + (1 if total_orders % PAGE_SIZE > 0 else 0))
+                    page_num = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
+                
+                # Slice the data for current page
+                start_idx = (page_num - 1) * PAGE_SIZE
+                end_idx = min(start_idx + PAGE_SIZE, total_orders)
+                
+                with col_pg2:
+                    st.caption(f"Showing orders {start_idx + 1} to {end_idx} of {total_orders}")
+
+                current_batch = all_orders[start_idx:end_idx]
+                # --- PAGINATION LOGIC END ---
+
                 data = []
-                for o in orders:
+                for o in current_batch:
                     raw_date = o.get('created_at')
                     date_str = raw_date.strftime("%Y-%m-%d %H:%M") if raw_date else "Unknown"
                     data.append({
