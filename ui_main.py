@@ -151,6 +151,23 @@ def _handle_draft_creation(email, tier, price):
         st.session_state.current_draft_id = d_id
     return d_id
 
+# --- GLOBAL CALLBACKS (Prevents Scope Issues) ---
+def cb_select_tier(tier, price, user_email):
+    """
+    Robust callback that sets the tier and moves to workspace.
+    Now accepts user_email as an argument to avoid closure issues.
+    """
+    try:
+        st.session_state.locked_tier = tier
+        st.session_state.locked_price = price
+        if user_email:
+            _handle_draft_creation(user_email, tier, price)
+    except Exception as e:
+        print(f"Draft creation warning: {e}")
+    
+    # Force the app mode to workspace
+    st.session_state.app_mode = "workspace"
+
 # --- PAGE RENDERERS ---
 
 def render_store_page():
@@ -205,28 +222,16 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
-    # --- CALLBACKS ---
-    def select_tier(tier, price):
-        # FIX: Wrapped in Try/Except so failures don't stop the redirect
-        try:
-            st.session_state.locked_tier = tier
-            st.session_state.locked_price = price
-            _handle_draft_creation(u_email, tier, price)
-        except Exception as e:
-            print(f"Draft creation warning: {e}")
-        
-        # This MUST happen for the page to change
-        st.session_state.app_mode = "workspace"
-
+    # We now pass `u_email` explicitly to the callback
     with b1:
-        st.button("Select Standard", use_container_width=True, on_click=select_tier, args=("Standard", 2.99))
+        st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        # FIX: Added unique key to prevent state conflicts
-        st.button("Select Heirloom", key="btn_heirloom_store", use_container_width=True, on_click=select_tier, args=("Heirloom", 5.99))
+        # FIX: Ensure key is unique and callback is robust
+        st.button("Select Heirloom", key="btn_heirloom_store", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
     with b3:
-        st.button("Select Civic", use_container_width=True, on_click=select_tier, args=("Civic", 6.99))
+        st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
     with b4:
-        st.button("Select Santa", use_container_width=True, on_click=select_tier, args=("Santa", 9.99))
+        st.button("Select Santa", use_container_width=True, on_click=cb_select_tier, args=("Santa", 9.99, u_email))
 
 
 def render_campaign_uploader():
