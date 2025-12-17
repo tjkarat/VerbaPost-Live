@@ -254,9 +254,16 @@ def render_legacy_page():
         if txt: st.session_state.legacy_text = txt
     with t_rec:
         st.markdown("1. Click Mic  2. Speak  3. Auto-transcribe")
+        
+        # FIX: ADDED CLEAR BUTTON TO BREAK INFINITE LOOP
+        if st.button("🗑️ Clear Recording", key="btn_clear_legacy_audio"):
+            st.session_state.last_legacy_hash = None
+            st.rerun()
+            
         audio = st.audio_input("Record", label_visibility="collapsed")
         if audio and ai_engine:
             ahash = hashlib.md5(audio.getvalue()).hexdigest()
+            # Loop condition: This only reruns if the hash has CHANGED
             if ahash != st.session_state.get("last_legacy_hash"):
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
                     tf.write(audio.getvalue())
@@ -289,7 +296,6 @@ def render_legacy_page():
                         st.session_state.legacy_recipient, 
                         st.session_state.legacy_sender, 
                         tier="Standard", 
-                        font_choice=st.session_state.legacy_font, 
                         signature_text=current_sig
                     )
                     

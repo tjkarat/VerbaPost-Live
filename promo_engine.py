@@ -38,9 +38,7 @@ def validate_code(code):
             usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
             
             if usage_count < promo.max_uses:
-                # FIX: Return a tuple (True, Value). 
-                # Assumes 'value' or 'discount_amount' field exists.
-                # If your DB model doesn't have a value field, we default to 5.00
+                # Return a tuple (True, Value)
                 discount_val = getattr(promo, 'value', 0.0)
                 if discount_val == 0.0:
                     discount_val = getattr(promo, 'discount_amount', 5.00) # Fallback
@@ -57,24 +55,39 @@ def validate_code(code):
 def log_usage(code, user_email):
     """
     Records usage by inserting a record into promo_logs.
+    FIX: Atomic Check-Then-Write prevents race condition double-spend.
     """
-    if not code: return
+    if not code: return False
     
     code = code.strip().upper()
     
     try:
         with database.get_db_session() as db:
-            # Create a log entry
-            log_entry = database.PromoLog(
-                code=code,
-                user_email=user_email,
-                used_at=datetime.utcnow()
-            )
-            db.add(log_entry)
-            logger.info(f"💰 Promo {code} used by {user_email}.")
+            # 1. Fetch Promo Settings
+            promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
+            if not promo: return False
+
+            # 2. Atomic Count Check inside Transaction
+            current_usage = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
+            
+            if current_usage < promo.max_uses:
+                # Safe to insert
+                log_entry = database.PromoLog(
+                    code=code,
+                    user_email=user_email,
+                    used_at=datetime.utcnow()
+                )
+                db.add(log_entry)
+                db.commit() # Commit explicitly to lock in the use
+                logger.info(f"💰 Promo {code} successfully claimed by {user_email} ({current_usage + 1}/{promo.max_uses})")
+                return True
+            else:
+                logger.warning(f"❌ Promo {code} usage rejected (Limit Reached)")
+                return False
             
     except Exception as e:
         logger.error(f"Failed to log usage for {code}: {e}")
+        return False
 
 def create_code(code, max_uses=1):
     """

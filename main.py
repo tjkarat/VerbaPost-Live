@@ -95,13 +95,24 @@ def main():
         status = "error"
         if pay_eng:
             try:
-                result = pay_eng.verify_session(session_id)
-                if isinstance(result, dict) and result.get('paid'):
+                raw_result = pay_eng.verify_session(session_id)
+                
+                # FIX: Normalize Return Type to Dictionary to prevent Race Condition/Type Errors
+                # This ensures consistent logic downstream regardless of engine version
+                result = {}
+                if isinstance(raw_result, dict):
+                    result = raw_result
+                elif isinstance(raw_result, str) and raw_result == "paid":
+                    # Fallback for legacy engine returning string
+                    result = {"paid": True, "email": st.session_state.get("user_email")}
+                
+                # Now perform single, robust check
+                if result.get('paid'):
                     status = "paid"
                     user_email = result.get('email')
-                elif result == "paid":
-                    status = "paid"
-                    user_email = st.session_state.get("user_email")
+                elif result.get('status') == 'open':
+                    status = "open"
+                    
             except Exception as e:
                 logger.error(f"Verify Error: {e}")
 
@@ -141,7 +152,7 @@ def main():
             time.sleep(2)
             st.rerun()
         else:
-            st.warning("⚠️ Verification Pending")
+            st.warning("⚠️ Verification Pending or Failed")
             if st.button("🔄 Check Again"): st.rerun()
             return
 
