@@ -68,30 +68,25 @@ def get_module(module_name):
         logger.error(f"Failed to load {module_name}: {e}")
         return None
 
-# --- SECRET MANAGER IMPORT (HARDENED) ---
-# FIX: Catch general Exception because Streamlit sometimes throws KeyError on hot-reload
-try: 
-    import secrets_manager
-except Exception: 
-    secrets_manager = None
+# --- SECRET MANAGER IMPORT ---
+try: import secrets_manager
+except Exception: secrets_manager = None
 
 # --- MAIN LOGIC ---
 def main():
-    # 1. SEO INJECTION
+    # 1. SEO & ANALYTICS
     seo = get_module("seo_injector")
     if seo: seo.inject_meta()
-
-    # 2. ANALYTICS INJECTION
     analytics = get_module("analytics")
     if analytics: analytics.inject_ga()
 
     params = st.query_params
 
-    # 3. ADMIN BACKDOOR
+    # 2. ADMIN BACKDOOR
     if params.get("view") == "admin":
         st.session_state.app_mode = "admin"
 
-    # 4. HANDLE PAYMENT
+    # 3. HANDLE PAYMENT RETURN
     if "session_id" in params:
         session_id = params["session_id"]
         pay_eng = get_module("payment_engine")
@@ -114,17 +109,17 @@ def main():
             except Exception as e:
                 logger.error(f"Verify Error: {e}")
 
-        # Success Screen
+        # --- SUCCESS PATH ---
         if status == "paid":
-            # --- FIX: REAL FULFILLMENT LOGIC ---
             tier = st.session_state.get("locked_tier", "Letter")
             
-            # Perform Send (If not already sent)
+            # Perform Send (Idempotent Check)
             if "postgrid_ref" not in st.session_state:
                 mailer = get_module("mailer")
                 lf = get_module("letter_format")
                 add_std = get_module("address_standard")
                 db = get_module("database")
+                audit = get_module("audit_engine")
                 
                 if mailer and lf and add_std and "letter_body" in st.session_state:
                     try:
@@ -135,18 +130,28 @@ def main():
                         pdf_bytes = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
                         
                         # Send to PostGrid
-                        # Note: We aren't forcing "certified" extraService here unless stored. 
-                        # Assuming standard mail for now to fix the "Everything is Certified" bug.
                         ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"VerbaPost {tier}")
                         
                         if ref_id:
                             st.session_state.postgrid_ref = ref_id
-                            # Update DB Status
+                            
+                            # Update DB
                             d_id = st.session_state.get("current_draft_id")
                             if d_id and db:
                                 db.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
+                            
+                            # FIX: LOG TO AUDIT ENGINE
+                            if audit:
+                                audit.log_event(
+                                    user_email=user_email, 
+                                    event_type="ORDER_FULFILLED", 
+                                    session_id=session_id,
+                                    metadata={"tier": tier, "postgrid_id": ref_id}
+                                )
+
                         else:
                             st.error("Letter generated but mailing API failed. Admin notified.")
+                            if audit: audit.log_event(user_email, "FULFILLMENT_FAILED", session_id, {"reason": "PostGrid API Error"})
                             
                     except Exception as e:
                         logger.error(f"Fulfillment Error: {e}")
@@ -179,65 +184,53 @@ def main():
             if st.button("🔄 Check Again"): st.rerun()
             return
 
-    # 5. PASSWORD RESET
+    # 4. PASSWORD RESET
     elif params.get("type") == "recovery":
         st.session_state.app_mode = "login"
 
-    # 6. INIT STATE
+    # 5. INIT STATE
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
         
     mode = st.session_state.app_mode
     current_email = st.session_state.get("user_email")
 
-    # 7. SIDEBAR (FIXED NAVIGATION)
+    # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
-        
-        # FIX: Explicitly Clear Query Params to escape the "view=heirloom" trap
         if st.button("🏠 Home", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "splash"
             st.rerun()
-            
         if st.button("🕰️ Heirloom Dashboard", use_container_width=True):
             st.query_params["view"] = "heirloom"
             st.rerun()
-            
         st.markdown("---")
         
         # Admin Logic
         admin_email = None
         if secrets_manager:
             raw_admin = secrets_manager.get_secret("admin.email")
-            if raw_admin:
-                admin_email = raw_admin.lower().strip()
+            if raw_admin: admin_email = raw_admin.lower().strip()
         
         is_admin = st.session_state.get("admin_authenticated", False)
-        
         if is_admin or (current_email and admin_email and current_email == admin_email):
             st.markdown("### 🛠️ Administration")
             if st.button("🔐 Admin Console", key="sidebar_admin_btn", use_container_width=True):
-                st.query_params.clear() # FIX: Escape trap here too
+                st.query_params.clear()
                 st.session_state.app_mode = "admin"
                 st.rerun()
-                
-        st.caption(f"v3.3.14 | {st.session_state.app_mode}")
+        st.caption(f"v3.4.0 | {st.session_state.app_mode}")
 
-    # --- ROUTER LOGIC ---
+    # 7. ROUTER
     view_param = st.query_params.get("view", "store")
-
-    # 1. Check for Heirloom View FIRST
     if view_param == "heirloom":
         try:
             import ui_heirloom
             ui_heirloom.render_dashboard()
             st.stop() 
-        except ImportError:
-            st.error("Heirloom module not found.")
-            st.stop()
+        except ImportError: st.error("Heirloom module not found.")
 
-    # 2. Router
     if mode == "splash":
         m = get_module("ui_splash")
         if m: m.render_splash_page()

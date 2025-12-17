@@ -19,6 +19,8 @@ try: import ai_engine
 except ImportError: ai_engine = None
 try: import mailer
 except ImportError: mailer = None
+try: import audit_engine # FIX: Added Audit Engine
+except ImportError: audit_engine = None
 
 # --- HELPER: SAFE PROFILE ACCESS ---
 def safe_get_profile_field(profile, field, default=""):
@@ -71,8 +73,6 @@ def load_address_book():
 def _save_legacy_draft():
     """
     Saves Content AND Addresses to DB.
-    Refactor Explanation: Added 'to_addr' and 'from_addr' args to update_draft_data
-    to prevent data loss when session clears during payment redirect.
     """
     if not database: st.error("Database connection missing."); return
     user_email = st.session_state.get("user_email", "guest")
@@ -85,24 +85,27 @@ def _save_legacy_draft():
         r_data = st.session_state.get("legacy_recipient", {})
         
         if d_id:
-            # BUG FIX: Now passing sender/recipient data so it persists in Postgres
             database.update_draft_data(
                 d_id, 
                 content=content, 
                 tier="Legacy", 
                 price=15.99,
-                to_addr=r_data,    # <--- Added
-                from_addr=s_data   # <--- Added
+                to_addr=r_data,
+                from_addr=s_data
             )
             st.toast("Draft & Addresses Saved!", icon="💾")
         else:
             d_id = database.save_draft(user_email, content, "Legacy", 15.99)
-            # Immediately update with addresses if they exist
             if s_data or r_data:
                 database.update_draft_data(d_id, to_addr=r_data, from_addr=s_data)
             
             st.session_state.current_legacy_draft_id = d_id
             st.toast("New Draft Created!", icon="✨")
+            
+            # FIX: Audit Log
+            if audit_engine:
+                audit_engine.log_event(user_email, "LEGACY_DRAFT_INIT", d_id)
+
     except Exception as e: st.error(f"Save failed: {e}")
 
 # --- SUCCESS VIEW ---
@@ -111,6 +114,11 @@ def render_success_view():
     st.markdown("## ✅ Order Confirmed!")
     track_num = st.session_state.get("tracking_number", "Processing...")
     email = st.session_state.get("user_email", "your email")
+    
+    # FIX: Audit Log Confirmation
+    if audit_engine and st.session_state.get("current_legacy_draft_id"):
+        audit_engine.log_event(email, "LEGACY_SUCCESS_VIEW", st.session_state.get("current_legacy_draft_id"))
+
     st.markdown(f"""
         <div style="background-color: #dcfce7; padding: 25px; border-radius: 10px; border: 1px solid #22c55e; margin-bottom: 20px;">
             <h3 style="color: #15803d; margin-top:0;">Secure Delivery Initiated</h3>
@@ -219,7 +227,6 @@ def render_legacy_page():
                         if database and st.session_state.get("authenticated"):
                             database.save_contact(st.session_state.user_email, st.session_state.legacy_recipient)
                         
-                        # --- TRIGGER SAVE IMMEDIATELY ---
                         _save_legacy_draft()
                         
                         st.success("✅ Addresses Verified & Saved!")
@@ -255,7 +262,6 @@ def render_legacy_page():
     with t_rec:
         st.markdown("1. Click Mic  2. Speak  3. Auto-transcribe")
         
-        # FIX: ADDED CLEAR BUTTON TO BREAK INFINITE LOOP
         if st.button("🗑️ Clear Recording", key="btn_clear_legacy_audio"):
             st.session_state.last_legacy_hash = None
             st.rerun()
@@ -263,7 +269,6 @@ def render_legacy_page():
         audio = st.audio_input("Record", label_visibility="collapsed")
         if audio and ai_engine:
             ahash = hashlib.md5(audio.getvalue()).hexdigest()
-            # Loop condition: This only reruns if the hash has CHANGED
             if ahash != st.session_state.get("last_legacy_hash"):
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
                     tf.write(audio.getvalue())
@@ -326,8 +331,16 @@ def render_legacy_page():
             if not st.session_state.get("user_email") and not guest_email: 
                 st.error("⚠️ Please enter an email address.")
             elif payment_engine:
-                _save_legacy_draft()  # <--- CRITICAL: Saves content AND addresses now
+                _save_legacy_draft()
                 st.session_state.last_mode = "legacy"
+                
+                # FIX: SYNC VARIABLES WITH MAIN ROUTER
+                st.session_state.locked_tier = "Legacy"
+                st.session_state.addr_to = st.session_state.legacy_recipient
+                st.session_state.addr_from = st.session_state.legacy_sender
+                st.session_state.letter_body = st.session_state.legacy_text
+                st.session_state.signature_text = st.session_state.legacy_signature
+                st.session_state.current_draft_id = st.session_state.current_legacy_draft_id
                 
                 url = payment_engine.create_checkout_session(
                     line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Legacy Letter (Certified)"}, "unit_amount": 1599}, "quantity": 1}],

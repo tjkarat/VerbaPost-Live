@@ -16,8 +16,10 @@ try: import letter_format
 except ImportError: letter_format = None
 try: import address_standard
 except ImportError: address_standard = None
-try: import ai_engine  # Added for Ghost Call tracking
+try: import ai_engine  
 except ImportError: ai_engine = None
+try: import audit_engine # FIX: Import Audit
+except ImportError: audit_engine = None
 
 def render_admin_page():
     # --- AUTH CHECK ---
@@ -51,7 +53,6 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    # ADDED "📞 Ghost Calls" TAB
     tab_health, tab_orders, tab_ghosts, tab_promos, tab_users, tab_logs = st.tabs([
         "🏥 Health", "📦 Orders", "📞 Ghost Calls", "🎟️ Promos", "👥 Users", "📜 Logs"
     ])
@@ -76,17 +77,14 @@ def render_admin_page():
         try:
             all_orders = database.get_all_orders()
             if all_orders:
-                # --- PAGINATION LOGIC START ---
                 total_orders = len(all_orders)
                 PAGE_SIZE = 50
                 
                 col_pg1, col_pg2 = st.columns([1, 3])
                 with col_pg1:
-                    # Calculate total pages needed
                     total_pages = max(1, (total_orders // PAGE_SIZE) + (1 if total_orders % PAGE_SIZE > 0 else 0))
                     page_num = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
                 
-                # Slice the data for current page
                 start_idx = (page_num - 1) * PAGE_SIZE
                 end_idx = min(start_idx + PAGE_SIZE, total_orders)
                 
@@ -94,7 +92,6 @@ def render_admin_page():
                     st.caption(f"Showing orders {start_idx + 1} to {end_idx} of {total_orders}")
 
                 current_batch = all_orders[start_idx:end_idx]
-                # --- PAGINATION LOGIC END ---
 
                 data = []
                 for o in current_batch:
@@ -128,6 +125,7 @@ def render_admin_page():
                                     with st.spinner("Retrying..."):
                                         # Minimal Retry Logic
                                         user_p = database.get_user_profile(sel.user_email)
+                                        # Construct objects robustly
                                         to_obj = {
                                             "name": getattr(sel, 'to_name', user_p.get('full_name')),
                                             "address_line1": getattr(sel, 'to_street', user_p.get('address_line1')),
@@ -135,67 +133,65 @@ def render_admin_page():
                                             "state": getattr(sel, 'to_state', user_p.get('address_state')),
                                             "zip": getattr(sel, 'to_zip', user_p.get('address_zip'))
                                         }
-                                        from_obj = {"name": "VerbaPost", "address_line1": "123 Memory Lane", "city": "Nashville", "state": "TN", "zip": "37203"}
-                                        pdf = letter_format.create_pdf(sel.content, to_obj, from_obj, tier=getattr(sel, 'tier', 'Standard'))
-                                        if mailer.send_letter(pdf, to_obj, from_obj):
-                                            st.success("Sent!")
-                                            sel.status = "Sent (Admin Retry)"
+                                        # Use standard VerbaPost fallback if sender missing
+                                        from_obj = {"name": "VerbaPost", "address_line1": "1000 Main St", "city": "Nashville", "state": "TN", "zip": "37203"}
+                                        
+                                        # FIX: Use correct create_pdf logic (returns bytes)
+                                        content = getattr(sel, 'content', 'Content Missing')
+                                        tier = getattr(sel, 'tier', 'Standard')
+                                        pdf_bytes = letter_format.create_pdf(content, to_obj, from_obj, tier=tier)
+                                        
+                                        # FIX: Use correct mailer signature
+                                        ref_id = mailer.send_letter(pdf_bytes, to_obj, from_obj, description=f"Admin Retry {oid}")
+                                        
+                                        if ref_id:
+                                            st.success(f"Sent! ID: {ref_id}")
+                                            sel.status = f"Sent (Admin): {ref_id}"
                                             db.commit()
+                                            
+                                            # FIX: Log to Audit
+                                            if audit_engine:
+                                                audit_engine.log_event("admin", "ADMIN_FORCE_SEND", oid, {"ref_id": ref_id})
                                         else: st.error("Failed.")
             else:
                 st.info("No orders found.")
         except Exception as e:
             st.error(f"Error: {e}")
 
-    # --- TAB 3: GHOST CALLS (NEW) ---
+    # --- TAB 3: GHOST CALLS ---
     with tab_ghosts:
         st.subheader("👻 Unclaimed Heirloom Calls")
-        st.info("These are phone calls to your Twilio number that did NOT match any user's 'Parent Phone'.")
-        
         if not ai_engine:
-            st.error("AI Engine missing (Twilio connection required).")
+            st.error("AI Engine missing.")
         else:
-            with st.spinner("Fetching logs from Twilio & Database..."):
-                # 1. Get Twilio Logs
+            with st.spinner("Fetching logs..."):
                 calls = ai_engine.get_recent_call_logs(limit=20)
-                
-                # 2. Get Known User Phones
                 users = database.get_all_users()
                 known_numbers = set()
                 for u in users:
                     p = u.get('parent_phone')
                     if p:
-                        # Normalize: Remove spaces, dashes, parens
                         clean = "".join(filter(lambda x: x.isdigit() or x == '+', str(p)))
                         known_numbers.add(clean)
-                        # Also add version without +1 for safety
                         if clean.startswith("+1"): known_numbers.add(clean[2:])
                 
-                # 3. Compare
                 ghosts = []
                 for c in calls:
                     c_from = str(c['from'])
-                    # Strict Check
                     is_known = False
                     for k in known_numbers:
-                        if k in c_from: # Loose matching (if known is substring of caller ID)
+                        if k in c_from:
                             is_known = True
                             break
-                    
                     if not is_known:
                         ghosts.append({
                             "Caller ID": c_from,
                             "Time": c['date'].strftime("%m/%d %H:%M") if c['date'] else "?",
                             "Duration": f"{c['duration']}s",
-                            "Status": c['status'],
-                            "Action": "UNCLAIMED"
+                            "Status": c['status']
                         })
-                
-                if ghosts:
-                    st.dataframe(pd.DataFrame(ghosts), use_container_width=True)
-                    st.warning(f"⚠️ Found {len(ghosts)} unclaimed calls. A user might have entered their parent's number incorrectly.")
-                else:
-                    st.success("✅ No ghost calls found. All recent calls match a user account.")
+                if ghosts: st.dataframe(pd.DataFrame(ghosts), use_container_width=True)
+                else: st.success("No ghost calls.")
 
     # --- TAB 4: PROMOS ---
     with tab_promos:
@@ -217,7 +213,6 @@ def render_admin_page():
         st.subheader("User Profiles")
         users = database.get_all_users()
         if users:
-            # Mask emails slightly for privacy in screenshot
             safe_users = []
             for u in users:
                 safe_users.append({
