@@ -4,7 +4,7 @@ import datetime
 
 class LetterPDF(FPDF):
     def __init__(self):
-        # FIX 1: Explicitly set format='Letter' (8.5x11) for PostGrid US compatibility
+        # Explicitly set format='Letter' (8.5x11) for PostGrid US compatibility
         super().__init__(format='Letter')
 
     def header(self):
@@ -18,6 +18,7 @@ class LetterPDF(FPDF):
 def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None, date_str=None):
     """
     Generates a US LETTER sized PDF and returns the BYTES (not the path).
+    layout: standard_double_window compatible (Left/Left addresses).
     """
     pdf = LetterPDF()
     pdf.alias_nb_pages()
@@ -34,7 +35,8 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
             print(f"Error loading font: {e}")
             has_custom_font = False
     else:
-        print(f"WARNING: Font {font_path} not found. Falling back to Standard.")
+        # Just a log warning, not fatal
+        pass
 
     if tier == "Heirloom" and has_custom_font:
         main_font = "TypeRight"
@@ -55,7 +57,7 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         line_height = 6
         bold_style = 'B' 
 
-    # --- 2. RENDER FROM ADDRESS (Top Right) ---
+    # --- HELPER: FORMAT ADDRESS ---
     def format_addr(addr_obj):
         if not addr_obj: return []
         if isinstance(addr_obj, dict):
@@ -74,32 +76,37 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         lines = [name, street, f"{city}, {state} {zip_code}"]
         return [l for l in lines if l.strip()]
 
+    # --- 2. RENDER FROM ADDRESS (TOP LEFT WINDOW) ---
+    # Moved from X=120 to X=20 to match the standard double window
     from_lines = format_addr(from_addr)
     pdf.set_font(header_font, '', 10)
-    pdf.set_xy(120, 15) 
+    pdf.set_xy(20, 15) 
     for line in from_lines:
         pdf.cell(0, 5, line, ln=True, align='L') 
     
-    pdf.set_xy(120, pdf.get_y() + 2)
+    # Render Date (Moved to Right to balance layout)
+    pdf.set_xy(120, 20)
     final_date = date_str if date_str and "Unknown" not in date_str else datetime.date.today().strftime("%B %d, %Y")
     pdf.cell(0, 5, final_date, ln=True, align='L')
 
-    # --- 3. RENDER TO ADDRESS ---
-    pdf.set_xy(20, 45) 
+    # --- 3. RENDER TO ADDRESS (MIDDLE LEFT WINDOW) ---
+    # Moved Y from 45 to 50 to center vertically in the window
+    pdf.set_xy(20, 50) 
     to_lines = format_addr(to_addr)
     pdf.set_font(header_font, bold_style, 11)
     for line in to_lines:
         pdf.cell(0, 5, line, ln=True)
 
-    # --- 4. RENDER BODY ---
+    # --- 4. RENDER BODY (SAFE ZONE) ---
+    # Moved safe_body_start to 105mm. This clears both windows and the first fold.
     current_y = pdf.get_y()
-    safe_body_start = max(80, current_y + 20)
+    safe_body_start = max(105, current_y + 25) 
     pdf.set_y(safe_body_start) 
     pdf.set_font(main_font, '', font_size)
     
     clean_content = content.strip()
     
-    # FIX: Do NOT auto-insert "Dear X" if this is an Heirloom letter
+    # Auto-Insert "Dear X" if missing (except for Heirloom)
     if tier != "Heirloom" and not clean_content.lower().startswith("dear"):
         to_name = to_lines[0] if to_lines else "Friend"
         first_name = to_name.split()[0]
@@ -121,7 +128,7 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
             sign_off = "Sincerely,\n\n" + sender_name
         pdf.multi_cell(0, line_height, sign_off)
 
-    # --- 6. OUTPUT (FIX: Return bytes) ---
+    # --- 6. OUTPUT ---
     try:
         # FPDF2 style
         return bytes(pdf.output())
