@@ -207,20 +207,22 @@ def render_store_page():
     
     # --- CALLBACKS ---
     def select_tier(tier, price):
-        st.session_state.locked_tier = tier
-        st.session_state.locked_price = price
-        _handle_draft_creation(u_email, tier, price)
+        # FIX: Wrapped in Try/Except so failures don't stop the redirect
+        try:
+            st.session_state.locked_tier = tier
+            st.session_state.locked_price = price
+            _handle_draft_creation(u_email, tier, price)
+        except Exception as e:
+            print(f"Draft creation warning: {e}")
+        
+        # This MUST happen for the page to change
         st.session_state.app_mode = "workspace"
-        # No st.rerun() needed in callbacks
-
-    def go_to_heirloom_dashboard():
-        st.session_state.app_mode = "heirloom"
 
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=select_tier, args=("Standard", 2.99))
     with b2:
-        # FIX: Changed to select_tier() to create a letter draft, NOT redirect to dashboard
-        st.button("Select Heirloom", use_container_width=True, on_click=select_tier, args=("Heirloom", 5.99))
+        # FIX: Added unique key to prevent state conflicts
+        st.button("Select Heirloom", key="btn_heirloom_store", use_container_width=True, on_click=select_tier, args=("Heirloom", 5.99))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=select_tier, args=("Civic", 6.99))
     with b4:

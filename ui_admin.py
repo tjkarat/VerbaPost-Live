@@ -88,7 +88,7 @@ def render_admin_page():
             st.markdown(f"**Mail (PostGrid):** {postgrid_s}")
             st.markdown(f"**Email (Resend):** {email_s}")
 
-    # --- TAB 2: ORDERS (UPGRADED WITH JSON GUIDE) ---
+    # --- TAB 2: ORDERS (FIXED) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
@@ -99,27 +99,35 @@ def render_admin_page():
                 if orders:
                     data = []
                     for o in orders:
+                        # FIX: Handle missing dates safely
+                        if o.created_at:
+                            date_str = o.created_at.strftime("%Y-%m-%d %H:%M")
+                        else:
+                            date_str = "Unknown Date"
+
                         data.append({
                             "ID": o.id,
-                            "Date": o.created_at.strftime("%Y-%m-%d %H:%M"),
+                            "Date": date_str,
                             "User": o.user_email,
                             "Tier": o.tier,
                             "Status": o.status,
-                            "Price": f"${o.price:.2f}"
+                            "Price": f"${o.price:.2f}" if o.price else "$0.00"
                         })
                     st.dataframe(pd.DataFrame(data), use_container_width=True)
                     
                     st.divider()
                     st.markdown("### 🛠️ Repair & Fulfillment")
                     oid = st.number_input("Enter Order ID to Fix/Retry", min_value=0, step=1)
+                else:
+                    st.info("No orders found.")
+                    oid = None
                     
-                    if oid:
-                        sel = db.query(database.LetterDraft).filter(database.LetterDraft.id == oid).first()
-                        if sel:
-                            st.info(f"Editing Order #{oid} ({sel.status})")
-                            
-                            # --- 1. JSON REFERENCE TEMPLATE ---
-                            json_template = """{
+                if oid:
+                    sel = db.query(database.LetterDraft).filter(database.LetterDraft.id == oid).first()
+                    if sel:
+                        st.info(f"Editing Order #{oid} ({sel.status})")
+                        
+                        json_template = """{
   "name": "John Doe",
   "street": "123 Main St Apt 4B",
   "city": "New York",
@@ -127,79 +135,74 @@ def render_admin_page():
   "zip_code": "10001",
   "country": "US"
 }"""
+                        c_left, c_right = st.columns([1.5, 1])
+                        
+                        with c_left:
+                            st.markdown("#### 1. Data Repair")
+                            st.caption("Recipient (To)")
+                            # FIX: Handle missing JSON data
+                            r_val = json.dumps(sel.recipient_data, indent=2) if hasattr(sel, 'recipient_data') and sel.recipient_data else "{}"
+                            new_r = st.text_area("Recipient JSON", r_val, height=200, label_visibility="collapsed")
                             
-                            # --- 2. EDITING COLUMNS ---
-                            # We create a 2-column layout for side-by-side editing
-                            c_left, c_right = st.columns([1.5, 1])
+                            st.caption("Sender (From)")
+                            s_val = json.dumps(sel.sender_data, indent=2) if hasattr(sel, 'sender_data') and sel.sender_data else "{}"
+                            new_s = st.text_area("Sender JSON", s_val, height=200, label_visibility="collapsed")
                             
-                            with c_left:
-                                st.markdown("#### 1. Data Repair")
-                                
-                                # RECIPIENT
-                                st.caption("Recipient (To)")
-                                r_val = json.dumps(sel.recipient_data, indent=2) if sel.recipient_data else "{}"
-                                new_r = st.text_area("Recipient JSON", r_val, height=200, label_visibility="collapsed")
-                                
-                                # SENDER
-                                st.caption("Sender (From)")
-                                s_val = json.dumps(sel.sender_data, indent=2) if sel.sender_data else "{}"
-                                new_s = st.text_area("Sender JSON", s_val, height=200, label_visibility="collapsed")
-                                
-                                if st.button("💾 Save Changes", use_container_width=True):
-                                    try:
-                                        sel.recipient_data = json.loads(new_r)
-                                        sel.sender_data = json.loads(new_s)
-                                        db.commit()
-                                        st.success("Data Updated!")
-                                        time.sleep(1)
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"JSON Error: {e}")
+                            if st.button("💾 Save Changes", use_container_width=True):
+                                try:
+                                    sel.recipient_data = json.loads(new_r)
+                                    sel.sender_data = json.loads(new_s)
+                                    db.commit()
+                                    st.success("Data Updated!")
+                                    time.sleep(1)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"JSON Error: {e}")
 
-                            with c_right:
-                                st.markdown("#### 📖 Format Guide")
-                                st.info("Copy this format if data is missing (NULL).")
-                                st.code(json_template, language="json")
-                                st.markdown("---")
-                                st.markdown("#### 2. Force Send")
-                                st.warning("Only use this if PostGrid failed but payment succeeded.")
-                                
-                                if st.button("🚀 Force Send to PostGrid", type="primary"):
-                                    if not mailer or not letter_format or not address_standard:
-                                        st.error("Engines missing")
-                                    else:
-                                        with st.spinner("Generating & Sending..."):
-                                            try:
-                                                to_obj = address_standard.StandardAddress.from_dict(sel.recipient_data)
-                                                from_obj = address_standard.StandardAddress.from_dict(sel.sender_data)
-                                                
-                                                pdf_bytes = letter_format.create_pdf(
-                                                    sel.content, 
-                                                    to_obj, 
-                                                    from_obj, 
-                                                    sel.tier
-                                                )
-                                                
-                                                ref = f"admin_retry_{oid}_{int(time.time())}"
-                                                tracking = mailer.send_letter(
-                                                    pdf_bytes, 
-                                                    to_obj, 
-                                                    from_obj, 
-                                                    ref_id=ref, 
-                                                    color=True, 
-                                                    certified=(sel.price > 10)
-                                                )
-                                                
-                                                st.success(f"✅ Sent! Tracking: {tracking}")
-                                                sel.status = "Completed (Admin Retry)"
-                                                sel.tracking_number = tracking
-                                                db.commit()
-                                                
-                                            except Exception as ex:
-                                                st.error(f"Send Failed: {ex}")
+                        with c_right:
+                            st.markdown("#### 📖 Format Guide")
+                            st.info("Copy this format if data is missing (NULL).")
+                            st.code(json_template, language="json")
+                            st.markdown("---")
+                            st.markdown("#### 2. Force Send")
+                            st.warning("Only use this if PostGrid failed but payment succeeded.")
+                            
+                            if st.button("🚀 Force Send to PostGrid", type="primary"):
+                                if not mailer or not letter_format or not address_standard:
+                                    st.error("Engines missing")
+                                else:
+                                    with st.spinner("Generating & Sending..."):
+                                        try:
+                                            to_obj = address_standard.StandardAddress.from_dict(sel.recipient_data)
+                                            from_obj = address_standard.StandardAddress.from_dict(sel.sender_data)
+                                            
+                                            pdf_bytes = letter_format.create_pdf(
+                                                sel.content, 
+                                                to_obj, 
+                                                from_obj, 
+                                                sel.tier
+                                            )
+                                            
+                                            ref = f"admin_retry_{oid}_{int(time.time())}"
+                                            tracking = mailer.send_letter(
+                                                pdf_bytes, 
+                                                to_obj, 
+                                                from_obj, 
+                                                ref_id=ref, 
+                                                color=True, 
+                                                certified=(sel.price > 10)
+                                            )
+                                            
+                                            st.success(f"✅ Sent! Tracking: {tracking}")
+                                            sel.status = "Completed (Admin Retry)"
+                                            sel.tracking_number = tracking
+                                            db.commit()
+                                            
+                                        except Exception as ex:
+                                            st.error(f"Send Failed: {ex}")
 
-                        else:
-                            st.warning("Order ID not found.")
+                    else:
+                        st.warning("Order ID not found.")
 
         except Exception as e:
             st.error(f"Error loading orders: {e}")
@@ -246,13 +249,16 @@ def render_admin_page():
             with database.get_db_session() as db:
                 users = db.query(database.UserProfile).limit(50).all()
                 if users:
-                    u_data = [{
-                        "Email": u.email,
-                        "Name": u.full_name,
-                        "City": u.address_city,
-                        "State": u.address_state,
-                        "Joined": u.created_at.strftime("%Y-%m-%d")
-                    } for u in users]
+                    u_data = []
+                    for u in users:
+                        joined = u.created_at.strftime("%Y-%m-%d") if u.created_at else "Unknown"
+                        u_data.append({
+                            "Email": u.email,
+                            "Name": u.full_name,
+                            "City": u.address_city,
+                            "State": u.address_state,
+                            "Joined": joined
+                        })
                     st.dataframe(pd.DataFrame(u_data), use_container_width=True)
         except Exception as e:
             st.error(f"Error loading users: {e}")
@@ -264,12 +270,15 @@ def render_admin_page():
             with database.get_db_session() as db:
                 logs = db.query(database.AuditEvent).order_by(database.AuditEvent.timestamp.desc()).limit(50).all()
                 if logs:
-                    l_data = [{
-                        "Time": l.timestamp.strftime("%H:%M:%S"),
-                        "Event": l.event_type,
-                        "User": l.user_email,
-                        "Details": l.details
-                    } for l in logs]
+                    l_data = []
+                    for l in logs:
+                        ts = l.timestamp.strftime("%H:%M:%S") if l.timestamp else "--:--"
+                        l_data.append({
+                            "Time": ts,
+                            "Event": l.event_type,
+                            "User": l.user_email,
+                            "Details": l.details
+                        })
                     st.dataframe(pd.DataFrame(l_data), use_container_width=True)
         except Exception as e:
             st.error(f"Error loading logs: {e}")
