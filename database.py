@@ -26,7 +26,6 @@ def get_db_url():
     """
     try:
         # --- FIX START: Check GCP Environment Variable First ---
-        # This is the specific fix for Production "Profile Not Found" errors.
         env_url = os.environ.get("DATABASE_URL")
         if env_url:
             return env_url
@@ -154,13 +153,13 @@ class PromoCode(Base):
     current_uses = Column(Integer, default=0)     # Fixed AttributeError
     uses = Column(Integer, default=0)             # Fixed AttributeError
 
-# --- ADD THIS TO database.py ---
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
     id = Column(Integer, primary_key=True)
     code = Column(String, index=True)
     user_email = Column(String)
-    used_at = Column(DateTime, default=datetime.utcnow)
+    # FIX: Explicitly use datetime.datetime.utcnow to avoid AttributeError
+    used_at = Column(DateTime, default=datetime.datetime.utcnow)
 
 class AuditEvent(Base):
     """Refined to match your SQL exactly"""
@@ -392,13 +391,3 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Get Orders Error: {e}")
         return []
-    from sqlalchemy import Column, Integer, String, DateTime, Boolean
-from datetime import datetime  # <--- Make sure this is "from datetime import datetime"
-
-# --- ADD THIS MISSING CLASS ---
-class PromoLog(Base):
-    __tablename__ = 'promo_logs'
-    id = Column(Integer, primary_key=True)
-    code = Column(String, index=True)
-    user_email = Column(String)
-    used_at = Column(DateTime, default=datetime.utcnow) # This requires "from datetime import datetime"
