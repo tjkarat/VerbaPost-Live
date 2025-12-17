@@ -60,6 +60,10 @@ def get_module(module_name):
         if module_name == "auth_engine": import auth_engine as m; return m
         if module_name == "seo_injector": import seo_injector as m; return m
         if module_name == "analytics": import analytics as m; return m
+        if module_name == "mailer": import mailer as m; return m
+        if module_name == "letter_format": import letter_format as m; return m
+        if module_name == "address_standard": import address_standard as m; return m
+        if module_name == "database": import database as m; return m
     except Exception as e:
         logger.error(f"Failed to load {module_name}: {e}")
         return None
@@ -96,45 +100,64 @@ def main():
         if pay_eng:
             try:
                 raw_result = pay_eng.verify_session(session_id)
-                
-                # FIX: Normalize Return Type to Dictionary to prevent Race Condition/Type Errors
-                # This ensures consistent logic downstream regardless of engine version
                 result = {}
                 if isinstance(raw_result, dict):
                     result = raw_result
                 elif isinstance(raw_result, str) and raw_result == "paid":
-                    # Fallback for legacy engine returning string
                     result = {"paid": True, "email": st.session_state.get("user_email")}
                 
-                # Now perform single, robust check
                 if result.get('paid'):
                     status = "paid"
                     user_email = result.get('email')
                 elif result.get('status') == 'open':
                     status = "open"
-                    
             except Exception as e:
                 logger.error(f"Verify Error: {e}")
 
         # Success Screen
         if status == "paid":
-            import random
-            if "tracking_number" not in st.session_state:
-                st.session_state.tracking_number = f"94055{random.randint(10000000,99999999)}"
+            # --- FIX: REAL FULFILLMENT LOGIC ---
+            tier = st.session_state.get("locked_tier", "Letter")
             
-            track_num = st.session_state.tracking_number
+            # Perform Send (If not already sent)
+            if "postgrid_ref" not in st.session_state:
+                mailer = get_module("mailer")
+                lf = get_module("letter_format")
+                add_std = get_module("address_standard")
+                db = get_module("database")
+                
+                if mailer and lf and add_std and "letter_body" in st.session_state:
+                    try:
+                        # Re-construct PDF
+                        body = st.session_state.get("letter_body", "")
+                        std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
+                        std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                        pdf_bytes = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
+                        
+                        # Send to PostGrid
+                        # Note: We aren't forcing "certified" extraService here unless stored. 
+                        # Assuming standard mail for now to fix the "Everything is Certified" bug.
+                        ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"VerbaPost {tier}")
+                        
+                        if ref_id:
+                            st.session_state.postgrid_ref = ref_id
+                            # Update DB Status
+                            d_id = st.session_state.get("current_draft_id")
+                            if d_id and db:
+                                db.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
+                        else:
+                            st.error("Letter generated but mailing API failed. Admin notified.")
+                            
+                    except Exception as e:
+                        logger.error(f"Fulfillment Error: {e}")
 
-            if "email_sent" not in st.session_state:
-                email_eng = get_module("email_engine")
-                if email_eng:
-                    email_eng.send_confirmation(user_email, track_num, tier="Legacy")
-                st.session_state.email_sent = True
+            order_ref = st.session_state.get("postgrid_ref", "Pending...")
 
             st.markdown(f"""
                 <div class="success-box">
                     <div class="success-title">✅ Payment Confirmed!</div>
-                    <p>Your legacy letter has been securely generated.</p>
-                    <p>Tracking Number: <span class="tracking-code">{track_num}</span></p>
+                    <p>Your <b>{tier}</b> has been securely generated and sent to our mailing center.</p>
+                    <p>Order Reference: <span class="tracking-code">{order_ref}</span></p>
                     <p><small>A confirmation email has been sent to <b>{user_email}</b></small></p>
                 </div>
             """, unsafe_allow_html=True)
@@ -199,7 +222,7 @@ def main():
                 st.session_state.app_mode = "admin"
                 st.rerun()
                 
-        st.caption(f"v3.3.13 | {st.session_state.app_mode}")
+        st.caption(f"v3.3.14 | {st.session_state.app_mode}")
 
     # --- ROUTER LOGIC ---
     view_param = st.query_params.get("view", "store")

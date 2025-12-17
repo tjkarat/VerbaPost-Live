@@ -89,15 +89,16 @@ def validate_address(address_dict):
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", extra_service=None):
     """
     Uploads the PDF and creates the Letter order.
+    Returns the LETTER ID on success, or None on failure.
     """
     api_key = _get_api_key()
-    if not api_key: return False
+    if not api_key: return None
 
     pg_to = _to_postgrid_addr(to_addr)
     pg_from = _to_postgrid_addr(from_addr)
 
     if not pg_to or not pg_from:
-        return False
+        return None
 
     try:
         # 1. Create Contacts First (Recommended by PostGrid Best Practices)
@@ -107,14 +108,14 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
         r_to = requests.post(f"{BASE_URL}/contacts", auth=(api_key, ""), json=pg_to)
         if r_to.status_code not in [200, 201]:
             print(f"❌ Recipient Error: {r_to.text}")
-            return False
+            return None
         to_id = r_to.json().get("id")
         
         # Create From Contact
         r_from = requests.post(f"{BASE_URL}/contacts", auth=(api_key, ""), json=pg_from)
         if r_from.status_code not in [200, 201]:
             print(f"❌ Sender Error: {r_from.text}")
-            return False
+            return None
         from_id = r_from.json().get("id")
 
         # 2. Upload PDF & Create Letter
@@ -144,12 +145,13 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", e
         )
 
         if response.status_code in [200, 201]:
-            print(f"✅ Letter Sent! ID: {response.json().get('id')}")
-            return True
+            letter_id = response.json().get('id')
+            print(f"✅ Letter Sent! ID: {letter_id}")
+            return letter_id # FIX: Return ID so UI can show it
         else:
             print(f"❌ PostGrid Letter Error: {response.text}")
-            return False
+            return None
 
     except Exception as e:
         print(f"❌ Mailer Exception: {e}")
-        return False
+        return None
