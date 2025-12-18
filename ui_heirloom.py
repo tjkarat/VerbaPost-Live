@@ -141,7 +141,11 @@ def render_dashboard():
                     st.divider()
                     
                     # Display the routing clearly
-                    st.caption(f"📮 **To:** {recipient_addr['name']} | **From:** {from_address['name']}")
+                    st.caption(f"📮 **To:** {recipient_addr.get('name', 'Unknown')} | **From:** {from_address.get('name', 'Mom & Dad')}")
+
+                    # WARNING if address is missing
+                    if not recipient_addr.get("street"):
+                        st.warning("⚠️ Mailing Address Missing! Please go to Settings to add your address.")
 
                     col_prev, col_mail = st.columns([1, 1])
                     
@@ -169,7 +173,9 @@ def render_dashboard():
                             
                             if "Sent" not in status:
                                 if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
-                                    if credits > 0:
+                                    if not recipient_addr.get("street"):
+                                        st.error("Cannot Send: Your mailing address is missing. Check Settings.")
+                                    elif credits > 0:
                                         with st.spinner("Connecting to PostGrid..."):
                                             # RE-GENERATE CLEAN PDF (Addresses Hidden for Insert Page)
                                             clean_bytes = letter_format.create_pdf(
@@ -204,17 +210,54 @@ def render_dashboard():
                                     else:
                                         st.warning("⚠️ 0 Credits.")
 
-    # --- TAB: SETTINGS ---
+    # --- TAB: SETTINGS (CRITICAL FIX) ---
     with tab_settings:
-        st.write("### 👵 Parent Details")
-        with st.form("heirloom_setup"):
-            current_parent = user_data.get('parent_name', '') or ""
-            current_phone = user_data.get('parent_phone', '') or ""
-            p_name = st.text_input("Parent's Name", value=current_parent)
-            p_phone = st.text_input("Parent's Phone Number", value=current_phone)
-            if st.form_submit_button("Save Details"):
-                if hasattr(database, 'update_heirloom_profile'):
-                    if database.update_heirloom_profile(user_email, p_name, p_phone):
-                        st.success("Details saved!")
-                        time.sleep(1)
-                        st.rerun()
+        c1, c2 = st.columns(2)
+        
+        # 1. PARENT SETUP
+        with c1:
+            st.write("### 👵 Parent Details")
+            st.caption("This allows the system to recognize who is calling.")
+            with st.form("heirloom_parent"):
+                current_parent = user_data.get('parent_name', '') or ""
+                current_phone = user_data.get('parent_phone', '') or ""
+                
+                p_name = st.text_input("Parent's Name", value=current_parent, placeholder="Mom & Dad")
+                p_phone = st.text_input("Parent's Phone Number", value=current_phone, placeholder="6155550100")
+                
+                if st.form_submit_button("Save Parent Info"):
+                    if hasattr(database, 'update_heirloom_profile'):
+                        if database.update_heirloom_profile(user_email, p_name, p_phone):
+                            st.success("Saved!")
+                            time.sleep(1)
+                            st.rerun()
+                            
+        # 2. USER ADDRESS (THE "TO" ADDRESS)
+        with c2:
+            st.write("### 📬 Your Mailing Address")
+            st.caption("Where should we send the physical letter?")
+            with st.form("heirloom_me"):
+                # Load current values safely
+                my_name = user_data.get('full_name', '') or ""
+                my_street = user_data.get('address_line1', '') or ""
+                my_city = user_data.get('address_city', '') or ""
+                my_state = user_data.get('address_state', '') or ""
+                my_zip = user_data.get('address_zip', '') or ""
+
+                u_name = st.text_input("Your Name", value=my_name)
+                u_street = st.text_input("Street Address", value=my_street)
+                u_city = st.text_input("City", value=my_city)
+                
+                cc1, cc2 = st.columns(2)
+                u_state = cc1.text_input("State", value=my_state)
+                u_zip = cc2.text_input("Zip Code", value=my_zip)
+
+                if st.form_submit_button("Save My Address"):
+                    # We reuse database.save_contact or create a new profile update function
+                    # For now, assuming we can update the user profile directly via a DB call
+                    if database.update_user_profile_address(user_email, u_name, u_street, u_city, u_state, u_zip):
+                         st.success("Address Saved!")
+                         time.sleep(1)
+                         st.rerun()
+                    else:
+                        st.error("Save failed.")
