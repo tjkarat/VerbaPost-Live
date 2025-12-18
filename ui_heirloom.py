@@ -9,56 +9,6 @@ import time
 import os
 from datetime import datetime
 
-# --- HELPER: ADDRESS BOOK ---
-def load_heirloom_contacts(user_email):
-    """Fetches contacts and formats them for the dropdown."""
-    try:
-        contacts = database.get_contacts(user_email)
-        options = {}
-        
-        # Option 1: The User's own profile (Default)
-        user_profile = database.get_user_profile(user_email)
-        if user_profile:
-            label = f"Me ({user_profile.get('address_line1', 'No Address')})"
-            options[label] = {
-                "first_name": user_profile.get("full_name"),
-                "address_line1": user_profile.get("address_line1"),
-                "city": user_profile.get("address_city"),
-                "state": user_profile.get("address_state"),
-                "country_code": "US",
-                "zip": user_profile.get("address_zip") 
-            }
-        
-        # Option 2: Saved Contacts
-        for c in contacts:
-            # Handle both dict (if raw SQL) and object (if ORM) access
-            if isinstance(c, dict):
-                name = c.get('name', 'Unknown')
-                city = c.get('city', 'Unknown')
-                street = c.get('street', '') or c.get('address_line1', '')
-                state = c.get('state', '')
-                zip_code = c.get('zip_code', '') or c.get('zip', '')
-            else:
-                name = getattr(c, 'name', 'Unknown')
-                city = getattr(c, 'city', 'Unknown')
-                street = getattr(c, 'street', '')
-                state = getattr(c, 'state', '')
-                zip_code = getattr(c, 'zip_code', '')
-
-            label = f"{name} ({city})"
-            options[label] = {
-                "first_name": name,
-                "address_line1": street,
-                "city": city,
-                "state": state,
-                "country_code": "US",
-                "zip": zip_code
-            }
-        return options
-    except Exception as e:
-        st.error(f"Error loading contacts: {e}")
-        return {}
-
 def render_dashboard():
     user_email = st.session_state.get("user_email")
     if not user_email:
@@ -74,9 +24,20 @@ def render_dashboard():
     credits = user_data.get("credits_remaining", 4)
     drafts = database.get_user_drafts(user_email)
 
-    # --- PREPARE SENDER ADDRESS ---
-    from_address = {
+    # --- CONFIGURE ADDRESSES ---
+    # RECIPIENT: The Child (Logged-in User)
+    recipient_addr = {
         "name": user_data.get("full_name"),
+        "street": user_data.get("address_line1"),
+        "city": user_data.get("address_city"),
+        "state": user_data.get("address_state"),
+        "zip_code": user_data.get("address_zip")
+    }
+
+    # SENDER: The Parent (Using User's address for return)
+    parent_name = user_data.get('parent_name') or "Mom & Dad"
+    from_address = {
+        "name": parent_name,
         "street": user_data.get("address_line1"),
         "city": user_data.get("address_city"),
         "state": user_data.get("address_state"),
@@ -101,7 +62,7 @@ def render_dashboard():
             first_name = full_name.split(" ")[0] if full_name else "User"
             st.info(f"Welcome back, {first_name}. Your Story Line is active.")
             
-            # --- NEW: PHONE NUMBER DISPLAY ---
+            # PHONE NUMBER DISPLAY
             st.success("📞 **Story Line Number:** 1-615-656-7667")
             st.caption("Share this number with your parent. When they call, the story will appear in the 'Stories' tab.")
 
@@ -161,8 +122,6 @@ def render_dashboard():
         if not drafts:
             st.info("No stories found. Waiting for Mom to call!")
         else:
-            address_options = load_heirloom_contacts(user_email)
-            
             for draft in drafts:
                 draft_id = getattr(draft, 'id', None) or draft.get('id')
                 content = getattr(draft, 'content', '') or draft.get('content', '')
@@ -180,20 +139,9 @@ def render_dashboard():
                         st.rerun()
 
                     st.divider()
-
-                    selected_label = st.selectbox("Send To:", options=list(address_options.keys()), key=f"dest_{draft_id}")
-                    raw_recipient = address_options.get(selected_label)
                     
-                    if raw_recipient:
-                        recipient_addr = {
-                            "name": raw_recipient.get("first_name"),
-                            "street": raw_recipient.get("address_line1"),
-                            "city": raw_recipient.get("city"),
-                            "state": raw_recipient.get("state"),
-                            "zip_code": raw_recipient.get("zip")
-                        }
-                    else:
-                        recipient_addr = {}
+                    # Display the routing clearly
+                    st.caption(f"📮 **To:** {recipient_addr['name']} | **From:** {from_address['name']}")
 
                     col_prev, col_mail = st.columns([1, 1])
                     
@@ -223,16 +171,14 @@ def render_dashboard():
                                 if st.button(f"🚀 Send (1 Credit)", key=f"send_{draft_id}"):
                                     if credits > 0:
                                         with st.spinner("Connecting to PostGrid..."):
-                                            # RE-GENERATE CLEAN PDF (Addresses Hidden)
-                                            # This prevents the 'Content overlap' error because
-                                            # PostGrid will insert a blank cover page with addresses.
+                                            # RE-GENERATE CLEAN PDF (Addresses Hidden for Insert Page)
                                             clean_bytes = letter_format.create_pdf(
                                                 content=new_content, 
                                                 to_addr=recipient_addr,
                                                 from_addr=from_address,
                                                 tier="Heirloom",
                                                 date_str=date_str,
-                                                clean_render=True # HIDE addresses for mailing
+                                                clean_render=True 
                                             )
                                             
                                             letter_id = mailer.send_letter(
@@ -245,7 +191,6 @@ def render_dashboard():
                                                 database.decrement_user_credits(user_email)
                                                 database.update_draft_data(draft_id, status=f"Sent: {letter_id}")
                                                 
-                                                # AUDIT LOG
                                                 if audit_engine:
                                                     audit_engine.log_event(user_email, "LETTER_SENT", metadata={"id": letter_id, "tier": "Heirloom"})
                                                 
@@ -259,7 +204,7 @@ def render_dashboard():
                                     else:
                                         st.warning("⚠️ 0 Credits.")
 
-    # --- TAB: SETTINGS (UPDATED) ---
+    # --- TAB: SETTINGS ---
     with tab_settings:
         st.write("### 👵 Parent Details")
         with st.form("heirloom_setup"):
