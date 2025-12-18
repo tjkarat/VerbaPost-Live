@@ -48,15 +48,14 @@ def render_splash_page():
             st.session_state.app_mode = "legacy"
             st.rerun()
 
-    # --- FIXED: TRUST LOGOS ---
-    # Using reliable logo delivery CDN (SVG Repo / Cloudflare)
+# --- FIXED: TRUST LOGOS ---
     st.markdown("""
     <div class="trust-container">
         <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">Secure Payments & Reliable Fulfillment</small>
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" alt="Stripe">
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa">
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/usps/usps-ar21.svg" alt="USPS">
+        <img class="trust-logo" src="https://logos-world.net/wp-content/uploads/2020/10/USPS-Logo.png" alt="USPS" style="height: 20px;">
     </div>
     """, unsafe_allow_html=True)
 
