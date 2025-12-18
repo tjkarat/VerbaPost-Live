@@ -1,6 +1,5 @@
 import streamlit as st
 
-# --- FUNCTION DEFINITION ---
 def render_splash_page():
     # --- PROFESSIONAL MINIMALIST CSS ---
     st.markdown("""
@@ -10,10 +9,14 @@ def render_splash_page():
     .hero-title { font-family: 'Merriweather', serif; font-weight: 700; color: #111; font-size: clamp(2.5rem, 6vw, 4rem); margin-bottom: 0.5rem; letter-spacing: -0.5px; line-height: 1.2; }
     .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(0.9rem, 3vw, 1.1rem); font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #d93025; margin-bottom: 1.5rem; margin-top: 1rem; }
     .hero-text { font-family: 'Helvetica Neue', sans-serif; font-size: 1.15rem; font-weight: 300; color: #555; max-width: 600px; margin: 0 auto; line-height: 1.6; }
+    
+    /* TRUST LOGO STYLING */
+    .trust-container { text-align: center; padding: 20px 0; opacity: 0.6; filter: grayscale(100%); margin-top: 20px; }
+    .trust-logo { display: inline-block; margin: 0 15px; height: 25px; vertical-align: middle; }
+    
     .feature-icon { font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.8; }
     .feature-head { font-weight: 600; color: #111; margin-bottom: 0.25rem; font-family: 'Merriweather', serif; }
     .feature-body { color: #666; font-size: 0.9rem; line-height: 1.5; }
-    @media (max-width: 600px) { .hero-container { padding: 1rem 0.5rem; border-bottom: none; } }
     </style>
     """, unsafe_allow_html=True)
 
@@ -40,10 +43,20 @@ def render_splash_page():
             st.rerun()
 
         st.write("") 
-
         if st.button("Legacy Service (End of Life)", use_container_width=True):
             st.session_state.app_mode = "legacy"
             st.rerun()
+
+    # --- NEW: TRUST LOGOS ---
+    st.markdown("""
+    <div class="trust-container">
+        <small style="display:block; margin-bottom:10px; color:#999; letter-spacing:1px;">SECURE PAYMENTS & LOGISTICS</small>
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/3/3f/USPS_Logo.svg">
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
@@ -61,9 +74,6 @@ def render_splash_page():
     col_foot1, col_foot2, col_foot3 = st.columns([1, 2, 1])
     with col_foot2:
         st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
-        # Legal Button
         if st.button("⚖️ Legal / Terms", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-
-    # Explicit return avoids "None" printing in main.py
