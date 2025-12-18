@@ -24,7 +24,7 @@ def render_splash_page():
     st.markdown("""
     <div class="hero-container">
         <div class="hero-title">VerbaPost</div>
-        <div class="hero-subtitle">Real Mail Gets Read</div>
+        <div class="hero-subtitle">REAL MAIL GETS READ</div>
         <div class="hero-text">
             Texts are trivial. Emails are ignored.<br>
             <span style="font-style: italic;">"Don't know how to start? Speak it first, and we'll transcribe."</span>
@@ -47,14 +47,14 @@ def render_splash_page():
             st.session_state.app_mode = "legacy"
             st.rerun()
 
-    # --- FIXED: TRUST LOGOS ---
+    # --- FIXED: TRUST LOGOS (USPS BASE64 FORCED) ---
     st.markdown("""
     <div class="trust-container">
-        <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">Secure Payments & Reliable Fulfillment</small>
+        <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">SECURE PAYMENTS & RELIABLE FULFILLMENT</small>
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" alt="Stripe">
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa">
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard">
-        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/en/0/01/United_States_Postal_Service_logo.svg" alt="USPS" style="height: 20px;">
+        <img class="trust-logo" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzOTIuMSAxMTYuMyI+PHBhdGggZmlsbD0iIzI5MmI2NyIgZD0iTTM5Mi4xIDExNi4zSDE2Ny41bDMzLjctNDUuOWgxOTAuOWwtMzMuNyA0NS45eiIvPjxwYXRoIGZpbGw9IiNjZTExMjYiIGQ9Ik0zMzguMiA0OS45SDEyOC41TDE2Mi4yIDBoMjA5LjdMMzM4LjIgNDkuOXoiLz48cGF0aCBmaWxsPSIjZmZmIiBkPSJNMjQzLjQgMzUuMmwtNS4yIDcuMWgtMTMuMWw1LjItNy4xaDEzLjF6bS00LjMtNS44bDUuMi03LjFoMTMuMWwtNS4yIDcuMWgtMTMuMXptMTIuMiAwSDI2NWwtNS4yIDcuMWgtMTMuMWw1LjItNy4xaDEzLjF6bS00LjItNS44bDUuMi03LjFoMTMuMWwtNS4yIDcuMWgtMTMuMXptLTM5LjUgMTEuNkgxOTNsNS4yLTcuMWgxMy4xbC01LjIgNy4xeiIvPjwvc3ZnPg==" alt="USPS" style="height: 20px;">
     </div>
     """, unsafe_allow_html=True)
 
