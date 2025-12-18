@@ -101,6 +101,10 @@ def render_dashboard():
             first_name = full_name.split(" ")[0] if full_name else "User"
             st.info(f"Welcome back, {first_name}. Your Story Line is active.")
             
+            # --- NEW: PHONE NUMBER DISPLAY ---
+            st.success("📞 **Story Line Number:** 1-615-656-7667")
+            st.caption("Share this number with your parent. When they call, the story will appear in the 'Stories' tab.")
+
             st.markdown("### 🎬 This Week's Topic")
             st.caption("This is what the AI will ask Mom when she calls.")
             
@@ -255,41 +259,17 @@ def render_dashboard():
                                     else:
                                         st.warning("⚠️ 0 Credits.")
 
-    # --- TAB: SETTINGS ---
+    # --- TAB: SETTINGS (UPDATED) ---
     with tab_settings:
-        c1, c2 = st.columns(2)
-        with c1:
-            st.write("### 👵 Parent Details")
-            with st.form("heirloom_setup"):
-                current_parent = user_data.get('parent_name', '') or ""
-                current_phone = user_data.get('parent_phone', '') or ""
-                p_name = st.text_input("Parent's Name", value=current_parent)
-                p_phone = st.text_input("Parent's Phone Number", value=current_phone)
-                if st.form_submit_button("Save Details"):
-                    if hasattr(database, 'update_heirloom_profile'):
-                        if database.update_heirloom_profile(user_email, p_name, p_phone):
-                            st.success("Details saved!")
-                            time.sleep(1)
-                            st.rerun()
-
-        with c2:
-            st.write("### 📖 Address Book")
-            # --- FIX: ADDED KEYS TO INPUTS TO PREVENT STATE LOSS ---
-            with st.form("add_contact_form"):
-                cn = st.text_input("Full Name", key="new_contact_name")
-                ca = st.text_input("Street Address", key="new_contact_street")
-                cc = st.text_input("City", key="new_contact_city")
-                c_s, c_z = st.columns(2)
-                cs = c_s.text_input("State", key="new_contact_state")
-                cz = c_z.text_input("Zip", key="new_contact_zip")
-                
-                if st.form_submit_button("➕ Add Contact"):
-                    if not cn or not ca:
-                        st.error("Please fill all fields.")
-                    else:
-                        contact_data = {"name": cn, "street": ca, "city": cc, "state": cs, "zip_code": cz}
-                        if database.save_contact(user_email, contact_data):
-                            st.success(f"Added {cn}!")
-                            time.sleep(1)
-                            st.rerun()
-                        else: st.error("Failed to save.")
+        st.write("### 👵 Parent Details")
+        with st.form("heirloom_setup"):
+            current_parent = user_data.get('parent_name', '') or ""
+            current_phone = user_data.get('parent_phone', '') or ""
+            p_name = st.text_input("Parent's Name", value=current_parent)
+            p_phone = st.text_input("Parent's Phone Number", value=current_phone)
+            if st.form_submit_button("Save Details"):
+                if hasattr(database, 'update_heirloom_profile'):
+                    if database.update_heirloom_profile(user_email, p_name, p_phone):
+                        st.success("Details saved!")
+                        time.sleep(1)
+                        st.rerun()
