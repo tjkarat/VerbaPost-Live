@@ -10,6 +10,7 @@ except ImportError: database = None
 def render_login_page():
     """
     Renders the Login, Signup, and Password Recovery interface.
+    Smart-redirects user to their intended destination (Store or Heirloom) after login.
     """
     st.markdown("""
     <style>
@@ -19,7 +20,6 @@ def render_login_page():
     """, unsafe_allow_html=True)
 
     # --- 1. HANDLE RECOVERY LINK (Redirect from Email) ---
-    # This detects if the user clicked a "Reset Password" link in their email
     params = st.query_params
     if params.get("type") == "recovery":
         st.info("🔓 Verified! Please set your new password below.")
@@ -38,7 +38,6 @@ def render_login_page():
                         success, msg = auth_engine.update_user_password(new_pass)
                         if success:
                             st.success("✅ Password Updated! Please log in.")
-                            # Clear params to exit recovery mode
                             st.query_params.clear()
                             time.sleep(2)
                             st.rerun()
@@ -69,7 +68,15 @@ def render_login_page():
                         st.success(f"Welcome back, {email}!")
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
-                        st.session_state.app_mode = "store"
+                        
+                        # FIX: CHECK REDIRECT TARGET
+                        target = st.session_state.get("redirect_to", "store")
+                        if target == "heirloom":
+                            st.session_state.app_mode = "heirloom" # Logic backup
+                            st.query_params["view"] = "heirloom"   # Router force
+                        else:
+                            st.session_state.app_mode = "store"
+                        
                         st.rerun()
                     else:
                         st.error(f"Login failed: {error}")
@@ -93,10 +100,8 @@ def render_login_page():
                 if auth_engine:
                     user, error = auth_engine.sign_up(new_email, new_pass, data={"full_name": full_name})
                     if user:
-                        # Create DB Profile immediately
                         if database:
                             database.create_user(new_email, full_name)
-                            # Update profile with address
                             with database.get_db_session() as db:
                                 p = db.query(database.UserProfile).filter(database.UserProfile.email == new_email).first()
                                 if p:
@@ -109,17 +114,24 @@ def render_login_page():
                         st.success("✅ Account created! You are now logged in.")
                         st.session_state.authenticated = True
                         st.session_state.user_email = new_email
-                        st.session_state.app_mode = "store"
+                        
+                        # FIX: CHECK REDIRECT TARGET
+                        target = st.session_state.get("redirect_to", "store")
+                        if target == "heirloom":
+                            st.session_state.app_mode = "heirloom"
+                            st.query_params["view"] = "heirloom"
+                        else:
+                            st.session_state.app_mode = "store"
+
                         time.sleep(1)
                         st.rerun()
                     else:
                         st.error(f"Signup failed: {error}")
 
-    # --- TAB C: FORGOT PASSWORD (FIXED) ---
+    # --- TAB C: FORGOT PASSWORD ---
     with tab_forgot:
         st.write("Enter your email to receive a password reset link.")
         
-        # Step 1: Request Link
         with st.form("reset_request"):
             reset_email = st.text_input("Email Address")
             if st.form_submit_button("Send Reset Link"):
@@ -133,7 +145,6 @@ def render_login_page():
         st.divider()
         st.markdown("#### 🔢 Have a code?")
         
-        # Step 2: Enter OTP (Optional fallback)
         with st.form("otp_verification"):
             otp_email = st.text_input("Email")
             otp_code = st.text_input("6-Digit Code")
@@ -142,7 +153,6 @@ def render_login_page():
                     session, error = auth_engine.verify_otp(otp_email, otp_code)
                     if session:
                         st.success("✅ Code Verified! Redirecting...")
-                        # Set a flag to show the password update UI on rerun
                         st.query_params["type"] = "recovery" 
                         st.rerun()
                     else:

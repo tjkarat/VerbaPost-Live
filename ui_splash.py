@@ -45,17 +45,19 @@ def render_splash_page():
                 st.session_state.app_mode = "store"
             else:
                 st.session_state.app_mode = "login"
+                st.session_state.redirect_to = "store" # Default
             st.rerun()
 
         st.write("") 
         
         # BUTTON 2: THE FAMILY ARCHIVE (Consumption Flow)
-        # FIX: Check auth first. If logged out -> Login. If logged in -> Archive.
         if st.button("The Family Archive", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.query_params["view"] = "heirloom"
             else:
                 st.session_state.app_mode = "login"
+                # FIX: Set the redirection target so ui_login knows where to go next
+                st.session_state.redirect_to = "heirloom"
             st.rerun()
 
     # --- INFRASTRUCTURE LOGOS ---
