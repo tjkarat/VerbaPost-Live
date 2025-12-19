@@ -1,133 +1,114 @@
-import pandas as pd
+import csv
 import io
+import logging
+import audit_engine
+import mailer
+from address_standard import StandardAddress
 
-# Try to import the letter formatting utility if it exists in your project
-try:
-    import letter_format
-except ImportError:
-    letter_format = None
+logger = logging.getLogger(__name__)
 
-class SmartBulkEngine:
-    def __init__(self):
-        # Dictionary mapping standard internal names to common CSV headers
-        self.column_aliases = {
-            'name': ['recipient', 'full name', 'fullname', 'contact', 'customer', 'client'],
-            'street': ['address', 'address1', 'addr', 'address line 1', 'street address'],
-            'street2': ['address2', 'address line 2', 'suite', 'apt', 'unit', 'building', 'address_line2'],
-            'city': ['town', 'municipality'],
-            'state': ['province', 'region', 'st'],
-            'zip': ['zipcode', 'postal', 'postal code', 'zip code']
-        }
-
-    def _normalize_columns(self, df):
-        """
-        Auto-renames columns based on fuzzy matching.
-        Example: Renames 'Postal Code' to 'zip' automatically.
-        """
-        # Standardize to lowercase/stripped
-        df.columns = df.columns.str.strip().str.lower()
-        
-        # Create a lookup map (Alias -> Standard Name)
-        lookup = {}
-        for standard, aliases in self.column_aliases.items():
-            for alias in aliases:
-                lookup[alias] = standard
-        
-        # Rename any columns that match our aliases
-        new_columns = {}
-        for col in df.columns:
-            if col in lookup:
-                new_columns[col] = lookup[col]
-        
-        df.rename(columns=new_columns, inplace=True)
-        return df
-
-    def _construct_name(self, df):
-        """
-        If 'name' is missing, try to build it from 'First Name' + 'Last Name'.
-        """
-        if 'name' not in df.columns:
-            # Find columns containing 'first' and 'last'
-            first = next((c for c in df.columns if 'first' in c and 'name' in c), None)
-            last = next((c for c in df.columns if 'last' in c and 'name' in c), None)
+def parse_csv(file_obj):
+    """
+    Parses a CSV file and returns a list of dictionaries.
+    Uses flexible header matching to prevent skipping rows.
+    """
+    contacts = []
+    try:
+        # Handle Streamlit UploadedFile vs string buffer
+        if hasattr(file_obj, "getvalue"):
+            content = file_obj.getvalue().decode("utf-8")
+        else:
+            content = file_obj
             
-            if first and last:
-                # Combine them into a single 'name' column
-                df['name'] = df[first].astype(str).str.strip() + " " + df[last].astype(str).str.strip()
-        return df
-
-    def parse_file(self, uploaded_file, max_rows=1000):
-        try:
-            # Load CSV
-            df = pd.read_csv(uploaded_file)
+        reader = csv.DictReader(io.StringIO(content))
+        
+        # Flexible Header Mapping (Normalization)
+        for row in reader:
+            # Clean up keys (lowercase and strip whitespace)
+            clean_row = {k.lower().strip(): v for k, v in row.items() if k}
             
-            # Check row limit
-            if len(df) > max_rows:
-                return [], f"File contains {len(df)} rows. Maximum allowed is {max_rows}."
-
-            # smart processing
-            df = self._normalize_columns(df)
-            df = self._construct_name(df)
-
-            # Define strict requirements (Columns we MUST have to mail)
-            required = ['name', 'street', 'city', 'state', 'zip']
-            missing = [c for c in required if c not in df.columns]
+            # Map variations to standard keys
+            normalized = {
+                "name": clean_row.get("name") or clean_row.get("recipient") or clean_row.get("organization") or "",
+                "street": clean_row.get("street") or clean_row.get("address") or clean_row.get("address_line1") or "",
+                "address_line2": clean_row.get("address_line2") or clean_row.get("apt") or clean_row.get("suite") or "",
+                "city": clean_row.get("city") or clean_row.get("address_city") or "",
+                "state": clean_row.get("state") or clean_row.get("address_state") or clean_row.get("prov") or "",
+                "zip": clean_row.get("zip") or clean_row.get("zip_code") or clean_row.get("postal") or clean_row.get("address_zip") or ""
+            }
             
-            if missing:
-                return [], f"Could not find these columns: {', '.join(missing)}. \n(We auto-checked for common names like 'Recipient' or 'Address', but couldn't find a match)."
-
-            valid_contacts = []
-            error_log = []
-
-            for index, row in df.iterrows():
-                # Helper to clean data
-                def clean(val):
-                    if pd.isna(val): return ""
-                    s_val = str(val).strip()
-                    # Use existing sanitizer if available
-                    if letter_format: 
-                        return letter_format.sanitize_text(s_val)
-                    return s_val
-
-                # Extract data safely
-                contact = {
-                    "name": clean(row.get('name')),
-                    "street": clean(row.get('street')),
-                    "address_line2": clean(row.get('street2', '')), # Handles 'suite', 'apt' etc via alias
-                    "city": clean(row.get('city')),
-                    "state": clean(row.get('state')),
-                    "zip": clean(str(row.get('zip', '')).replace('.0', ''))
-                }
-
-                # Validation: Check if any required field (except address2) is empty
-                missing_fields = [k for k, v in contact.items() if not v and k != 'address_line2']
+            # Validation: Only add if we have at least a name and street
+            if normalized["name"] and normalized["street"]:
+                contacts.append(normalized)
+            else:
+                logger.warning(f"Skipping incomplete row: {row}")
                 
-                if not missing_fields:
-                    contact['country'] = 'US'
-                    valid_contacts.append(contact)
-                else:
-                    # Log specific error for the user
-                    error_log.append(f"Row {index+2} skipped: Missing {', '.join(missing_fields)}")
+        return contacts
+    except Exception as e:
+        logger.error(f"CSV Parse Error: {e}")
+        return []
 
-            # Return results
-            if not valid_contacts:
-                return [], "No valid contacts found.\nErrors:\n" + "\n".join(error_log[:5])
+def run_bulk_campaign(user_email, contacts, pdf_bytes, tier_name="Campaign"):
+    """
+    Processes a list of contacts, sends mail via mailer.py, and logs to Audit Engine.
+    """
+    results = {
+        "success": 0,
+        "failed": 0,
+        "letter_ids": []
+    }
+
+    if not contacts:
+        return results
+
+    audit_engine.log_event(
+        user_email=user_email,
+        event_type="BULK_CAMPAIGN_START",
+        description=f"Starting campaign for {len(contacts)} recipients.",
+        details={"tier": tier_name}
+    )
+
+    for contact_data in contacts:
+        try:
+            # 1. Standardize the address object
+            addr_to = StandardAddress.from_dict(contact_data)
             
-            # If some failed, return the valid ones but include a warning message
-            error_msg = None
-            if error_log:
-                error_msg = f"Processed {len(valid_contacts)} contacts. \n{len(error_log)} rows were skipped due to missing data."
+            # 2. Use mailer.py to send (This handles PostGrid API)
+            # Assuming sender info is VerbaPost corporate or user profile-based
+            # For campaigns, we usually use the user's return address
+            success, response = mailer.send_letter(
+                pdf_bytes=pdf_bytes,
+                addr_to=addr_to,
+                addr_from=None, # mailer.py will use VerbaPost default if None
+                tier=tier_name
+            )
 
-            return valid_contacts, error_msg
+            if success:
+                results["success"] += 1
+                letter_id = response if isinstance(response, str) else "unknown_id"
+                results["letter_ids"].append(letter_id)
+                
+                # Log individual success for security trail
+                audit_engine.log_event(
+                    user_email=user_email,
+                    event_type="LETTER_SENT",
+                    description=f"Campaign letter sent to {addr_to.name}",
+                    details={"letter_id": letter_id, "recipient": addr_to.name}
+                )
+            else:
+                results["failed"] += 1
+                logger.error(f"Failed to send to {addr_to.name}: {response}")
 
         except Exception as e:
-            return [], f"Critical CSV Error: {str(e)}"
+            results["failed"] += 1
+            logger.error(f"Bulk Process Exception for {contact_data.get('name')}: {e}")
 
-# --- MAIN ENTRY POINT ---
-# This function matches your original signature so your app code doesn't break.
-def parse_csv(uploaded_file, max_rows=1000):
-    """
-    Parses a CSV file for Campaign Mode using the Smart Engine.
-    """
-    engine = SmartBulkEngine()
-    return engine.parse_file(uploaded_file, max_rows)
+    # Final Campaign Summary Log
+    audit_engine.log_event(
+        user_email=user_email,
+        event_type="BULK_CAMPAIGN_COMPLETE",
+        description=f"Campaign finished: {results['success']} sent, {results['failed']} failed.",
+        details={"total": len(contacts)}
+    )
+
+    return results
