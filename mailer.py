@@ -8,35 +8,52 @@ from email.message import EmailMessage
 import streamlit as st
 
 # --- LOGGING SETUP ---
+# Standardizing logging across all VerbaPost engines for production auditing.
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION (ROBUST KEY DISCOVERY) ---
-# Ensures the engine can reach PostGrid from environment or secrets.
+# --- CONFIGURATION (DISCOVERY LOGIC) ---
+# CRITICAL FIX: Robust secret discovery to ensure handshake with PostGrid.
 POSTGRID_API_KEY = os.getenv("POSTGRID_API_KEY") or st.secrets.get("POSTGRID_API_KEY")
 POSTGRID_URL = "https://api.postgrid.com/v1/letters"
 
-# EMAIL CONFIG
+# EMAIL CONFIGURATION (RESEND/SMTP)
 SMTP_SERVER = "smtp.resend.com"
 SMTP_PORT = 465
 SMTP_USER = "resend"
 SMTP_PASS = os.getenv("RESEND_API_KEY") or st.secrets.get("RESEND_API_KEY")
 
 def validate_address(addr_dict):
-    required = ["name", "street", "city", "state", "zip_code"]
-    for field in required:
-        if not addr_dict.get(field): return False, {"error": f"Missing {field}"}
+    """
+    Performs a pre-flight check on the address dictionary before 
+    sending to PostGrid to avoid unnecessary API costs.
+    """
+    required_fields = [
+        "name", 
+        "street", 
+        "city", 
+        "state", 
+        "zip_code"
+    ]
+    
+    for field in required_fields:
+        if not addr_dict.get(field):
+            logger.warning(f"Address validation failed: Missing {field}")
+            return False, {"error": f"Missing field: {field}"}
+    
+    # Simulate a successful validation response structure.
     return True, addr_dict
 
 def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
     """
-    DISPATCH ENGINE: Correctly unpacks StandardAddress strings for PostGrid.
+    Primary engine for physical mail dispatch. Handles PDF encoding, 
+    JSON payload construction, and PostGrid API handshakes.
     """
     if not POSTGRID_API_KEY:
-        logger.error("POSTGRID_API_KEY missing.")
+        logger.error("POSTGRID_API_KEY missing from environment/secrets.")
         return False, "Handshake Error: API Key Missing"
 
     try:
-        # UNPACKING PROPERTIES
+        # DATA UNPACKING: Ensure properties are valid strings
         recipient_data = {
             "name": addr_to.name,
             "address_line1": addr_to.street,
@@ -57,16 +74,23 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
                 "address_country": "US"
             }
 
+        # Preparing the multi-part request for PostGrid.
         payload = {
             "to": recipient_data,
             "from": sender_data,
             "description": f"VerbaPost {tier} Letter",
-            "metadata": {"tier": tier, "timestamp": str(time.time())}
+            "metadata": {
+                "tier": tier,
+                "timestamp": str(time.time())
+            }
         }
 
-        files = {"pdf": ("letter.pdf", pdf_bytes, "application/pdf")}
+        # Multi-part file construction for PDF transmission.
+        files = {
+            "pdf": ("letter.pdf", pdf_bytes, "application/pdf")
+        }
 
-        # HANDSHAKE
+        # HANDSHAKE DISPATCH
         response = requests.post(
             POSTGRID_URL,
             headers={"x-api-key": POSTGRID_API_KEY},
@@ -74,33 +98,75 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
             files=files
         )
 
+        # Evaluating the response from the print service.
         if response.status_code in [200, 201, 202]:
-            return True, response.json().get("id")
+            resp_data = response.json()
+            letter_id = resp_data.get("id")
+            logger.info(f"Dispatch success: {letter_id}")
+            return True, letter_id
         else:
-            # RETURN EXACT ERROR
-            error_text = response.text if response.text else f"Status Code: {response.status_code}"
-            logger.error(f"PostGrid Reject: {error_text}")
+            # RETURN EXACT REJECTION TEXT
+            error_text = response.text if response.text else f"Status: {response.status_code}"
+            logger.error(f"PostGrid Handshake Rejected: {error_text}")
             return False, error_text
 
     except Exception as e:
-        logger.exception(f"Engine Crash: {e}")
+        logger.exception(f"Fatal Dispatch Engine Error: {e}")
         return False, str(e)
 
 def send_email_notification(to_email, subject, body):
-    if not SMTP_PASS: return False
+    """
+    Sends a summary email of campaign results using Resend SMTP.
+    Used for bulk campaign reports.
+    """
+    if not SMTP_PASS:
+        logger.error("RESEND_API_KEY missing. Email notification skipped.")
+        return False
+
     try:
         msg = EmailMessage()
-        msg.set_content(body); msg['Subject'] = subject
-        msg['From'] = "reports@verbapost.com"; msg['To'] = to_email
+        msg.set_content(body)
+        msg['Subject'] = subject
+        msg['From'] = "reports@verbapost.com"
+        msg['To'] = to_email
+
+        # Connect via secure port 465.
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(SMTP_USER, SMTP_PASS); server.send_message(msg)
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+        
+        logger.info(f"Campaign results emailed successfully to {to_email}")
         return True
-    except: return False
+    except Exception as e:
+        logger.error(f"Email Dispatch Failure: {str(e)}")
+        return False
+
+# --- UTILITY FUNCTIONS ---
 
 def get_letter_status(letter_id):
-    if not letter_id: return "Invalid"
+    """Fetches tracking status for a specific ID."""
+    if not letter_id:
+        return "Invalid ID"
+        
     try:
         url = f"{POSTGRID_URL}/{letter_id}"
-        resp = requests.get(url, headers={"x-api-key": POSTGRID_API_KEY})
-        return resp.json().get("status", "Unknown") if resp.status_code == 200 else "Error"
-    except: return "Error"
+        response = requests.get(
+            url, 
+            headers={"x-api-key": POSTGRID_API_KEY}
+        )
+        
+        if response.status_code == 200:
+            return response.json().get("status", "Unknown")
+        else:
+            return f"API Error: {response.status_code}"
+            
+    except Exception as e:
+        logger.error(f"Status check failed: {e}")
+        return "Error"
+
+def log_debug_info():
+    """Diagnostic check for environment keys."""
+    status = "Loaded" if POSTGRID_API_KEY else "Missing"
+    logger.debug(f"PostGrid API Key Status: {status}")
+
+# End of Mailer
