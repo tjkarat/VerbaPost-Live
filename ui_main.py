@@ -454,51 +454,65 @@ def render_review_page():
     st.markdown("## 👁️ Step 4: Secure & Send")
     current_tier = st.session_state.get("locked_tier", "Standard")
     
-    # GRANULAR CAMPAIGN EXECUTION WITH PROGRESS AND PERSONALIZATION
     if current_tier == "Campaign":
         targets = st.session_state.get("bulk_targets", [])
         st.info(f"📋 Campaign Mode: Preparing to mail {len(targets)} personalized letters.")
         
-        # ACTUALLY ADDING THE EXECUTION LOGIC TO THIS BUTTON
+        # FULL CAMPAIGN EXECUTION WITH PROGRESS, PERSONALIZATION, AUDIT, AND EMAIL
         if st.button("🚀 Start Personalized Bulk Mailing", type="primary", use_container_width=True):
             if not st.session_state.get("letter_body"):
                 st.error("⚠️ Letter content is empty."); return
             
             prog_bar = st.progress(0, text="Initializing Campaign...")
+            if audit_engine:
+                audit_engine.log_event(st.session_state.user_email, "BULK_CAMPAIGN_START", f"Starting campaign for {len(targets)} recipients.")
+            
             results_log = []
             success_count, fail_count = 0, 0
             
-            # THE CRITICAL MAILING LOOP
             for i, contact in enumerate(targets):
                 prog_val = (i + 1) / len(targets)
                 prog_bar.progress(prog_val, text=f"Processing {contact['name']} ({i+1}/{len(targets)})...")
                 
                 try:
-                    # DYNAMIC PERSONALIZATION: Replace tag in body
+                    # DYNAMIC PERSONALIZATION
                     p_body = st.session_state.get("letter_body", "").replace("[Organization Name]", contact.get('name', ''))
                     
-                    # Generate unique PDF for this recipient
+                    # Generate unique PDF per recipient
                     std_to = address_standard.StandardAddress.from_dict(contact)
                     std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                     pdf_bytes = letter_format.create_pdf(p_body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
                     
-                    # DISPATCH TO POSTGRID
+                    # Dispatch via Mailer
                     success, resp = mailer.send_letter(pdf_bytes, std_to, std_from, current_tier)
                     
                     if success:
                         success_count += 1
                         results_log.append({"Name": contact['name'], "Status": "Success", "LetterID": resp})
-                        if audit_engine: audit_engine.log_event(st.session_state.user_email, "LETTER_SENT", f"Campaign: {contact['name']}", {"id": resp})
+                        if audit_engine:
+                            audit_engine.log_event(st.session_state.user_email, "LETTER_SENT", f"Campaign mail to {contact['name']}", {"id": resp})
                     else:
                         fail_count += 1
                         results_log.append({"Name": contact['name'], "Status": "Failed", "Error": str(resp)})
+                        if audit_engine:
+                            audit_engine.log_event(st.session_state.user_email, "LETTER_FAILED", f"Failed mail to {contact['name']}", {"error": str(resp)})
                 except Exception as e:
                     fail_count += 1
                     results_log.append({"Name": contact['name'], "Status": "Error", "Error": str(e)})
+                    if audit_engine:
+                        audit_engine.log_event(st.session_state.user_email, "CAMPAIGN_ITERATION_CRASH", f"Crash on {contact['name']}", {"error": str(e)})
 
             prog_bar.empty()
             st.balloons()
             st.success(f"✨ Campaign Dispatched! Sent: {success_count} | Failed: {fail_count}")
+            
+            # FINAL EMAIL NOTIFICATION
+            if mailer:
+                summary = f"VerbaPost Campaign Complete\n\nTotal Attempted: {len(targets)}\nSuccess: {success_count}\nFailed: {fail_count}\n\nDetailed results CSV attached to your in-app session."
+                mailer.send_email_notification(st.session_state.user_email, "Bulk Campaign Results", summary)
+            
+            if audit_engine:
+                audit_engine.log_event(st.session_state.user_email, "BULK_CAMPAIGN_COMPLETE", f"Total Success: {success_count}", {"failed": fail_count})
             
             # RESULTS DOWNLOAD
             res_df = pd.DataFrame(results_log)
@@ -507,7 +521,6 @@ def render_review_page():
             st.download_button("📥 Download Delivery Results (CSV)", csv_io.getvalue(), "campaign_results.csv", "text/csv", use_container_width=True)
     
     else:
-        # Standard Review Logic
         if st.button("📄 Generate PDF Proof"):
             with st.spinner("Generating Proof..."):
                 try:
@@ -550,7 +563,6 @@ def render_review_page():
     st.markdown(f"### Total: ${total:.2f}")
 
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-        # Mandatory Payment Call
         u_email = st.session_state.get("user_email")
         d_id = st.session_state.get("current_draft_id")
         if d_id and database:
