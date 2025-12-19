@@ -20,7 +20,10 @@ SMTP_PORT = 465
 SMTP_USER = "resend"
 
 # CRITICAL FIX: Aggressive key sanitization
-raw_resend = os.getenv("RESEND_API_KEY") or st.secrets.get("RESEND_API_KEY")
+raw_resend = os.getenv("RESEND_API_KEY")
+if not raw_resend and hasattr(st, "secrets"):
+    raw_resend = st.secrets.get("RESEND_API_KEY")
+    
 SMTP_PASS = str(raw_resend).strip().replace("'", "").replace('"', "") if raw_resend else None
 
 def validate_address(addr_dict):
@@ -35,6 +38,14 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard", description="Ver
     if not POSTGRID_API_KEY:
         logger.error("POSTGRID_API_KEY missing from environment/secrets.")
         return False, "Handshake Error: API Key Missing"
+
+    # --- TYPE SAFETY FIX: Ensure pdf_bytes is actually bytes ---
+    if isinstance(pdf_bytes, str):
+        pdf_bytes = pdf_bytes.encode('utf-8')
+    elif isinstance(pdf_bytes, bytearray):
+        pdf_bytes = bytes(pdf_bytes)
+    elif not pdf_bytes:
+        return False, "Error: PDF Content Empty"
 
     try:
         if hasattr(addr_to, 'name'):
@@ -73,6 +84,8 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard", description="Ver
             }
         }
 
+        # IMPORTANT: When using 'files', data must be passed as a dictionary of strings (json.dumps), 
+        # not a raw JSON object, for requests to handle the multipart/form-data correctly.
         files = {"pdf": ("letter.pdf", pdf_bytes, "application/pdf")}
 
         response = requests.post(

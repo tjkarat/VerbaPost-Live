@@ -5,6 +5,7 @@ import json
 import os
 import requests
 from datetime import datetime
+import base64
 
 # --- THIRD PARTY SDKs FOR HEALTH CHECKS ---
 import stripe
@@ -66,7 +67,7 @@ def run_system_health_checks():
         if not k: raise Exception("Missing Key")
         client = openai.OpenAI(api_key=k)
         client.models.list() 
-    status, color = check_connection("OpenAI", check_openai)
+    status, color = check_connection("OpenAI (Intelligence)", check_openai)
     results.append({"Service": "OpenAI (Intelligence)", "Status": status, "Color": color})
 
     # 4. TWILIO
@@ -76,7 +77,7 @@ def run_system_health_checks():
         if not sid or not token: raise Exception("Missing Credentials")
         client = TwilioClient(sid, token)
         client.api.v2010.accounts(sid).fetch()
-    status, color = check_connection("Twilio", check_twilio)
+    status, color = check_connection("Twilio (Voice)", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
     # 5. POSTGRID (FIXED URL)
@@ -200,8 +201,8 @@ def render_admin_page():
                 
                 # 3. REPAIR STATION
                 st.divider()
-                st.markdown("### 🛠️ Repair & Force Fulfillment")
-                st.info("Select an order to view details, edit the address, and retry sending.")
+                st.markdown("### 🛠️ Repair & Export Station")
+                st.info("Select an order to view details, download the PDF, or force a re-send.")
                 
                 c_sel, c_act = st.columns([3, 1])
                 with c_sel:
@@ -223,50 +224,100 @@ def render_admin_page():
                             with st.form("repair_form"):
                                 st.markdown(f"**Editing Order:** `{selected_uuid}`")
                                 
+                                # Retrieve User Profile for Fallback Data (Heirloom Drafts often lack address in the draft row)
+                                user_profile = database.get_user_profile(record.user_email) if record.user_email else {}
+
+                                # --- ADDRESS FIELD LOGIC (SAFE GET) ---
+                                # Priority: Record Field -> User Profile Field -> Fallback
+                                def safe_val(attr, profile_key, fallback=""):
+                                    val = getattr(record, attr, None)
+                                    if val: return val
+                                    if user_profile: return user_profile.get(profile_key, fallback)
+                                    return fallback
+
+                                cur_name = safe_val('to_name', 'full_name', 'Recipient Name')
+                                cur_city = safe_val('to_city', 'address_city', 'City')
+                                cur_street = safe_val('to_street', 'address_line1', 'Street Address')
+                                cur_state = safe_val('to_state', 'address_state', 'State')
+                                cur_zip = safe_val('to_zip', 'address_zip', 'Zip')
+
                                 c1, c2 = st.columns(2)
                                 with c1:
-                                    # Use safe getattr incase column missing
-                                    cur_name = getattr(record, 'to_name', '') or "Recipient"
-                                    cur_city = getattr(record, 'to_city', '') or "City"
                                     new_to_name = st.text_input("Recipient Name", value=cur_name)
                                     new_to_city = st.text_input("City", value=cur_city)
+                                    new_to_zip = st.text_input("Zip", value=cur_zip)
                                 with c2:
                                     new_status = st.text_input("Force Status", value=record.status)
+                                    new_to_street = st.text_input("Street", value=cur_street)
+                                    new_to_state = st.text_input("State", value=cur_state)
                                     
                                 new_content = st.text_area("Letter Body", value=record.content, height=150)
                                 
-                                if st.form_submit_button("🚀 Update & Re-Send"):
-                                    # Update DB
-                                    record.status = "Repaired/Sending"
-                                    record.content = new_content
-                                    if hasattr(record, 'to_name'): record.to_name = new_to_name
-                                    db.commit()
-                                    
-                                    # Trigger Mailer
-                                    if mailer and letter_format:
-                                        with st.spinner("Dispatching to PostGrid..."):
-                                            # Use Safe Defaults if address incomplete in DB
-                                            to_obj = {
-                                                "name": new_to_name, 
-                                                "address_line1": getattr(record, 'to_street', '123 Main') or '123 Main',
-                                                "city": new_to_city, 
-                                                "state": getattr(record, 'to_state', 'NY') or 'NY',
-                                                "zip": getattr(record, 'to_zip', '10001') or '10001'
-                                            }
-                                            # Default sender
-                                            from_obj = {"name": "VerbaPost", "address_line1": "1000 Main", "city": "Nash", "state": "TN", "zip": "37203"}
-                                            
-                                            pdf_bytes = letter_format.create_pdf(new_content, to_obj, from_obj, getattr(record, 'tier', 'Standard'))
-                                            res_id = mailer.send_letter(pdf_bytes, to_obj, from_obj, description=f"Admin Fix {selected_uuid}")
-                                            
-                                            if res_id:
-                                                record.status = f"Sent (Admin): {res_id}"
-                                                db.commit()
-                                                st.success(f"✅ Success! Tracking ID: {res_id}")
-                                                time.sleep(2)
-                                                st.rerun()
-                                            else:
-                                                st.error("❌ Mailing API Failed. Check Logs.")
+                                # --- GENERATE PDF PREVIEW/EXPORT OBJECT ---
+                                # Use Safe Defaults
+                                to_obj = {
+                                    "name": new_to_name, 
+                                    "address_line1": new_to_street,
+                                    "city": new_to_city, 
+                                    "state": new_to_state,
+                                    "zip": new_to_zip,
+                                    "zip_code": new_to_zip # Ensure compatibility
+                                }
+                                # Default sender
+                                from_obj = {"name": "VerbaPost", "address_line1": "1000 Main", "city": "Nash", "state": "TN", "zip": "37203"}
+                                
+                                pdf_bytes = b""
+                                if letter_format:
+                                    try:
+                                        tier = getattr(record, 'tier', 'Standard')
+                                        pdf_bytes = letter_format.create_pdf(new_content, to_obj, from_obj, tier)
+                                    except Exception as e:
+                                        st.error(f"PDF Gen Error: {e}")
+
+                                col_export, col_send = st.columns(2)
+                                
+                                # EXPORT BUTTON
+                                with col_export:
+                                    if pdf_bytes:
+                                        st.download_button(
+                                            label="⬇️ Download PDF",
+                                            data=pdf_bytes,
+                                            file_name=f"order_{selected_uuid}.pdf",
+                                            mime="application/pdf"
+                                        )
+                                    else:
+                                        st.warning("PDF generation failed.")
+
+                                # SEND BUTTON
+                                with col_send:
+                                    if st.form_submit_button("🚀 Update & Re-Send"):
+                                        # Update DB
+                                        record.status = "Repaired/Sending"
+                                        record.content = new_content
+                                        if hasattr(record, 'to_name'): record.to_name = new_to_name
+                                        db.commit()
+                                        
+                                        # Trigger Mailer
+                                        if mailer and pdf_bytes:
+                                            with st.spinner("Dispatching to PostGrid..."):
+                                                
+                                                # Send using corrected object structure
+                                                res_id = mailer.send_letter(
+                                                    pdf_bytes, 
+                                                    to_obj, 
+                                                    from_obj, 
+                                                    description=f"Admin Fix {selected_uuid}",
+                                                    tier=getattr(record, 'tier', 'Standard')
+                                                )
+                                                
+                                                if res_id:
+                                                    record.status = f"Sent (Admin): {res_id}"
+                                                    db.commit()
+                                                    st.success(f"✅ Success! Tracking ID: {res_id}")
+                                                    time.sleep(2)
+                                                    st.rerun()
+                                                else:
+                                                    st.error("❌ Mailing API Failed. Check Logs.")
                         else:
                             st.error("Could not find record in database.")
 
