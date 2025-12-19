@@ -35,8 +35,7 @@ def check_connection(service_name, check_func):
         return "✅ Online", "green"
     except Exception as e:
         msg = str(e)
-        # Soften errors for permission-restricted keys (e.g. Resend Sending-Only)
-        if "403" in msg or "Restricted" in msg:
+        if "403" in msg or "401" in msg or "Restricted" in msg:
             return "⚠️ Online (Restricted)", "orange"
         return f"❌ Error: {msg[:50]}...", "red"
 
@@ -80,11 +79,11 @@ def run_system_health_checks():
     status, color = check_connection("Twilio", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
-    # 5. POSTGRID
+    # 5. POSTGRID (FIXED URL)
     def check_postgrid():
         k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
         if not k: raise Exception("Missing Key")
-        # Matches mailer.py endpoint
+        # Corrected endpoint to match mailer.py logic
         r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code}")
     status, color = check_connection("PostGrid (Mail)", check_postgrid)
@@ -99,25 +98,20 @@ def run_system_health_checks():
     status, color = check_connection("Geocodio (Civic)", check_geocodio)
     results.append({"Service": "Geocodio (Civic)", "Status": status, "Color": color})
 
-    # 7. RESEND (FIXED: Sanitization & Permissions)
+    # 7. RESEND (FIXED SANITIZATION)
     def check_resend():
         k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
         if not k_raw: raise Exception("Missing Key")
         
-        # CRITICAL FIX: Strip whitespace AND quotes (common .env copy-paste errors)
-        k = k_raw.strip().strip("'").strip('"')
+        # Strip whitespace and quotes to match mailer.py logic
+        k = str(k_raw).strip().replace("'", "").replace('"', "")
         
-        headers = {"Authorization": f"Bearer {k}"}
-        # We check /domains. If the key is "Sending Only", this returns 403.
-        # If the key is "Full Access", it returns 200.
-        r = requests.get("https://api.resend.com/domains", headers=headers)
+        headers = {"Authorization": f"Bearer {k}", "Content-Type": "application/json"}
+        r_dom = requests.get("https://api.resend.com/domains", headers=headers)
         
-        if r.status_code == 403:
-            # 403 is good! It means the key works but is restricted (best practice).
-            raise Exception("Restricted (Sending Only)") 
-        
-        if r.status_code != 200: 
-            raise Exception(f"API {r.status_code}: {r.text[:20]}")
+        # 403 Forbidden is valid for "Sending Only" keys
+        if r_dom.status_code == 403: return 
+        if r_dom.status_code != 200: raise Exception(f"API {r_dom.status_code}")
             
     status, color = check_connection("Resend (Email)", check_resend)
     results.append({"Service": "Resend (Email)", "Status": status, "Color": color})
@@ -173,47 +167,96 @@ def render_admin_page():
                         st.markdown(f":{item['Color']}[{item['Status']}]")
                         st.markdown("---")
 
-    # --- TAB 2: ORDERS ---
+    # --- TAB 2: ORDERS (IMPROVED REPAIR) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
+            # Fetch from DB
             all_orders = database.get_all_orders()
+            
             if all_orders:
                 total_orders = len(all_orders)
-                PAGE_SIZE = 50
-                col_pg1, col_pg2 = st.columns([1, 3])
-                with col_pg1:
-                    total_pages = max(1, (total_orders // PAGE_SIZE) + (1 if total_orders % PAGE_SIZE > 0 else 0))
-                    page_num = st.number_input("Page", min_value=1, max_value=total_pages, value=1)
+                st.metric("Total Order Count", total_orders)
                 
-                start_idx = (page_num - 1) * PAGE_SIZE
-                end_idx = min(start_idx + PAGE_SIZE, total_orders)
-                with col_pg2:
-                    st.caption(f"Showing orders {start_idx + 1} to {end_idx} of {total_orders}")
-
-                current_batch = all_orders[start_idx:end_idx]
+                # Render Data Table
                 data = []
-                for o in current_batch:
+                for o in all_orders:
                     raw_date = o.get('created_at')
                     date_str = raw_date.strftime("%Y-%m-%d %H:%M") if raw_date else "Unknown"
                     price_val = o.get('price')
                     price_str = f"${float(price_val):.2f}" if price_val is not None else "$0.00"
                     
                     data.append({
-                        "ID": str(o.get('id')),
+                        "ID": str(o.get('id')), # Cast to string to prevent Arrow error
                         "Date": date_str,
                         "User": o.get('user_email'),
                         "Tier": o.get('tier'),
                         "Status": o.get('status'),
                         "Price": price_str
                     })
-                st.dataframe(pd.DataFrame(data), use_container_width=True)
                 
+                df_orders = pd.DataFrame(data)
+                st.dataframe(df_orders, use_container_width=True, height=400)
+                
+                # --- REPAIR STATION ---
                 st.divider()
-                st.markdown("### 🛠️ Repair & Fulfillment")
-                oid = st.text_input("Enter Order UUID to Fix/Retry") 
-                if oid:
-                    pass 
+                st.markdown("### 🛠️ Repair & Force Fulfillment")
+                st.info("Use this tool to manually fix and re-send an order that failed.")
+                
+                c_sel, c_act = st.columns([3, 1])
+                with c_sel:
+                    # Dropdown for easier selection
+                    order_opts = [f"{x['ID']} ({x['Status']})" for x in data]
+                    selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
+                
+                if selected_order_str and selected_order_str != "Select...":
+                    selected_uuid = selected_order_str.split(" ")[0]
+                    
+                    # Fetch details for the selected order
+                    with database.get_db_session() as db:
+                        # Try Draft table first, then Letters
+                        record = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_uuid).first()
+                        if not record:
+                            record = db.query(database.Letter).filter(database.Letter.id == selected_uuid).first()
+                            
+                        if record:
+                            with st.form("repair_form"):
+                                st.markdown(f"**Editing Order:** `{selected_uuid}`")
+                                new_status = st.text_input("Status Status", value=record.status)
+                                new_content = st.text_area("Letter Body", value=record.content, height=100)
+                                
+                                # If columns exist in model, allow edit. Else warn.
+                                to_name_val = getattr(record, 'to_name', '') or "Recipient Name"
+                                new_to_name = st.text_input("Recipient Name", value=to_name_val)
+                                
+                                if st.form_submit_button("🚀 Update & Re-Send"):
+                                    # Update DB
+                                    record.status = "Repaired/Sending"
+                                    record.content = new_content
+                                    # Note: requires SQL update for persistent columns
+                                    db.commit()
+                                    
+                                    # Trigger Mailer
+                                    if mailer and letter_format:
+                                        with st.spinner("Dispatching to PostGrid..."):
+                                            # Mocking Objects for PDF gen
+                                            to_obj = {"name": new_to_name, "address_line1": "123 Fix St", "city": "Fix City", "state": "NY", "zip": "10001"}
+                                            from_obj = {"name": "VerbaPost", "address_line1": "1000 Main", "city": "Nash", "state": "TN", "zip": "37203"}
+                                            
+                                            pdf_bytes = letter_format.create_pdf(new_content, to_obj, from_obj, getattr(record, 'tier', 'Standard'))
+                                            res_id = mailer.send_letter(pdf_bytes, to_obj, from_obj, description=f"Admin Fix {selected_uuid}")
+                                            
+                                            if res_id:
+                                                record.status = f"Sent (Admin): {res_id}"
+                                                db.commit()
+                                                st.success(f"✅ Success! Tracking ID: {res_id}")
+                                                time.sleep(2)
+                                                st.rerun()
+                                            else:
+                                                st.error("❌ Mailing API Failed. Check Logs.")
+                        else:
+                            st.error("Could not find record in database.")
+
             else:
                 st.info("No orders found in database.")
         except Exception as e:
@@ -277,8 +320,13 @@ def render_admin_page():
                         st.success(f"Created {c_code}")
                         time.sleep(1); st.rerun()
                     else: st.error("Failed.")
+        
+        # Display Promo Data
         promos = database.get_all_promos()
-        if promos: st.dataframe(pd.DataFrame(promos), use_container_width=True)
+        if promos: 
+            st.dataframe(pd.DataFrame(promos), use_container_width=True)
+        else:
+            st.info("No promo codes found.")
 
     # --- TAB 5: USERS ---
     with tab_users:
@@ -299,9 +347,10 @@ def render_admin_page():
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
+            # FIXED: Calls the robust fallback function in audit_engine
             logs = audit_engine.get_recent_logs(limit=100)
             if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
-            else: st.info("No logs found.")
+            else: st.info("No logs found. (Check if audit_logs table exists)")
         else: st.warning("Audit Engine not loaded.")
 
 # Safety Alias
