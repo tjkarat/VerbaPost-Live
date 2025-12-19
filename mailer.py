@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
 POSTGRID_API_KEY = os.getenv("POSTGRID_API_KEY") or st.secrets.get("POSTGRID_API_KEY")
-# URL synced with Admin Console to prevent 404s
 POSTGRID_URL = "https://api.postgrid.com/print-mail/v1/letters"
 
 # EMAIL CONFIG
@@ -20,11 +19,14 @@ SMTP_PORT = 465
 SMTP_USER = "resend"
 
 # CRITICAL FIX: Aggressive key sanitization
+# This handles keys that might be pasted with quotes in secrets.toml
 raw_resend = os.getenv("RESEND_API_KEY")
 if not raw_resend and hasattr(st, "secrets"):
     raw_resend = st.secrets.get("RESEND_API_KEY")
-    
-SMTP_PASS = str(raw_resend).strip().replace("'", "").replace('"', "") if raw_resend else None
+
+SMTP_PASS = None
+if raw_resend:
+    SMTP_PASS = str(raw_resend).strip().replace("'", "").replace('"', "")
 
 def validate_address(addr_dict):
     required = ["name", "street", "city", "state", "zip_code"]
@@ -39,7 +41,7 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard", description="Ver
         logger.error("POSTGRID_API_KEY missing from environment/secrets.")
         return False, "Handshake Error: API Key Missing"
 
-    # --- TYPE SAFETY FIX: Ensure pdf_bytes is actually bytes ---
+    # --- TYPE SAFETY: Ensure bytes ---
     if isinstance(pdf_bytes, str):
         pdf_bytes = pdf_bytes.encode('utf-8')
     elif isinstance(pdf_bytes, bytearray):
@@ -48,6 +50,7 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard", description="Ver
         return False, "Error: PDF Content Empty"
 
     try:
+        # Prepare Recipient
         if hasattr(addr_to, 'name'):
              recipient_data = {
                 "name": addr_to.name,
@@ -60,6 +63,7 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard", description="Ver
         else:
              recipient_data = addr_to 
 
+        # Prepare Sender
         sender_data = None
         if addr_from:
             if hasattr(addr_from, 'name'):
@@ -84,8 +88,6 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard", description="Ver
             }
         }
 
-        # IMPORTANT: When using 'files', data must be passed as a dictionary of strings (json.dumps), 
-        # not a raw JSON object, for requests to handle the multipart/form-data correctly.
         files = {"pdf": ("letter.pdf", pdf_bytes, "application/pdf")}
 
         response = requests.post(
@@ -143,7 +145,3 @@ def get_letter_status(letter_id):
     except Exception as e:
         logger.error(f"Status check failed: {e}")
         return "Error"
-
-def log_debug_info():
-    status = "Loaded" if POSTGRID_API_KEY else "Missing"
-    logger.debug(f"PostGrid API Key Status: {status}")
