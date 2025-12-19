@@ -2,7 +2,7 @@ import logging
 import time
 import json
 from datetime import datetime
-from sqlalchemy import text # Required for raw SQL fallback
+from sqlalchemy import text 
 
 # --- INTERNAL ENGINE IMPORTS ---
 import database
@@ -27,7 +27,7 @@ def log_event(user_email, event_type, description, details=None):
             "created_at": timestamp,
             "platform": "VerbaPost_Web"
         }
-
+        # Attempt to save using standard DB function
         success = database.save_audit_log(log_entry)
         if not success:
             logger.error(f"Database rejection for audit event: {event_type}")
@@ -38,10 +38,10 @@ def log_event(user_email, event_type, description, details=None):
         logger.error(f"CRITICAL_AUDIT_FAILURE: {str(e)}")
         return False
 
-# --- FIXED: Robust Log Fetching with SQL Fallback ---
+# --- FIXED: Points to 'audit_events' to match your database schema ---
 def get_recent_logs(limit=100):
     """
-    Fetches system logs. Falls back to raw SQL if database.py is missing the method.
+    Fetches system logs. Falls back to raw SQL using the correct table name.
     """
     try:
         # 1. Try standard method if it exists
@@ -49,20 +49,16 @@ def get_recent_logs(limit=100):
             return database.get_audit_logs(None, limit=limit)
         
         # 2. Fallback: Raw SQL Query
-        # This handles the "module 'database' has no attribute 'get_audit_logs'" error
+        # CRITICAL FIX: Changed table from 'audit_logs' to 'audit_events'
         with database.get_db_session() as session:
-            # Assumes table is named 'audit_logs' based on standard schema
-            query = text("SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT :lim")
+            query = text("SELECT * FROM audit_events ORDER BY timestamp DESC LIMIT :lim")
             result = session.execute(query, {"lim": limit})
             
-            # Convert SQLAlchemy rows to dictionary list
             logs = []
             for row in result:
-                # Handle different SQLAlchemy result formats
                 if hasattr(row, '_mapping'):
                     logs.append(dict(row._mapping))
                 else:
-                    # Fallback for older SQLAlchemy versions
                     logs.append(dict(row))
             return logs
 
@@ -74,7 +70,7 @@ def get_user_logs(user_email, limit=50):
     try:
         if hasattr(database, 'get_audit_logs'):
             return database.get_audit_logs(user_email, limit=limit)
-        return [] # Simple failover for user specific logs
+        return []
     except Exception as e:
         logger.error(f"Failed to fetch user logs: {e}")
         return []
