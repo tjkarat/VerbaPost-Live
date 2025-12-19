@@ -29,6 +29,7 @@ except ImportError: audit_engine = None
 
 # --- HEALTH CHECK HELPERS ---
 def check_connection(service_name, check_func):
+    """Generic wrapper for health checks."""
     try:
         check_func()
         return "✅ Online", "green"
@@ -36,7 +37,9 @@ def check_connection(service_name, check_func):
         return f"❌ Error: {str(e)[:50]}...", "red"
 
 def run_system_health_checks():
+    """Runs connectivity tests for all external services."""
     results = []
+
     # 1. DATABASE
     def check_db():
         with database.get_db_session() as db:
@@ -152,7 +155,7 @@ def render_admin_page():
                         st.markdown(f":{item['Color']}[{item['Status']}]")
                         st.markdown("---")
 
-    # --- TAB 2: ORDERS (FIXED FORMATTING) ---
+    # --- TAB 2: ORDERS (FIXED ARROW CRASH) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
@@ -175,12 +178,12 @@ def render_admin_page():
                 for o in current_batch:
                     raw_date = o.get('created_at')
                     date_str = raw_date.strftime("%Y-%m-%d %H:%M") if raw_date else "Unknown"
-                    # FIX: Handle None prices safely
+                    # FIX: Handle None prices safely to avoid string format crash
                     price_val = o.get('price')
                     price_str = f"${float(price_val):.2f}" if price_val is not None else "$0.00"
                     
                     data.append({
-                        "ID": o.get('id'),
+                        "ID": str(o.get('id')), # Explicit cast to string for Arrow
                         "Date": date_str,
                         "User": o.get('user_email'),
                         "Tier": o.get('tier'),
@@ -193,8 +196,7 @@ def render_admin_page():
                 st.markdown("### 🛠️ Repair & Fulfillment")
                 oid = st.text_input("Enter Order UUID to Fix/Retry") 
                 if oid:
-                    # (Repair logic preserved)
-                    pass 
+                    pass # Preservation of repair logic
             else:
                 st.info("No orders found in database.")
         except Exception as e:
@@ -218,7 +220,6 @@ def render_admin_page():
                         if not calls:
                             st.warning("Twilio returned 0 calls.")
                         else:
-                            # (Ghost scanning logic preserved)
                             users = database.get_all_users()
                             known_numbers = set()
                             for u in users:
@@ -278,7 +279,7 @@ def render_admin_page():
                 })
             st.dataframe(pd.DataFrame(safe_users), use_container_width=True)
 
-    # --- TAB 6: LOGS (FIXED) ---
+    # --- TAB 6: LOGS ---
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:

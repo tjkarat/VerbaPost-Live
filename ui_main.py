@@ -90,6 +90,7 @@ except ImportError:
 def get_profile_field(profile, field, default=""):
     """
     Safely retrieves a field from a profile object which may be a dict or a class.
+    Used to populate the 'From' address fields automatically.
     """
     if not profile:
         return default
@@ -100,6 +101,7 @@ def get_profile_field(profile, field, default=""):
 def _ensure_profile_loaded():
     """
     Syncs the session state with the database profile for authenticated users.
+    Ensures that if a user logs in, their address is pre-filled.
     """
     if st.session_state.get("authenticated") and not st.session_state.get("profile_synced"):
         try:
@@ -120,6 +122,7 @@ def _ensure_profile_loaded():
 
 # --- CSS INJECTOR ---
 # Restored to full multi-line string format to maintain exact line count.
+# This CSS handles the custom fonts and the specific layout of the price cards.
 def inject_custom_css(text_size=16):
     import base64
     font_face_css = ""
@@ -303,6 +306,7 @@ def cb_select_tier(tier, price, user_email):
 def render_store_page():
     """
     Renders the VerbaPost product selector.
+    This page allows users to choose between Standard, Heirloom, Civic, and Santa letters.
     """
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
@@ -327,7 +331,7 @@ def render_store_page():
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
     
     if mode == "Bulk Campaign":
-        st.info("📢 **Campaign Mode Active.**")
+        st.info("📢 **Campaign Mode:** Upload a CSV to send letters to hundreds of people.")
         render_campaign_uploader()
         return
 
@@ -368,6 +372,7 @@ def render_store_page():
 def render_campaign_uploader():
     """
     Handles CSV ingestion for Bulk Campaigns.
+    Uses the bulk_engine to parse and validate the recipient list.
     """
     st.markdown("### 📁 Upload Recipient List (CSV)")
     st.markdown("**Format Required:** `name, street, city, state, zip`")
@@ -394,6 +399,7 @@ def render_campaign_uploader():
 def render_workspace_page():
     """
     Primary drafting interface for letters.
+    Includes text input, AI polish, and Voice recording features.
     """
     _ensure_profile_loaded()
     col_slide, col_gap = st.columns([1, 2])
@@ -591,15 +597,19 @@ def render_workspace_page():
 
 def render_review_page():
     """
-    REVISITED LOGIC: Linear state machine with dynamic progress placeholders.
+    Renders final review and execution dashboard.
+    Manages both single letters (Standard/Heirloom) and Bulk Campaigns.
+    Includes fixes for 'Payment Error' and 'Progress Freeze'.
     """
     st.markdown("## 👁️ Step 4: Secure & Send")
     current_tier = st.session_state.get("locked_tier", "Standard")
     
     # LOCK: PERSISTENT PAYMENT VERIFICATION
+    # Captures the success signal from Stripe so we don't lose state on refresh.
     if st.query_params.get("success") == "true":
         st.session_state.campaign_paid = True
 
+    # --- MODE: BULK CAMPAIGN ---
     if current_tier == "Campaign":
         targets = st.session_state.get("bulk_targets", [])
         st.info(f"📋 Campaign Mode: Mailing {len(targets)} personalized letters.")
@@ -610,10 +620,14 @@ def render_review_page():
             total = pricing_engine.calculate_total(current_tier, qty=len(targets))
             st.markdown(f"### Total: ${total:.2f}")
             if st.button("💳 Proceed to Checkout", type="primary", use_container_width=True):
-                url = payment_engine.create_checkout_session(line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Campaign"}, "unit_amount": int(total * 100)}, "quantity": 1}], user_email=st.session_state.get("user_email"))
+                # Using the campaign wrapper
+                url = payment_engine.create_checkout_session(
+                    line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Campaign"}, "unit_amount": int(total * 100)}, "quantity": 1}], 
+                    user_email=st.session_state.get("user_email")
+                )
                 if url: st.link_button("👉 Open Payment Gateway", url)
         
-        # 2. THE DISPATCH PHASE
+        # 2. THE DISPATCH PHASE (UNLOCKED)
         else:
             st.success("✅ Payment Verified. Engine Unlocked.")
             
@@ -627,7 +641,7 @@ def render_review_page():
             # Initial Metrics View
             with metrics_spot.container():
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Recipients", len(targets))
+                c1.metric("Target", len(targets))
                 c2.metric("Dispatched ✅", st.session_state.campaign_metrics["sent"])
                 c3.metric("Failed ❌", st.session_state.campaign_metrics["failed"])
 
@@ -666,18 +680,35 @@ def render_review_page():
                 st.download_button("📥 Delivery Results (CSV)", pd.DataFrame(results_log).to_csv(index=False), "results.csv", "text/csv")
                 if mailer: mailer.send_email_notification(st.session_state.user_email, "Campaign Results", f"Success: {st.session_state.campaign_metrics['sent']}")
 
+    # --- MODE: SINGLE LETTER ---
     else:
-        if st.button("📄 Proof"):
+        if st.button("📄 Generate PDF Proof"):
             try:
                 std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                 std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                 pdf = letter_format.create_pdf(st.session_state.letter_body, std_to, std_from, current_tier, st.session_state.get("signature_text"))
                 st.markdown(f'<embed src="data:application/pdf;base64,{base64.b64encode(pdf).decode()}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-            except: st.error("Proof failed.")
+            except Exception as e: st.error(f"Proof generation failed: {e}")
+        
         total = pricing_engine.calculate_total(current_tier)
         st.markdown(f"### Total: ${total:.2f}")
-        if st.button("💳 Pay", type="primary"):
-            url = payment_engine.create_checkout_session(user_email=st.session_state.get("user_email"))
+        
+        # --- FIXED PAYMENT BUTTON (Fixes "Missing line_items" error) ---
+        if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+            # Construct the line items for Stripe
+            line_items = [{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"VerbaPost - {current_tier}"},
+                    "unit_amount": int(total * 100)
+                },
+                "quantity": 1
+            }]
+            
+            url = payment_engine.create_checkout_session(
+                line_items=line_items, 
+                user_email=st.session_state.get("user_email")
+            )
             if url: st.link_button("👉 Click to Pay", url)
 
 def render_application():
