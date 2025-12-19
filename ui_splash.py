@@ -51,15 +51,13 @@ def render_splash_page():
             st.session_state.app_mode = "legacy"
             st.rerun()
 
-    # --- INFRASTRUCTURE & PAYMENT LOGOS (FIXED STABLE LINKS) ---
+    # --- INFRASTRUCTURE LOGOS (REMOVED BROKEN VISA AND RESEND) ---
     st.markdown("""
     <div class="trust-container">
         <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">Powered by Secure & Reliable Infrastructure</small>
         <img class="trust-logo" src="https://www.vectorlogo.zone/logos/stripe/stripe-ar21.svg" alt="Stripe">
         <img class="trust-logo" src="https://www.vectorlogo.zone/logos/twilio/twilio-ar21.svg" alt="Twilio">
         <img class="trust-logo" src="https://www.vectorlogo.zone/logos/supabase/supabase-ar21.svg" alt="Supabase">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/re-send/re-send-icon.svg" alt="Resend" style="height: 18px;">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/visa/visa-ar21.svg" alt="Visa">
     </div>
     """, unsafe_allow_html=True)
 
