@@ -61,7 +61,7 @@ def run_system_health_checks():
     status, color = check_connection("Stripe", check_stripe)
     results.append({"Service": "Stripe Payments", "Status": status, "Color": color})
 
-    # 3. OPENAI (FIXED: Removed invalid 'limit' param)
+    # 3. OPENAI
     def check_openai():
         k = secrets_manager.get_secret("openai.api_key")
         if not k: raise Exception("Missing Key")
@@ -80,12 +80,12 @@ def run_system_health_checks():
     status, color = check_connection("Twilio", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
-    # 5. POSTGRID (FIXED: Aligned URL with mailer.py)
+    # 5. POSTGRID (FIXED: Synced URL with mailer.py)
     def check_postgrid():
         k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
         if not k: raise Exception("Missing Key")
-        # Standard check that matches the mailer's base URL
-        r = requests.get("https://api.postgrid.com/v1/letters?limit=1", headers={"x-api-key": k})
+        # Updated to the correct Print & Mail endpoint
+        r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code}")
     status, color = check_connection("PostGrid (Mail)", check_postgrid)
     results.append({"Service": "PostGrid (Fulfillment)", "Status": status, "Color": color})
@@ -99,19 +99,15 @@ def run_system_health_checks():
     status, color = check_connection("Geocodio (Civic)", check_geocodio)
     results.append({"Service": "Geocodio (Civic)", "Status": status, "Color": color})
 
-    # 7. RESEND (FIXED: Whitespace stripper)
+    # 7. RESEND
     def check_resend():
         k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
         if not k_raw: raise Exception("Missing Key")
         
-        # STRIP WHITESPACE to prevent 400 Bad Request
         k = k_raw.strip()
-        
         headers = {"Authorization": f"Bearer {k}"}
-        # Check domains endpoint to verify auth
         r_dom = requests.get("https://api.resend.com/domains", headers=headers)
         
-        # 403 is acceptable for 'Sending-Only' keys
         if r_dom.status_code == 403:
             return 
         if r_dom.status_code != 200: 
