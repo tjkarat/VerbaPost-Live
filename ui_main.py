@@ -157,24 +157,14 @@ def _handle_draft_creation(email, tier, price):
 
 # --- GLOBAL CALLBACKS ---
 def cb_select_tier(tier, price, user_email):
-    """
-    Robust callback that sets the tier and moves to workspace.
-    """
     try:
-        # 1. Clean URL to prevent router traps
         st.query_params.clear()
-        
-        # 2. Set State
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
-        st.session_state.app_mode = "workspace" # <--- Critical: Force to Workspace
-        
-        # 3. Create Draft (Safely)
+        st.session_state.app_mode = "workspace"
         if user_email:
             _handle_draft_creation(user_email, tier, price)
-            
     except Exception as e:
-        # Log error but DO NOT crash. Ensure user gets to workspace.
         print(f"Draft creation warning: {e}")
         st.session_state.app_mode = "workspace"
 
@@ -232,11 +222,9 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
-    # Pass `u_email` explicitly to the callback
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        # Unique key avoids conflicts
         st.button("Select Heirloom", key="btn_store_heirloom_product", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
@@ -466,11 +454,12 @@ def render_review_page():
     st.markdown("## 👁️ Step 4: Secure & Send")
     current_tier = st.session_state.get("locked_tier", "Standard")
     
-    # NEW: Granular Campaign Execution with Progress and Personalization
+    # GRANULAR CAMPAIGN EXECUTION WITH PROGRESS AND PERSONALIZATION
     if current_tier == "Campaign":
         targets = st.session_state.get("bulk_targets", [])
         st.info(f"📋 Campaign Mode: Preparing to mail {len(targets)} personalized letters.")
         
+        # ACTUALLY ADDING THE EXECUTION LOGIC TO THIS BUTTON
         if st.button("🚀 Start Personalized Bulk Mailing", type="primary", use_container_width=True):
             if not st.session_state.get("letter_body"):
                 st.error("⚠️ Letter content is empty."); return
@@ -479,12 +468,13 @@ def render_review_page():
             results_log = []
             success_count, fail_count = 0, 0
             
+            # THE CRITICAL MAILING LOOP
             for i, contact in enumerate(targets):
                 prog_val = (i + 1) / len(targets)
                 prog_bar.progress(prog_val, text=f"Processing {contact['name']} ({i+1}/{len(targets)})...")
                 
                 try:
-                    # DYNAMIC PERSONALIZATION
+                    # DYNAMIC PERSONALIZATION: Replace tag in body
                     p_body = st.session_state.get("letter_body", "").replace("[Organization Name]", contact.get('name', ''))
                     
                     # Generate unique PDF for this recipient
@@ -492,7 +482,7 @@ def render_review_page():
                     std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                     pdf_bytes = letter_format.create_pdf(p_body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
                     
-                    # Send via Mailer
+                    # DISPATCH TO POSTGRID
                     success, resp = mailer.send_letter(pdf_bytes, std_to, std_from, current_tier)
                     
                     if success:
