@@ -10,9 +10,9 @@ def render_splash_page():
     .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(0.9rem, 3vw, 1.1rem); font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #d93025; margin-bottom: 1.5rem; margin-top: 1rem; }
     .hero-text { font-family: 'Helvetica Neue', sans-serif; font-size: 1.15rem; font-weight: 300; color: #555; max-width: 600px; margin: 0 auto; line-height: 1.6; }
     
-    /* TRUST LOGO STYLING - UPDATED FOR PERFECT ALIGNMENT */
+    /* TRUST LOGO STYLING */
     .trust-container { text-align: center; padding: 20px 0; opacity: 1.0; margin-top: 10px; }
-    .trust-logo { display: inline-block; margin: 0 18px; height: 26px; vertical-align: middle; }
+    .trust-logo { display: inline-block; margin: 0 15px; height: 30px; vertical-align: middle; }
     
     .feature-icon { font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.8; }
     .feature-head { font-weight: 600; color: #111; margin-bottom: 0.25rem; font-family: 'Merriweather', serif; }
@@ -47,14 +47,14 @@ def render_splash_page():
             st.session_state.app_mode = "legacy"
             st.rerun()
 
-    # --- TRUST LOGOS (USPS HIGH-RES PNG FIX) ---
+    # --- FIXED: TRUST LOGOS (USPS BASE64 PERMANENT FIX) ---
     st.markdown("""
     <div class="trust-container">
         <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">SECURE PAYMENTS & RELIABLE FULFILLMENT</small>
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" alt="Stripe">
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa">
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard">
-        <img class="trust-logo" src="https://www.usps.com/assets/images/home/logo-usps.png" alt="USPS" style="height: 24px; margin-top: -4px;">
+        <img class="trust-logo" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0NjAgMTYwIj48cGF0aCBmaWxsPSIjMzMzYTY2IiBkPSJNNDYwIDExNS41SDI0MC44bDQ0LTU5LjZoMTc1LjJsLTQ0IDU5LjZ6Ii8+PHBhdGggZmlsbD0iI2RjMTkyZSIgZD0iTTM5Mi44IDY0LjVIMTExLjZMMTU1LjYgMGgyODEuMmw0NC40IDY0LjV6Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTE4My40IDkwLjJsLTQzLjIgNTkuOEgyMmw0My4yLTU5LjhIMTgzLjR6bS0zMi4yLTQ0LjVsNDMuMi01OS44SDQwNC40bC00My4yIDU5LjhIMTUxLjJ6Ii8+PC9zdmc+" alt="USPS" style="height: 22px;">
     </div>
     """, unsafe_allow_html=True)
 
@@ -77,3 +77,6 @@ def render_splash_page():
         if st.button("⚖️ Legal / Terms", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
+
+if __name__ == "__main__":
+    render_splash_page()
