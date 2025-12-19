@@ -35,8 +35,8 @@ def check_connection(service_name, check_func):
         return "✅ Online", "green"
     except Exception as e:
         msg = str(e)
-        # Soften errors for permission-restricted keys
-        if "403" in msg or "401" in msg:
+        # Soften errors for permission-restricted keys (e.g. Resend Sending-Only)
+        if "403" in msg or "Restricted" in msg:
             return "⚠️ Online (Restricted)", "orange"
         return f"❌ Error: {msg[:50]}...", "red"
 
@@ -80,11 +80,11 @@ def run_system_health_checks():
     status, color = check_connection("Twilio", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
-    # 5. POSTGRID (FIXED: Synced URL with mailer.py)
+    # 5. POSTGRID
     def check_postgrid():
         k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
         if not k: raise Exception("Missing Key")
-        # Updated to the correct Print & Mail endpoint
+        # Matches mailer.py endpoint
         r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code}")
     status, color = check_connection("PostGrid (Mail)", check_postgrid)
@@ -99,19 +99,25 @@ def run_system_health_checks():
     status, color = check_connection("Geocodio (Civic)", check_geocodio)
     results.append({"Service": "Geocodio (Civic)", "Status": status, "Color": color})
 
-    # 7. RESEND
+    # 7. RESEND (FIXED: Sanitization & Permissions)
     def check_resend():
         k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
         if not k_raw: raise Exception("Missing Key")
         
-        k = k_raw.strip()
-        headers = {"Authorization": f"Bearer {k}"}
-        r_dom = requests.get("https://api.resend.com/domains", headers=headers)
+        # CRITICAL FIX: Strip whitespace AND quotes (common .env copy-paste errors)
+        k = k_raw.strip().strip("'").strip('"')
         
-        if r_dom.status_code == 403:
-            return 
-        if r_dom.status_code != 200: 
-            raise Exception(f"API {r_dom.status_code}")
+        headers = {"Authorization": f"Bearer {k}"}
+        # We check /domains. If the key is "Sending Only", this returns 403.
+        # If the key is "Full Access", it returns 200.
+        r = requests.get("https://api.resend.com/domains", headers=headers)
+        
+        if r.status_code == 403:
+            # 403 is good! It means the key works but is restricted (best practice).
+            raise Exception("Restricted (Sending Only)") 
+        
+        if r.status_code != 200: 
+            raise Exception(f"API {r.status_code}: {r.text[:20]}")
             
     status, color = check_connection("Resend (Email)", check_resend)
     results.append({"Service": "Resend (Email)", "Status": status, "Color": color})
