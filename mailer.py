@@ -10,35 +10,33 @@ import streamlit as st
 # --- LOGGING SETUP ---
 logger = logging.getLogger(__name__)
 
-# --- CONFIGURATION (DISCOVERY LOGIC) ---
-# Check env vars first, then streamlit secrets. Ensures connection is possible.
+# --- CONFIGURATION (ROBUST KEY DISCOVERY) ---
+# Ensures the engine can reach PostGrid from environment or secrets.
 POSTGRID_API_KEY = os.getenv("POSTGRID_API_KEY") or st.secrets.get("POSTGRID_API_KEY")
 POSTGRID_URL = "https://api.postgrid.com/v1/letters"
 
-# EMAIL CONFIG (RESEND/SMTP)
+# EMAIL CONFIG
 SMTP_SERVER = "smtp.resend.com"
 SMTP_PORT = 465
 SMTP_USER = "resend"
 SMTP_PASS = os.getenv("RESEND_API_KEY") or st.secrets.get("RESEND_API_KEY")
 
 def validate_address(addr_dict):
-    """Pre-flight check for required USPS fields"""
     required = ["name", "street", "city", "state", "zip_code"]
     for field in required:
-        if not addr_dict.get(field):
-            return False, {"error": f"Missing {field}"}
+        if not addr_dict.get(field): return False, {"error": f"Missing {field}"}
     return True, addr_dict
 
 def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
     """
-    CRITICAL DISPATCH ENGINE: Unpacks StandardAddress into PostGrid JSON.
+    DISPATCH ENGINE: Correctly unpacks StandardAddress strings for PostGrid.
     """
     if not POSTGRID_API_KEY:
-        logger.error("POSTGRID_API_KEY missing from environment.")
-        return False, "API Key Missing"
+        logger.error("POSTGRID_API_KEY missing.")
+        return False, "Handshake Error: API Key Missing"
 
     try:
-        # DATA UNPACKING: Ensure PostGrid receives valid strings
+        # UNPACKING PROPERTIES
         recipient_data = {
             "name": addr_to.name,
             "address_line1": addr_to.street,
@@ -79,11 +77,13 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
         if response.status_code in [200, 201, 202]:
             return True, response.json().get("id")
         else:
-            logger.error(f"PostGrid Reject: {response.text}")
-            return False, response.text
+            # RETURN EXACT ERROR
+            error_text = response.text if response.text else f"Status Code: {response.status_code}"
+            logger.error(f"PostGrid Reject: {error_text}")
+            return False, error_text
 
     except Exception as e:
-        logger.exception(f"Fatal Dispatch Error: {e}")
+        logger.exception(f"Engine Crash: {e}")
         return False, str(e)
 
 def send_email_notification(to_email, subject, body):
