@@ -39,6 +39,7 @@ def render_splash_page():
     # --- ACTION BUTTONS ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
+        # BUTTON 1: START A LETTER (Creation Flow)
         if st.button("Start a Letter", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
@@ -47,12 +48,17 @@ def render_splash_page():
             st.rerun()
 
         st.write("") 
-        # UPDATED: Changed from Legacy Service to The Family Archive
+        
+        # BUTTON 2: THE FAMILY ARCHIVE (Consumption Flow)
+        # FIX: Check auth first. If logged out -> Login. If logged in -> Archive.
         if st.button("The Family Archive", use_container_width=True):
-            st.query_params["view"] = "heirloom"
+            if st.session_state.get("authenticated"):
+                st.query_params["view"] = "heirloom"
+            else:
+                st.session_state.app_mode = "login"
             st.rerun()
 
-    # --- INFRASTRUCTURE LOGOS (REMOVED BROKEN VISA AND RESEND) ---
+    # --- INFRASTRUCTURE LOGOS ---
     st.markdown("""
     <div class="trust-container">
         <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">Powered by Secure & Reliable Infrastructure</small>
