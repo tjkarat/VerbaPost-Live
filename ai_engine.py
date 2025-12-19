@@ -152,9 +152,20 @@ def fetch_and_transcribe_latest_call(parent_phone):
     if not client: return None, "Twilio Config Missing"
 
     try:
-        # Clean phone number
+        # --- CRITICAL FIX START ---
+        # 1. Strict Cleaning: Keep only digits and '+'
         clean_phone = "".join(filter(lambda x: x.isdigit() or x == '+', str(parent_phone)))
+        
+        # 2. Strict Validation: Abort if empty or too short to be a valid caller ID
+        # (This prevents sending From="" which fetches ALL calls)
+        if not clean_phone or len(clean_phone) < 10:
+            logger.warning(f"Security Block: Invalid parent phone '{parent_phone}' resolved to '{clean_phone}'")
+            return None, "Error: Parent Phone Number invalid or not set. Please update Settings."
+
+        # 3. Safe Query
         calls = client.calls.list(from_=clean_phone, limit=5)
+        # --- CRITICAL FIX END ---
+        
     except Exception as e:
         return None, f"Twilio List Error: {e}"
     
