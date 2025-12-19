@@ -251,9 +251,9 @@ def render_civic_feature():
                     st.toast(f"Recipient set to {rep['name']}!")
                     st.rerun()
 
-# --- CAMPAIGN COMPONENT (NOW INTEGRATED WITH PROGRESS & EXPORT) ---
+# --- CAMPAIGN COMPONENT (NOW INTEGRATED WITH PROGRESS, PERSONALIZATION & EXPORT) ---
 def render_campaign_manager():
-    """Meticulously preserved Campaign UI with the requested Progress and Download features."""
+    """Meticulously preserved Campaign UI with the requested Progress, Personalized Greeting, and Download features."""
     st.markdown('<div class="section-header">📬 Bulk Campaign Manager</div>', unsafe_allow_html=True)
     st.info("Upload your recipient list in CSV format (name, street, city, state, zip).")
     
@@ -282,24 +282,27 @@ def render_campaign_manager():
             # REAL-TIME PROGRESS BAR
             prog_bar = st.progress(0, text="Initializing mailing systems...")
             
-            # PRE-GENERATE PDF TEMPLATE
-            campaign_pdf = letter_format.generate_letter_pdf(
-                st.session_state.letter_content,
-                st.session_state.addr_from,
-                contacts[0], # Structure placeholder
-                st.session_state.tier
-            )
-
             for i, contact in enumerate(contacts):
                 # UPDATE PROGRESS
                 progress = int(((i + 1) / len(contacts)) * 100)
                 prog_bar.progress(progress, text=f"Dispatching to {contact['name']} ({i+1}/{len(contacts)})")
                 
                 try:
+                    # DYNAMIC PERSONALIZATION: Populating the greeting line
+                    personalized_body = st.session_state.letter_content.replace("[Organization Name]", contact['name'])
+                    
+                    # Generate unique PDF for this recipient
+                    current_pdf = letter_format.generate_letter_pdf(
+                        personalized_body,
+                        st.session_state.addr_from,
+                        contact,
+                        st.session_state.tier
+                    )
+                    
                     # SEND VIA MAILER
                     addr_obj = StandardAddress.from_dict(contact)
                     success, response = mailer.send_letter(
-                        campaign_pdf, 
+                        current_pdf, 
                         addr_obj, 
                         st.session_state.addr_from, 
                         "Campaign"
@@ -454,9 +457,9 @@ def render_review():
         st.session_state.step = 2
         st.rerun()
 
-# --- ENTRY POINT & ROUTING ---
+# --- ENTRY POINT & ROUTING (CRITICAL ENTRY FUNCTION) ---
 
-def render_application():
+def render_main():
     """Original top-level router for the entire VerbaPost UI."""
     inject_custom_css()
     init_state()
@@ -483,4 +486,4 @@ def render_application():
         render_review()
 
 if __name__ == "__main__":
-    render_application()
+    render_main()

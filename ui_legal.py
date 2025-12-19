@@ -43,7 +43,7 @@ def render_legal_page():
     st.markdown('<div class="legal-title">2. Privacy & Data Security</div>', unsafe_allow_html=True)
     st.markdown("""
         <div class="legal-text">
-            Your privacy is our core principle. 
+            Your privacy is our core principle.
             <ul>
                 <li><strong>Transcription:</strong> Audio is processed via OpenAI Whisper and is not used for training models.</li>
                 <li><strong>Storage:</strong> Drafts are stored securely in Supabase and are only accessible to you.</li>
@@ -58,8 +58,8 @@ def render_legal_page():
     st.markdown('<div class="legal-title">3. Fulfillment & Refunds</div>', unsafe_allow_html=True)
     st.markdown("""
         <div class="legal-text">
-            Once a letter is dispatched to the USPS, we cannot cancel it or issue a refund. 
-            If a letter is returned due to our error in printing, we will re-mail it at no additional cost. 
+            Once a letter is dispatched to the USPS, we cannot cancel it or issue a refund.
+            If a letter is returned due to our error in printing, we will re-mail it at no additional cost.
             VerbaPost is not responsible for USPS delivery delays or incorrect addresses provided by the user.
         </div>
     """, unsafe_allow_html=True)
