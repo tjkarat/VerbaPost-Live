@@ -55,10 +55,12 @@ def log_event(user_email, event_type, description, details=None):
         print(f"!!! {err_msg}")
         return False
 
+# --- DATA RETRIEVAL FOR ADMIN UI ---
+
 def get_recent_logs(limit=100):
     """
-    FIX: Fetches the most recent system-wide logs for the Admin Console.
-    Matches the call in ui_admin.py.
+    FIXED: Fetches the most recent system-wide logs for the Admin Console.
+    This was the missing function causing the AttributeError crash.
     """
     try:
         # Passing None to get_audit_logs typically signals 'fetch for all users'
