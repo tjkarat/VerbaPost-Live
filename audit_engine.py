@@ -55,6 +55,19 @@ def log_event(user_email, event_type, description, details=None):
         print(f"!!! {err_msg}")
         return False
 
+def get_recent_logs(limit=100):
+    """
+    FIX: Fetches the most recent system-wide logs for the Admin Console.
+    Matches the call in ui_admin.py.
+    """
+    try:
+        # Passing None to get_audit_logs typically signals 'fetch for all users'
+        logs = database.get_audit_logs(None, limit=limit)
+        return logs if logs else []
+    except Exception as e:
+        logger.error(f"Failed to fetch recent system logs: {e}")
+        return []
+
 def get_user_logs(user_email, limit=50):
     """
     Fetches the most recent logs for the Admin or User dashboard.
