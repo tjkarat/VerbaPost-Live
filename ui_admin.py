@@ -61,12 +61,11 @@ def run_system_health_checks():
     status, color = check_connection("Stripe", check_stripe)
     results.append({"Service": "Stripe Payments", "Status": status, "Color": color})
 
-    # 3. OPENAI (FIXED: Removed invalid limit param)
+    # 3. OPENAI (FIXED: Removed invalid 'limit' param)
     def check_openai():
         k = secrets_manager.get_secret("openai.api_key")
         if not k: raise Exception("Missing Key")
         client = openai.OpenAI(api_key=k)
-        # limit=1 removed as it is not supported in v1+
         client.models.list() 
     status, color = check_connection("OpenAI", check_openai)
     results.append({"Service": "OpenAI (Intelligence)", "Status": status, "Color": color})
@@ -81,13 +80,12 @@ def run_system_health_checks():
     status, color = check_connection("Twilio", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
-    # 5. POSTGRID (FIXED: Correct Endpoint)
+    # 5. POSTGRID (FIXED: Aligned URL with mailer.py)
     def check_postgrid():
         k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
         if not k: raise Exception("Missing Key")
-        # Corrected endpoint for Print & Mail
-        r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
-        # 401 means key exists but maybe wrong mode, 200 is good.
+        # Standard check that matches the mailer's base URL
+        r = requests.get("https://api.postgrid.com/v1/letters?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code}")
     status, color = check_connection("PostGrid (Mail)", check_postgrid)
     results.append({"Service": "PostGrid (Fulfillment)", "Status": status, "Color": color})
@@ -101,22 +99,21 @@ def run_system_health_checks():
     status, color = check_connection("Geocodio (Civic)", check_geocodio)
     results.append({"Service": "Geocodio (Civic)", "Status": status, "Color": color})
 
-    # 7. RESEND (FIXED: Whitespace check & Permission handling)
+    # 7. RESEND (FIXED: Whitespace stripper)
     def check_resend():
-        k = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
-        if not k: raise Exception("Missing Key")
+        k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
+        if not k_raw: raise Exception("Missing Key")
         
-        # Validation for 400 Bad Request prevention
-        if k.strip() != k: raise Exception("Key has whitespace! Check secrets.")
+        # STRIP WHITESPACE to prevent 400 Bad Request
+        k = k_raw.strip()
         
         headers = {"Authorization": f"Bearer {k}"}
+        # Check domains endpoint to verify auth
         r_dom = requests.get("https://api.resend.com/domains", headers=headers)
         
-        # 403/401 is EXPECTED for Sending-Only keys (Security Best Practice)
-        if r_dom.status_code in [403, 401]:
-            # This counts as a pass for connectivity, just restricted scope
+        # 403 is acceptable for 'Sending-Only' keys
+        if r_dom.status_code == 403:
             return 
-        
         if r_dom.status_code != 200: 
             raise Exception(f"API {r_dom.status_code}")
             
@@ -201,7 +198,7 @@ def render_admin_page():
                     price_str = f"${float(price_val):.2f}" if price_val is not None else "$0.00"
                     
                     data.append({
-                        "ID": str(o.get('id')), 
+                        "ID": str(o.get('id')),
                         "Date": date_str,
                         "User": o.get('user_email'),
                         "Tier": o.get('tier'),
