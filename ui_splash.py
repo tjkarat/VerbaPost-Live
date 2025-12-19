@@ -1,6 +1,10 @@
 import streamlit as st
 
 def render_splash_page():
+    """
+    Renders the professional landing page for VerbaPost.
+    Preserves all original minimalist CSS and hero sections.
+    """
     # --- PROFESSIONAL MINIMALIST CSS ---
     st.markdown("""
     <style>
@@ -47,7 +51,7 @@ def render_splash_page():
             st.session_state.app_mode = "legacy"
             st.rerun()
 
-    # --- INFRASTRUCTURE & PAYMENT LOGOS (STABLE VECTOR LOGO LINKS) ---
+    # --- INFRASTRUCTURE & PAYMENT LOGOS (FIXED STABLE LINKS) ---
     st.markdown("""
     <div class="trust-container">
         <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">Powered by Secure & Reliable Infrastructure</small>

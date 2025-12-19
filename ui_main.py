@@ -3,6 +3,9 @@ import time
 import os
 import hashlib
 from datetime import datetime
+import pandas as pd
+import io
+import base64
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -276,7 +279,7 @@ def render_workspace_page():
 
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
-        if st.session_state.get("authenticated") and current_tier not in ["Civic", "Santa"]:
+        if st.session_state.get("authenticated") and current_tier not in ["Civic", "Santa", "Campaign"]:
             addr_opts = load_address_book()
             if addr_opts:
                 col_load, col_empty = st.columns([2, 1])
@@ -320,6 +323,8 @@ def render_workspace_page():
                         st.markdown("**Recipients Found:**")
                         for r in st.session_state.civic_reps_found:
                             st.caption(f"• {r['name']} ({r['office']})")
+                elif current_tier == "Campaign":
+                    st.info("📬 Campaign Mode: Addresses are managed via your uploaded CSV.")
                 else:
                     st.text_input("Name", key="to_name_input")
                     st.text_input("Street Address", key="to_street_input")
@@ -338,8 +343,16 @@ def render_workspace_page():
                 c_fs.text_input("Your State", key="from_state")
                 c_fz.text_input("Your Zip", key="from_zip")
             
-            if current_tier != "Civic":
-                if st.form_submit_button("💾 Save Addresses"):
+            if st.form_submit_button("💾 Save Addresses"):
+                st.session_state.addr_from = {
+                    "name": st.session_state.from_name, 
+                    "street": st.session_state.from_street, 
+                    "city": st.session_state.from_city, 
+                    "state": st.session_state.from_state, 
+                    "zip_code": st.session_state.from_zip
+                }
+                st.session_state.signature_text = st.session_state.from_sig
+                if current_tier != "Campaign":
                     st.session_state.addr_to = {
                         "name": st.session_state.to_name_input, 
                         "street": st.session_state.to_street_input, 
@@ -347,35 +360,29 @@ def render_workspace_page():
                         "state": st.session_state.to_state_input, 
                         "zip_code": st.session_state.to_zip_input
                     }
-                    st.session_state.addr_from = {
-                        "name": st.session_state.from_name, 
-                        "street": st.session_state.from_street, 
-                        "city": st.session_state.from_city, 
-                        "state": st.session_state.from_state, 
-                        "zip_code": st.session_state.from_zip
-                    }
-                    st.session_state.signature_text = st.session_state.from_sig
-                    d_id = st.session_state.get("current_draft_id")
-                    if d_id:
-                        database.update_draft_data(d_id, to_addr=st.session_state.addr_to, from_addr=st.session_state.addr_from)
-                    if mailer:
-                        with st.spinner("Validating with USPS/PostGrid..."):
-                            t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
-                            f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
-                            if not t_valid:
-                                err = t_data.get('error', 'Invalid Recipient Address')
-                                st.error(f"❌ Recipient Address Error: {err}")
-                            if not f_valid:
-                                err = f_data.get('error', 'Invalid Sender Address')
-                                st.error(f"❌ Sender Address Error: {err}")
-                            if t_valid and f_valid:
-                                st.session_state.addr_to = t_data
-                                st.session_state.addr_from = f_data
-                                st.session_state.addresses_saved_at = time.time()
-                                st.success("✅ Addresses Verified & Saved!")
-                    else:
-                        st.session_state.addresses_saved_at = time.time()
-                        st.success("✅ Addresses Saved (Verification Offline)")
+                
+                d_id = st.session_state.get("current_draft_id")
+                if d_id:
+                    database.update_draft_data(d_id, to_addr=st.session_state.get("addr_to"), from_addr=st.session_state.addr_from)
+                
+                if mailer and current_tier != "Campaign":
+                    with st.spinner("Validating with USPS/PostGrid..."):
+                        t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
+                        f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
+                        if not t_valid:
+                            err = t_data.get('error', 'Invalid Recipient Address')
+                            st.error(f"❌ Recipient Address Error: {err}")
+                        if not f_valid:
+                            err = f_data.get('error', 'Invalid Sender Address')
+                            st.error(f"❌ Sender Address Error: {err}")
+                        if t_valid and f_valid:
+                            st.session_state.addr_to = t_data
+                            st.session_state.addr_from = f_data
+                            st.session_state.addresses_saved_at = time.time()
+                            st.success("✅ Addresses Verified & Saved!")
+                else:
+                    st.session_state.addresses_saved_at = time.time()
+                    st.success("✅ Addresses Saved!")
         
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
@@ -440,7 +447,6 @@ def render_workspace_page():
                     else: st.warning("⚠️ No speech detected.")
                 except Exception as e: st.error(f"Error: {e}")
                 finally:
-                    # FIX: Robust file cleanup to prevent Windows/Container lock crashes
                     if os.path.exists(tmp_path):
                         try: os.remove(tmp_path)
                         except: pass 
@@ -450,7 +456,7 @@ def render_workspace_page():
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
         if not st.session_state.get("letter_body"):
             st.error("⚠️ Letter is empty!")
-        elif not st.session_state.get("addr_to") and current_tier != "Civic":
+        elif not st.session_state.get("addr_to") and current_tier not in ["Civic", "Campaign"]:
             st.error("⚠️ Please save addresses first.")
         else:
             st.session_state.app_mode = "review"
@@ -458,77 +464,110 @@ def render_workspace_page():
 
 def render_review_page():
     st.markdown("## 👁️ Step 4: Secure & Send")
-    if st.button("📄 Generate PDF Proof"):
-        with st.spinner("Generating Proof..."):
-            try:
-                tier = st.session_state.get("locked_tier", "Standard")
-                body = st.session_state.get("letter_body", "")
-                if tier == "Civic":
-                    std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
-                else:
-                    std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+    current_tier = st.session_state.get("locked_tier", "Standard")
+    
+    # NEW: Granular Campaign Execution with Progress and Personalization
+    if current_tier == "Campaign":
+        targets = st.session_state.get("bulk_targets", [])
+        st.info(f"📋 Campaign Mode: Preparing to mail {len(targets)} personalized letters.")
+        
+        if st.button("🚀 Start Personalized Bulk Mailing", type="primary", use_container_width=True):
+            if not st.session_state.get("letter_body"):
+                st.error("⚠️ Letter content is empty."); return
+            
+            prog_bar = st.progress(0, text="Initializing Campaign...")
+            results_log = []
+            success_count, fail_count = 0, 0
+            
+            for i, contact in enumerate(targets):
+                prog_val = (i + 1) / len(targets)
+                prog_bar.progress(prog_val, text=f"Processing {contact['name']} ({i+1}/{len(targets)})...")
                 
-                # FIX: Receive bytes directly from letter_format
-                pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                
-                import base64
-                b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
-            except Exception as e: st.error(f"PDF Error: {e}")
+                try:
+                    # DYNAMIC PERSONALIZATION
+                    p_body = st.session_state.get("letter_body", "").replace("[Organization Name]", contact.get('name', ''))
+                    
+                    # Generate unique PDF for this recipient
+                    std_to = address_standard.StandardAddress.from_dict(contact)
+                    std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                    pdf_bytes = letter_format.create_pdf(p_body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
+                    
+                    # Send via Mailer
+                    success, resp = mailer.send_letter(pdf_bytes, std_to, std_from, current_tier)
+                    
+                    if success:
+                        success_count += 1
+                        results_log.append({"Name": contact['name'], "Status": "Success", "LetterID": resp})
+                        if audit_engine: audit_engine.log_event(st.session_state.user_email, "LETTER_SENT", f"Campaign: {contact['name']}", {"id": resp})
+                    else:
+                        fail_count += 1
+                        results_log.append({"Name": contact['name'], "Status": "Failed", "Error": str(resp)})
+                except Exception as e:
+                    fail_count += 1
+                    results_log.append({"Name": contact['name'], "Status": "Error", "Error": str(e)})
+
+            prog_bar.empty()
+            st.balloons()
+            st.success(f"✨ Campaign Dispatched! Sent: {success_count} | Failed: {fail_count}")
+            
+            # RESULTS DOWNLOAD
+            res_df = pd.DataFrame(results_log)
+            csv_io = io.StringIO()
+            res_df.to_csv(csv_io, index=False)
+            st.download_button("📥 Download Delivery Results (CSV)", csv_io.getvalue(), "campaign_results.csv", "text/csv", use_container_width=True)
+    
+    else:
+        # Standard Review Logic
+        if st.button("📄 Generate PDF Proof"):
+            with st.spinner("Generating Proof..."):
+                try:
+                    body = st.session_state.get("letter_body", "")
+                    if current_tier == "Civic":
+                        std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
+                    else:
+                        std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
+                    std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                    
+                    pdf_bytes = letter_format.create_pdf(body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
+                    
+                    b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
+                    st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
+                    st.download_button("⬇️ Download PDF Proof", pdf_bytes, "letter_proof.pdf", "application/pdf")
+                except Exception as e: st.error(f"PDF Error: {e}")
 
     st.divider()
-    tier = st.session_state.get("locked_tier", "Standard")
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
-    total = pricing_engine.calculate_total(tier, is_certified=is_cert)
+    total = pricing_engine.calculate_total(current_tier, is_certified=is_cert)
     discount = 0.0
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
-            # FIX: Added Unique key and safety check for string methods
             raw_code = st.text_input("Enter Code", key="promo_input_field")
             code = raw_code.upper().strip() if raw_code else ""
-            
             if st.button("Apply Code"):
-                if not code:
-                    st.error("Please enter a code.")
-                else:
-                    # FIX: Handle tuple return robustly
+                if code:
                     result = promo_engine.validate_code(code)
-                    if isinstance(result, tuple) and len(result) == 2:
-                        valid, val = result
-                    else:
-                        valid, val = False, "Engine Error"
-
+                    valid, val = result if isinstance(result, tuple) else (False, "Error")
                     if valid:
-                        st.session_state.applied_promo = code
-                        st.session_state.promo_val = val
-                        st.success(f"Applied! ${val} off")
-                        st.rerun()
+                        st.session_state.applied_promo = code; st.session_state.promo_val = val
+                        st.success(f"Applied! ${val} off"); st.rerun()
                     else: st.error(f"Invalid Code: {val}")
                     
     if st.session_state.get("applied_promo"):
         discount = st.session_state.get("promo_val", 0)
         total = max(0, total - discount)
         st.info(f"Discount Applied: -${discount}")
+    
     st.markdown(f"### Total: ${total:.2f}")
 
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+        # Mandatory Payment Call
         u_email = st.session_state.get("user_email")
         d_id = st.session_state.get("current_draft_id")
         if d_id and database:
             database.update_draft_data(d_id, price=total, status="Pending Payment")
         url = payment_engine.create_checkout_session(
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {"name": f"VerbaPost - {tier}"},
-                    "unit_amount": int(total * 100),
-                },
-                "quantity": 1,
-            }],
-            user_email=u_email,
-            draft_id=d_id
+            line_items=[{"price_data": {"currency": "usd", "product_data": {"name": f"VerbaPost - {current_tier}"}, "unit_amount": int(total * 100)}, "quantity": 1}],
+            user_email=u_email, draft_id=d_id
         )
         if url: st.link_button("👉 Click to Pay", url)
         else: st.error("Payment Gateway Error")
@@ -540,34 +579,23 @@ def render_application():
 
     if mode == "splash":
         if ui_splash: ui_splash.render_splash_page()
-        else: st.error("Splash missing")
     elif mode == "login":
         if ui_login: ui_login.render_login_page()
-        else: st.error("Login missing")
     elif mode == "store":
         render_store_page()
-    elif mode == "heirloom": 
-        if ui_heirloom: ui_heirloom.render_dashboard()
-        else: st.error("Heirloom Module Missing")
     elif mode == "workspace":
         render_workspace_page()
     elif mode == "review":
         render_review_page()
-    elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
-        else: st.error("Admin missing")
     elif mode == "legal":
         if ui_legal: ui_legal.render_legal_page()
-        else: st.error("Legal missing")
     elif mode == "legacy":
         if ui_legacy: ui_legacy.render_legacy_page()
-        else: st.error("Legacy missing")
     else:
         st.session_state.app_mode = "splash"
         st.rerun()
 
 def render_main():
-    # Only render content. Sidebar is handled by main.py
     render_application()
 
 if __name__ == "__main__":
