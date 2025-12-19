@@ -9,8 +9,7 @@ logger = logging.getLogger(__name__)
 
 def parse_csv(file_obj):
     """
-    Parses a CSV file using positional indexing to ensure 100% reliability 
-    regardless of header naming or hidden characters.
+    Parses a CSV file using positional indexing to ensure 100% reliability.
     """
     contacts = []
     try:
@@ -19,33 +18,27 @@ def parse_csv(file_obj):
         else:
             content = file_obj
             
-        # Use standard reader to avoid DictReader header-matching failures
         f = io.StringIO(content)
         reader = csv.reader(f)
         
-        # Skip the header row
         headers = next(reader, None)
         if not headers:
             return []
 
         for row in reader:
-            # Ensure the row has enough columns (name, street, city, state, zip = 5)
             if len(row) < 5:
                 logger.warning(f"Skipping row with insufficient data: {row}")
                 continue
                 
-            # Direct positional mapping based on your Seniors.csv:
-            # 0: name, 1: street, 2: city, 3: state, 4: zip
             normalized = {
                 "name": row[0].strip() if row[0] else "",
                 "street": row[1].strip() if row[1] else "",
                 "city": row[2].strip() if row[2] else "",
                 "state": row[3].strip() if row[3] else "",
                 "zip": row[4].strip() if row[4] else "",
-                "address_line2": "" # Fallback for bulk formatting
+                "address_line2": ""
             }
             
-            # Validation: Name and Street are the bare minimum requirements
             if normalized["name"] and normalized["street"]:
                 contacts.append(normalized)
             else:
@@ -58,7 +51,8 @@ def parse_csv(file_obj):
 
 def run_bulk_campaign(user_email, contacts, pdf_bytes, tier_name="Campaign"):
     """
-    Processes the validated contact list and executes the mailing loop.
+    Back-end helper for bulk campaigns. 
+    Note: ui_main.py handles the UI loop, but this can be used for background jobs.
     """
     results = {
         "success": 0,
@@ -80,11 +74,10 @@ def run_bulk_campaign(user_email, contacts, pdf_bytes, tier_name="Campaign"):
         try:
             addr_to = StandardAddress.from_dict(contact_data)
             
-            # This calls the mailer.py logic you already have in production
             success, response = mailer.send_letter(
                 pdf_bytes=pdf_bytes,
                 addr_to=addr_to,
-                addr_from=None, # Defaults to VerbaPost corporate return address
+                addr_from=None, 
                 tier=tier_name
             )
 
