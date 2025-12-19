@@ -82,10 +82,10 @@ def run_system_health_checks():
 
     # 5. POSTGRID (Mailer)
     def check_postgrid():
-        k = secrets_manager.get_secret("postgrid.api_key")
+        k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
         if not k: raise Exception("Missing Key")
         # Simple Verify Call
-        r = requests.get("https://api.postgrid.com/print-mail/v1/bank_accounts?limit=1", auth=(k, ''))
+        r = requests.get("https://api.postgrid.com/v1/bank_accounts?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code}")
     status, color = check_connection("PostGrid (Mail)", check_postgrid)
     results.append({"Service": "PostGrid (Fulfillment)", "Status": status, "Color": color})
@@ -105,8 +105,6 @@ def run_system_health_checks():
         k = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
         if not k: raise Exception("Missing Key")
         headers = {"Authorization": f"Bearer {k}"}
-        r = requests.get("https://api.resend.com/emails/66cb251d-b65c-48b9-a038-0b62d8540455", headers=headers) # Dummy check or checking domains
-        # Often checking domains is better: https://api.resend.com/domains
         r_dom = requests.get("https://api.resend.com/domains", headers=headers)
         if r_dom.status_code != 200: raise Exception(f"API {r_dom.status_code}")
     status, color = check_connection("Resend (Email)", check_resend)
@@ -226,22 +224,21 @@ def render_admin_page():
                                         # Minimal Retry Logic
                                         user_p = database.get_user_profile(sel.user_email)
                                         # Construct objects robustly
+                                        # Note: Safe getattr for missing columns until SQL migration is run
                                         to_obj = {
-                                            "name": getattr(sel, 'to_name', user_p.get('full_name')),
-                                            "address_line1": getattr(sel, 'to_street', user_p.get('address_line1')),
-                                            "city": getattr(sel, 'to_city', user_p.get('address_city')),
-                                            "state": getattr(sel, 'to_state', user_p.get('address_state')),
-                                            "zip": getattr(sel, 'to_zip', user_p.get('address_zip'))
+                                            "name": getattr(sel, 'to_name', None) or user_p.get('full_name'),
+                                            "address_line1": getattr(sel, 'to_street', None) or user_p.get('address_line1'),
+                                            "city": getattr(sel, 'to_city', None) or user_p.get('address_city'),
+                                            "state": getattr(sel, 'to_state', None) or user_p.get('address_state'),
+                                            "zip": getattr(sel, 'to_zip', None) or user_p.get('address_zip')
                                         }
                                         # Use standard VerbaPost fallback if sender missing
                                         from_obj = {"name": "VerbaPost", "address_line1": "1000 Main St", "city": "Nashville", "state": "TN", "zip": "37203"}
                                         
-                                        # FIX: Use correct create_pdf logic (returns bytes)
                                         content = getattr(sel, 'content', 'Content Missing')
                                         tier = getattr(sel, 'tier', 'Standard')
                                         pdf_bytes = letter_format.create_pdf(content, to_obj, from_obj, tier=tier)
                                         
-                                        # FIX: Use correct mailer signature
                                         ref_id = mailer.send_letter(pdf_bytes, to_obj, from_obj, description=f"Admin Retry {oid}")
                                         
                                         if ref_id:
@@ -249,12 +246,11 @@ def render_admin_page():
                                             sel.status = f"Sent (Admin): {ref_id}"
                                             db.commit()
                                             
-                                            # FIX: Log to Audit
                                             if audit_engine:
                                                 audit_engine.log_event("admin", "ADMIN_FORCE_SEND", oid, {"ref_id": ref_id})
                                         else: st.error("Failed.")
             else:
-                st.info("No orders found in database. This usually means no 'Paid' or 'Sent' letters exist yet.")
+                st.info("No orders found in database.")
         except Exception as e:
             st.error(f"Error fetching orders: {e}")
 
@@ -268,15 +264,10 @@ def render_admin_page():
         else:
             if st.button("Scan Twilio Logs"):
                 with st.spinner("Fetching logs..."):
-                    # Check Twilio Health first implicitly
                     try:
-                        # FIX: Using 'fetch_voice_logs' to align with ai_engine or 'get_recent_call_logs' if alias exists. 
-                        # Based on your upload, you need a function to get calls. I'll use the one from ai_engine.
-                        # If ai_engine only has fetch_voice_logs, we use that.
-                        if hasattr(ai_engine, "get_recent_call_logs"):
-                             calls = ai_engine.get_recent_call_logs(limit=20)
-                        elif hasattr(ai_engine, "fetch_voice_logs"):
-                             calls = ai_engine.fetch_voice_logs() # it limits to 20 internally usually
+                        # Ensure method availability
+                        if hasattr(ai_engine, "fetch_voice_logs"):
+                             calls = ai_engine.fetch_voice_logs()
                         else:
                              calls = []
 
@@ -294,12 +285,7 @@ def render_admin_page():
                             
                             ghosts = []
                             for c in calls:
-                                # Safe access for dict or object
-                                c_from = c.get('From') if isinstance(c, dict) else getattr(c, 'from_', getattr(c, 'from', 'Unknown'))
-                                c_date = c.get('Date') if isinstance(c, dict) else (c.date_created.strftime("%m/%d %H:%M") if c.date_created else "?")
-                                c_dur = c.get('Duration') if isinstance(c, dict) else f"{c.duration}s"
-                                c_stat = c.get('Status') if isinstance(c, dict) else c.status
-
+                                c_from = c.get('From', "Unknown")
                                 is_known = False
                                 for k in known_numbers:
                                     if k in str(c_from):
@@ -308,9 +294,9 @@ def render_admin_page():
                                 if not is_known:
                                     ghosts.append({
                                         "Caller ID": c_from,
-                                        "Time": c_date,
-                                        "Duration": c_dur,
-                                        "Status": c_stat
+                                        "Time": c.get('Date', "?"),
+                                        "Duration": c.get('Duration', "0s"),
+                                        "Status": c.get('Status', "Unknown")
                                     })
                             if ghosts: st.dataframe(pd.DataFrame(ghosts), use_container_width=True)
                             else: st.success("No ghost calls found (All callers match known users).")
@@ -351,7 +337,7 @@ def render_admin_page():
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
-            # FIX: Use the restored get_recent_logs function
+            # FIXED: Now pointing to the valid function in audit_engine.py
             logs = audit_engine.get_recent_logs()
             if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
             else: st.info("No logs found.")

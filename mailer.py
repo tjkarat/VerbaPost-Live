@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION (DISCOVERY LOGIC) ---
 # CRITICAL FIX: Robust secret discovery to ensure handshake with PostGrid.
+# Checks Environment first, then Streamlit Secrets.
 POSTGRID_API_KEY = os.getenv("POSTGRID_API_KEY") or st.secrets.get("POSTGRID_API_KEY")
 POSTGRID_URL = "https://api.postgrid.com/v1/letters"
 
@@ -43,7 +44,7 @@ def validate_address(addr_dict):
     # Simulate a successful validation response structure.
     return True, addr_dict
 
-def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
+def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard", description="VerbaPost Letter"):
     """
     Primary engine for physical mail dispatch. Handles PDF encoding, 
     JSON payload construction, and PostGrid API handshakes.
@@ -54,31 +55,38 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
 
     try:
         # DATA UNPACKING: Ensure properties are valid strings
-        recipient_data = {
-            "name": addr_to.name,
-            "address_line1": addr_to.street,
-            "address_city": addr_to.city,
-            "address_state": addr_to.state,
-            "address_zip": addr_to.zip_code,
-            "address_country": "US"
-        }
+        # Safely handling object vs dict access
+        if hasattr(addr_to, 'name'):
+             recipient_data = {
+                "name": addr_to.name,
+                "address_line1": addr_to.street,
+                "address_city": addr_to.city,
+                "address_state": addr_to.state,
+                "address_zip": addr_to.zip_code,
+                "address_country": "US"
+            }
+        else:
+             recipient_data = addr_to # Assume it's already a dict if not object
 
         sender_data = None
         if addr_from:
-            sender_data = {
-                "name": addr_from.name,
-                "address_line1": addr_from.street,
-                "address_city": addr_from.city,
-                "address_state": addr_from.state,
-                "address_zip": addr_from.zip_code,
-                "address_country": "US"
-            }
+            if hasattr(addr_from, 'name'):
+                sender_data = {
+                    "name": addr_from.name,
+                    "address_line1": addr_from.street,
+                    "address_city": addr_from.city,
+                    "address_state": addr_from.state,
+                    "address_zip": addr_from.zip_code,
+                    "address_country": "US"
+                }
+            else:
+                sender_data = addr_from
 
         # Preparing the multi-part request for PostGrid.
         payload = {
             "to": recipient_data,
             "from": sender_data,
-            "description": f"VerbaPost {tier} Letter",
+            "description": description,
             "metadata": {
                 "tier": tier,
                 "timestamp": str(time.time())
@@ -103,16 +111,16 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
             resp_data = response.json()
             letter_id = resp_data.get("id")
             logger.info(f"Dispatch success: {letter_id}")
-            return True, letter_id
+            return letter_id # Return ID directly for success logic
         else:
             # RETURN EXACT REJECTION TEXT
             error_text = response.text if response.text else f"Status: {response.status_code}"
             logger.error(f"PostGrid Handshake Rejected: {error_text}")
-            return False, error_text
+            return False
 
     except Exception as e:
         logger.exception(f"Fatal Dispatch Engine Error: {e}")
-        return False, str(e)
+        return False
 
 def send_email_notification(to_email, subject, body):
     """
