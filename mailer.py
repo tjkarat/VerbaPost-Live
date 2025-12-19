@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # CRITICAL FIX: Robust secret discovery to ensure handshake with PostGrid.
 # Checks Environment first, then Streamlit Secrets.
 POSTGRID_API_KEY = os.getenv("POSTGRID_API_KEY") or st.secrets.get("POSTGRID_API_KEY")
+# URL synced with Admin Console to prevent 404s
 POSTGRID_URL = "https://api.postgrid.com/v1/letters"
 
 # EMAIL CONFIGURATION (RESEND/SMTP)
