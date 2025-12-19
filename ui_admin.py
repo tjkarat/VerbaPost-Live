@@ -167,18 +167,18 @@ def render_admin_page():
                         st.markdown(f":{item['Color']}[{item['Status']}]")
                         st.markdown("---")
 
-    # --- TAB 2: ORDERS (IMPROVED REPAIR) ---
+    # --- TAB 2: ORDERS (REPAIR STATION) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
-            # Fetch from DB
+            # 1. Fetch from DB
             all_orders = database.get_all_orders()
             
             if all_orders:
                 total_orders = len(all_orders)
                 st.metric("Total Order Count", total_orders)
                 
-                # Render Data Table
+                # 2. Render Data Table
                 data = []
                 for o in all_orders:
                     raw_date = o.get('created_at')
@@ -198,10 +198,10 @@ def render_admin_page():
                 df_orders = pd.DataFrame(data)
                 st.dataframe(df_orders, use_container_width=True, height=400)
                 
-                # --- REPAIR STATION ---
+                # 3. REPAIR STATION
                 st.divider()
                 st.markdown("### 🛠️ Repair & Force Fulfillment")
-                st.info("Use this tool to manually fix and re-send an order that failed.")
+                st.info("Select an order to view details, edit the address, and retry sending.")
                 
                 c_sel, c_act = st.columns([3, 1])
                 with c_sel:
@@ -214,7 +214,7 @@ def render_admin_page():
                     
                     # Fetch details for the selected order
                     with database.get_db_session() as db:
-                        # Try Draft table first, then Letters
+                        # Try Draft table first (pending items), then Letters (sent items)
                         record = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_uuid).first()
                         if not record:
                             record = db.query(database.Letter).filter(database.Letter.id == selected_uuid).first()
@@ -222,25 +222,38 @@ def render_admin_page():
                         if record:
                             with st.form("repair_form"):
                                 st.markdown(f"**Editing Order:** `{selected_uuid}`")
-                                new_status = st.text_input("Status Status", value=record.status)
-                                new_content = st.text_area("Letter Body", value=record.content, height=100)
                                 
-                                # If columns exist in model, allow edit. Else warn.
-                                to_name_val = getattr(record, 'to_name', '') or "Recipient Name"
-                                new_to_name = st.text_input("Recipient Name", value=to_name_val)
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    # Use safe getattr incase column missing
+                                    cur_name = getattr(record, 'to_name', '') or "Recipient"
+                                    cur_city = getattr(record, 'to_city', '') or "City"
+                                    new_to_name = st.text_input("Recipient Name", value=cur_name)
+                                    new_to_city = st.text_input("City", value=cur_city)
+                                with c2:
+                                    new_status = st.text_input("Force Status", value=record.status)
+                                    
+                                new_content = st.text_area("Letter Body", value=record.content, height=150)
                                 
                                 if st.form_submit_button("🚀 Update & Re-Send"):
                                     # Update DB
                                     record.status = "Repaired/Sending"
                                     record.content = new_content
-                                    # Note: requires SQL update for persistent columns
+                                    if hasattr(record, 'to_name'): record.to_name = new_to_name
                                     db.commit()
                                     
                                     # Trigger Mailer
                                     if mailer and letter_format:
                                         with st.spinner("Dispatching to PostGrid..."):
-                                            # Mocking Objects for PDF gen
-                                            to_obj = {"name": new_to_name, "address_line1": "123 Fix St", "city": "Fix City", "state": "NY", "zip": "10001"}
+                                            # Use Safe Defaults if address incomplete in DB
+                                            to_obj = {
+                                                "name": new_to_name, 
+                                                "address_line1": getattr(record, 'to_street', '123 Main') or '123 Main',
+                                                "city": new_to_city, 
+                                                "state": getattr(record, 'to_state', 'NY') or 'NY',
+                                                "zip": getattr(record, 'to_zip', '10001') or '10001'
+                                            }
+                                            # Default sender
                                             from_obj = {"name": "VerbaPost", "address_line1": "1000 Main", "city": "Nash", "state": "TN", "zip": "37203"}
                                             
                                             pdf_bytes = letter_format.create_pdf(new_content, to_obj, from_obj, getattr(record, 'tier', 'Standard'))
@@ -350,7 +363,7 @@ def render_admin_page():
             # FIXED: Calls the robust fallback function in audit_engine
             logs = audit_engine.get_recent_logs(limit=100)
             if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
-            else: st.info("No logs found. (Check if audit_logs table exists)")
+            else: st.info("No logs found.")
         else: st.warning("Audit Engine not loaded.")
 
 # Safety Alias

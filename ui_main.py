@@ -73,23 +73,23 @@ def _ensure_profile_loaded():
         except Exception as e:
             print(f"Profile Load Error: {e}")
 
-# --- CSS INJECTOR ---
+# --- CSS INJECTOR (SAFE FONT LOADING) ---
 def inject_custom_css(text_size=16):
     import base64
     font_face_css = ""
-    # Safe Font Loading: Prevents app crash if .ttf file is missing
     try:
-        if os.path.exists("type_right.ttf"):
-            with open("type_right.ttf", "rb") as f:
-                b64_font = base64.b64encode(f.read()).decode()
-            font_face_css = f"""
-                @font-face {{
-                    font-family: 'TypeRight';
-                    src: url('data:font/ttf;base64,{b64_font}') format('truetype');
-                }}
-            """
-    except Exception:
-        pass # Fallback to default fonts gracefully
+        # Try loading the custom font file
+        with open("type_right.ttf", "rb") as f:
+            b64_font = base64.b64encode(f.read()).decode()
+        font_face_css = f"""
+            @font-face {{
+                font-family: 'TypeRight';
+                src: url('data:font/ttf;base64,{b64_font}') format('truetype');
+            }}
+        """
+    except FileNotFoundError:
+        # Fallback if file is missing (Prevents Crash)
+        font_face_css = ""
 
     st.markdown(f"""
         <style>
@@ -280,8 +280,9 @@ def render_review_page():
 
     if current_tier == "Campaign":
         targets = st.session_state.get("bulk_targets", [])
+        st.info(f"📋 Campaign Mode: Mailing {len(targets)} personalized letters.")
         
-        # 1. PAYMENT GATEWAY
+        # 1. THE PAYMENT PHASE
         if not st.session_state.get("campaign_paid"):
             st.warning("⚠️ Secure payment required to start dispatch.")
             
@@ -290,12 +291,15 @@ def render_review_page():
             st.markdown(f"### Total: ${final_total:.2f}")
             
             if st.button("💳 Proceed to Checkout", type="primary", use_container_width=True):
-                url = payment_engine.create_checkout_session(line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Campaign"}, "unit_amount": int(final_total * 100)}, "quantity": 1}], user_email=st.session_state.get("user_email"))
+                url = payment_engine.create_checkout_session(
+                    line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Campaign"}, "unit_amount": int(final_total * 100)}, "quantity": 1}], 
+                    user_email=st.session_state.get("user_email")
+                )
                 if url: st.link_button("👉 Open Payment Gateway", url)
         
-        # 2. DISPATCH ENGINE
+        # 2. THE DISPATCH PHASE (UNLOCKED)
         else:
-            st.success("✅ Payment Verified. Campaign Unlocked.")
+            st.success("✅ Payment Verified. Engine Unlocked.")
             metrics_spot = st.empty()
             progress_spot = st.empty()
             
@@ -352,7 +356,7 @@ def render_review_page():
         final_total = max(0.0, raw_total - discount)
         st.markdown(f"### Total: ${final_total:.2f}")
         
-        # --- FIXED PAYMENT BUTTON (Added line_items) ---
+        # --- FIXED PAYMENT BUTTON (FIXED: Missing line_items error) ---
         if st.button("💳 Pay", type="primary"):
             line_items = [{
                 "price_data": {
