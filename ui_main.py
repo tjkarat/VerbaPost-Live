@@ -12,48 +12,84 @@ import re
 import database 
 
 # --- ENGINE IMPORTS ---
-try: import ai_engine
-except ImportError: ai_engine = None
-try: import payment_engine
-except ImportError: payment_engine = None
-try: import mailer
-except ImportError: mailer = None
-try: import letter_format
-except ImportError: letter_format = None
-try: import address_standard
-except ImportError: address_standard = None
-try: import pricing_engine
-except ImportError: pricing_engine = None
-try: import bulk_engine
-except ImportError: bulk_engine = None
-try: import audit_engine
-except ImportError: audit_engine = None
-try: import civic_engine
-except ImportError: civic_engine = None
-try: import promo_engine
-except ImportError: promo_engine = None
-try: import secrets_manager
-except ImportError: secrets_manager = None
+try:
+    import ai_engine
+except ImportError:
+    ai_engine = None
+try:
+    import payment_engine
+except ImportError:
+    payment_engine = None
+try:
+    import mailer
+except ImportError:
+    mailer = None
+try:
+    import letter_format
+except ImportError:
+    letter_format = None
+try:
+    import address_standard
+except ImportError:
+    address_standard = None
+try:
+    import pricing_engine
+except ImportError:
+    pricing_engine = None
+try:
+    import bulk_engine
+except ImportError:
+    bulk_engine = None
+try:
+    import audit_engine
+except ImportError:
+    audit_engine = None
+try:
+    import civic_engine
+except ImportError:
+    civic_engine = None
+try:
+    import promo_engine
+except ImportError:
+    promo_engine = None
+try:
+    import secrets_manager
+except ImportError:
+    secrets_manager = None
 
 # --- UI MODULE IMPORTS ---
-try: import ui_splash
-except ImportError: ui_splash = None
-try: import ui_login
-except ImportError: ui_login = None
-try: import ui_admin
-except ImportError: ui_admin = None
-try: import ui_legal
-except ImportError: ui_legal = None
-try: import ui_legacy
-except ImportError: ui_legacy = None
-try: import ui_heirloom
-except ImportError: ui_heirloom = None
+try:
+    import ui_splash
+except ImportError:
+    ui_splash = None
+try:
+    import ui_login
+except ImportError:
+    ui_login = None
+try:
+    import ui_admin
+except ImportError:
+    ui_admin = None
+try:
+    import ui_legal
+except ImportError:
+    ui_legal = None
+try:
+    import ui_legacy
+except ImportError:
+    ui_legacy = None
+try:
+    import ui_heirloom
+except ImportError:
+    ui_heirloom = None
 
 
 # --- HELPER: SAFE PROFILE GETTER ---
 def get_profile_field(profile, field, default=""):
-    if not profile: return default
-    if isinstance(profile, dict): return profile.get(field, default)
+    if not profile:
+        return default
+    if isinstance(profile, dict):
+        return profile.get(field, default)
     return getattr(profile, field, default)
 
 def _ensure_profile_loaded():
@@ -100,18 +136,90 @@ def inject_custom_css(text_size=16):
             background-color: #fdfbf7; 
             color: #333;
         }}
-        .stTextInput input {{ font-family: 'Helvetica Neue', sans-serif !important; }}
-        p, li, .stMarkdown {{ font-family: 'Helvetica Neue', sans-serif; font-size: {text_size}px !important; line-height: 1.6 !important; }}
-        .price-card {{ background-color: #ffffff; border-radius: 12px; padding: 20px 15px; text-align: center; border: 1px solid #e0e0e0; height: 220px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: flex-start; gap: 5px; }}
-        .price-header {{ font-weight: 700; font-size: 1.4rem; color: #1f2937; margin-bottom: 2px; height: 35px; display: flex; align-items: center; justify-content: center; }}
-        .price-sub {{ font-size: 0.75rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 5px; }}
-        .price-tag {{ font-size: 2.4rem; font-weight: 800; color: #d93025; margin: 5px 0; }}
-        .price-desc {{ font-size: 0.9rem; color: #4b5563; line-height: 1.3; margin-top: auto; padding-bottom: 5px; min-height: 50px; }}
-        .stTabs [data-baseweb="tab"] p {{ font-size: 1.2rem !important; font-weight: 600 !important; }}
-        .stTabs [data-baseweb="tab"] {{ height: 60px; white-space: pre-wrap; background-color: #F0F2F6; border-radius: 8px 8px 0px 0px; gap: 2px; padding: 10px; border: 1px solid #ccc; border-bottom: none; color: #333; }}
-        .stTabs [aria-selected="true"] {{ background-color: #FF4B4B !important; border: 1px solid #FF4B4B !important; color: white !important; }}
-        .stTabs [aria-selected="true"] p {{ color: white !important; }}
-        .instruction-box {{ background-color: #FEF3C7; border-left: 6px solid #F59E0B; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #000; }}
+        .stTextInput input {{
+            font-family: 'Helvetica Neue', sans-serif !important;
+        }}
+        p, li, .stMarkdown {{
+            font-family: 'Helvetica Neue', sans-serif;
+            font-size: {text_size}px !important;
+            line-height: 1.6 !important;
+        }}
+        .price-card {{
+            background-color: #ffffff;
+            border-radius: 12px;
+            padding: 20px 15px;
+            text-align: center;
+            border: 1px solid #e0e0e0;
+            height: 220px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            gap: 5px;
+        }}
+        .price-header {{
+            font-weight: 700;
+            font-size: 1.4rem;
+            color: #1f2937;
+            margin-bottom: 2px;
+            height: 35px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }}
+        .price-sub {{
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            margin-bottom: 5px;
+        }}
+        .price-tag {{
+            font-size: 2.4rem;
+            font-weight: 800;
+            color: #d93025;
+            margin: 5px 0;
+        }}
+        .price-desc {{
+            font-size: 0.9rem;
+            color: #4b5563;
+            line-height: 1.3;
+            margin-top: auto;
+            padding-bottom: 5px;
+            min-height: 50px;
+        }}
+        .stTabs [data-baseweb="tab"] p {{
+            font-size: 1.2rem !important;
+            font-weight: 600 !important;
+        }}
+        .stTabs [data-baseweb="tab"] {{
+            height: 60px;
+            white-space: pre-wrap;
+            background-color: #F0F2F6;
+            border-radius: 8px 8px 0px 0px;
+            gap: 2px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-bottom: none;
+            color: #333;
+        }}
+        .stTabs [aria-selected="true"] {{
+            background-color: #FF4B4B !important;
+            border: 1px solid #FF4B4B !important;
+            color: white !important;
+        }}
+        .stTabs [aria-selected="true"] p {{
+            color: white !important;
+        }}
+        .instruction-box {{
+            background-color: #FEF3C7;
+            border-left: 6px solid #F59E0B;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            color: #000;
+        }}
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
@@ -452,131 +560,113 @@ def render_workspace_page():
             st.rerun()
 
 def render_review_page():
+    """REVISITED LOGIC: Linear progression from Payment to Execution."""
     st.markdown("## 👁️ Step 4: Secure & Send")
     current_tier = st.session_state.get("locked_tier", "Standard")
     
-    # FIX: ENFORCE SERVER-SIDE PAYMENT STATE
-    # Check for success parameter in URL to lock the campaign button
-    payment_verified = st.query_params.get("success") == "true"
+    # LOCK: CHECK PAYMENT STATE FIRST
+    payment_successful = st.query_params.get("success") == "true"
     
     if current_tier == "Campaign":
         targets = st.session_state.get("bulk_targets", [])
         st.info(f"📋 Campaign Mode: Preparing to mail {len(targets)} personalized letters.")
         
-        if not payment_verified:
-            st.warning("⚠️ Action Required: You must complete the Secure Checkout below before mailing the campaign.")
+        # 1. SHOW PAYMENT BUTTON ONLY IF NOT PAID
+        if not payment_successful:
+            st.warning("⚠️ Action Required: Secure payment is required to unlock campaign dispatch.")
+            total = pricing_engine.calculate_total(current_tier, qty=len(targets))
+            st.markdown(f"### Total for {len(targets)} Letters: ${total:.2f}")
+            if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+                url = payment_engine.create_checkout_session(line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "VerbaPost Campaign"}, "unit_amount": int(total * 100)}, "quantity": 1}], user_email=st.session_state.get("user_email"))
+                if url: st.link_button("👉 Open Secure Payment Page", url)
         
-        # FULL CAMPAIGN EXECUTION WITH PROGRESS, PERSONALIZATION, AUDIT, AND EMAIL
-        if st.button("🚀 Start Personalized Bulk Mailing", type="primary", use_container_width=True, disabled=not payment_verified):
-            if not st.session_state.get("letter_body"):
-                st.error("⚠️ Letter content is empty."); return
-            
-            prog_bar = st.progress(0, text="Initializing Campaign...")
-            if audit_engine:
-                audit_engine.log_event(st.session_state.user_email, "BULK_CAMPAIGN_START", f"Starting campaign for {len(targets)} recipients.")
-            
-            results_log = []
-            success_count, fail_count = 0, 0
-            
-            for i, contact in enumerate(targets):
-                prog_val = (i + 1) / len(targets)
-                prog_bar.progress(prog_val, text=f"Processing {contact['name']} ({i+1}/{len(targets)})...")
+        # 2. SHOW START BUTTON ONLY IF PAID
+        else:
+            st.success("✅ Payment Verified. Your campaign is ready for dispatch.")
+            if st.button("🚀 Start Personalized Bulk Mailing", type="primary", use_container_width=True):
+                prog_bar = st.progress(0, text="Initializing Dispatch Engine...")
+                if audit_engine:
+                    audit_engine.log_event(st.session_state.user_email, "BULK_CAMPAIGN_START", f"Executing campaign for {len(targets)} contacts.")
                 
-                try:
-                    # FIX: DYNAMIC PERSONALIZATION
-                    p_body = re.sub(r"\[Organization Name\]", contact.get('name', ''), st.session_state.get("letter_body", ""), flags=re.IGNORECASE)
+                results_log = []
+                success_count, fail_count = 0, 0
+                
+                for i, contact in enumerate(targets):
+                    prog_val = (i + 1) / len(targets)
+                    prog_bar.progress(prog_val, text=f"Processing {contact['name']} ({i+1}/{len(targets)})...")
                     
-                    # FIX: ENFORCE ADDRESS CLASS INSTANTIATION
-                    std_to = address_standard.StandardAddress.from_dict(contact)
-                    std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                    
-                    # Generate unique PDF per recipient
-                    pdf_bytes = letter_format.create_pdf(p_body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
-                    
-                    # DISPATCH TO POSTGRID
-                    success, resp = mailer.send_letter(pdf_bytes, std_to, std_from, current_tier)
-                    
-                    if success:
-                        success_count += 1
-                        results_log.append({"Name": contact['name'], "Status": "Success", "LetterID": resp})
-                        if audit_engine:
-                            audit_engine.log_event(st.session_state.user_email, "LETTER_SENT", f"Campaign mail to {contact['name']}", {"id": resp})
-                    else:
+                    try:
+                        # REPLACER LOGIC
+                        p_body = re.sub(r"\[Organization Name\]", contact.get('name', ''), st.session_state.get("letter_body", ""), flags=re.IGNORECASE)
+                        
+                        # OBJECT INSTANTIATION
+                        std_to = address_standard.StandardAddress.from_dict(contact)
+                        std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                        
+                        pdf_bytes = letter_format.create_pdf(p_body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
+                        
+                        # DISPATCH
+                        success, resp = mailer.send_letter(pdf_bytes, std_to, std_from, current_tier)
+                        
+                        if success:
+                            success_count += 1
+                            results_log.append({"Name": contact['name'], "Status": "Success", "LetterID": resp})
+                            if audit_engine: audit_engine.log_event(st.session_state.user_email, "LETTER_SENT", f"Campaign mail to {contact['name']}", {"id": resp})
+                        else:
+                            fail_count += 1
+                            results_log.append({"Name": contact['name'], "Status": "Failed", "Error": str(resp)})
+                            if audit_engine: audit_engine.log_event(st.session_state.user_email, "LETTER_FAILED", f"Fail: {contact['name']}", {"error": str(resp)})
+                    except Exception as e:
                         fail_count += 1
-                        results_log.append({"Name": contact['name'], "Status": "Failed", "Error": str(resp)})
-                        if audit_engine:
-                            audit_engine.log_event(st.session_state.user_email, "LETTER_FAILED", f"Fail: {contact['name']}", {"error": str(resp)})
-                except Exception as e:
-                    fail_count += 1
-                    results_log.append({"Name": contact['name'], "Status": "Error", "Error": str(e)})
-                    if audit_engine:
-                        audit_engine.log_event(st.session_state.user_email, "CAMPAIGN_CRASH", f"Crash on {contact['name']}", {"error": str(e)})
+                        results_log.append({"Name": contact['name'], "Status": "Error", "Error": str(e)})
 
-            prog_bar.empty()
-            st.balloons()
-            st.success(f"✨ Campaign Dispatched! Sent: {success_count} | Failed: {fail_count}")
-            
-            # FINAL NOTIFICATION
-            if mailer:
-                summary = f"VerbaPost Campaign Complete\n\nTotal Attempted: {len(targets)}\nSuccess: {success_count}\nFailed: {fail_count}\n\nDelivery results CSV attached below."
-                mailer.send_email_notification(st.session_state.user_email, "Bulk Campaign Results", summary)
-            
-            res_df = pd.DataFrame(results_log)
-            csv_io = io.StringIO()
-            res_df.to_csv(csv_io, index=False)
-            st.download_button("📥 Download Delivery Results (CSV)", csv_io.getvalue(), "campaign_results.csv", "text/csv", use_container_width=True)
-    
+                prog_bar.empty()
+                st.balloons()
+                st.success(f"✨ Campaign Complete! Sent: {success_count} | Failed: {fail_count}")
+                
+                # RESULTS DOWNLOAD
+                res_df = pd.DataFrame(results_log)
+                csv_io = io.StringIO()
+                res_df.to_csv(csv_io, index=False)
+                st.download_button("📥 Download Results CSV", csv_io.getvalue(), "campaign_results.csv", "text/csv", use_container_width=True)
+                
+                # FINAL REPORT EMAIL
+                if mailer:
+                    report = f"VerbaPost Campaign Summary\n\nTotal Attempted: {len(targets)}\nSuccessful: {success_count}\nFailed: {fail_count}"
+                    mailer.send_email_notification(st.session_state.user_email, "Bulk Campaign Dispatch Results", report)
+
     else:
+        # Standard Letter Logic
         if st.button("📄 Generate PDF Proof"):
-            with st.spinner("Generating Proof..."):
+            with st.spinner("Typesetting..."):
                 try:
                     body = st.session_state.get("letter_body", "")
                     std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                     std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                    
                     pdf_bytes = letter_format.create_pdf(body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
-                    
                     b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                     st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
                 except Exception as e: st.error(f"PDF Error: {e}")
 
-    st.divider()
-    is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
-    total = pricing_engine.calculate_total(current_tier, is_certified=is_cert)
-    st.markdown(f"### Total: ${total:.2f}")
-
-    if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-        u_email = st.session_state.get("user_email")
-        d_id = st.session_state.get("current_draft_id")
-        if d_id and database:
-            database.update_draft_data(d_id, price=total, status="Pending Payment")
-        url = payment_engine.create_checkout_session(
-            line_items=[{"price_data": {"currency": "usd", "product_data": {"name": f"VerbaPost - {current_tier}"}, "unit_amount": int(total * 100)}, "quantity": 1}],
-            user_email=u_email, draft_id=d_id
-        )
-        if url: st.link_button("👉 Click to Pay", url)
+        st.divider()
+        total = pricing_engine.calculate_total(current_tier)
+        st.markdown(f"### Total: ${total:.2f}")
+        if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+            url = payment_engine.create_checkout_session(line_items=[{"price_data": {"currency": "usd", "product_data": {"name": f"VerbaPost - {current_tier}"}, "unit_amount": int(total * 100)}, "quantity": 1}], user_email=st.session_state.get("user_email"))
+            if url: st.link_button("👉 Click to Pay", url)
 
 # --- ROUTER CONTROLLER ---
 def render_application():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
     mode = st.session_state.app_mode
-    if mode == "splash":
-        if ui_splash: ui_splash.render_splash_page()
-    elif mode == "login":
-        if ui_login: ui_login.render_login_page()
-    elif mode == "store":
-        render_store_page()
-    elif mode == "workspace":
-        render_workspace_page()
-    elif mode == "review":
-        render_review_page()
-    elif mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
-    elif mode == "legacy":
-        if ui_legacy: ui_legacy.render_legacy_page()
-    else:
-        st.session_state.app_mode = "splash"
-        st.rerun()
+    if mode == "splash": ui_splash.render_splash_page()
+    elif mode == "login": ui_login.render_login_page()
+    elif mode == "store": render_store_page()
+    elif mode == "workspace": render_workspace_page()
+    elif mode == "review": render_review_page()
+    elif mode == "legal": ui_legal.render_legal_page()
+    elif mode == "legacy": ui_legacy.render_legacy_page()
+    else: st.session_state.app_mode = "splash"; st.rerun()
 
 def render_main(): render_application()
 if __name__ == "__main__": render_main()

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 POSTGRID_API_KEY = os.getenv("POSTGRID_API_KEY")
 POSTGRID_URL = "https://api.postgrid.com/v1/letters"
 
-# RESEND SMTP SETTINGS
+# EMAIL CONFIGURATION (RESEND/SMTP)
 SMTP_SERVER = "smtp.resend.com"
 SMTP_PORT = 465
 SMTP_USER = "resend"
@@ -30,15 +30,14 @@ def validate_address(addr_dict):
 
 def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
     """
-    CRITICAL FIX: Dispatches physical mail via PostGrid.
-    Unpacks StandardAddress properties to JSON payload correctly.
+    DISPATCH ENGINE: Unpacks StandardAddress properties to JSON payload correctly.
     """
     if not POSTGRID_API_KEY:
         logger.error("POSTGRID_API_KEY missing.")
         return False, "API Key Missing"
 
     try:
-        # FIX: Explicitly access properties from the address objects
+        # UNPACKING PROPERTIES FROM OBJECT
         recipient_data = {
             "name": addr_to.name,
             "address_line1": addr_to.street,
@@ -62,13 +61,13 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
         payload = {
             "to": recipient_data,
             "from": sender_data,
-            "description": f"VerbaPost {tier} Letter",
+            "description": f"VerbaPost {tier} Letter Dispatch",
             "metadata": {"tier": tier, "timestamp": str(time.time())}
         }
 
         files = {"pdf": ("letter.pdf", pdf_bytes, "application/pdf")}
 
-        # DISPATCH
+        # API HANDSHAKE
         response = requests.post(
             POSTGRID_URL,
             headers={"x-api-key": POSTGRID_API_KEY},
@@ -81,7 +80,6 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
             logger.info(f"Dispatch success: {letter_id}")
             return True, letter_id
         else:
-            # FIX: Return actual API error for the audit trail
             logger.error(f"PostGrid API Error: {response.text}")
             return False, response.text
 
