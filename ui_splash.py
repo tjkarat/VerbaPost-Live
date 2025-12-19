@@ -11,8 +11,8 @@ def render_splash_page():
     .hero-text { font-family: 'Helvetica Neue', sans-serif; font-size: 1.15rem; font-weight: 300; color: #555; max-width: 600px; margin: 0 auto; line-height: 1.6; }
     
     /* TRUST LOGO STYLING */
-    .trust-container { text-align: center; padding: 20px 0; opacity: 1.0; margin-top: 10px; }
-    .trust-logo { display: inline-block; margin: 0 15px; height: 30px; vertical-align: middle; }
+    .trust-container { text-align: center; padding: 20px 0; opacity: 0.8; margin-top: 10px; }
+    .trust-logo { display: inline-block; margin: 0 15px; height: 24px; vertical-align: middle; }
     
     .feature-icon { font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.8; }
     .feature-head { font-weight: 600; color: #111; margin-bottom: 0.25rem; font-family: 'Merriweather', serif; }
@@ -47,14 +47,15 @@ def render_splash_page():
             st.session_state.app_mode = "legacy"
             st.rerun()
 
-    # --- FIXED: TRUST LOGOS (USPS BASE64 PERMANENT FIX) ---
+    # --- UPDATED: INFRASTRUCTURE & PAYMENT LOGOS ---
     st.markdown("""
     <div class="trust-container">
-        <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">SECURE PAYMENTS & RELIABLE FULFILLMENT</small>
+        <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">Powered by Secure & Reliable Infrastructure</small>
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" alt="Stripe">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/7/7e/Twilio-logo-red.svg" alt="Twilio">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/e/e0/Supabase_logo.svg" alt="Supabase">
+        <img class="trust-logo" src="https://raw.githubusercontent.com/resend/resend-python/main/logo.png" alt="Resend" style="height: 18px;">
         <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa">
-        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard">
-        <img class="trust-logo" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0NjAgMTYwIj48cGF0aCBmaWxsPSIjMzMzYTY2IiBkPSJNNDYwIDExNS41SDI0MC44bDQ0LTU5LjZoMTc1LjJsLTQ0IDU5LjZ6Ii8+PHBhdGggZmlsbD0iI2RjMTkyZSIgZD0iTTM5Mi44IDY0LjVIMTExLjZMMTU1LjYgMGgyODEuMmw0NC40IDY0LjV6Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTE4My40IDkwLjJsLTQzLjIgNTkuOEgyMmw0My4yLTU5LjhIMTgzLjR6bS0zMi4yLTQ0LjVsNDMuMi01OS44SDQwNC40bC00My4yIDU5LjhIMTUxLjJ6Ii8+PC9zdmc+" alt="USPS" style="height: 22px;">
     </div>
     """, unsafe_allow_html=True)
 
