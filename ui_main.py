@@ -9,6 +9,7 @@ import base64
 import re
 
 # --- CRITICAL IMPORTS ---
+# Importing database first to ensure connection availability for session logic.
 import database 
 
 # --- ENGINE IMPORTS ---
@@ -215,10 +216,7 @@ def inject_custom_css(text_size=16):
         .instruction-box {{
             background-color: #FEF3C7;
             border-left: 6px solid #F59E0B;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 4px;
-            color: #000;
+            padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #000;
         }}
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
@@ -560,102 +558,75 @@ def render_workspace_page():
             st.rerun()
 
 def render_review_page():
-    """REVISITED LOGIC: Linear progression from Payment to Execution."""
+    """Renders final review and execution dashboard."""
     st.markdown("## 👁️ Step 4: Secure & Send")
     current_tier = st.session_state.get("locked_tier", "Standard")
     
-    # LOCK: CHECK PAYMENT STATE FIRST
+    # LOCK: PAYMENT STATE
     payment_successful = st.query_params.get("success") == "true"
     
     if current_tier == "Campaign":
         targets = st.session_state.get("bulk_targets", [])
-        st.info(f"📋 Campaign Mode: Preparing to mail {len(targets)} personalized letters.")
+        st.info(f"📋 Campaign Mode: Mailing {len(targets)} personalized letters.")
         
-        # 1. SHOW PAYMENT BUTTON ONLY IF NOT PAID
+        # INDICATOR DASHBOARD
+        if "campaign_metrics" not in st.session_state:
+            st.session_state.campaign_metrics = {"sent": 0, "failed": 0, "total": len(targets)}
+
         if not payment_successful:
-            st.warning("⚠️ Action Required: Secure payment is required to unlock campaign dispatch.")
+            st.warning("⚠️ Payment required to unlock campaign.")
             total = pricing_engine.calculate_total(current_tier, qty=len(targets))
-            st.markdown(f"### Total for {len(targets)} Letters: ${total:.2f}")
-            if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-                url = payment_engine.create_checkout_session(line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "VerbaPost Campaign"}, "unit_amount": int(total * 100)}, "quantity": 1}], user_email=st.session_state.get("user_email"))
-                if url: st.link_button("👉 Open Secure Payment Page", url)
-        
-        # 2. SHOW START BUTTON ONLY IF PAID
+            st.markdown(f"### Total: ${total:.2f}")
+            if st.button("💳 Checkout", type="primary", use_container_width=True):
+                url = payment_engine.create_checkout_session(line_items=[{"price_data": {"currency": "usd", "product_data": {"name": "Campaign"}, "unit_amount": int(total * 100)}, "quantity": 1}], user_email=st.session_state.get("user_email"))
+                if url: st.link_button("👉 Pay Now", url)
         else:
-            st.success("✅ Payment Verified. Your campaign is ready for dispatch.")
-            if st.button("🚀 Start Personalized Bulk Mailing", type="primary", use_container_width=True):
-                prog_bar = st.progress(0, text="Initializing Dispatch Engine...")
-                if audit_engine:
-                    audit_engine.log_event(st.session_state.user_email, "BULK_CAMPAIGN_START", f"Executing campaign for {len(targets)} contacts.")
-                
+            # DASHBOARD VISUALS
+            m = st.session_state.campaign_metrics
+            st.columns(3)[0].metric("Total", m["total"])
+            st.columns(3)[1].metric("Success ✅", m["sent"])
+            st.columns(3)[2].metric("Failed ❌", m["failed"])
+
+            if st.button("🚀 Start Dispatch", type="primary", use_container_width=True):
+                prog_bar = st.progress(0, text="Mailing...")
                 results_log = []
-                success_count, fail_count = 0, 0
-                
                 for i, contact in enumerate(targets):
-                    prog_val = (i + 1) / len(targets)
-                    prog_bar.progress(prog_val, text=f"Processing {contact['name']} ({i+1}/{len(targets)})...")
-                    
+                    prog_bar.progress((i + 1) / len(targets), text=f"Mailing {contact['name']}...")
                     try:
-                        # REPLACER LOGIC
-                        p_body = re.sub(r"\[Organization Name\]", contact.get('name', ''), st.session_state.get("letter_body", ""), flags=re.IGNORECASE)
-                        
-                        # OBJECT INSTANTIATION
+                        # LOGIC: REPLACER & DISPATCH
+                        body = re.sub(r"\[Organization Name\]", contact.get('name', ''), st.session_state.get("letter_body", ""), flags=re.IGNORECASE)
                         std_to = address_standard.StandardAddress.from_dict(contact)
                         std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                        pdf = letter_format.create_pdf(body, std_to, std_from, current_tier, st.session_state.get("signature_text"))
                         
-                        pdf_bytes = letter_format.create_pdf(p_body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
-                        
-                        # DISPATCH
-                        success, resp = mailer.send_letter(pdf_bytes, std_to, std_from, current_tier)
-                        
+                        success, resp = mailer.send_letter(pdf, std_to, std_from, current_tier)
                         if success:
-                            success_count += 1
-                            results_log.append({"Name": contact['name'], "Status": "Success", "LetterID": resp})
-                            if audit_engine: audit_engine.log_event(st.session_state.user_email, "LETTER_SENT", f"Campaign mail to {contact['name']}", {"id": resp})
+                            st.session_state.campaign_metrics["sent"] += 1
+                            results_log.append({"Name": contact['name'], "Status": "Success", "ID": resp})
                         else:
-                            fail_count += 1
+                            st.session_state.campaign_metrics["failed"] += 1
                             results_log.append({"Name": contact['name'], "Status": "Failed", "Error": str(resp)})
-                            if audit_engine: audit_engine.log_event(st.session_state.user_email, "LETTER_FAILED", f"Fail: {contact['name']}", {"error": str(resp)})
                     except Exception as e:
-                        fail_count += 1
+                        st.session_state.campaign_metrics["failed"] += 1
                         results_log.append({"Name": contact['name'], "Status": "Error", "Error": str(e)})
 
-                prog_bar.empty()
-                st.balloons()
-                st.success(f"✨ Campaign Complete! Sent: {success_count} | Failed: {fail_count}")
-                
-                # RESULTS DOWNLOAD
-                res_df = pd.DataFrame(results_log)
-                csv_io = io.StringIO()
-                res_df.to_csv(csv_io, index=False)
-                st.download_button("📥 Download Results CSV", csv_io.getvalue(), "campaign_results.csv", "text/csv", use_container_width=True)
-                
-                # FINAL REPORT EMAIL
-                if mailer:
-                    report = f"VerbaPost Campaign Summary\n\nTotal Attempted: {len(targets)}\nSuccessful: {success_count}\nFailed: {fail_count}"
-                    mailer.send_email_notification(st.session_state.user_email, "Bulk Campaign Dispatch Results", report)
-
+                prog_bar.empty(); st.balloons()
+                st.download_button("📥 Download Results", pd.DataFrame(results_log).to_csv(index=False), "results.csv", "text/csv")
     else:
-        # Standard Letter Logic
-        if st.button("📄 Generate PDF Proof"):
-            with st.spinner("Typesetting..."):
-                try:
-                    body = st.session_state.get("letter_body", "")
-                    std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                    std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                    pdf_bytes = letter_format.create_pdf(body, std_to, std_from, current_tier, signature_text=st.session_state.get("signature_text"))
-                    b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                    st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                except Exception as e: st.error(f"PDF Error: {e}")
-
-        st.divider()
+        # Standard Letter Review
+        if st.button("📄 Generate Proof"):
+            try:
+                std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
+                std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                pdf = letter_format.create_pdf(st.session_state.letter_body, std_to, std_from, current_tier, st.session_state.get("signature_text"))
+                st.markdown(f'<embed src="data:application/pdf;base64,{base64.b64encode(pdf).decode()}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
+            except Exception as e: st.error(f"Proof Fail: {e}")
         total = pricing_engine.calculate_total(current_tier)
         st.markdown(f"### Total: ${total:.2f}")
-        if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-            url = payment_engine.create_checkout_session(line_items=[{"price_data": {"currency": "usd", "product_data": {"name": f"VerbaPost - {current_tier}"}, "unit_amount": int(total * 100)}, "quantity": 1}], user_email=st.session_state.get("user_email"))
-            if url: st.link_button("👉 Click to Pay", url)
+        if st.button("💳 Pay & Send", type="primary"):
+            url = payment_engine.create_checkout_session(user_email=st.session_state.get("user_email"))
+            if url: st.link_button("👉 Pay Now", url)
 
-# --- ROUTER CONTROLLER ---
 def render_application():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
     mode = st.session_state.app_mode
