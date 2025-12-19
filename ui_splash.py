@@ -47,8 +47,9 @@ def render_splash_page():
             st.rerun()
 
         st.write("") 
-        if st.button("Legacy Service (End of Life)", use_container_width=True):
-            st.session_state.app_mode = "legacy"
+        # UPDATED: Changed from Legacy Service to The Family Archive
+        if st.button("The Family Archive", use_container_width=True):
+            st.query_params["view"] = "heirloom"
             st.rerun()
 
     # --- INFRASTRUCTURE LOGOS (REMOVED BROKEN VISA AND RESEND) ---

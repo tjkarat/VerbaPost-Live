@@ -214,9 +214,13 @@ def main():
             st.query_params.clear()
             st.session_state.app_mode = "splash"
             st.rerun()
-        if st.button("🕰️ Heirloom Dashboard", use_container_width=True):
-            st.query_params["view"] = "heirloom"
+            
+        # UPDATED: Swapped Heirloom for Legacy Service
+        if st.button("🕊️ Legacy Service (End of Life)", use_container_width=True):
+            st.query_params.clear()
+            st.session_state.app_mode = "legacy"
             st.rerun()
+            
         st.markdown("---")
         
         # Admin Logic
