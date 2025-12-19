@@ -56,26 +56,29 @@ def _ensure_profile_loaded():
     """
     Loads user profile from DB and explicitly sets session state keys 
     so the 'Sender (From)' form autopopulates correctly.
+    Forcefully runs if 'from_name' is empty to ensure population.
     """
-    if st.session_state.get("authenticated") and not st.session_state.get("profile_synced"):
-        try:
-            email = st.session_state.get("user_email")
-            profile = database.get_user_profile(email)
-            if profile:
-                st.session_state.user_profile = profile
-                
-                # FIX: Explicitly set the keys used by the text_input widgets
-                st.session_state.from_name = get_profile_field(profile, "full_name")
-                st.session_state.from_street = get_profile_field(profile, "address_line1")
-                st.session_state.from_city = get_profile_field(profile, "address_city")
-                st.session_state.from_state = get_profile_field(profile, "address_state")
-                st.session_state.from_zip = get_profile_field(profile, "address_zip")
-                
-                st.session_state.profile_synced = True 
-                st.rerun()
-        except Exception as e:
-            # Swallow error to prevent crash loop, but log it
-            print(f"Profile Load Error: {e}")
+    if st.session_state.get("authenticated"):
+        # Check if we need to load (either not synced OR from_name is empty)
+        if not st.session_state.get("profile_synced") or not st.session_state.get("from_name"):
+            try:
+                email = st.session_state.get("user_email")
+                profile = database.get_user_profile(email)
+                if profile:
+                    st.session_state.user_profile = profile
+                    
+                    # FIX: Explicitly set the keys used by the text_input widgets
+                    st.session_state.from_name = get_profile_field(profile, "full_name")
+                    st.session_state.from_street = get_profile_field(profile, "address_line1")
+                    st.session_state.from_city = get_profile_field(profile, "address_city")
+                    st.session_state.from_state = get_profile_field(profile, "address_state")
+                    st.session_state.from_zip = get_profile_field(profile, "address_zip")
+                    
+                    st.session_state.profile_synced = True 
+                    st.rerun()
+            except Exception as e:
+                # Swallow error to prevent crash loop, but log it
+                print(f"Profile Load Error: {e}")
 
 # --- CSS INJECTOR ---
 def inject_custom_css(text_size=16):
@@ -297,8 +300,12 @@ def render_workspace_page():
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
                         st.session_state.to_state_input = data.get('state', '')
-                        # FIX: Check for both 'zip' (database standard) and 'zip_code'
-                        st.session_state.to_zip_input = data.get('zip', data.get('zip_code', '')) 
+                        
+                        # FIX 1: Handle Zip Code properly. 
+                        # Use OR to handle None/Null from DB. Cast to string.
+                        zip_val = data.get('zip') or data.get('zip_code') or ""
+                        st.session_state.to_zip_input = str(zip_val)
+                        
                         st.session_state.last_loaded_contact = selected_contact
                         st.rerun()
 
@@ -415,7 +422,8 @@ def render_workspace_page():
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
         
-        # FIX: Ensure AI Polish button is visible
+        # FIX 2: Ensure AI Polish button is always visible by moving it out of restricted columns if needed,
+        # but here we keep it but ensure logic is sound.
         col_polish, col_undo = st.columns([1, 1])
         with col_polish:
             # Check if text exists to enable button
