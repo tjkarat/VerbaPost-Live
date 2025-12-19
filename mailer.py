@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 POSTGRID_API_KEY = os.getenv("POSTGRID_API_KEY")
 POSTGRID_URL = "https://api.postgrid.com/v1/letters"
 
-# RESEND SMTP SETTINGS
+# EMAIL CONFIGURATION (RESEND/SMTP)
 SMTP_SERVER = "smtp.resend.com"
 SMTP_PORT = 465
 SMTP_USER = "resend"
@@ -32,7 +32,7 @@ def validate_address(addr_dict):
             logger.warning(f"Address validation failed: Missing {field}")
             return False, {"error": f"Missing field: {field}"}
     
-    # Simulate a successful validation response structure
+    # Simulate a successful validation response structure.
     return True, addr_dict
 
 def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
@@ -45,7 +45,7 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
         return False, "Configuration Error: API Key Missing"
 
     try:
-        # Construct the recipient and sender dictionaries using StandardAddress mapping
+        # Construct the recipient dictionary using StandardAddress mapping.
         recipient_data = {
             "name": addr_to.name,
             "address_line1": addr_to.street,
@@ -55,6 +55,7 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
             "address_country": "US"
         }
 
+        # Construct the sender dictionary if available.
         sender_data = None
         if addr_from:
             sender_data = {
@@ -66,7 +67,7 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
                 "address_country": "US"
             }
 
-        # Preparing the multi-part request for PostGrid
+        # Preparing the multi-part request for PostGrid.
         payload = {
             "to": recipient_data,
             "from": sender_data,
@@ -78,11 +79,12 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
             }
         }
 
+        # Multi-part file construction.
         files = {
             "pdf": ("letter.pdf", pdf_bytes, "application/pdf")
         }
 
-        # Dispatching the request to PostGrid
+        # Dispatching the request to PostGrid.
         response = requests.post(
             POSTGRID_URL,
             headers={"x-api-key": POSTGRID_API_KEY},
@@ -90,7 +92,7 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
             files=files
         )
 
-        # Evaluating the response
+        # Evaluating the response from the print service.
         if response.status_code in [200, 201, 202]:
             resp_data = response.json()
             letter_id = resp_data.get("id")
@@ -106,11 +108,10 @@ def send_letter(pdf_bytes, addr_to, addr_from, tier="Standard"):
 
 def send_email_notification(to_email, subject, body):
     """
-    ADDED FEATURE: Sends a summary email of campaign results to the user.
-    Maintains Resend SMTP protocols.
+    Sends a summary email of campaign results using Resend SMTP.
     """
     if not SMTP_PASS:
-        logger.error("RESEND_API_KEY not found in environment. Email skipped.")
+        logger.error("RESEND_API_KEY missing. Email notification skipped.")
         return False
 
     try:
@@ -120,42 +121,30 @@ def send_email_notification(to_email, subject, body):
         msg['From'] = "reports@verbapost.com"
         msg['To'] = to_email
 
-        # Using SMTP_SSL for Resend's secure port 465
+        # Connect via secure port 465.
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
         
-        logger.info(f"Campaign report emailed successfully to {to_email}")
+        logger.info(f"Campaign results emailed successfully to {to_email}")
         return True
     except Exception as e:
-        logger.error(f"Failure in send_email_notification: {str(e)}")
+        logger.error(f"Email Dispatch Failure: {str(e)}")
         return False
 
 # --- UTILITY FUNCTIONS ---
-# Detailed logging helpers and verification blocks that were in the original file.
 
 def get_letter_status(letter_id):
-    """
-    Fetches the tracking status of a dispatched letter from PostGrid.
-    """
-    if not letter_id or letter_id == "unknown_id":
-        return "Invalid ID"
-
+    """Fetches tracking status for a specific ID."""
+    if not letter_id: return "Invalid"
     try:
         url = f"{POSTGRID_URL}/{letter_id}"
         response = requests.get(url, headers={"x-api-key": POSTGRID_API_KEY})
-        if response.status_code == 200:
-            return response.json().get("status", "Unknown")
-        return f"API Error: {response.status_code}"
-    except Exception as e:
-        return f"Error: {str(e)}"
+        return response.json().get("status", "Unknown") if response.status_code == 200 else "Error"
+    except: return "Error"
 
 def log_debug_info():
-    """
-    Helper to verify environment variables are loading correctly during dev.
-    """
-    has_postgrid = "Yes" if POSTGRID_API_KEY else "No"
-    has_resend = "Yes" if SMTP_PASS else "No"
-    logger.debug(f"Mailer Debug - PostGrid: {has_postgrid}, Resend: {has_resend}")
+    """Diagnostic check for environment keys."""
+    logger.debug(f"API Check: {'Loaded' if POSTGRID_API_KEY else 'Missing'}")
 
-# End of Mailer Engine
+# End of Mailer
