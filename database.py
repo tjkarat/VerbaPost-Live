@@ -79,7 +79,6 @@ class UserProfile(Base):
     parent_phone = Column(String)
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # New Field for Rate Limiting
     last_call_date = Column(DateTime, nullable=True)
 
 class LetterDraft(Base):
@@ -100,7 +99,7 @@ class ScheduledCall(Base):
     parent_phone = Column(String)
     topic = Column(String)
     scheduled_time = Column(DateTime)
-    status = Column(String, default="Pending") # Pending, Completed, Cancelled
+    status = Column(String, default="Pending")
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Letter(Base):
@@ -223,20 +222,15 @@ def update_user_address(email, name, street, city, state, zip_code):
         return False
 
 def check_call_limit(email):
-    """
-    Prevents abuse by limiting interviews to 1 per 24 hours.
-    Returns (Allowed: bool, Message: str)
-    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
-            if not profile: return True, "OK" # Should not happen
+            if not profile: return True, "OK"
             
             last_call = profile.last_call_date
             if not last_call:
                 return True, "OK"
             
-            # Check 24 hour diff
             diff = datetime.utcnow() - last_call
             if diff < timedelta(hours=24):
                 hours_left = 24 - int(diff.total_seconds() / 3600)
@@ -257,7 +251,6 @@ def update_last_call_timestamp(email):
     except: pass
 
 def schedule_call(email, parent_phone, topic, scheduled_dt):
-    """Saves a future call request."""
     try:
         with get_db_session() as session:
             call = ScheduledCall(
