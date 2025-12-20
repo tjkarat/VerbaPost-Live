@@ -93,8 +93,7 @@ def get_db_session():
 
 class UserProfile(Base):
     __tablename__ = 'user_profiles'
-    # We map 'email' as the primary key for simplicity in lookups, 
-    # though strict SQL might use a UUID 'id'
+    # We map 'email' as the primary key for simplicity in lookups
     email = Column(String, primary_key=True)
     full_name = Column(String)
     
@@ -109,7 +108,7 @@ class UserProfile(Base):
     # Heirloom Specific Fields
     parent_name = Column(String)
     parent_phone = Column(String)
-    credits = Column(Integer, default=0) # This is the critical column for Subscriptions
+    credits = Column(Integer, default=0) # Critical for Subscription
     
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -153,7 +152,7 @@ class PromoCode(Base):
     __tablename__ = 'promo_codes'
     code = Column(String, primary_key=True)
     active = Column(Boolean, default=True)
-    is_active = Column(Boolean, default=True) # Redundant but safe
+    is_active = Column(Boolean, default=True) 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     max_uses = Column(BigInteger)
     discount_amount = Column(Float, default=0.0)
