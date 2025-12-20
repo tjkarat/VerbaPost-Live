@@ -42,110 +42,112 @@ def render_paywall():
     Includes Promo Code bypass and Stripe integration with a Premium UI.
     """
     # 1. INJECT CUSTOM CSS
+    # Note: We use single braces {} here because this is NOT an f-string.
     st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
-    
-    .paywall-container {
-        max-width: 700px;
-        margin: 20px auto;
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 40px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-        text-align: center;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    .lock-icon {
-        font-size: 50px;
-        background: #fdfbf7;
-        width: 100px;
-        height: 100px;
-        line-height: 100px;
-        border-radius: 50%;
-        margin: 0 auto 20px auto;
-        border: 1px solid #efebe0;
-    }
-    .paywall-title {
-        font-family: 'Playfair Display', serif;
-        font-size: 36px;
-        color: #1f2937;
-        margin-bottom: 10px;
-        font-weight: 700;
-    }
-    .paywall-sub {
-        color: #6b7280;
-        font-size: 18px;
-        margin-bottom: 30px;
-        line-height: 1.6;
-        font-family: 'Playfair Display', serif;
-        font-style: italic;
-    }
-    .price-box {
-        background: #f9fafb;
-        border-top: 1px solid #e5e7eb;
-        border-bottom: 1px solid #e5e7eb;
-        padding: 30px 0;
-        margin: 30px 0;
-    }
-    .price-amount {
-        font-family: 'Playfair Display', serif;
-        font-size: 52px;
-        color: #b91c1c; /* Deep Red */
-        font-weight: 700;
-    }
-    .price-freq {
-        font-size: 16px;
-        color: #9ca3af;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: 600;
-    }
-    .feature-list {
-        text-align: left;
-        display: inline-block;
-        color: #374151;
-        font-size: 16px;
-        margin: 0 auto;
-    }
-    .feature-item {
-        margin-bottom: 12px;
-        display: flex;
-        align-items: center;
-    }
-    .check {
-        color: #059669;
-        margin-right: 12px;
-        font-size: 18px;
-    }
-    .trust-badge {
-        margin-top: 20px;
-        font-size: 12px;
-        color: #9ca3af;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
+
+.paywall-container {
+    max-width: 700px;
+    margin: 20px auto;
+    background-color: #ffffff;
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 40px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+    text-align: center;
+    font-family: 'Helvetica Neue', sans-serif;
+}
+.lock-icon {
+    font-size: 50px;
+    background: #fdfbf7;
+    width: 100px;
+    height: 100px;
+    line-height: 100px;
+    border-radius: 50%;
+    margin: 0 auto 20px auto;
+    border: 1px solid #efebe0;
+}
+.paywall-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 36px;
+    color: #1f2937;
+    margin-bottom: 10px;
+    font-weight: 700;
+}
+.paywall-sub {
+    color: #6b7280;
+    font-size: 18px;
+    margin-bottom: 30px;
+    line-height: 1.6;
+    font-family: 'Playfair Display', serif;
+    font-style: italic;
+}
+.price-box {
+    background: #f9fafb;
+    border-top: 1px solid #e5e7eb;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 30px 0;
+    margin: 30px 0;
+}
+.price-amount {
+    font-family: 'Playfair Display', serif;
+    font-size: 52px;
+    color: #b91c1c; /* Deep Red */
+    font-weight: 700;
+}
+.price-freq {
+    font-size: 16px;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+}
+.feature-list {
+    text-align: left;
+    display: inline-block;
+    color: #374151;
+    font-size: 16px;
+    margin: 0 auto;
+}
+.feature-item {
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+}
+.check {
+    color: #059669;
+    margin-right: 12px;
+    font-size: 18px;
+}
+.trust-badge {
+    margin-top: 20px;
+    font-size: 12px;
+    color: #9ca3af;
+}
+</style>
+""", unsafe_allow_html=True)
 
     # 2. RENDER CARD HTML
+    # Note: Indentation removed to prevent Markdown code block interpretation
     st.markdown("""
-    <div class="paywall-container">
-        <div class="lock-icon">🔒</div>
-        <div class="paywall-title">The Family Archive</div>
-        <div class="paywall-sub">"Preserve your history before it fades away."</div>
-        
-        <div class="price-box">
-            <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
-            <br><br>
-            <div class="feature-list">
-                <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
-                <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
-                <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
-                <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
-            </div>
+<div class="paywall-container">
+    <div class="lock-icon">🔒</div>
+    <div class="paywall-title">The Family Archive</div>
+    <div class="paywall-sub">"Capture family memories and history for future generations."</div>
+    
+    <div class="price-box">
+        <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
+        <br><br>
+        <div class="feature-list">
+            <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
+            <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
+            <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
+            <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
         </div>
     </div>
-    """, unsafe_allow_html=True)
+</div>
+""", unsafe_allow_html=True)
     
     # 3. ACTION BUTTONS (Stripe & Promo)
     c_pad_left, c_main, c_pad_right = st.columns([1, 2, 1])
