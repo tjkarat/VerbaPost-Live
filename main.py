@@ -94,28 +94,50 @@ def main():
         db = get_module("database")
         
         status = "error"
+        result = {}
+        
         if pay_eng:
             try:
+                # Retrieve the full Stripe session object
                 raw_result = pay_eng.verify_session(session_id)
-                result = {}
+                
                 if isinstance(raw_result, dict):
                     result = raw_result
                 elif isinstance(raw_result, str) and raw_result == "paid":
+                    # Fallback if engine only returns string (less info)
                     result = {"paid": True, "email": st.session_state.get("user_email")}
                 
-                if result.get('paid'):
+                if result.get('paid') or result.get('status') == 'complete':
                     status = "paid"
-                    user_email = result.get('email')
+                    if result.get('customer_email'):
+                        user_email = result.get('customer_email')
+                    else:
+                        user_email = result.get('email') or st.session_state.get("user_email")
                 elif result.get('status') == 'open':
                     status = "open"
+                    
             except Exception as e:
                 logger.error(f"Verify Error: {e}")
 
         # --- SUCCESS PATH ---
         if status == "paid":
             
+            # --- DETECT PURCHASE TYPE (ROBUST) ---
+            # 1. Check Stripe Data (Reliable)
+            # We look for 'SUBSCRIPTION_INIT' which we passed as draft_id in ui_heirloom.py
+            stripe_ref = result.get("client_reference_id")
+            stripe_meta = result.get("metadata", {}).get("draft_id")
+            
+            is_subscription = (stripe_ref == "SUBSCRIPTION_INIT") or (stripe_meta == "SUBSCRIPTION_INIT")
+            
+            # 2. Check Session State (Fallback)
+            if not is_subscription:
+                is_subscription = st.session_state.get("pending_subscription", False)
+            
+            print(f"DEBUG PAYMENT: Ref={stripe_ref}, Meta={stripe_meta}, IsSub={is_subscription}")
+
             # === PATH A: SUBSCRIPTION PURCHASE (HEIRLOOM) ===
-            if st.session_state.get("pending_subscription"):
+            if is_subscription:
                 # 1. Update Database Credits
                 if db and user_email:
                     # Grant 4 credits for the new subscription
