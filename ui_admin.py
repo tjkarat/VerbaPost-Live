@@ -49,7 +49,7 @@ def run_system_health_checks():
         with database.get_db_session() as db:
             from sqlalchemy import text
             db.execute(text("SELECT 1"))
-    status, color = check_connection("Database", check_db)
+    status, color = check_connection("Database (Supabase)", check_db)
     results.append({"Service": "Database (Supabase)", "Status": status, "Color": color})
 
     # 2. STRIPE
@@ -58,7 +58,7 @@ def run_system_health_checks():
         if not k: raise Exception("Missing Key")
         stripe.api_key = k
         stripe.Balance.retrieve()
-    status, color = check_connection("Stripe", check_stripe)
+    status, color = check_connection("Stripe Payments", check_stripe)
     results.append({"Service": "Stripe Payments", "Status": status, "Color": color})
 
     # 3. OPENAI
@@ -87,7 +87,7 @@ def run_system_health_checks():
         # Corrected endpoint to match mailer.py logic
         r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code} - {r.text}")
-    status, color = check_connection("PostGrid (Mail)", check_postgrid)
+    status, color = check_connection("PostGrid (Fulfillment)", check_postgrid)
     results.append({"Service": "PostGrid (Fulfillment)", "Status": status, "Color": color})
 
     # 6. GEOCODIO
@@ -328,13 +328,58 @@ def render_admin_page():
     # --- TAB 3: GHOST CALLS ---
     with tab_ghosts:
         st.subheader("👻 Unclaimed Heirloom Calls")
-        # ... (same as before) ...
-        if not ai_engine:
-             st.error("AI Engine missing.")
-        else:
-             if st.button("Scan Twilio Logs"):
-                 # ... Logic preserved ...
-                 st.info("Scanning...")
+        st.info("Scans Twilio for calls that didn't match a user's 'Parent Phone'.")
+        
+        if st.button("Scan Twilio Logs"):
+            if not ai_engine:
+                st.error("AI Engine not loaded.")
+            else:
+                with st.spinner("Scanning logs..."):
+                    # 1. Fetch recent raw calls from Twilio (via ai_engine wrapper)
+                    if hasattr(ai_engine, 'get_recent_call_logs'):
+                        raw_calls = ai_engine.get_recent_call_logs(limit=50)
+                    else:
+                        st.error("ai_engine.get_recent_call_logs missing.")
+                        raw_calls = []
+
+                    # 2. Fetch all known user parent phones
+                    users = database.get_all_users()
+                    known_numbers = set()
+                    
+                    for u in users:
+                        p = u.get('parent_phone')
+                        if p:
+                            # Normalize user numbers: +16155550100 -> 6155550100
+                            norm = "".join(filter(str.isdigit, str(p)))
+                            if len(norm) > 10 and norm.startswith('1'): norm = norm[1:]
+                            known_numbers.add(norm)
+                    
+                    # 3. Filter for Ghosts (Calls NOT in known_numbers)
+                    ghosts = []
+                    for c in raw_calls:
+                        c_from = c.get('from', '')
+                        # Normalize call number
+                        norm_c = "".join(filter(str.isdigit, str(c_from)))
+                        if len(norm_c) > 10 and norm_c.startswith('1'): norm_c = norm_c[1:]
+                        
+                        # Only track completed calls that are NOT known
+                        if norm_c and norm_c not in known_numbers:
+                            ghosts.append({
+                                "From": c_from,
+                                "Normalized": norm_c,
+                                "Date": c.get('date'),
+                                "Duration": c.get('duration'),
+                                "Status": c.get('status'),
+                                "SID": c.get('sid')
+                            })
+                    
+                    if ghosts:
+                        st.warning(f"Found {len(ghosts)} Ghost Calls")
+                        df_ghosts = pd.DataFrame(ghosts)
+                        # Hide the SID from main view to keep it clean, but keep in data
+                        st.dataframe(df_ghosts[['From', 'Date', 'Duration', 'Status']], use_container_width=True)
+                    else:
+                        st.success("✅ Clean! No ghost calls found. All recent calls belong to registered users.")
 
     # --- TAB 4: PROMOS ---
     with tab_promos:
