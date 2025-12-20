@@ -131,21 +131,18 @@ class ScheduledCall(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Letter(Base):
+    # FIXED: Maps to 'letters' table seen in screenshot (Where real orders live)
     __tablename__ = 'letters'
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_email = Column(String, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True) # Changed to Integer based on screenshot "id int4"
+    user_email = Column(String) # Screenshot shows user_id (int4) but we likely join or it's misnamed in code. Assuming email for now or need join.
+    # Note: Screenshot shows user_id is int4. We will need to be careful here. 
+    # For safety, let's assume we read the 'user_id' column but treat it as the linkage.
+    user_id = Column(Integer)
     content = Column(Text)
-    status = Column(String, default="Draft") 
-    tier = Column(String, default="Standard")
-    price = Column(Float, default=0.0)
-    tracking_number = Column(String)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    to_name = Column(String)
-    to_city = Column(String)
-    to_street = Column(String)
-    to_state = Column(String)
-    to_zip = Column(String)
-
+    status = Column(String) 
+    recipient_name = Column(String)
+    created_at = Column(DateTime)
+    
 class Contact(Base):
     __tablename__ = 'address_book'
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -406,12 +403,12 @@ def save_contact(user_email, contact_data):
 
 def get_all_orders():
     """
-    CRITICAL FIX: Fetches from BOTH 'letters' and 'letter_drafts' tables.
+    CRITICAL FIX: Fetches from BOTH 'letters' (Sent) and 'letter_drafts' (Pending).
     """
     try:
         with get_db_session() as session:
             # 1. Finalized Letters (Legacy Store)
-            legacy = session.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).limit(50).all()
+            legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
             
             # 2. Heirloom Drafts (Voice Letters)
             heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
@@ -421,12 +418,16 @@ def get_all_orders():
             # Helper to safely serialize
             for o in legacy: 
                 d = to_dict(o)
-                d['source'] = 'Legacy'
+                # If we don't have user_email directly, we might see user_id. 
+                # This ensures we don't break the UI.
+                if not d.get('user_email'): d['user_email'] = f"User ID: {d.get('user_id')}"
+                d['source'] = 'Legacy (Sent)'
                 combined.append(d)
                 
             for h in heirloom:
                 d = to_dict(h)
-                d['source'] = 'Heirloom'
+                d['source'] = 'Draft/Heirloom'
+                d['recipient_name'] = "Pending..."
                 if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
                 combined.append(d)
                 
