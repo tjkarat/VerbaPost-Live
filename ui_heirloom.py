@@ -15,10 +15,25 @@ try: import address_standard
 except ImportError: address_standard = None
 try: import audit_engine
 except ImportError: audit_engine = None
-try: import payment_engine  # Required for Stripe
+try: import payment_engine
 except ImportError: payment_engine = None
-try: import promo_engine    # Required for Codes
+try: import promo_engine
 except ImportError: promo_engine = None
+try: import email_engine  # Added for Receipts
+except ImportError: email_engine = None
+
+# --- HELPER: EMAIL SENDER ---
+def _send_receipt(user_email, subject, body_html):
+    """Safe wrapper to send receipts without crashing if engine is missing."""
+    if email_engine:
+        try:
+            email_engine.send_email(
+                to_email=user_email,
+                subject=subject,
+                html_content=body_html
+            )
+        except Exception as e:
+            print(f"Email Receipt Failed: {e}")
 
 # --- HELPER: PAYWALL RENDERER ---
 def render_paywall():
@@ -61,10 +76,16 @@ def render_paywall():
                         user_email = st.session_state.get("user_email")
                         if database:
                             database.update_user_credits(user_email, 4)
-                            # Update session state immediately
                             if "user_profile" in st.session_state:
                                 st.session_state.user_profile["credits"] = 4
                         
+                        # SEND RECEIPT (Zero Cost Invoice)
+                        _send_receipt(
+                            user_email, 
+                            "VerbaPost Archive Unlocked", 
+                            f"<p>Welcome! You have successfully unlocked the Family Archive using code <b>{code}</b>.</p><p>4 Credits have been added to your account.</p>"
+                        )
+
                         st.balloons()
                         st.success("Code Accepted! Unlocking Archive...")
                         time.sleep(1)
@@ -83,8 +104,10 @@ def render_paywall():
             
             if payment_engine:
                 with st.spinner("Connecting to Stripe..."):
-                    # Create a Stripe Checkout Session for $19.00
                     try:
+                        # SET FLAG FOR MAIN.PY TO HANDLE RECEIPT ON RETURN
+                        st.session_state.pending_subscription = True
+
                         url = payment_engine.create_checkout_session(
                             line_items=[{
                                 "price_data": {
@@ -138,7 +161,6 @@ def render_dashboard():
         st.metric("Credits Remaining", credits)
 
     # 4. PAYWALL CHECK
-    # If user has 0 credits, stop here and show the paywall.
     if credits <= 0:
         render_paywall()
         return
@@ -245,6 +267,18 @@ def render_dashboard():
                                                     database.update_user_credits(user_email, new_credits)
                                                     database.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
                                                 
+                                                # SEND RECEIPT (Credit Usage)
+                                                _send_receipt(
+                                                    user_email,
+                                                    f"VerbaPost Sent: {d_date}",
+                                                    f"""
+                                                    <h3>Your Family Story is on the way!</h3>
+                                                    <p><b>Recipient:</b> {std_to.name}</p>
+                                                    <p><b>Tracking ID:</b> {ref_id}</p>
+                                                    <p><b>Remaining Credits:</b> {new_credits}</p>
+                                                    """
+                                                )
+
                                                 if audit_engine:
                                                     audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"ref": ref_id})
                                                 

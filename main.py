@@ -91,6 +91,7 @@ def main():
     if "session_id" in params:
         session_id = params["session_id"]
         pay_eng = get_module("payment_engine")
+        db = get_module("database")
         
         status = "error"
         if pay_eng:
@@ -112,90 +113,122 @@ def main():
 
         # --- SUCCESS PATH ---
         if status == "paid":
-            tier = st.session_state.get("locked_tier", "Letter")
             
-            # Perform Send (Idempotent Check)
-            if "postgrid_ref" not in st.session_state:
-                mailer = get_module("mailer")
-                lf = get_module("letter_format")
-                add_std = get_module("address_standard")
-                db = get_module("database")
-                audit = get_module("audit_engine")
+            # === PATH A: SUBSCRIPTION PURCHASE (HEIRLOOM) ===
+            if st.session_state.get("pending_subscription"):
+                # 1. Update Database Credits
+                if db and user_email:
+                    # Grant 4 credits for the new subscription
+                    db.update_user_credits(user_email, 4)
+                    
+                    # Also update local session to reflect change immediately
+                    if "user_profile" in st.session_state:
+                        st.session_state.user_profile["credits"] = 4
                 
-                if mailer and lf and add_std and "letter_body" in st.session_state:
-                    try:
-                        # Re-construct PDF
+                # 2. Clear Flag
+                st.session_state.pending_subscription = False
+                
+                # 3. Show Success
+                st.markdown(f"""
+                    <div class="success-box">
+                        <div class="success-title">🔓 Archive Unlocked!</div>
+                        <p>Welcome to the <b>Family Archive</b>.</p>
+                        <p>Your subscription is active and your credits have been refreshed.</p>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.balloons()
+                
+                if st.button("🎙️ Enter The Archive", type="primary", use_container_width=True):
+                    st.query_params.clear()
+                    st.session_state.app_mode = "heirloom"
+                    st.rerun()
+                return
+
+            # === PATH B: STANDARD LETTER PURCHASE ===
+            else:
+                tier = st.session_state.get("locked_tier", "Letter")
+                
+                # Perform Send (Idempotent Check)
+                if "postgrid_ref" not in st.session_state:
+                    mailer = get_module("mailer")
+                    lf = get_module("letter_format")
+                    add_std = get_module("address_standard")
+                    audit = get_module("audit_engine")
+                    
+                    if mailer and lf and add_std and "letter_body" in st.session_state:
+                        try:
+                            # Re-construct PDF
+                            body = st.session_state.get("letter_body", "")
+                            std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
+                            std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                            pdf_bytes = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
+                            
+                            # Send to PostGrid
+                            ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"VerbaPost {tier}")
+                            
+                            if ref_id:
+                                st.session_state.postgrid_ref = ref_id
+                                
+                                # Update DB
+                                d_id = st.session_state.get("current_draft_id")
+                                if d_id and db:
+                                    db.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
+                                
+                                if audit:
+                                    audit.log_event(
+                                        user_email=user_email, 
+                                        event_type="ORDER_FULFILLED", 
+                                        session_id=session_id,
+                                        metadata={"tier": tier, "postgrid_id": ref_id}
+                                    )
+
+                            else:
+                                st.error("Letter generated but mailing API failed. Admin notified.")
+                                if audit: audit.log_event(user_email, "FULFILLMENT_FAILED", session_id, {"reason": "PostGrid API Error"})
+                                
+                        except Exception as e:
+                            logger.error(f"Fulfillment Error: {e}")
+
+                order_ref = st.session_state.get("postgrid_ref", "Pending...")
+
+                st.markdown(f"""
+                    <div class="success-box">
+                        <div class="success-title">✅ Payment Confirmed!</div>
+                        <p>Your <b>{tier}</b> has been securely generated and sent to our mailing center.</p>
+                        <p>Order Reference: <span class="tracking-code">{order_ref}</span></p>
+                        <p><small>A confirmation email has been sent to <b>{user_email}</b></small></p>
+                    </div>
+                """, unsafe_allow_html=True)
+
+                # --- POST-PAYMENT DOWNLOAD BUTTON ---
+                try:
+                    lf = get_module("letter_format")
+                    add_std = get_module("address_standard")
+                    if lf and add_std:
                         body = st.session_state.get("letter_body", "")
                         std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                         std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                        pdf_bytes = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
+                        final_pdf = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
                         
-                        # Send to PostGrid
-                        ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"VerbaPost {tier}")
-                        
-                        if ref_id:
-                            st.session_state.postgrid_ref = ref_id
-                            
-                            # Update DB
-                            d_id = st.session_state.get("current_draft_id")
-                            if d_id and db:
-                                db.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
-                            
-                            if audit:
-                                audit.log_event(
-                                    user_email=user_email, 
-                                    event_type="ORDER_FULFILLED", 
-                                    session_id=session_id,
-                                    metadata={"tier": tier, "postgrid_id": ref_id}
-                                )
+                        st.download_button(
+                            label="⬇️ Download Receipt & Copy", 
+                            data=final_pdf, 
+                            file_name=f"VerbaPost_{order_ref}.pdf", 
+                            mime="application/pdf", 
+                            use_container_width=True
+                        )
+                except Exception as e:
+                    logger.error(f"Download generation error: {e}")
+                
+                st.balloons()
 
-                        else:
-                            st.error("Letter generated but mailing API failed. Admin notified.")
-                            if audit: audit.log_event(user_email, "FULFILLMENT_FAILED", session_id, {"reason": "PostGrid API Error"})
-                            
-                    except Exception as e:
-                        logger.error(f"Fulfillment Error: {e}")
-
-            order_ref = st.session_state.get("postgrid_ref", "Pending...")
-
-            st.markdown(f"""
-                <div class="success-box">
-                    <div class="success-title">✅ Payment Confirmed!</div>
-                    <p>Your <b>{tier}</b> has been securely generated and sent to our mailing center.</p>
-                    <p>Order Reference: <span class="tracking-code">{order_ref}</span></p>
-                    <p><small>A confirmation email has been sent to <b>{user_email}</b></small></p>
-                </div>
-            """, unsafe_allow_html=True)
-
-            # --- POST-PAYMENT DOWNLOAD BUTTON ---
-            try:
-                lf = get_module("letter_format")
-                add_std = get_module("address_standard")
-                if lf and add_std:
-                    body = st.session_state.get("letter_body", "")
-                    std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                    std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                    final_pdf = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                    
-                    st.download_button(
-                        label="⬇️ Download Receipt & Copy", 
-                        data=final_pdf, 
-                        file_name=f"VerbaPost_{order_ref}.pdf", 
-                        mime="application/pdf", 
-                        use_container_width=True
-                    )
-            except Exception as e:
-                logger.error(f"Download generation error: {e}")
-            # ------------------------------------
-            
-            st.balloons()
-
-            if st.button("🏠 Start Another Letter", type="primary", use_container_width=True):
-                st.query_params.clear()
-                for key in list(st.session_state.keys()):
-                    del st.session_state[key]
-                st.rerun()
-            return
+                if st.button("🏠 Start Another Letter", type="primary", use_container_width=True):
+                    st.query_params.clear()
+                    for key in list(st.session_state.keys()):
+                        del st.session_state[key]
+                    st.rerun()
+                return
 
         elif status == "open":
             st.info("⏳ Payment processing...")
