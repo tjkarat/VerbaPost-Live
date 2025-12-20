@@ -145,17 +145,11 @@ def _get_twilio_client():
 def trigger_outbound_call(to_number, from_number, parent_name="there", topic="your day"):
     """
     Triggers an outbound call with a DYNAMIC script.
-    No backend server needed; we generate TwiML XML right here.
     """
     client = _get_twilio_client()
     if not client:
         return None, "Twilio Client Config Error"
 
-    # Construct the Script (TwiML)
-    # 1. Greet the parent by name.
-    # 2. Ask the specific topic.
-    # 3. Record their answer.
-    
     twiml_script = f"""
     <Response>
         <Pause length="1"/>
@@ -172,7 +166,6 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
     """
 
     try:
-        # We pass 'twiml' instead of 'url' to inject the script directly.
         call = client.calls.create(
             to=to_number,
             from_=from_number,
@@ -184,24 +177,34 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
 
 def fetch_and_transcribe_latest_call(parent_phone):
     """
-    Finds the last call from a specific number, downloads, and transcribes.
+    Finds the last call (Inbound OR Outbound) for a specific number.
+    FIX: Now checks both 'from' and 'to' fields to catch Remote Interviewer calls.
     """
     client = _get_twilio_client()
     if not client: return None, "Twilio Config Missing"
 
     try:
-        # Clean phone number
         clean_phone = "".join(filter(lambda x: x.isdigit() or x == '+', str(parent_phone)))
-        calls = client.calls.list(from_=clean_phone, limit=5)
+        
+        # 1. Check calls FROM parent (Inbound)
+        calls_in = client.calls.list(from_=clean_phone, limit=5)
+        # 2. Check calls TO parent (Outbound / Remote Interviewer)
+        calls_out = client.calls.list(to=clean_phone, limit=5)
+        
+        # Combine and sort by date (newest first)
+        all_calls = calls_in + calls_out
+        all_calls.sort(key=lambda c: c.date_created, reverse=True)
+        
     except Exception as e:
         return None, f"Twilio List Error: {e}"
     
-    if not calls:
-        return None, "No recent calls found from this number."
+    if not all_calls:
+        return None, "No recent calls found."
 
-    # Look for recording
     target_recording_url = None
-    for call in calls:
+    
+    # Iterate to find the first one with a recording
+    for call in all_calls:
         try:
             recordings = call.recordings.list()
             if recordings:
@@ -213,7 +216,7 @@ def fetch_and_transcribe_latest_call(parent_phone):
             continue
             
     if not target_recording_url:
-        return None, "Found calls, but no recordings found."
+        return None, "Found calls, but no audio recordings."
 
     # Download & Transcribe
     try:
@@ -257,7 +260,6 @@ def get_recent_call_logs(limit=20):
         calls = client.calls.list(limit=limit)
         data = []
         for c in calls:
-            # Safer access to attributes
             from_num = getattr(c, 'from_', 'Unknown')
             to_num = getattr(c, 'to', 'Unknown')
             

@@ -36,7 +36,7 @@ def _send_receipt(user_email, subject, body_html):
         except Exception as e:
             print(f"Email Receipt Failed: {e}")
 
-# --- HELPER: PAYWALL RENDERER (PROFESSIONAL DESIGN) ---
+# --- HELPER: PAYWALL RENDERER ---
 def render_paywall():
     st.markdown("""
     <style>
@@ -378,14 +378,15 @@ def render_dashboard():
         with col_later:
             st.markdown("#### Schedule for Later")
             d = st.date_input("Date")
-            t = st.time_input("Time")
+            # UPDATED: LABEL WITH UTC
+            t = st.time_input("Time (UTC)")
             if st.button("📅 Schedule Call", use_container_width=True):
                 if not p_phone:
                     st.error("Please set Phone Number in Settings.")
                 else:
                     combined_time = datetime.combine(d, t)
                     if database.schedule_call(user_email, profile.get("parent_phone"), final_topic, combined_time):
-                        st.success(f"Scheduled for {combined_time}")
+                        st.success(f"Scheduled for {combined_time} UTC")
                     else:
                         st.error("Scheduling failed.")
 
