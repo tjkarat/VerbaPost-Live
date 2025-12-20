@@ -39,8 +39,8 @@ def render_splash_page():
     # --- ACTION BUTTONS ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # BUTTON 1: START A LETTER (Creation Flow)
-        if st.button("Start a Letter", type="primary", use_container_width=True):
+        # BUTTON 1: START A LETTER (White/Secondary)
+        if st.button("Start a Letter", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
             else:
@@ -50,8 +50,8 @@ def render_splash_page():
 
         st.write("") 
         
-        # BUTTON 2: THE FAMILY ARCHIVE (Consumption Flow)
-        if st.button("The Family Archive", use_container_width=True):
+        # BUTTON 2: THE FAMILY ARCHIVE (Red/Primary)
+        if st.button("The Family Archive", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.query_params["view"] = "heirloom"
             else:

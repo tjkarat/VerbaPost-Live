@@ -262,6 +262,8 @@ def main():
         m = get_module("ui_admin"); m.render_admin_page() if m else None
     elif mode == "legacy":
         m = get_module("ui_legacy"); m.render_legacy_page() if m else None
+    elif mode == "legal":
+        m = get_module("ui_legal"); m.render_legal_page() if m else None
     else:
         m = get_module("ui_splash"); m.render_splash_page() if m else None
 
