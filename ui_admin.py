@@ -225,7 +225,6 @@ def render_admin_page():
                         if record:
                             # --- FIXED: NO st.form HERE ---
                             # We removed the form wrapper because st.download_button cannot live inside a form.
-                            # Since this is an admin console, direct reactivity is acceptable.
                             
                             st.markdown(f"**Editing Order:** `{selected_uuid}`")
                             
@@ -441,7 +440,7 @@ def render_admin_page():
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
-            logs = audit_engine.get_recent_logs(limit=100)
+            logs = audit_engine.get_audit_logs(limit=100)
             if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
             else: st.info("No logs found.")
         else: st.warning("Audit Engine not loaded.")

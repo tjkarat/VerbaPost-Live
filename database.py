@@ -97,6 +97,7 @@ class PromoLog(Base):
     used_at = Column(DateTime, default=datetime.utcnow)
 
 class AuditEvent(Base):
+    # FIXED: Maps to the correct table seen in your screenshot
     __tablename__ = 'audit_events'
     id = Column(Integer, primary_key=True, autoincrement=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -116,6 +117,8 @@ class LetterDraft(Base):
     price = Column(Float, default=0.0)
     tracking_number = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
+    to_addr = Column(Text)
+    from_addr = Column(Text)
 
 class ScheduledCall(Base):
     __tablename__ = 'scheduled_calls'
@@ -139,6 +142,9 @@ class Letter(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     to_name = Column(String)
     to_city = Column(String)
+    to_street = Column(String)
+    to_state = Column(String)
+    to_zip = Column(String)
 
 class Contact(Base):
     __tablename__ = 'address_book'
@@ -171,7 +177,12 @@ def get_all_users():
     try:
         with get_db_session() as session:
             users = session.query(UserProfile).all()
-            return [to_dict(u) for u in users]
+            results = []
+            for u in users:
+                d = to_dict(u)
+                d['credits_remaining'] = d.get('credits', 0)
+                results.append(d)
+            return results
     except Exception as e:
         logger.error(f"Get Users Error: {e}")
         return []
@@ -190,7 +201,6 @@ def save_audit_log(log_entry):
     try:
         with get_db_session() as session:
             # We filter log_entry to ensure only valid columns are passed
-            # This prevents crashes if the dict has extra keys
             valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
             filtered_entry = {k: v for k, v in log_entry.items() if k in valid_keys}
             
@@ -202,7 +212,7 @@ def save_audit_log(log_entry):
         logger.error(f"Audit Save Error: {e}")
         return False
 
-def get_audit_logs(limit=50):
+def get_audit_logs(limit=100):
     try:
         with get_db_session() as session:
             logs = session.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(limit).all()
@@ -212,10 +222,14 @@ def get_audit_logs(limit=50):
 # --- USER & PROFILE ---
 
 def get_user_profile(email):
+    """
+    Fetches profile. CRITICAL: Creates one if missing (Self-Healing).
+    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
+                logger.info(f"Self-Healing: Creating missing profile for {email}")
                 profile = UserProfile(email=email, credits=0)
                 session.add(profile)
                 session.commit()
@@ -391,17 +405,36 @@ def save_contact(user_email, contact_data):
 # --- ADMIN ---
 
 def get_all_orders():
+    """
+    CRITICAL FIX: Fetches from BOTH 'letters' and 'letter_drafts' tables.
+    """
     try:
         with get_db_session() as session:
-            legacy = session.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).all()
-            heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(20).all()
+            # 1. Finalized Letters (Legacy Store)
+            legacy = session.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).limit(50).all()
+            
+            # 2. Heirloom Drafts (Voice Letters)
+            heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
+            
             combined = []
-            for o in legacy: combined.append(to_dict(o))
+            
+            # Helper to safely serialize
+            for o in legacy: 
+                d = to_dict(o)
+                d['source'] = 'Legacy'
+                combined.append(d)
+                
             for h in heirloom:
                 d = to_dict(h)
-                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom' 
+                d['source'] = 'Heirloom'
+                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
                 combined.append(d)
-            return combined
+                
+            # Sort combined list by date
+            combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+            
+            return combined[:100]
+            
     except Exception as e:
         logger.error(f"Get Orders Error: {e}")
         return []
@@ -421,6 +454,6 @@ def log_event(event_type, desc, user_email=None):
         "event_type": event_type, 
         "description": desc, 
         "user_email": user_email,
-        "details": desc # Fallback
+        "details": desc 
     }
     save_audit_log(entry)
