@@ -23,7 +23,6 @@ def get_openai_client():
     if secrets_manager:
         api_key = secrets_manager.get_secret("openai.api_key")
     
-    # Fallback for QA if secrets_manager fails
     if not api_key and "openai" in st.secrets:
         api_key = st.secrets["openai"]["api_key"]
         
@@ -68,7 +67,7 @@ def transcribe_audio(audio_file_obj):
     except Exception as e:
         return f"Transcription Error: {e}"
 
-# --- PHASE 2: TEXT REFINEMENT (RESTORED) ---
+# --- PHASE 2: TEXT REFINEMENT ---
 
 def refine_text(text, style="Professional"):
     """
@@ -97,12 +96,11 @@ def refine_text(text, style="Professional"):
         return response.choices[0].message.content.strip()
     except Exception as e:
         logger.error(f"Refine Error: {e}")
-        return text # Return original if AI fails
+        return text
 
 def enhance_transcription_for_seniors(text):
     """
     Lightly edits transcriptions to remove 'ums', 'ahs', and repetitive stammers.
-    Used by Heirloom & Legacy modules.
     """
     client = get_openai_client()
     if not client: return text
@@ -144,6 +142,28 @@ def _get_twilio_client():
         logger.error(f"Twilio Client Error: {e}")
         return None
 
+def trigger_outbound_call(to_number, from_number):
+    """
+    Triggers an outbound call to the senior to record a story.
+    Uses a TwiML Bin URL to instruct the phone system.
+    """
+    client = _get_twilio_client()
+    if not client:
+        return None, "Twilio Client Config Error"
+
+    # NOTE: In Production, move this URL to secrets_manager or st.secrets
+    TWIML_BIN_URL = "https://handler.twilio.com/twiml/EH3f4448557999719323c2d431057e4e08" 
+
+    try:
+        call = client.calls.create(
+            to=to_number,
+            from_=from_number,
+            url=TWIML_BIN_URL
+        )
+        return call.sid, None
+    except Exception as e:
+        return None, f"Dialing Error: {e}"
+
 def fetch_and_transcribe_latest_call(parent_phone):
     """
     Finds the last call from a specific number, downloads, and transcribes.
@@ -152,20 +172,9 @@ def fetch_and_transcribe_latest_call(parent_phone):
     if not client: return None, "Twilio Config Missing"
 
     try:
-        # --- CRITICAL FIX START ---
-        # 1. Strict Cleaning: Keep only digits and '+'
+        # Clean phone number
         clean_phone = "".join(filter(lambda x: x.isdigit() or x == '+', str(parent_phone)))
-        
-        # 2. Strict Validation: Abort if empty or too short to be a valid caller ID
-        # (This prevents sending From="" which fetches ALL calls)
-        if not clean_phone or len(clean_phone) < 10:
-            logger.warning(f"Security Block: Invalid parent phone '{parent_phone}' resolved to '{clean_phone}'")
-            return None, "Error: Parent Phone Number invalid or not set. Please update Settings."
-
-        # 3. Safe Query
         calls = client.calls.list(from_=clean_phone, limit=5)
-        # --- CRITICAL FIX END ---
-        
     except Exception as e:
         return None, f"Twilio List Error: {e}"
     
@@ -230,9 +239,13 @@ def get_recent_call_logs(limit=20):
         calls = client.calls.list(limit=limit)
         data = []
         for c in calls:
+            # Safer access to attributes
+            from_num = getattr(c, 'from_', 'Unknown')
+            to_num = getattr(c, 'to', 'Unknown')
+            
             data.append({
-                "from": c.from_,
-                "to": c.to,
+                "from": from_num,
+                "to": to_num,
                 "status": c.status,
                 "duration": c.duration,
                 "date": c.date_created,

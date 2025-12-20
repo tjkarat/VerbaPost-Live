@@ -15,7 +15,6 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
     menu_items={
         'Get Help': 'mailto:support@verbapost.com',
-        'Report a bug': "mailto:support@verbapost.com",
         'About': "# VerbaPost \n Send real mail from your screen."
     }
 )
@@ -46,7 +45,6 @@ st.markdown("""
 
 # --- LAZY MODULE LOADER ---
 def get_module(module_name):
-    """Safely imports modules to prevent crashes."""
     try:
         if module_name == "ui_splash": import ui_splash as m; return m
         if module_name == "ui_login": import ui_login as m; return m
@@ -98,80 +96,70 @@ def main():
         
         if pay_eng:
             try:
-                # Retrieve the full Stripe session object
-                raw_result = pay_eng.verify_session(session_id)
+                # Retrieve Full Stripe Object
+                raw_obj = pay_eng.verify_session(session_id)
                 
-                if isinstance(raw_result, dict):
-                    result = raw_result
-                elif isinstance(raw_result, str) and raw_result == "paid":
-                    # Fallback if engine only returns string (less info)
-                    result = {"paid": True, "email": st.session_state.get("user_email")}
-                
-                if result.get('paid') or result.get('status') == 'complete':
-                    status = "paid"
-                    if result.get('customer_email'):
-                        user_email = result.get('customer_email')
-                    else:
-                        user_email = result.get('email') or st.session_state.get("user_email")
-                elif result.get('status') == 'open':
-                    status = "open"
-                    
+                # Robust extraction
+                if hasattr(raw_obj, 'payment_status'):
+                    if raw_obj.payment_status == 'paid' or raw_obj.status == 'complete':
+                        status = "paid"
+                        result = raw_obj
+                        st.session_state.user_email = raw_obj.customer_email or st.session_state.get("user_email")
+
             except Exception as e:
                 logger.error(f"Verify Error: {e}")
 
         # --- SUCCESS PATH ---
         if status == "paid":
+            user_email = st.session_state.get("user_email")
+
+            # --- DETECT SUBSCRIPTION ---
+            # We check client_reference_id for the tag we sent in ui_heirloom.py
+            ref_id = getattr(result, 'client_reference_id', '')
             
-            # --- DETECT PURCHASE TYPE (ROBUST) ---
-            # 1. Check Stripe Data (Reliable)
-            # We look for 'SUBSCRIPTION_INIT' which we passed as draft_id in ui_heirloom.py
-            stripe_ref = result.get("client_reference_id")
-            stripe_meta = result.get("metadata", {}).get("draft_id")
+            # Also check metadata as backup
+            meta_id = ""
+            if hasattr(result, 'metadata') and result.metadata:
+                meta_id = result.metadata.get('draft_id', '')
+                
+            is_subscription = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
             
-            is_subscription = (stripe_ref == "SUBSCRIPTION_INIT") or (stripe_meta == "SUBSCRIPTION_INIT")
-            
-            # 2. Check Session State (Fallback)
+            # Fallback to session flag (if session survived)
             if not is_subscription:
                 is_subscription = st.session_state.get("pending_subscription", False)
-            
-            print(f"DEBUG PAYMENT: Ref={stripe_ref}, Meta={stripe_meta}, IsSub={is_subscription}")
 
-            # === PATH A: SUBSCRIPTION PURCHASE (HEIRLOOM) ===
+            print(f"DEBUG PAYMENT: Ref={ref_id}, IsSub={is_subscription}")
+
+            # === PATH A: SUBSCRIPTION UNLOCK ===
             if is_subscription:
-                # 1. Update Database Credits
                 if db and user_email:
-                    # Grant 4 credits for the new subscription
                     db.update_user_credits(user_email, 4)
-                    
-                    # Also update local session to reflect change immediately
                     if "user_profile" in st.session_state:
                         st.session_state.user_profile["credits"] = 4
                 
-                # 2. Clear Flag
-                st.session_state.pending_subscription = False
+                # Clear URL params so refresh doesn't re-trigger
+                st.query_params.clear()
                 
-                # 3. Show Success
                 st.markdown(f"""
                     <div class="success-box">
                         <div class="success-title">🔓 Archive Unlocked!</div>
                         <p>Welcome to the <b>Family Archive</b>.</p>
-                        <p>Your subscription is active and your credits have been refreshed.</p>
+                        <p>Your subscription is active. 4 Credits have been added.</p>
                     </div>
                 """, unsafe_allow_html=True)
                 
                 st.balloons()
                 
                 if st.button("🎙️ Enter The Archive", type="primary", use_container_width=True):
-                    st.query_params.clear()
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
                 return
 
-            # === PATH B: STANDARD LETTER PURCHASE ===
+            # === PATH B: STANDARD LETTER FULFILLMENT ===
             else:
                 tier = st.session_state.get("locked_tier", "Letter")
                 
-                # Perform Send (Idempotent Check)
+                # Idempotent Send Check
                 if "postgrid_ref" not in st.session_state:
                     mailer = get_module("mailer")
                     lf = get_module("letter_format")
@@ -180,50 +168,37 @@ def main():
                     
                     if mailer and lf and add_std and "letter_body" in st.session_state:
                         try:
-                            # Re-construct PDF
                             body = st.session_state.get("letter_body", "")
                             std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                             std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                             pdf_bytes = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
                             
-                            # Send to PostGrid
+                            # Send
                             ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"VerbaPost {tier}")
                             
                             if ref_id:
                                 st.session_state.postgrid_ref = ref_id
-                                
                                 # Update DB
                                 d_id = st.session_state.get("current_draft_id")
                                 if d_id and db:
                                     db.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
-                                
+                                # Log
                                 if audit:
-                                    audit.log_event(
-                                        user_email=user_email, 
-                                        event_type="ORDER_FULFILLED", 
-                                        session_id=session_id,
-                                        metadata={"tier": tier, "postgrid_id": ref_id}
-                                    )
+                                    audit.log_event(user_email, "ORDER_FULFILLED", session_id, {"postgrid_id": ref_id})
 
-                            else:
-                                st.error("Letter generated but mailing API failed. Admin notified.")
-                                if audit: audit.log_event(user_email, "FULFILLMENT_FAILED", session_id, {"reason": "PostGrid API Error"})
-                                
                         except Exception as e:
                             logger.error(f"Fulfillment Error: {e}")
 
                 order_ref = st.session_state.get("postgrid_ref", "Pending...")
-
                 st.markdown(f"""
                     <div class="success-box">
                         <div class="success-title">✅ Payment Confirmed!</div>
                         <p>Your <b>{tier}</b> has been securely generated and sent to our mailing center.</p>
                         <p>Order Reference: <span class="tracking-code">{order_ref}</span></p>
-                        <p><small>A confirmation email has been sent to <b>{user_email}</b></small></p>
                     </div>
                 """, unsafe_allow_html=True)
-
-                # --- POST-PAYMENT DOWNLOAD BUTTON ---
+                
+                # Download Button Logic (Restored)
                 try:
                     lf = get_module("letter_format")
                     add_std = get_module("address_standard")
@@ -232,104 +207,59 @@ def main():
                         std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
                         std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                         final_pdf = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                        
-                        st.download_button(
-                            label="⬇️ Download Receipt & Copy", 
-                            data=final_pdf, 
-                            file_name=f"VerbaPost_{order_ref}.pdf", 
-                            mime="application/pdf", 
-                            use_container_width=True
-                        )
-                except Exception as e:
-                    logger.error(f"Download generation error: {e}")
+                        st.download_button("⬇️ Download Receipt & Copy", data=final_pdf, file_name=f"VerbaPost_{order_ref}.pdf", mime="application/pdf", use_container_width=True)
+                except: pass
                 
                 st.balloons()
-
                 if st.button("🏠 Start Another Letter", type="primary", use_container_width=True):
                     st.query_params.clear()
-                    for key in list(st.session_state.keys()):
-                        del st.session_state[key]
+                    st.session_state.app_mode = "store"
                     st.rerun()
                 return
 
-        elif status == "open":
-            st.info("⏳ Payment processing...")
-            time.sleep(2)
-            st.rerun()
-        else:
-            st.warning("⚠️ Verification Pending or Failed")
-            if st.button("🔄 Check Again"): st.rerun()
-            return
-
-    # 4. PASSWORD RESET
-    elif params.get("type") == "recovery":
-        st.session_state.app_mode = "login"
-
-    # 5. INIT STATE
+    # 4. INIT STATE & SIDEBAR
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
         
     mode = st.session_state.app_mode
     current_email = st.session_state.get("user_email")
 
-    # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
-        
-        # --- APP SWITCHER ---
         if st.button("📮 Send a Letter", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "store"
             st.rerun()
-            
         if st.button("🎙️ Family Archive", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "heirloom"
             st.rerun()
-        # --------------------
-            
         st.markdown("---")
         
         # Admin Logic
-        admin_email = None
-        if secrets_manager:
-            raw_admin = secrets_manager.get_secret("admin.email")
-            if raw_admin: admin_email = raw_admin.lower().strip()
-        
         is_admin = st.session_state.get("admin_authenticated", False)
-        if is_admin or (current_email and admin_email and current_email == admin_email):
-            st.markdown("### 🛠️ Administration")
-            if st.button("🔐 Admin Console", key="sidebar_admin_btn", use_container_width=True):
-                st.query_params.clear()
-                st.session_state.app_mode = "admin"
-                st.rerun()
-        st.caption(f"v3.4.1 | {st.session_state.app_mode}")
+        if secrets_manager:
+            admin_email = secrets_manager.get_secret("admin.email")
+            if is_admin or (current_email and admin_email and current_email.strip() == admin_email.strip()):
+                 if st.button("🔐 Admin Console", use_container_width=True):
+                    st.session_state.app_mode = "admin"
+                    st.rerun()
 
-    # 7. ROUTER
+    # 5. ROUTER
     if mode == "splash":
-        m = get_module("ui_splash")
-        if m: m.render_splash_page()
-    elif mode == "legacy":
-        m = get_module("ui_legacy")
-        if m: m.render_legacy_page()
+        m = get_module("ui_splash"); m.render_splash_page() if m else None
     elif mode == "login":
-        m = get_module("ui_login")
-        if m: m.render_login_page()
-    elif mode == "admin":
-        m = get_module("ui_admin")
-        if m: m.render_admin_page()
-    elif mode == "legal":
-        m = get_module("ui_legal")
-        if m: m.render_legal_page()
+        m = get_module("ui_login"); m.render_login_page() if m else None
     elif mode in ["store", "workspace", "review"]:
-        m = get_module("ui_main")
-        if m: m.render_main()
+        m = get_module("ui_main"); m.render_main() if m else None
     elif mode == "heirloom":
-        m = get_module("ui_heirloom")
-        if m: m.render_dashboard()
+        m = get_module("ui_heirloom"); m.render_dashboard() if m else None
+    elif mode == "admin":
+        m = get_module("ui_admin"); m.render_admin_page() if m else None
+    elif mode == "legacy":
+        m = get_module("ui_legacy"); m.render_legacy_page() if m else None
     else:
-        m = get_module("ui_splash")
-        if m: m.render_splash_page()
+        m = get_module("ui_splash"); m.render_splash_page() if m else None
 
 if __name__ == "__main__":
     main()
