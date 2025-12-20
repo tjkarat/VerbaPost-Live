@@ -19,7 +19,7 @@ try: import payment_engine
 except ImportError: payment_engine = None
 try: import promo_engine
 except ImportError: promo_engine = None
-try: import email_engine  # Added for Receipts
+try: import email_engine
 except ImportError: email_engine = None
 
 # --- HELPER: EMAIL SENDER ---
@@ -35,77 +35,127 @@ def _send_receipt(user_email, subject, body_html):
         except Exception as e:
             print(f"Email Receipt Failed: {e}")
 
-# --- HELPER: PAYWALL RENDERER ---
+# --- HELPER: PAYWALL RENDERER (PROFESSIONAL DESIGN) ---
 def render_paywall():
     """
     Blocks access to the archive if the user has no credits.
-    Includes Promo Code bypass and Stripe integration.
+    Includes Promo Code bypass and Stripe integration with a Premium UI.
     """
+    # 1. INJECT CUSTOM CSS
     st.markdown("""
-        <div style="background-color: #f8f9fa; padding: 40px; border-radius: 12px; text-align: center; border: 1px solid #e0e0e0; margin-top: 20px;">
-            <div style="font-size: 60px;">🔒</div>
-            <h2 style="color: #333; margin-top: 10px;">The Family Archive is Locked</h2>
-            <p style="font-size: 18px; color: #555;">You need an active subscription to view, edit, and preserve family stories.</p>
-            <hr style="margin: 25px 0;">
-            <h1 style="color: #d93025; font-size: 48px; margin: 0;">$19<small style="font-size: 18px; color: #777;">/mo</small></h1>
-            <p style="font-weight: 500;">Includes 4 Mailed Letters per month + Unlimited Voice Storage</p>
-            <br>
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
+    
+    .paywall-container {
+        max-width: 700px;
+        margin: 20px auto;
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        padding: 40px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        text-align: center;
+        font-family: 'Helvetica Neue', sans-serif;
+    }
+    .lock-icon {
+        font-size: 50px;
+        background: #fdfbf7;
+        width: 100px;
+        height: 100px;
+        line-height: 100px;
+        border-radius: 50%;
+        margin: 0 auto 20px auto;
+        border: 1px solid #efebe0;
+    }
+    .paywall-title {
+        font-family: 'Playfair Display', serif;
+        font-size: 36px;
+        color: #1f2937;
+        margin-bottom: 10px;
+        font-weight: 700;
+    }
+    .paywall-sub {
+        color: #6b7280;
+        font-size: 18px;
+        margin-bottom: 30px;
+        line-height: 1.6;
+        font-family: 'Playfair Display', serif;
+        font-style: italic;
+    }
+    .price-box {
+        background: #f9fafb;
+        border-top: 1px solid #e5e7eb;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 30px 0;
+        margin: 30px 0;
+    }
+    .price-amount {
+        font-family: 'Playfair Display', serif;
+        font-size: 52px;
+        color: #b91c1c; /* Deep Red */
+        font-weight: 700;
+    }
+    .price-freq {
+        font-size: 16px;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 600;
+    }
+    .feature-list {
+        text-align: left;
+        display: inline-block;
+        color: #374151;
+        font-size: 16px;
+        margin: 0 auto;
+    }
+    .feature-item {
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+    }
+    .check {
+        color: #059669;
+        margin-right: 12px;
+        font-size: 18px;
+    }
+    .trust-badge {
+        margin-top: 20px;
+        font-size: 12px;
+        color: #9ca3af;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # 2. RENDER CARD HTML
+    st.markdown("""
+    <div class="paywall-container">
+        <div class="lock-icon">🔒</div>
+        <div class="paywall-title">The Family Archive</div>
+        <div class="paywall-sub">"Preserve your history before it fades away."</div>
+        
+        <div class="price-box">
+            <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
+            <br><br>
+            <div class="feature-list">
+                <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
+                <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
+                <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
+                <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
+            </div>
         </div>
+    </div>
     """, unsafe_allow_html=True)
     
-    col_promo, col_pay = st.columns([1, 1])
-
-    # --- OPTION 1: PROMO CODE (BYPASS) ---
-    with col_promo:
-        with st.expander("🎟️ Have a Promo Code?", expanded=True):
-            code = st.text_input("Enter Code", key="heirloom_promo")
-            if st.button("Apply Code"):
-                if promo_engine:
-                    # Validate Code
-                    result = promo_engine.validate_code(code)
-                    is_valid = False
-                    
-                    # Robust Tuple Unpacking
-                    if isinstance(result, tuple) and len(result) == 2:
-                        is_valid, _ = result
-                    elif isinstance(result, bool):
-                        is_valid = result
-                    
-                    if is_valid:
-                        # UNLOCK FOR FREE (Grant 4 Credits)
-                        user_email = st.session_state.get("user_email")
-                        if database:
-                            database.update_user_credits(user_email, 4)
-                            if "user_profile" in st.session_state:
-                                st.session_state.user_profile["credits"] = 4
-                        
-                        # SEND RECEIPT (Zero Cost Invoice)
-                        _send_receipt(
-                            user_email, 
-                            "VerbaPost Archive Unlocked", 
-                            f"<p>Welcome! You have successfully unlocked the Family Archive using code <b>{code}</b>.</p><p>4 Credits have been added to your account.</p>"
-                        )
-
-                        st.balloons()
-                        st.success("Code Accepted! Unlocking Archive...")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("Invalid Promo Code.")
-                else:
-                    st.error("Promo system offline.")
-
-    # --- OPTION 2: STRIPE CHECKOUT ---
-    with col_pay:
-        st.write("") # Spacer
-        st.write("") # Spacer
-        if st.button("🔓 Subscribe to Unlock", type="primary", use_container_width=True):
+    # 3. ACTION BUTTONS (Stripe & Promo)
+    c_pad_left, c_main, c_pad_right = st.columns([1, 2, 1])
+    with c_main:
+        if st.button("🔓 Subscribe Now", type="primary", use_container_width=True):
             user_email = st.session_state.get("user_email")
-            
             if payment_engine:
-                with st.spinner("Connecting to Stripe..."):
+                with st.spinner("Connecting to Secure Payment..."):
                     try:
-                        # SET FLAG FOR MAIN.PY TO HANDLE RECEIPT ON RETURN
+                        # SET FLAG FOR MAIN.PY
                         st.session_state.pending_subscription = True
 
                         url = payment_engine.create_checkout_session(
@@ -113,7 +163,7 @@ def render_paywall():
                                 "price_data": {
                                     "currency": "usd",
                                     "product_data": {"name": "VerbaPost Family Archive (Monthly)"},
-                                    "unit_amount": 1900, # $19.00
+                                    "unit_amount": 1900,
                                 },
                                 "quantity": 1,
                             }],
@@ -122,14 +172,47 @@ def render_paywall():
                         )
                         
                         if url:
-                            st.success("Link Generated!")
-                            st.link_button("👉 Click Here to Pay Securely", url, type="primary", use_container_width=True)
+                            st.link_button("👉 Proceed to Stripe Checkout", url, type="primary", use_container_width=True)
                         else:
-                            st.error("Could not generate checkout link.")
+                            st.error("Connection Error.")
                     except Exception as e:
-                        st.error(f"Payment Error: {e}")
+                        st.error(f"Error: {e}")
             else:
-                st.error("Payment engine missing.")
+                st.error("System Error: Payment Engine Missing")
+        
+        st.markdown("<div style='text-align: center; color: #9ca3af; font-size: 12px; margin-top: 10px;'>Secured by Stripe SSL</div>", unsafe_allow_html=True)
+
+    # 4. PROMO CODE (Subtle Dropdown)
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("🎟️ Have an Access Code?", expanded=False):
+        c_code, c_btn = st.columns([3, 1])
+        with c_code:
+            code = st.text_input("Code", label_visibility="collapsed", placeholder="Enter Promo Code")
+        with c_btn:
+            if st.button("Apply"):
+                if promo_engine:
+                    result = promo_engine.validate_code(code)
+                    is_valid = False
+                    if isinstance(result, tuple) and len(result) == 2:
+                        is_valid, _ = result
+                    elif isinstance(result, bool):
+                        is_valid = result
+                    
+                    if is_valid:
+                        # UNLOCK
+                        user_email = st.session_state.get("user_email")
+                        if database:
+                            database.update_user_credits(user_email, 4)
+                            if "user_profile" in st.session_state:
+                                st.session_state.user_profile["credits"] = 4
+                        
+                        _send_receipt(user_email, "Archive Unlocked", f"Welcome to the Family Archive. Code {code} applied.")
+                        st.balloons()
+                        st.success("Unlocked! Redirecting...")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Invalid Code")
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard():
@@ -143,8 +226,6 @@ def render_dashboard():
 
     # 2. LOAD USER DATA
     user_email = st.session_state.get("user_email")
-    
-    # Ensure profile is loaded
     if not st.session_state.get("profile_synced") and database:
         profile = database.get_user_profile(user_email)
         st.session_state.user_profile = profile or {}
@@ -170,7 +251,6 @@ def render_dashboard():
 
     # --- TAB A: INBOX ---
     with tab_inbox:
-        # Action Bar
         col_act1, col_act2 = st.columns([2, 1])
         with col_act1:
             st.info("💡 **Tip:** Ask Mom to call the Story Line. Her stories will appear here automatically.")
@@ -195,7 +275,6 @@ def render_dashboard():
         
         st.divider()
 
-        # Load Drafts
         if database:
             all_drafts = database.get_user_drafts(user_email)
             heirloom_drafts = [d for d in all_drafts if d.get('tier') == 'Heirloom']
@@ -210,32 +289,25 @@ def render_dashboard():
                 </div>
             """, unsafe_allow_html=True)
         
-        # Display Drafts
         for draft in heirloom_drafts:
             d_id = draft.get('id')
             d_date = draft.get('created_at', 'Unknown Date')
             d_status = draft.get('status', 'Draft')
             d_content = draft.get('content', '')
-
             status_icon = "🟢" if d_status == "Draft" else "✅ Sent"
             
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
                 new_text = st.text_area("Edit Transcript", value=d_content, height=250, key=f"txt_{d_id}")
-                
                 c_save, c_send = st.columns([1, 4])
-                
                 with c_save:
                     if st.button("💾 Save", key=f"save_{d_id}"):
-                        if database:
-                            database.update_draft_data(d_id, content=new_text)
+                        if database: database.update_draft_data(d_id, content=new_text)
                         st.toast("Saved changes.")
-                
                 with c_send:
                     if d_status == "Draft":
                         if st.button("📮 Send Mail (Costs 1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
                                 if address_standard:
-                                    # Use profile name or fallback
                                     std_to = address_standard.StandardAddress(
                                         name=profile.get("full_name", "Valued Member"), 
                                         street=profile.get("address_line1", ""), 
@@ -267,16 +339,10 @@ def render_dashboard():
                                                     database.update_user_credits(user_email, new_credits)
                                                     database.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
                                                 
-                                                # SEND RECEIPT (Credit Usage)
                                                 _send_receipt(
                                                     user_email,
                                                     f"VerbaPost Sent: {d_date}",
-                                                    f"""
-                                                    <h3>Your Family Story is on the way!</h3>
-                                                    <p><b>Recipient:</b> {std_to.name}</p>
-                                                    <p><b>Tracking ID:</b> {ref_id}</p>
-                                                    <p><b>Remaining Credits:</b> {new_credits}</p>
-                                                    """
+                                                    f"<h3>Story Sent!</h3><p>Tracking: {ref_id}</p>"
                                                 )
 
                                                 if audit_engine:
@@ -288,7 +354,7 @@ def render_dashboard():
                                                 time.sleep(2)
                                                 st.rerun()
                                             else:
-                                                st.error("Mailing API Failed. Please contact support.")
+                                                st.error("Mailing API Failed.")
                                     except Exception as e:
                                         st.error(f"System Error: {e}")
                                 else:
@@ -326,11 +392,9 @@ def render_dashboard():
             
             st.markdown("---")
             st.markdown("#### 📞 Remote Interviewer")
-            st.caption("Trigger a call to your parent right now.")
             if st.button("Call Parent Now"):
                 p_phone = profile.get("parent_phone")
                 twilio_phone = "+16156567667"
-                
                 if not p_phone:
                     st.error("Please save Parent Phone first.")
                 elif ai_engine:
@@ -342,12 +406,9 @@ def render_dashboard():
                                 st.info("Wait for them to hang up, then check Inbox.")
                             else:
                                 st.error(f"Call Failed: {err}")
-                        else:
-                            st.error("Outbound calling not enabled on server.")
 
         with c_user:
             st.markdown("#### 📬 Your Mailing Address")
-            st.caption("Where should the physical letters be sent?")
             with st.form("settings_address"):
                 curr_name = profile.get("full_name", "")
                 curr_street = profile.get("address_line1", "")
