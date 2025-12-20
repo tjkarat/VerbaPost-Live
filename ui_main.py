@@ -53,32 +53,21 @@ def get_profile_field(profile, field, default=""):
     return getattr(profile, field, default)
 
 def _ensure_profile_loaded():
-    """
-    Loads user profile from DB and explicitly sets session state keys 
-    so the 'Sender (From)' form autopopulates correctly.
-    Forcefully runs if 'from_name' is empty to ensure population.
-    """
-    if st.session_state.get("authenticated"):
-        # Check if we need to load (either not synced OR from_name is empty)
-        if not st.session_state.get("profile_synced") or not st.session_state.get("from_name"):
-            try:
-                email = st.session_state.get("user_email")
-                profile = database.get_user_profile(email)
-                if profile:
-                    st.session_state.user_profile = profile
-                    
-                    # FIX: Explicitly set the keys used by the text_input widgets
-                    st.session_state.from_name = get_profile_field(profile, "full_name")
-                    st.session_state.from_street = get_profile_field(profile, "address_line1")
-                    st.session_state.from_city = get_profile_field(profile, "address_city")
-                    st.session_state.from_state = get_profile_field(profile, "address_state")
-                    st.session_state.from_zip = get_profile_field(profile, "address_zip")
-                    
-                    st.session_state.profile_synced = True 
-                    st.rerun()
-            except Exception as e:
-                # Swallow error to prevent crash loop, but log it
-                print(f"Profile Load Error: {e}")
+    if st.session_state.get("authenticated") and not st.session_state.get("profile_synced"):
+        try:
+            email = st.session_state.get("user_email")
+            profile = database.get_user_profile(email)
+            if profile:
+                st.session_state.user_profile = profile
+                st.session_state.from_name = get_profile_field(profile, "full_name")
+                st.session_state.from_street = get_profile_field(profile, "address_line1")
+                st.session_state.from_city = get_profile_field(profile, "address_city")
+                st.session_state.from_state = get_profile_field(profile, "address_state")
+                st.session_state.from_zip = get_profile_field(profile, "address_zip")
+                st.session_state.profile_synced = True 
+                st.rerun()
+        except Exception as e:
+            print(f"Profile Load Error: {e}")
 
 # --- CSS INJECTOR ---
 def inject_custom_css(text_size=16):
@@ -164,24 +153,14 @@ def _handle_draft_creation(email, tier, price):
 
 # --- GLOBAL CALLBACKS ---
 def cb_select_tier(tier, price, user_email):
-    """
-    Robust callback that sets the tier and moves to workspace.
-    """
     try:
-        # 1. Clean URL to prevent router traps
         st.query_params.clear()
-        
-        # 2. Set State
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
-        st.session_state.app_mode = "workspace" # <--- Critical: Force to Workspace
-        
-        # 3. Create Draft (Safely)
+        st.session_state.app_mode = "workspace"
         if user_email:
             _handle_draft_creation(user_email, tier, price)
-            
     except Exception as e:
-        # Log error but DO NOT crash. Ensure user gets to workspace.
         print(f"Draft creation warning: {e}")
         st.session_state.app_mode = "workspace"
 
@@ -230,7 +209,8 @@ def render_store_page():
     with c1:
         st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
     with c2:
-        st.markdown(html_card("Heirloom", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
+        # RENAMED TO VINTAGE
+        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
     with c3:
         st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
     with c4:
@@ -239,12 +219,11 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
-    # Pass `u_email` explicitly to the callback
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        # Unique key avoids conflicts
-        st.button("Select Heirloom", key="btn_store_heirloom_product", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
+        # RENAMED TO VINTAGE
+        st.button("Select Vintage", key="btn_store_vintage", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
     with b4:
@@ -275,9 +254,7 @@ def render_campaign_uploader():
                 st.rerun()
 
 def render_workspace_page():
-    # 1. AUTOLOAD SENDER FROM PROFILE
     _ensure_profile_loaded()
-    
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
@@ -300,12 +277,7 @@ def render_workspace_page():
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
                         st.session_state.to_state_input = data.get('state', '')
-                        
-                        # FIX 1: Handle Zip Code properly. 
-                        # Use OR to handle None/Null from DB. Cast to string.
-                        zip_val = data.get('zip') or data.get('zip_code') or ""
-                        st.session_state.to_zip_input = str(zip_val)
-                        
+                        st.session_state.to_zip_input = data.get('zip_code', '') 
                         st.session_state.last_loaded_contact = selected_contact
                         st.rerun()
 
@@ -347,7 +319,6 @@ def render_workspace_page():
 
             with col_from:
                 st.markdown("### From: (Return Address)")
-                # Keys match the session state set in _ensure_profile_loaded
                 st.text_input("Your Name", key="from_name")
                 st.text_input("Signature (Sign-off)", key="from_sig")
                 st.text_input("Your Street", key="from_street")
@@ -358,15 +329,14 @@ def render_workspace_page():
             
             if current_tier != "Civic":
                 if st.form_submit_button("💾 Save Addresses"):
-                    # 1. Capture Raw Input
-                    raw_to = {
+                    st.session_state.addr_to = {
                         "name": st.session_state.to_name_input, 
                         "street": st.session_state.to_street_input, 
                         "city": st.session_state.to_city_input, 
                         "state": st.session_state.to_state_input, 
                         "zip_code": st.session_state.to_zip_input
                     }
-                    raw_from = {
+                    st.session_state.addr_from = {
                         "name": st.session_state.from_name, 
                         "street": st.session_state.from_street, 
                         "city": st.session_state.from_city, 
@@ -374,37 +344,25 @@ def render_workspace_page():
                         "zip_code": st.session_state.from_zip
                     }
                     st.session_state.signature_text = st.session_state.from_sig
-                    
-                    # 2. Strict Validation with PostGrid (or Standardizer)
+                    d_id = st.session_state.get("current_draft_id")
+                    if d_id:
+                        database.update_draft_data(d_id, to_addr=st.session_state.addr_to, from_addr=st.session_state.addr_from)
                     if mailer:
                         with st.spinner("Validating with USPS/PostGrid..."):
-                            t_valid, t_data = mailer.validate_address(raw_to)
-                            f_valid, f_data = mailer.validate_address(raw_from)
-                            
+                            t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
+                            f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
+                            if not t_valid:
+                                err = t_data.get('error', 'Invalid Recipient Address')
+                                st.error(f"❌ Recipient Address Error: {err}")
+                            if not f_valid:
+                                err = f_data.get('error', 'Invalid Sender Address')
+                                st.error(f"❌ Sender Address Error: {err}")
                             if t_valid and f_valid:
-                                # Success - Update State
                                 st.session_state.addr_to = t_data
                                 st.session_state.addr_from = f_data
                                 st.session_state.addresses_saved_at = time.time()
-                                
-                                # Update Draft in DB
-                                d_id = st.session_state.get("current_draft_id")
-                                if d_id:
-                                    database.update_draft_data(d_id, to_addr=st.session_state.addr_to, from_addr=st.session_state.addr_from)
-                                
                                 st.success("✅ Addresses Verified & Saved!")
-                            else:
-                                # Failure - Block Save
-                                if not t_valid:
-                                    err = t_data.get('error', 'Invalid Recipient Address')
-                                    st.error(f"❌ Recipient Address Error: {err}")
-                                if not f_valid:
-                                    err = f_data.get('error', 'Invalid Sender Address')
-                                    st.error(f"❌ Sender Address Error: {err}")
                     else:
-                        # Fallback (Offline Mode)
-                        st.session_state.addr_to = raw_to
-                        st.session_state.addr_from = raw_from
                         st.session_state.addresses_saved_at = time.time()
                         st.success("✅ Addresses Saved (Verification Offline)")
         
@@ -421,16 +379,10 @@ def render_workspace_page():
         st.markdown("### ⌨️ Typing Mode")
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
-        
-        # FIX 2: Ensure AI Polish button is always visible by moving it out of restricted columns if needed,
-        # but here we keep it but ensure logic is sound.
         col_polish, col_undo = st.columns([1, 1])
         with col_polish:
-            # Check if text exists to enable button
-            if st.button("✨ AI Polish (Professional)", help="Rewrite for clarity and tone"):
-                if not new_text:
-                    st.warning("Please write something first.")
-                elif ai_engine:
+            if st.button("✨ AI Polish (Professional)"):
+                if new_text and ai_engine:
                     with st.spinner("Polishing..."):
                         try:
                             if "letter_body_history" not in st.session_state: st.session_state.letter_body_history = []
@@ -440,15 +392,11 @@ def render_workspace_page():
                                 st.session_state.letter_body = polished
                                 st.rerun()
                         except Exception as e: st.error(f"AI Error: {e}")
-                else:
-                    st.error("AI Engine not loaded.")
-
         with col_undo:
             if "letter_body_history" in st.session_state and len(st.session_state.letter_body_history) > 0:
                 if st.button("↩️ Undo Last Change"):
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
-        
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
@@ -481,7 +429,6 @@ def render_workspace_page():
                     else: st.warning("⚠️ No speech detected.")
                 except Exception as e: st.error(f"Error: {e}")
                 finally:
-                    # FIX: Robust file cleanup to prevent Windows/Container lock crashes
                     if os.path.exists(tmp_path):
                         try: os.remove(tmp_path)
                         except: pass 
@@ -499,24 +446,33 @@ def render_workspace_page():
 
 def render_review_page():
     st.markdown("## 👁️ Step 4: Secure & Send")
-    if st.button("📄 Generate PDF Proof"):
+    
+    # REVENUE PROTECTION: Removed the "Generate PDF" button that allowed skipping payment.
+    # Replaced with an auto-preview that is WATERMARKED or just displayed in viewer.
+    
+    if st.session_state.get("letter_body"):
         with st.spinner("Generating Proof..."):
             try:
                 tier = st.session_state.get("locked_tier", "Standard")
                 body = st.session_state.get("letter_body", "")
+                
                 if tier == "Civic":
                     std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
                 else:
                     std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
+                
                 std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                 
-                # FIX: Receive bytes directly from letter_format
+                # Generate byte stream
                 pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
                 
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
+                
+                # LOOPHOLE CLOSED: Download button removed.
+                st.info("🔒 High-Resolution PDF download will be available after payment.")
+
             except Exception as e: st.error(f"PDF Error: {e}")
 
     st.divider()
@@ -524,9 +480,9 @@ def render_review_page():
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
     discount = 0.0
+    
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
-            # FIX: Added Unique key and safety check for string methods
             raw_code = st.text_input("Enter Code", key="promo_input_field")
             code = raw_code.upper().strip() if raw_code else ""
             
@@ -534,19 +490,27 @@ def render_review_page():
                 if not code:
                     st.error("Please enter a code.")
                 else:
-                    # FIX: Handle tuple return robustly
+                    # PROMO CODE FIX: Robust tuple unpacking
                     result = promo_engine.validate_code(code)
+                    
+                    valid = False
+                    val = 0
+                    
+                    # Handle Tuple (valid, amount)
                     if isinstance(result, tuple) and len(result) == 2:
                         valid, val = result
-                    else:
-                        valid, val = False, "Engine Error"
-
+                    # Handle Bool (just validity)
+                    elif isinstance(result, bool):
+                        valid = result
+                        val = 0
+                    
                     if valid:
                         st.session_state.applied_promo = code
                         st.session_state.promo_val = val
                         st.success(f"Applied! ${val} off")
                         st.rerun()
-                    else: st.error(f"Invalid Code: {val}")
+                    else: 
+                        st.error(f"Invalid Code.")
                     
     if st.session_state.get("applied_promo"):
         discount = st.session_state.get("promo_val", 0)
@@ -608,7 +572,6 @@ def render_application():
         st.rerun()
 
 def render_main():
-    # Only render content. Sidebar is handled by main.py
     render_application()
 
 if __name__ == "__main__":

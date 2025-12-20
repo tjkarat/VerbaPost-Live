@@ -54,6 +54,7 @@ def get_module(module_name):
         if module_name == "ui_admin": import ui_admin as m; return m
         if module_name == "ui_legal": import ui_legal as m; return m
         if module_name == "ui_legacy": import ui_legacy as m; return m
+        if module_name == "ui_heirloom": import ui_heirloom as m; return m
         if module_name == "payment_engine": import payment_engine as m; return m
         if module_name == "email_engine": import email_engine as m; return m
         if module_name == "audit_engine": import audit_engine as m; return m
@@ -113,88 +114,97 @@ def main():
         if status == "paid":
             tier = st.session_state.get("locked_tier", "Letter")
             
-            # --- CRITICAL FIX: BYPASS SINGLE LETTER LOGIC FOR CAMPAIGNS ---
-            if tier == "Campaign":
-                st.session_state.campaign_paid = True
-                # We do NOT return here. We let the script continue so render_application()
-                # can load ui_main and show the Bulk Campaign Dashboard.
-                # Just remove the query param to avoid re-triggering checks endlessly
-                # (Streamlit doesn't easily allow query param deletion without rerun, 
-                # but we rely on internal state now)
-            
-            else:
-                # SINGLE LETTER FULFILLMENT (Original Logic)
-                if "postgrid_ref" not in st.session_state:
-                    mailer = get_module("mailer")
-                    lf = get_module("letter_format")
-                    add_std = get_module("address_standard")
-                    db = get_module("database")
-                    audit = get_module("audit_engine")
+            # Perform Send (Idempotent Check)
+            if "postgrid_ref" not in st.session_state:
+                mailer = get_module("mailer")
+                lf = get_module("letter_format")
+                add_std = get_module("address_standard")
+                db = get_module("database")
+                audit = get_module("audit_engine")
+                
+                if mailer and lf and add_std and "letter_body" in st.session_state:
+                    try:
+                        # Re-construct PDF
+                        body = st.session_state.get("letter_body", "")
+                        std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
+                        std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                        pdf_bytes = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
+                        
+                        # Send to PostGrid
+                        ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"VerbaPost {tier}")
+                        
+                        if ref_id:
+                            st.session_state.postgrid_ref = ref_id
+                            
+                            # Update DB
+                            d_id = st.session_state.get("current_draft_id")
+                            if d_id and db:
+                                db.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
+                            
+                            if audit:
+                                audit.log_event(
+                                    user_email=user_email, 
+                                    event_type="ORDER_FULFILLED", 
+                                    session_id=session_id,
+                                    metadata={"tier": tier, "postgrid_id": ref_id}
+                                )
+
+                        else:
+                            st.error("Letter generated but mailing API failed. Admin notified.")
+                            if audit: audit.log_event(user_email, "FULFILLMENT_FAILED", session_id, {"reason": "PostGrid API Error"})
+                            
+                    except Exception as e:
+                        logger.error(f"Fulfillment Error: {e}")
+
+            order_ref = st.session_state.get("postgrid_ref", "Pending...")
+
+            st.markdown(f"""
+                <div class="success-box">
+                    <div class="success-title">✅ Payment Confirmed!</div>
+                    <p>Your <b>{tier}</b> has been securely generated and sent to our mailing center.</p>
+                    <p>Order Reference: <span class="tracking-code">{order_ref}</span></p>
+                    <p><small>A confirmation email has been sent to <b>{user_email}</b></small></p>
+                </div>
+            """, unsafe_allow_html=True)
+
+            # --- POST-PAYMENT DOWNLOAD BUTTON ---
+            try:
+                lf = get_module("letter_format")
+                add_std = get_module("address_standard")
+                if lf and add_std:
+                    body = st.session_state.get("letter_body", "")
+                    std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
+                    std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
+                    final_pdf = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
                     
-                    if mailer and lf and add_std and "letter_body" in st.session_state:
-                        try:
-                            # Re-construct PDF
-                            body = st.session_state.get("letter_body", "")
-                            std_to = add_std.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                            std_from = add_std.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                            pdf_bytes = lf.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                            
-                            # Send to PostGrid
-                            ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"VerbaPost {tier}")
-                            
-                            if ref_id:
-                                st.session_state.postgrid_ref = ref_id
-                                
-                                # Update DB
-                                d_id = st.session_state.get("current_draft_id")
-                                if d_id and db:
-                                    db.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
-                                
-                                # Log to Audit
-                                if audit:
-                                    audit.log_event(
-                                        user_email=user_email, 
-                                        event_type="ORDER_FULFILLED", 
-                                        session_id=session_id,
-                                        details={"tier": tier, "postgrid_id": ref_id}
-                                    )
+                    st.download_button(
+                        label="⬇️ Download Receipt & Copy", 
+                        data=final_pdf, 
+                        file_name=f"VerbaPost_{order_ref}.pdf", 
+                        mime="application/pdf", 
+                        use_container_width=True
+                    )
+            except Exception as e:
+                logger.error(f"Download generation error: {e}")
+            # ------------------------------------
+            
+            st.balloons()
 
-                            else:
-                                st.error("Letter generated but mailing API failed. Admin notified.")
-                                if audit: audit.log_event(user_email, "FULFILLMENT_FAILED", session_id, {"reason": "PostGrid API Error"})
-                                
-                        except Exception as e:
-                            logger.error(f"Fulfillment Error: {e}")
-
-                order_ref = st.session_state.get("postgrid_ref", "Pending...")
-
-                st.markdown(f"""
-                    <div class="success-box">
-                        <div class="success-title">✅ Payment Confirmed!</div>
-                        <p>Your <b>{tier}</b> has been securely generated and sent to our mailing center.</p>
-                        <p>Order Reference: <span class="tracking-code">{order_ref}</span></p>
-                        <p><small>A confirmation email has been sent to <b>{user_email}</b></small></p>
-                    </div>
-                """, unsafe_allow_html=True)
-                st.balloons()
-
-                if st.button("🏠 Start Another Letter", type="primary", use_container_width=True):
-                    st.query_params.clear()
-                    keys_to_keep = ["authenticated", "user_email", "user_name", "user_role", "admin_authenticated"]
-                    for key in list(st.session_state.keys()):
-                        if key not in keys_to_keep:
-                            del st.session_state[key]
-                    st.rerun()
-                return
+            if st.button("🏠 Start Another Letter", type="primary", use_container_width=True):
+                st.query_params.clear()
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+            return
 
         elif status == "open":
             st.info("⏳ Payment processing...")
             time.sleep(2)
             st.rerun()
         else:
-            if params.get("session_id"):
-                # Clean invalid sessions to prevent loops
-                pass
+            st.warning("⚠️ Verification Pending or Failed")
+            if st.button("🔄 Check Again"): st.rerun()
+            return
 
     # 4. PASSWORD RESET
     elif params.get("type") == "recovery":
@@ -210,16 +220,18 @@ def main():
     # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
-        if st.button("🏠 Home", use_container_width=True):
+        
+        # --- APP SWITCHER ---
+        if st.button("📮 Send a Letter", use_container_width=True):
             st.query_params.clear()
-            st.session_state.app_mode = "splash"
+            st.session_state.app_mode = "store"
             st.rerun()
             
-        # UPDATED: Swapped Heirloom for Legacy Service
-        if st.button("🕊️ Legacy Service (End of Life)", use_container_width=True):
+        if st.button("🎙️ Family Archive", use_container_width=True):
             st.query_params.clear()
-            st.session_state.app_mode = "legacy"
+            st.session_state.app_mode = "heirloom"
             st.rerun()
+        # --------------------
             
         st.markdown("---")
         
@@ -239,14 +251,6 @@ def main():
         st.caption(f"v3.4.1 | {st.session_state.app_mode}")
 
     # 7. ROUTER
-    view_param = st.query_params.get("view", "store")
-    if view_param == "heirloom":
-        try:
-            import ui_heirloom
-            ui_heirloom.render_dashboard()
-            st.stop() 
-        except ImportError: st.error("Heirloom module not found.")
-
     if mode == "splash":
         m = get_module("ui_splash")
         if m: m.render_splash_page()
@@ -265,6 +269,9 @@ def main():
     elif mode in ["store", "workspace", "review"]:
         m = get_module("ui_main")
         if m: m.render_main()
+    elif mode == "heirloom":
+        m = get_module("ui_heirloom")
+        if m: m.render_dashboard()
     else:
         m = get_module("ui_splash")
         if m: m.render_splash_page()
