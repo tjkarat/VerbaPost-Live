@@ -3,7 +3,6 @@ import time
 from datetime import datetime
 
 # --- MODULE IMPORTS ---
-# We use try/except to prevent the app from crashing if a module is temporarily missing
 try: import database
 except ImportError: database = None
 try: import ai_engine
@@ -16,11 +15,16 @@ try: import address_standard
 except ImportError: address_standard = None
 try: import audit_engine
 except ImportError: audit_engine = None
+try: import payment_engine  # Required for Stripe
+except ImportError: payment_engine = None
+try: import promo_engine    # Required for Codes
+except ImportError: promo_engine = None
 
 # --- HELPER: PAYWALL RENDERER ---
 def render_paywall():
     """
     Blocks access to the archive if the user has no credits.
+    Includes Promo Code bypass and Stripe integration.
     """
     st.markdown("""
         <div style="background-color: #f8f9fa; padding: 40px; border-radius: 12px; text-align: center; border: 1px solid #e0e0e0; margin-top: 20px;">
@@ -34,16 +38,75 @@ def render_paywall():
         </div>
     """, unsafe_allow_html=True)
     
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
+    col_promo, col_pay = st.columns([1, 1])
+
+    # --- OPTION 1: PROMO CODE (BYPASS) ---
+    with col_promo:
+        with st.expander("🎟️ Have a Promo Code?", expanded=True):
+            code = st.text_input("Enter Code", key="heirloom_promo")
+            if st.button("Apply Code"):
+                if promo_engine:
+                    # Validate Code
+                    result = promo_engine.validate_code(code)
+                    is_valid = False
+                    
+                    # Robust Tuple Unpacking
+                    if isinstance(result, tuple) and len(result) == 2:
+                        is_valid, _ = result
+                    elif isinstance(result, bool):
+                        is_valid = result
+                    
+                    if is_valid:
+                        # UNLOCK FOR FREE (Grant 4 Credits)
+                        user_email = st.session_state.get("user_email")
+                        if database:
+                            database.update_user_credits(user_email, 4)
+                            # Update session state immediately
+                            if "user_profile" in st.session_state:
+                                st.session_state.user_profile["credits"] = 4
+                        
+                        st.balloons()
+                        st.success("Code Accepted! Unlocking Archive...")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("Invalid Promo Code.")
+                else:
+                    st.error("Promo system offline.")
+
+    # --- OPTION 2: STRIPE CHECKOUT ---
+    with col_pay:
+        st.write("") # Spacer
+        st.write("") # Spacer
         if st.button("🔓 Subscribe to Unlock", type="primary", use_container_width=True):
-            st.info("Redirecting to Stripe Checkout...")
-            # In a real scenario, you would redirect to a Stripe Payment Link here
-            # e.g. st.link_button("Subscribe Now", "https://buy.stripe.com/...")
-            time.sleep(1)
-            # Simulating a purchase for demo purposes if needed:
-            # database.update_user_credits(st.session_state.user_email, 4)
-            # st.rerun()
+            user_email = st.session_state.get("user_email")
+            
+            if payment_engine:
+                with st.spinner("Connecting to Stripe..."):
+                    # Create a Stripe Checkout Session for $19.00
+                    try:
+                        url = payment_engine.create_checkout_session(
+                            line_items=[{
+                                "price_data": {
+                                    "currency": "usd",
+                                    "product_data": {"name": "VerbaPost Family Archive (Monthly)"},
+                                    "unit_amount": 1900, # $19.00
+                                },
+                                "quantity": 1,
+                            }],
+                            user_email=user_email,
+                            draft_id="SUBSCRIPTION_INIT"
+                        )
+                        
+                        if url:
+                            st.success("Link Generated!")
+                            st.link_button("👉 Click Here to Pay Securely", url, type="primary", use_container_width=True)
+                        else:
+                            st.error("Could not generate checkout link.")
+                    except Exception as e:
+                        st.error(f"Payment Error: {e}")
+            else:
+                st.error("Payment engine missing.")
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard():
@@ -113,7 +176,6 @@ def render_dashboard():
         # Load Drafts
         if database:
             all_drafts = database.get_user_drafts(user_email)
-            # Filter for only Heirloom drafts that haven't been deleted
             heirloom_drafts = [d for d in all_drafts if d.get('tier') == 'Heirloom']
         else:
             heirloom_drafts = []
@@ -133,14 +195,11 @@ def render_dashboard():
             d_status = draft.get('status', 'Draft')
             d_content = draft.get('content', '')
 
-            # Visual Indicator for Status
             status_icon = "🟢" if d_status == "Draft" else "✅ Sent"
             
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
-                # Editing Area
                 new_text = st.text_area("Edit Transcript", value=d_content, height=250, key=f"txt_{d_id}")
                 
-                # Action Buttons
                 c_save, c_send = st.columns([1, 4])
                 
                 with c_save:
@@ -150,13 +209,11 @@ def render_dashboard():
                         st.toast("Saved changes.")
                 
                 with c_send:
-                    # Send Button (Only enabled if Draft)
                     if d_status == "Draft":
                         if st.button("📮 Send Mail (Costs 1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                # 1. Prepare Addresses
                                 if address_standard:
-                                    # Recipient (The User)
+                                    # Use profile name or fallback
                                     std_to = address_standard.StandardAddress(
                                         name=profile.get("full_name", "Valued Member"), 
                                         street=profile.get("address_line1", ""), 
@@ -164,7 +221,6 @@ def render_dashboard():
                                         state=profile.get("address_state", ""),
                                         zip_code=profile.get("address_zip", "")
                                     )
-                                    # Sender (The Parent Name or Archive)
                                     p_name = profile.get("parent_name", "The Family Archive")
                                     std_from = address_standard.StandardAddress(
                                         name=p_name, 
@@ -177,30 +233,22 @@ def render_dashboard():
                                     st.error("Address Module Error")
                                     st.stop()
 
-                                # 2. Generate & Send
                                 if mailer and letter_format:
                                     try:
                                         with st.spinner("Printing & Mailing..."):
-                                            # Create PDF
                                             pdf_bytes = letter_format.create_pdf(new_text, std_to, std_from, "Heirloom")
-                                            
-                                            # Send to PostGrid
                                             ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"Heirloom {d_date}")
                                             
                                             if ref_id:
-                                                # Success Logic
                                                 new_credits = credits - 1
                                                 if database:
                                                     database.update_user_credits(user_email, new_credits)
                                                     database.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
                                                 
-                                                # Audit Log
                                                 if audit_engine:
                                                     audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"ref": ref_id})
                                                 
-                                                # Update Session
                                                 st.session_state.user_profile['credits'] = new_credits
-                                                
                                                 st.balloons()
                                                 st.success(f"✅ Mailed! Tracking ID: {ref_id}")
                                                 time.sleep(2)
@@ -219,14 +267,11 @@ def render_dashboard():
     # --- TAB B: SETTINGS ---
     with tab_settings:
         st.markdown("### ⚙️ Account Configuration")
-        
         c_parent, c_user = st.columns(2)
         
-        # 1. Parent Configuration
         with c_parent:
             st.markdown("#### 👵 Parent Details")
             st.caption("We use this phone number to identify incoming calls.")
-            
             with st.form("settings_parent"):
                 curr_p_name = profile.get("parent_name", "")
                 curr_p_phone = profile.get("parent_phone", "")
@@ -236,9 +281,6 @@ def render_dashboard():
                 
                 if st.form_submit_button("Save Parent Info"):
                     if database:
-                        # Assuming a helper exists, or direct update
-                        # For simplicity, we update the profile dict and push to DB
-                        # In real implementation: database.update_heirloom_settings(...)
                         success = database.update_heirloom_settings(user_email, new_p_name, new_p_phone)
                         if success:
                             st.session_state.user_profile['parent_name'] = new_p_name
@@ -248,20 +290,17 @@ def render_dashboard():
                         else:
                             st.error("Database Error")
             
-            # --- OUTBOUND DIALER (NEW FEATURE) ---
             st.markdown("---")
             st.markdown("#### 📞 Remote Interviewer")
             st.caption("Trigger a call to your parent right now.")
             if st.button("Call Parent Now"):
                 p_phone = profile.get("parent_phone")
-                # Retrieve Twilio number from secrets or config
-                twilio_phone = "+16156567667" # Hardcoded or from st.secrets
+                twilio_phone = "+16156567667"
                 
                 if not p_phone:
                     st.error("Please save Parent Phone first.")
                 elif ai_engine:
                     with st.spinner(f"Dialing {p_phone}..."):
-                        # Ensure ai_engine has this function (we added it in previous steps)
                         if hasattr(ai_engine, "trigger_outbound_call"):
                             sid, err = ai_engine.trigger_outbound_call(p_phone, twilio_phone)
                             if sid:
@@ -272,11 +311,9 @@ def render_dashboard():
                         else:
                             st.error("Outbound calling not enabled on server.")
 
-        # 2. User Address Configuration
         with c_user:
             st.markdown("#### 📬 Your Mailing Address")
             st.caption("Where should the physical letters be sent?")
-            
             with st.form("settings_address"):
                 curr_name = profile.get("full_name", "")
                 curr_street = profile.get("address_line1", "")
@@ -298,7 +335,6 @@ def render_dashboard():
                             user_email, n_name, n_street, n_city, n_state, n_zip
                         )
                         if success:
-                            # Update session cache
                             st.session_state.user_profile.update({
                                 "full_name": n_name,
                                 "address_line1": n_street,
