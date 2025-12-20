@@ -194,6 +194,11 @@ def render_paywall():
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard():
+    # --- CRITICAL FIX: Initialize variables early to prevent UnboundLocalError ---
+    p_phone = None  
+    credits = 0
+    # -------------------------------------------------------------------------
+
     if not st.session_state.get("authenticated"):
         st.warning("Please log in to access the archive.")
         if st.button("Go to Login"):
@@ -202,18 +207,23 @@ def render_dashboard():
         return
 
     user_email = st.session_state.get("user_email")
+    
+    # Ensure profile is loaded
     if not st.session_state.get("profile_synced") and database:
         profile = database.get_user_profile(user_email)
         st.session_state.user_profile = profile or {}
         st.session_state.profile_synced = True
     
+    # Retrieve profile data safe and early
     profile = st.session_state.get("user_profile", {})
     credits = profile.get("credits", 0)
+    p_phone = profile.get("parent_phone") # Defined here for global scope
     
     col_title, col_status = st.columns([3, 1])
     with col_title: st.title("🎙️ The Family Archive")
     with col_status: st.metric("Credits Remaining", credits)
 
+    # Show Paywall if no credits (and not explicitly bypassed)
     if credits <= 0:
         render_paywall()
         return
@@ -225,12 +235,11 @@ def render_dashboard():
         st.info("💡 **Tip:** Once an interview is complete, the story appears here. Edit it, then click 'Send Mail' to print a physical letter.")
         
         if st.button("🔄 Refresh Stories"):
-            parent_phone = profile.get("parent_phone")
-            if not parent_phone:
+            if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
             elif ai_engine:
                 with st.spinner("Scanning phone line..."):
-                    transcript, err = ai_engine.fetch_and_transcribe_latest_call(parent_phone)
+                    transcript, err = ai_engine.fetch_and_transcribe_latest_call(p_phone)
                     if transcript:
                         if database: database.save_draft(user_email, transcript, "Heirloom", 0.0)
                         st.success("✅ New Story Found!")
@@ -353,7 +362,8 @@ def render_dashboard():
         with col_now:
             st.markdown("#### Call Immediately")
             if st.button("📞 Call Now", type="primary", use_container_width=True):
-                p_phone = profile.get("parent_phone")
+                # Ensure we use the safe variable defined at top
+                safe_p_phone = p_phone 
                 p_name = profile.get("parent_name", "Mom")
                 twilio_phone = "+16156567667" # Config
                 
@@ -361,14 +371,14 @@ def render_dashboard():
                 allowed, msg = database.check_call_limit(user_email)
                 if not allowed:
                     st.error(msg)
-                elif not p_phone:
+                elif not safe_p_phone:
                     st.error("Please set Phone Number in Settings.")
                 elif not final_topic:
                     st.error("Please select a topic.")
                 elif ai_engine:
-                    with st.spinner(f"Dialing {p_phone}..."):
+                    with st.spinner(f"Dialing {safe_p_phone}..."):
                         if hasattr(ai_engine, "trigger_outbound_call"):
-                            sid, err = ai_engine.trigger_outbound_call(p_phone, twilio_phone, parent_name=p_name, topic=final_topic)
+                            sid, err = ai_engine.trigger_outbound_call(safe_p_phone, twilio_phone, parent_name=p_name, topic=final_topic)
                             if sid:
                                 database.update_last_call_timestamp(user_email)
                                 st.success(f"Calling! SID: {sid}")
@@ -378,14 +388,13 @@ def render_dashboard():
         with col_later:
             st.markdown("#### Schedule for Later")
             d = st.date_input("Date")
-            # UPDATED: LABEL WITH UTC
             t = st.time_input("Time (UTC)")
             if st.button("📅 Schedule Call", use_container_width=True):
                 if not p_phone:
                     st.error("Please set Phone Number in Settings.")
                 else:
                     combined_time = datetime.combine(d, t)
-                    if database.schedule_call(user_email, profile.get("parent_phone"), final_topic, combined_time):
+                    if database.schedule_call(user_email, p_phone, final_topic, combined_time):
                         st.success(f"Scheduled for {combined_time} UTC")
                     else:
                         st.error("Scheduling failed.")
@@ -447,3 +456,8 @@ def render_dashboard():
                             st.success("Address Updated!")
                             st.rerun()
                         else: st.error("Update Failed")
+    
+    # --- SAFETY CHECK ---
+    # Now safe because p_phone is always defined (None or value) from top of function
+    if not p_phone:
+        st.warning("⚠️ Please set a 'Parent Phone' in the Settings tab to start receiving stories.")
