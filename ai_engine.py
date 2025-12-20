@@ -142,23 +142,41 @@ def _get_twilio_client():
         logger.error(f"Twilio Client Error: {e}")
         return None
 
-def trigger_outbound_call(to_number, from_number):
+def trigger_outbound_call(to_number, from_number, parent_name="there", topic="your day"):
     """
-    Triggers an outbound call to the senior to record a story.
-    Uses a TwiML Bin URL to instruct the phone system.
+    Triggers an outbound call with a DYNAMIC script.
+    No backend server needed; we generate TwiML XML right here.
     """
     client = _get_twilio_client()
     if not client:
         return None, "Twilio Client Config Error"
 
-    # NOTE: In Production, move this URL to secrets_manager or st.secrets
-    TWIML_BIN_URL = "https://handler.twilio.com/twiml/EH3f4448557999719323c2d431057e4e08" 
+    # Construct the Script (TwiML)
+    # 1. Greet the parent by name.
+    # 2. Ask the specific topic.
+    # 3. Record their answer.
+    
+    twiml_script = f"""
+    <Response>
+        <Pause length="1"/>
+        <Say voice="alice">Hello! This is the Verba Post family archivist calling for {parent_name}.</Say>
+        <Pause length="1"/>
+        <Say voice="alice">Your family would like to save a new story. Here is their question.</Say>
+        <Pause length="1"/>
+        <Say voice="alice">{topic}</Say>
+        <Pause length="1"/>
+        <Say voice="alice">Please tell your story after the beep. When you are finished, press the pound key.</Say>
+        <Record maxLength="600" finishOnKey="#" playBeep="true"/>
+        <Say voice="alice">Thank you. Your story has been saved safe and sound. Goodbye!</Say>
+    </Response>
+    """
 
     try:
+        # We pass 'twiml' instead of 'url' to inject the script directly.
         call = client.calls.create(
             to=to_number,
             from_=from_number,
-            url=TWIML_BIN_URL
+            twiml=twiml_script
         )
         return call.sid, None
     except Exception as e:
@@ -230,7 +248,7 @@ def fetch_and_transcribe_latest_call(parent_phone):
 
 def get_recent_call_logs(limit=20):
     """
-    ADMIN TOOL: Fetches raw call log metadata to find 'Ghost Calls'.
+    ADMIN TOOL: Fetches raw call log metadata.
     """
     client = _get_twilio_client()
     if not client: return []

@@ -1,5 +1,6 @@
 import streamlit as st
 import time
+import textwrap
 from datetime import datetime
 
 # --- MODULE IMPORTS ---
@@ -41,115 +42,107 @@ def render_paywall():
     Blocks access to the archive if the user has no credits.
     Includes Promo Code bypass and Stripe integration with a Premium UI.
     """
-    # 1. INJECT CUSTOM CSS
-    # Note: We use single braces {} here because this is NOT an f-string.
     st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
-
-.paywall-container {
-    max-width: 700px;
-    margin: 20px auto;
-    background-color: #ffffff;
-    border: 1px solid #e0e0e0;
-    border-radius: 12px;
-    padding: 40px;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-    text-align: center;
-    font-family: 'Helvetica Neue', sans-serif;
-}
-.lock-icon {
-    font-size: 50px;
-    background: #fdfbf7;
-    width: 100px;
-    height: 100px;
-    line-height: 100px;
-    border-radius: 50%;
-    margin: 0 auto 20px auto;
-    border: 1px solid #efebe0;
-}
-.paywall-title {
-    font-family: 'Playfair Display', serif;
-    font-size: 36px;
-    color: #1f2937;
-    margin-bottom: 10px;
-    font-weight: 700;
-}
-.paywall-sub {
-    color: #6b7280;
-    font-size: 18px;
-    margin-bottom: 30px;
-    line-height: 1.6;
-    font-family: 'Playfair Display', serif;
-    font-style: italic;
-}
-.price-box {
-    background: #f9fafb;
-    border-top: 1px solid #e5e7eb;
-    border-bottom: 1px solid #e5e7eb;
-    padding: 30px 0;
-    margin: 30px 0;
-}
-.price-amount {
-    font-family: 'Playfair Display', serif;
-    font-size: 52px;
-    color: #b91c1c; /* Deep Red */
-    font-weight: 700;
-}
-.price-freq {
-    font-size: 16px;
-    color: #9ca3af;
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    font-weight: 600;
-}
-.feature-list {
-    text-align: left;
-    display: inline-block;
-    color: #374151;
-    font-size: 16px;
-    margin: 0 auto;
-}
-.feature-item {
-    margin-bottom: 12px;
-    display: flex;
-    align-items: center;
-}
-.check {
-    color: #059669;
-    margin-right: 12px;
-    font-size: 18px;
-}
-.trust-badge {
-    margin-top: 20px;
-    font-size: 12px;
-    color: #9ca3af;
-}
-</style>
-""", unsafe_allow_html=True)
-
-    # 2. RENDER CARD HTML
-    # Note: Indentation removed to prevent Markdown code block interpretation
-    st.markdown("""
-<div class="paywall-container">
-    <div class="lock-icon">🔒</div>
-    <div class="paywall-title">The Family Archive</div>
-    <div class="paywall-sub">"Capture family memories and history for future generations."</div>
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
     
-    <div class="price-box">
-        <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
-        <br><br>
-        <div class="feature-list">
-            <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
-            <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
-            <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
-            <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
+    .paywall-container {
+        max-width: 700px;
+        margin: 20px auto;
+        background-color: #ffffff;
+        border: 1px solid #e0e0e0;
+        border-radius: 12px;
+        padding: 40px;
+        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        text-align: center;
+        font-family: 'Helvetica Neue', sans-serif;
+    }
+    .lock-icon {
+        font-size: 50px;
+        background: #fdfbf7;
+        width: 100px;
+        height: 100px;
+        line-height: 100px;
+        border-radius: 50%;
+        margin: 0 auto 20px auto;
+        border: 1px solid #efebe0;
+    }
+    .paywall-title {
+        font-family: 'Playfair Display', serif;
+        font-size: 36px;
+        color: #1f2937;
+        margin-bottom: 10px;
+        font-weight: 700;
+    }
+    .paywall-sub {
+        color: #6b7280;
+        font-size: 18px;
+        margin-bottom: 30px;
+        line-height: 1.6;
+        font-family: 'Playfair Display', serif;
+        font-style: italic;
+    }
+    .price-box {
+        background: #f9fafb;
+        border-top: 1px solid #e5e7eb;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 30px 0;
+        margin: 30px 0;
+    }
+    .price-amount {
+        font-family: 'Playfair Display', serif;
+        font-size: 52px;
+        color: #b91c1c; /* Deep Red */
+        font-weight: 700;
+    }
+    .price-freq {
+        font-size: 16px;
+        color: #9ca3af;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: 600;
+    }
+    .feature-list {
+        text-align: left;
+        display: inline-block;
+        color: #374151;
+        font-size: 16px;
+        margin: 0 auto;
+    }
+    .feature-item {
+        margin-bottom: 12px;
+        display: flex;
+        align-items: center;
+    }
+    .check {
+        color: #059669;
+        margin-right: 12px;
+        font-size: 18px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    html_content = textwrap.dedent("""
+        <div class="paywall-container">
+            <div class="lock-icon">🔒</div>
+            <div class="paywall-title">The Family Archive</div>
+            <div class="paywall-sub">"Capture family memories and history for future generations."</div>
+            
+            <div class="price-box">
+                <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
+                <br><br>
+                <div class="feature-list">
+                    <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
+                    <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
+                    <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
+                    <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
+                </div>
+            </div>
         </div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
+    """)
     
-    # 3. ACTION BUTTONS (Stripe & Promo)
+    st.markdown(html_content, unsafe_allow_html=True)
+    
     c_pad_left, c_main, c_pad_right = st.columns([1, 2, 1])
     with c_main:
         if st.button("🔓 Subscribe Now", type="primary", use_container_width=True):
@@ -157,9 +150,7 @@ def render_paywall():
             if payment_engine:
                 with st.spinner("Connecting to Secure Payment..."):
                     try:
-                        # SET FLAG FOR MAIN.PY
                         st.session_state.pending_subscription = True
-
                         url = payment_engine.create_checkout_session(
                             line_items=[{
                                 "price_data": {
@@ -172,7 +163,6 @@ def render_paywall():
                             user_email=user_email,
                             draft_id="SUBSCRIPTION_INIT"
                         )
-                        
                         if url:
                             st.link_button("👉 Proceed to Stripe Checkout", url, type="primary", use_container_width=True)
                         else:
@@ -184,7 +174,6 @@ def render_paywall():
         
         st.markdown("<div style='text-align: center; color: #9ca3af; font-size: 12px; margin-top: 10px;'>Secured by Stripe SSL</div>", unsafe_allow_html=True)
 
-    # 4. PROMO CODE (Subtle Dropdown)
     st.markdown("<br>", unsafe_allow_html=True)
     with st.expander("🎟️ Have an Access Code?", expanded=False):
         c_code, c_btn = st.columns([3, 1])
@@ -201,13 +190,11 @@ def render_paywall():
                         is_valid = result
                     
                     if is_valid:
-                        # UNLOCK
                         user_email = st.session_state.get("user_email")
                         if database:
                             database.update_user_credits(user_email, 4)
                             if "user_profile" in st.session_state:
                                 st.session_state.user_profile["credits"] = 4
-                        
                         _send_receipt(user_email, "Archive Unlocked", f"Welcome to the Family Archive. Code {code} applied.")
                         st.balloons()
                         st.success("Unlocked! Redirecting...")
@@ -253,9 +240,12 @@ def render_dashboard():
 
     # --- TAB A: INBOX ---
     with tab_inbox:
+        # -- VALUE PROP / INSTRUCTION CARD --
+        st.info("💡 **How it Works:** Once you set up the 'Remote Interviewer' in Settings, we will call your parent, ask them a question, and record their answer. Their story will appear here automatically for you to edit and mail.")
+        
         col_act1, col_act2 = st.columns([2, 1])
         with col_act1:
-            st.info("💡 **Tip:** Ask Mom to call the Story Line. Her stories will appear here automatically.")
+            st.write("") # Spacer
         with col_act2:
             if st.button("🔄 Check for New Stories", use_container_width=True):
                 parent_phone = profile.get("parent_phone")
@@ -287,7 +277,7 @@ def render_dashboard():
             st.markdown("""
                 <div style="text-align: center; color: #888; padding: 40px;">
                     <h3>📭 Inbox is Empty</h3>
-                    <p>No stories recorded yet. Call the number to test it!</p>
+                    <p>Go to <b>Settings</b> to trigger your first interview call!</p>
                 </div>
             """, unsafe_allow_html=True)
         
@@ -394,20 +384,43 @@ def render_dashboard():
             
             st.markdown("---")
             st.markdown("#### 📞 Remote Interviewer")
-            if st.button("Call Parent Now"):
+            st.info("Select a topic below, then click 'Call Parent Now'. We will call them immediately and ask this specific question.")
+            
+            # --- NEW TOPIC SELECTOR ---
+            topic_options = [
+                "Tell me about your childhood home.",
+                "How did you meet your spouse?",
+                "What was your first job like?",
+                "What is your favorite family tradition?",
+                "What advice would you give your younger self?",
+                "Write your own question..."
+            ]
+            
+            selected_topic = st.selectbox("Interview Topic", topic_options)
+            final_topic = selected_topic
+            if selected_topic == "Write your own question...":
+                final_topic = st.text_input("Custom Question", placeholder="e.g. Tell me about the day I was born.")
+
+            if st.button("Call Parent Now", type="primary"):
                 p_phone = profile.get("parent_phone")
+                p_name = profile.get("parent_name", "Mom")
                 twilio_phone = "+16156567667"
+                
                 if not p_phone:
                     st.error("Please save Parent Phone first.")
+                elif not final_topic:
+                    st.error("Please select or write a topic.")
                 elif ai_engine:
                     with st.spinner(f"Dialing {p_phone}..."):
+                        # NOW PASSING TOPIC TO ENGINE
                         if hasattr(ai_engine, "trigger_outbound_call"):
-                            sid, err = ai_engine.trigger_outbound_call(p_phone, twilio_phone)
+                            sid, err = ai_engine.trigger_outbound_call(p_phone, twilio_phone, parent_name=p_name, topic=final_topic)
                             if sid:
                                 st.success(f"Calling! SID: {sid}")
-                                st.info("Wait for them to hang up, then check Inbox.")
+                                st.info("Wait for them to hang up, then check the Inbox tab.")
                             else:
                                 st.error(f"Call Failed: {err}")
+            # --------------------------
 
         with c_user:
             st.markdown("#### 📬 Your Mailing Address")

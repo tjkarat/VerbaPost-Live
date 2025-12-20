@@ -93,51 +93,51 @@ def main():
         
         status = "error"
         result = {}
+        user_email = st.session_state.get("user_email")
         
         if pay_eng:
             try:
                 # Retrieve Full Stripe Object
                 raw_obj = pay_eng.verify_session(session_id)
                 
-                # Robust extraction
                 if hasattr(raw_obj, 'payment_status'):
                     if raw_obj.payment_status == 'paid' or raw_obj.status == 'complete':
                         status = "paid"
                         result = raw_obj
-                        st.session_state.user_email = raw_obj.customer_email or st.session_state.get("user_email")
-
+                        # Retrieve email from Stripe customer data if local session lost
+                        if not user_email:
+                            user_email = raw_obj.customer_email
             except Exception as e:
                 logger.error(f"Verify Error: {e}")
 
         # --- SUCCESS PATH ---
         if status == "paid":
-            user_email = st.session_state.get("user_email")
-
-            # --- DETECT SUBSCRIPTION ---
-            # We check client_reference_id for the tag we sent in ui_heirloom.py
-            ref_id = getattr(result, 'client_reference_id', '')
             
-            # Also check metadata as backup
+            # RESTORE SESSION (Critical for Heirloom Redirect)
+            st.session_state.authenticated = True
+            st.session_state.user_email = user_email
+            
+            # --- DETECT SUBSCRIPTION ---
+            ref_id = getattr(result, 'client_reference_id', '')
             meta_id = ""
             if hasattr(result, 'metadata') and result.metadata:
                 meta_id = result.metadata.get('draft_id', '')
                 
             is_subscription = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
-            
-            # Fallback to session flag (if session survived)
             if not is_subscription:
                 is_subscription = st.session_state.get("pending_subscription", False)
-
-            print(f"DEBUG PAYMENT: Ref={ref_id}, IsSub={is_subscription}")
 
             # === PATH A: SUBSCRIPTION UNLOCK ===
             if is_subscription:
                 if db and user_email:
                     db.update_user_credits(user_email, 4)
+                    # Sync local profile
                     if "user_profile" in st.session_state:
                         st.session_state.user_profile["credits"] = 4
+                    else:
+                        st.session_state.user_profile = db.get_user_profile(user_email)
                 
-                # Clear URL params so refresh doesn't re-trigger
+                # Clear URL params
                 st.query_params.clear()
                 
                 st.markdown(f"""
@@ -198,7 +198,6 @@ def main():
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # Download Button Logic (Restored)
                 try:
                     lf = get_module("letter_format")
                     add_std = get_module("address_standard")
@@ -217,13 +216,18 @@ def main():
                     st.rerun()
                 return
 
-    # 4. INIT STATE & SIDEBAR
+    # 4. PASSWORD RESET (RESTORED!)
+    elif params.get("type") == "recovery":
+        st.session_state.app_mode = "login"
+
+    # 5. INIT STATE
     if "app_mode" not in st.session_state:
         st.session_state.app_mode = "splash"
         
     mode = st.session_state.app_mode
     current_email = st.session_state.get("user_email")
 
+    # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
         if st.button("📮 Send a Letter", use_container_width=True):
@@ -245,7 +249,7 @@ def main():
                     st.session_state.app_mode = "admin"
                     st.rerun()
 
-    # 5. ROUTER
+    # 7. ROUTER
     if mode == "splash":
         m = get_module("ui_splash"); m.render_splash_page() if m else None
     elif mode == "login":
