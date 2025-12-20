@@ -63,7 +63,14 @@ def get_db_session():
     finally:
         session.close()
 
-# --- MODELS ---
+# --- HELPER ---
+def to_dict(obj):
+    if not obj: return None
+    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+
+# ==========================================
+# 🏛️ MODELS
+# ==========================================
 
 class UserProfile(Base):
     __tablename__ = 'user_profiles'
@@ -80,6 +87,24 @@ class UserProfile(Base):
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
+
+class PromoLog(Base):
+    """Added per migration request"""
+    __tablename__ = 'promo_logs'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    code = Column(String, index=True)
+    user_email = Column(String)
+    used_at = Column(DateTime, default=datetime.utcnow)
+
+class AuditEvent(Base):
+    __tablename__ = 'audit_events'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    user_email = Column(String)
+    event_type = Column(String)
+    details = Column(Text)
+    description = Column(Text)
+    stripe_session_id = Column(String)
 
 class LetterDraft(Base):
     __tablename__ = 'letter_drafts'
@@ -136,20 +161,55 @@ class PromoCode(Base):
     current_uses = Column(Integer, default=0)
     uses = Column(Integer, default=0)
 
-class AuditEvent(Base):
-    __tablename__ = 'audit_events'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, default=datetime.utcnow)
-    user_email = Column(String)
-    event_type = Column(String)
-    details = Column(Text)
-    description = Column(Text)
+# ==========================================
+# 🛠️ FUNCTIONS
+# ==========================================
 
-# --- HELPER FUNCTIONS ---
+# --- NEW ADMIN FUNCTIONS ---
 
-def to_dict(obj):
-    if not obj: return None
-    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+def get_all_users():
+    try:
+        with get_db_session() as session:
+            users = session.query(UserProfile).all()
+            return [to_dict(u) for u in users]
+    except Exception as e:
+        logger.error(f"Get Users Error: {e}")
+        return []
+
+def get_all_promos():
+    try:
+        with get_db_session() as session:
+            promos = session.query(PromoCode).all()
+            return [to_dict(p) for p in promos]
+    except Exception as e:
+        logger.error(f"Get Promos Error: {e}")
+        return []
+
+def save_audit_log(log_entry):
+    """Saves a dictionary entry to the AuditEvent table."""
+    try:
+        with get_db_session() as session:
+            # We filter log_entry to ensure only valid columns are passed
+            # This prevents crashes if the dict has extra keys
+            valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
+            filtered_entry = {k: v for k, v in log_entry.items() if k in valid_keys}
+            
+            log = AuditEvent(**filtered_entry)
+            session.add(log)
+            session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Audit Save Error: {e}")
+        return False
+
+def get_audit_logs(limit=50):
+    try:
+        with get_db_session() as session:
+            logs = session.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(limit).all()
+            return [to_dict(l) for l in logs]
+    except Exception: return []
+
+# --- USER & PROFILE ---
 
 def get_user_profile(email):
     try:
@@ -175,7 +235,7 @@ def create_user(email, full_name):
         logger.error(f"Create User Error: {e}")
         return False
 
-# --- HEIRLOOM FUNCTIONS ---
+# --- HEIRLOOM ---
 
 def update_user_credits(email, new_credit_count):
     try:
@@ -228,14 +288,12 @@ def check_call_limit(email):
             if not profile: return True, "OK"
             
             last_call = profile.last_call_date
-            if not last_call:
-                return True, "OK"
+            if not last_call: return True, "OK"
             
             diff = datetime.utcnow() - last_call
             if diff < timedelta(hours=24):
                 hours_left = 24 - int(diff.total_seconds() / 3600)
                 return False, f"Please wait {hours_left} hours before the next interview."
-            
             return True, "OK"
     except Exception as e:
         logger.error(f"Limit Check Error: {e}")
@@ -266,7 +324,7 @@ def schedule_call(email, parent_phone, topic, scheduled_dt):
         logger.error(f"Schedule Error: {e}")
         return False
 
-# --- DRAFT & LETTER FUNCTIONS ---
+# --- STORE / DRAFTS ---
 
 def save_draft(email, content, tier="Standard", price=0.0):
     try:
@@ -303,7 +361,7 @@ def update_draft_data(draft_id, **kwargs):
         logger.error(f"Update Draft Error: {e}")
         return False
 
-# --- CONTACTS & ADMIN ---
+# --- CONTACTS ---
 
 def get_contacts(email):
     try:
@@ -329,6 +387,8 @@ def save_contact(user_email, contact_data):
     except Exception as e:
         logger.error(f"Save Contact Error: {e}")
         return False
+
+# --- ADMIN ---
 
 def get_all_orders():
     try:
@@ -356,9 +416,11 @@ def create_promo_code(code, amount):
     except Exception: return False
 
 def log_event(event_type, desc, user_email=None):
-    try:
-        with get_db_session() as db:
-            log = AuditEvent(event_type=event_type, description=desc, user_email=user_email)
-            db.add(log)
-            db.commit()
-    except Exception: pass
+    """Wrapper to maintain compatibility with new dictionary-based save_audit_log"""
+    entry = {
+        "event_type": event_type, 
+        "description": desc, 
+        "user_email": user_email,
+        "details": desc # Fallback
+    }
+    save_audit_log(entry)
