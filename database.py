@@ -6,7 +6,7 @@ import urllib.parse
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, BigInteger, func
 from sqlalchemy.orm import sessionmaker, declarative_base
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
@@ -17,51 +17,30 @@ _engine = None
 _SessionLocal = None
 
 def get_db_url():
-    """
-    Constructs the database URL safely.
-    CHECKS:
-    1. os.environ (Production / Google Cloud Run) - PRIORITY
-    2. st.secrets (Local / QA Streamlit Cloud) - FALLBACK
-    """
     try:
-        # Check GCP Environment Variable First
         env_url = os.environ.get("DATABASE_URL")
         if env_url: return env_url
-
-        # Fallback to Streamlit Secrets
         if hasattr(st, "secrets"):
             if "DATABASE_URL" in st.secrets:
                 return st.secrets["DATABASE_URL"]
-            
-            # Construct from Supabase parts if full URL isn't explicitly set
             if "supabase" in st.secrets:
                 sb_url = st.secrets["supabase"]["url"]
                 sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
-                
                 clean_host = sb_url.replace("https://", "").replace("/", "")
-                if not clean_host.startswith("db."):
-                     db_host = f"db.{clean_host}"
-                else:
-                     db_host = clean_host
-
+                if not clean_host.startswith("db."): db_host = f"db.{clean_host}"
+                else: db_host = clean_host
                 encoded_pass = urllib.parse.quote_plus(sb_pass)
                 return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
-
         return None
     except Exception as e:
         logger.error(f"Failed to find DB URL: {e}")
         return None
 
 def init_db():
-    """Lazy initialization of the database engine."""
     global _engine, _SessionLocal
-    
-    if _engine is not None:
-        return _engine, _SessionLocal
-        
+    if _engine is not None: return _engine, _SessionLocal
     url = get_db_url()
     if not url: return None, None
-        
     try:
         _engine = create_engine(url, pool_pre_ping=True)
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
@@ -72,11 +51,8 @@ def init_db():
 
 @contextmanager
 def get_db_session():
-    """Provides a transactional scope."""
     engine, Session = init_db()
-    if not Session:
-        raise ConnectionError("Database not initialized. Check secrets.")
-        
+    if not Session: raise ConnectionError("Database not initialized.")
     session = Session()
     try:
         yield session
@@ -87,45 +63,47 @@ def get_db_session():
     finally:
         session.close()
 
-# ==========================================
-# 🏛️ MODELS (Unified Schema)
-# ==========================================
+# --- MODELS ---
 
 class UserProfile(Base):
     __tablename__ = 'user_profiles'
-    # We map 'email' as the primary key for simplicity in lookups
     email = Column(String, primary_key=True)
     full_name = Column(String)
-    
-    # Address Fields
     address_line1 = Column(String)
     address_line2 = Column(String)
     address_city = Column(String)
     address_state = Column(String)
     address_zip = Column(String)
     country = Column(String, default="US")
-    
-    # Heirloom Specific Fields
     parent_name = Column(String)
     parent_phone = Column(String)
-    credits = Column(Integer, default=0) # Critical for Subscription
-    
+    credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # New Field for Rate Limiting
+    last_call_date = Column(DateTime, nullable=True)
 
 class LetterDraft(Base):
-    """Used for Heirloom Stories"""
     __tablename__ = 'letter_drafts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
     content = Column(Text)
-    status = Column(String, default="Draft") # Draft, Paid, Sent
+    status = Column(String, default="Draft")
     tier = Column(String, default="Heirloom") 
     price = Column(Float, default=0.0)
     tracking_number = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+class ScheduledCall(Base):
+    __tablename__ = 'scheduled_calls'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String)
+    parent_phone = Column(String)
+    topic = Column(String)
+    scheduled_time = Column(DateTime)
+    status = Column(String, default="Pending") # Pending, Completed, Cancelled
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 class Letter(Base):
-    """Used for Legacy/Store Orders (Paid Letters)"""
     __tablename__ = 'letters'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     user_email = Column(String, index=True)
@@ -152,7 +130,7 @@ class PromoCode(Base):
     __tablename__ = 'promo_codes'
     code = Column(String, primary_key=True)
     active = Column(Boolean, default=True)
-    is_active = Column(Boolean, default=True) 
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     max_uses = Column(BigInteger)
     discount_amount = Column(Float, default=0.0)
@@ -168,25 +146,17 @@ class AuditEvent(Base):
     details = Column(Text)
     description = Column(Text)
 
-# ==========================================
-# 🛠️ HELPER FUNCTIONS (Safe Dictionary Conversion)
-# ==========================================
+# --- HELPER FUNCTIONS ---
 
 def to_dict(obj):
-    """Converts SQLAlchemy object to dict to prevent DetachedInstanceError"""
     if not obj: return None
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
-
-# ==========================================
-# 👤 USER & PROFILE FUNCTIONS
-# ==========================================
 
 def get_user_profile(email):
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
-                # Auto-create empty profile if missing
                 profile = UserProfile(email=email, credits=0)
                 session.add(profile)
                 session.commit()
@@ -206,15 +176,9 @@ def create_user(email, full_name):
         logger.error(f"Create User Error: {e}")
         return False
 
-# ==========================================
-# 🎙️ HEIRLOOM SPECIFIC FUNCTIONS (CRITICAL)
-# ==========================================
+# --- HEIRLOOM FUNCTIONS ---
 
 def update_user_credits(email, new_credit_count):
-    """
-    Updates the credit balance for a user.
-    Called by main.py after subscription payment.
-    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -228,10 +192,6 @@ def update_user_credits(email, new_credit_count):
         return False
 
 def update_heirloom_settings(email, parent_name, parent_phone):
-    """
-    Updates parent details for the Heirloom service.
-    Called by ui_heirloom.py settings form.
-    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -246,10 +206,6 @@ def update_heirloom_settings(email, parent_name, parent_phone):
         return False
 
 def update_user_address(email, name, street, city, state, zip_code):
-    """
-    Updates the user's mailing address.
-    Called by ui_heirloom.py settings form.
-    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -266,9 +222,58 @@ def update_user_address(email, name, street, city, state, zip_code):
         logger.error(f"Address Update Error: {e}")
         return False
 
-# ==========================================
-# 📝 DRAFT & LETTER FUNCTIONS
-# ==========================================
+def check_call_limit(email):
+    """
+    Prevents abuse by limiting interviews to 1 per 24 hours.
+    Returns (Allowed: bool, Message: str)
+    """
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if not profile: return True, "OK" # Should not happen
+            
+            last_call = profile.last_call_date
+            if not last_call:
+                return True, "OK"
+            
+            # Check 24 hour diff
+            diff = datetime.utcnow() - last_call
+            if diff < timedelta(hours=24):
+                hours_left = 24 - int(diff.total_seconds() / 3600)
+                return False, f"Please wait {hours_left} hours before the next interview."
+            
+            return True, "OK"
+    except Exception as e:
+        logger.error(f"Limit Check Error: {e}")
+        return True, "Error checking limit"
+
+def update_last_call_timestamp(email):
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.last_call_date = datetime.utcnow()
+                session.commit()
+    except: pass
+
+def schedule_call(email, parent_phone, topic, scheduled_dt):
+    """Saves a future call request."""
+    try:
+        with get_db_session() as session:
+            call = ScheduledCall(
+                user_email=email,
+                parent_phone=parent_phone,
+                topic=topic,
+                scheduled_time=scheduled_dt
+            )
+            session.add(call)
+            session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Schedule Error: {e}")
+        return False
+
+# --- DRAFT & LETTER FUNCTIONS ---
 
 def save_draft(email, content, tier="Standard", price=0.0):
     try:
@@ -291,7 +296,6 @@ def get_user_drafts(email):
         return []
 
 def update_draft_data(draft_id, **kwargs):
-    """Universal update function for Drafts"""
     try:
         with get_db_session() as session:
             draft = session.query(LetterDraft).filter_by(id=draft_id).first()
@@ -306,17 +310,14 @@ def update_draft_data(draft_id, **kwargs):
         logger.error(f"Update Draft Error: {e}")
         return False
 
-# ==========================================
-# 📒 ADDRESS BOOK FUNCTIONS
-# ==========================================
+# --- CONTACTS & ADMIN ---
 
 def get_contacts(email):
     try:
         with get_db_session() as session:
             contacts = session.query(Contact).filter_by(user_email=email).all()
             return [to_dict(c) for c in contacts]
-    except Exception:
-        return []
+    except Exception: return []
 
 def save_contact(user_email, contact_data):
     try:
@@ -336,27 +337,17 @@ def save_contact(user_email, contact_data):
         logger.error(f"Save Contact Error: {e}")
         return False
 
-# ==========================================
-# 🛠️ ADMIN & PROMO FUNCTIONS
-# ==========================================
-
 def get_all_orders():
-    """Fetches Drafts (Heirloom) and Letters (Store) for Admin Console"""
     try:
         with get_db_session() as session:
-            # 1. Get Paid Letters (From Store)
             legacy = session.query(Letter).filter(Letter.status != "Draft").order_by(Letter.created_at.desc()).all()
-            # 2. Get Heirloom Drafts
             heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(20).all()
-            
             combined = []
-            for o in legacy:
-                combined.append(to_dict(o))
+            for o in legacy: combined.append(to_dict(o))
             for h in heirloom:
                 d = to_dict(h)
                 if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom' 
                 combined.append(d)
-                
             return combined
     except Exception as e:
         logger.error(f"Get Orders Error: {e}")
@@ -365,14 +356,7 @@ def get_all_orders():
 def create_promo_code(code, amount):
     try:
         with get_db_session() as db:
-            p = PromoCode(
-                code=code, 
-                discount_amount=amount, 
-                active=True, 
-                is_active=True, 
-                current_uses=0, 
-                uses=0
-            )
+            p = PromoCode(code=code, discount_amount=amount, active=True, is_active=True, current_uses=0, uses=0)
             db.add(p)
             db.commit()
             return True
