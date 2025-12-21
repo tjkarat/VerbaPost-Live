@@ -73,6 +73,19 @@ except Exception: secrets_manager = None
 
 # --- MAIN LOGIC ---
 def main():
+    # --- SYSTEM HEALTH CHECK (TASK 2) ---
+    import module_validator
+    is_healthy, error_log = module_validator.validate_critical_modules()
+    
+    if not is_healthy:
+        st.error("🚨 SYSTEM CRITICAL FAILURE")
+        st.warning("The application cannot start because critical components are missing.")
+        with st.expander("View Error Log", expanded=True):
+            for err in error_log:
+                st.code(err, language="text")
+        st.stop() # Halts execution immediately
+    # ------------------------------------
+
     # 1. SEO & ANALYTICS
     seo = get_module("seo_injector")
     if seo: seo.inject_meta()
