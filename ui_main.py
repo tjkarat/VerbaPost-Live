@@ -39,21 +39,20 @@ def get_profile_field(profile, field, default=""):
 
 def _ensure_profile_loaded():
     """
-    Robust profile loader. Ensures 'From' address is populated 
-    if the user is logged in, even if they navigated away and came back.
+    Robust profile loader. Checks if the 'From' address is missing 
+    and re-fetches it from the database if needed.
     """
     if st.session_state.get("authenticated"):
-        # Check if we need to load: either flag is missing OR data is missing
-        profile_missing = not st.session_state.get("profile_synced")
-        address_missing = not st.session_state.get("from_name")
+        # Load if synced flag is missing OR if the actual data is empty
+        needs_load = not st.session_state.get("profile_synced") or not st.session_state.get("from_name")
         
-        if profile_missing or address_missing:
+        if needs_load:
             try:
                 email = st.session_state.get("user_email")
                 profile = database.get_user_profile(email)
                 if profile:
                     st.session_state.user_profile = profile
-                    # Force populate the session keys used by text_input
+                    # Auto-Populate Session State for Text Inputs
                     st.session_state.from_name = get_profile_field(profile, "full_name")
                     st.session_state.from_street = get_profile_field(profile, "address_line1")
                     st.session_state.from_city = get_profile_field(profile, "address_city")
@@ -61,8 +60,7 @@ def _ensure_profile_loaded():
                     st.session_state.from_zip = get_profile_field(profile, "address_zip")
                     
                     st.session_state.profile_synced = True 
-                    # Rerun to refresh the text_input widgets with new values
-                    st.rerun()
+                    st.rerun() # Refresh to show data
             except Exception as e:
                 print(f"Profile Load Error: {e}")
 
@@ -111,6 +109,7 @@ def inject_custom_css(text_size=16):
 
 # --- HELPER FUNCTIONS ---
 def load_address_book():
+    """Fetches contacts from DB safely."""
     if not st.session_state.get("authenticated"):
         return {}
     try:
@@ -118,9 +117,10 @@ def load_address_book():
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
-            name = c.get('name', '')
-            city = c.get('city', 'Unknown')
-            label = f"{name} ({city})"
+            name = c.get('name', 'Unknown')
+            # Create a label like "Mom (123 Main St)"
+            street = c.get('street', '')[:10]
+            label = f"{name} ({street}...)"
             result[label] = c
         return result
     except Exception as e:
@@ -197,7 +197,7 @@ def render_store_page():
     with c1:
         st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
     with c2:
-        st.markdown(html_card("Heirloom", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
+        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
     with c3:
         st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
     with c4:
@@ -206,10 +206,11 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
+    # Passing Tier Names to Callback
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        st.button("Select Heirloom", key="btn_store_heirloom_product", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
+        st.button("Select Vintage", key="btn_store_vintage", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
     with b4:
@@ -240,7 +241,7 @@ def render_campaign_uploader():
                 st.rerun()
 
 def render_workspace_page():
-    # 1. FORCE PROFILE LOAD IF FIELDS ARE EMPTY
+    # 1. AUTO-POPULATE TRIGGER
     _ensure_profile_loaded()
     
     col_slide, col_gap = st.columns([1, 2])
@@ -254,22 +255,29 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # FIX: Allow Address Book for Standard, Heirloom, AND Santa. Only exclude Civic.
+        # 2. ADDRESS BOOK LOGIC (FIXED)
+        # Show Address Book for EVERYONE except Civic
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
+            
             if addr_opts:
                 col_load, col_empty = st.columns([2, 1])
                 with col_load:
-                    selected_contact = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
-                    if selected_contact != "Select..." and selected_contact != st.session_state.get("last_loaded_contact"):
-                        data = addr_opts[selected_contact]
+                    # Dropdown to load saved contacts
+                    selected_contact_label = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
+                    
+                    # If selection changes, update inputs
+                    if selected_contact_label != "Select..." and selected_contact_label != st.session_state.get("last_loaded_contact"):
+                        data = addr_opts[selected_contact_label]
                         st.session_state.to_name_input = data.get('name', '')
                         st.session_state.to_street_input = data.get('street', '')
                         st.session_state.to_city_input = data.get('city', '')
                         st.session_state.to_state_input = data.get('state', '')
                         st.session_state.to_zip_input = data.get('zip_code', '') 
-                        st.session_state.last_loaded_contact = selected_contact
+                        st.session_state.last_loaded_contact = selected_contact_label
                         st.rerun()
+            else:
+                st.caption("ℹ️ No saved contacts found. Add friends in your Profile to see them here.")
 
         with st.form("addressing_form"):
             col_to, col_from = st.columns(2)
@@ -336,7 +344,7 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # Update Draft in DB (Now that columns exist)
+                    # Update Draft in DB (Now safe because columns exist)
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
                         # Convert dicts to strings for simple text storage
