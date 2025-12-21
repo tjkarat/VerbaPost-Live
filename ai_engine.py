@@ -169,6 +169,7 @@ def _normalize_phone(phone_str):
 def trigger_outbound_call(to_number, from_number, parent_name="there", topic="your day"):
     """
     Triggers an outbound call with a DYNAMIC script.
+    UPDATED: Uses Neural Voice (Polly.Joanna) for human sound and explicit pauses for the beep.
     """
     client = _get_twilio_client()
     if not client:
@@ -177,18 +178,22 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
     # FIX: Normalize numbers before calling
     clean_to = _normalize_phone(to_number)
 
+    # UPDATED TwiML:
+    # 1. voice="Polly.Joanna-Neural" is much more human.
+    # 2. Explicit <Pause> before <Record> ensures the beep isn't stepped on.
     twiml_script = f"""
     <Response>
         <Pause length="1"/>
-        <Say voice="alice">Hello! This is the Verba Post family archivist calling for {parent_name}.</Say>
+        <Say voice="Polly.Joanna-Neural">Hello! This is the Verba Post family archivist calling for {parent_name}.</Say>
         <Pause length="1"/>
-        <Say voice="alice">Your family would like to save a new story. Here is their question.</Say>
+        <Say voice="Polly.Joanna-Neural">Your family would like to save a new story. Here is their question.</Say>
         <Pause length="1"/>
-        <Say voice="alice">{topic}</Say>
+        <Say voice="Polly.Joanna-Neural">{topic}</Say>
         <Pause length="1"/>
-        <Say voice="alice">Please tell your story after the beep. When you are finished, press the pound key.</Say>
-        <Record maxLength="600" finishOnKey="#" playBeep="true"/>
-        <Say voice="alice">Thank you. Your story has been saved safe and sound. Goodbye!</Say>
+        <Say voice="Polly.Joanna-Neural">Please tell your story after the tone. When you are finished, press the pound key or simply hang up.</Say>
+        <Pause length="1"/>
+        <Record maxLength="600" finishOnKey="#" playBeep="true" trim="trim-silence"/>
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved safe and sound. Goodbye!</Say>
     </Response>
     """
 
