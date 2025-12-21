@@ -11,15 +11,33 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+def _to_camel_case_payload(snake_payload):
+    """
+    CRITICAL FIX: Maps internal snake_case keys (from address_standard)
+    to the CamelCase keys required by PostGrid's API.
+    """
+    return {
+        'name': snake_payload.get('name', ''),
+        'addressLine1': snake_payload.get('address_line1', '') or snake_payload.get('street', ''),
+        'addressLine2': snake_payload.get('address_line2', '') or snake_payload.get('addressLine2', ''),
+        'city': snake_payload.get('address_city', '') or snake_payload.get('city', ''),
+        'provinceOrState': snake_payload.get('address_state', '') or snake_payload.get('state', ''),
+        'postalOrZip': snake_payload.get('address_zip', '') or snake_payload.get('zip', '') or snake_payload.get('zip_code', ''),
+        'countryCode': snake_payload.get('country_code', 'US') or snake_payload.get('country', 'US')
+    }
+
 def _create_postgrid_contact(payload, api_key):
     """
     Helper: Creates a contact in PostGrid and returns the Contact ID.
-    This is required because multipart/form-data uploads (for PDFs)
-    often fail to parse inline JSON objects correctly.
+    Uses CamelCase payload to satisfy API constraints.
     """
     url = "https://api.postgrid.com/print-mail/v1/contacts"
+    
+    # Apply the key mapping fix
+    clean_payload = _to_camel_case_payload(payload)
+    
     try:
-        r = requests.post(url, json=payload, headers={"x-api-key": api_key})
+        r = requests.post(url, json=clean_payload, headers={"x-api-key": api_key})
         if r.status_code in [200, 201]:
             return r.json().get('id')
         else:
@@ -47,11 +65,14 @@ def validate_address(address_data):
             payload = obj.to_postgrid_payload()
         else:
             payload = address_data 
+            
+    # Apply mapping fix here too
+    clean_payload = _to_camel_case_payload(payload)
     
     url = "https://api.postgrid.com/v1/add_verifications"
     
     try:
-        r = requests.post(url, json={"address": payload}, headers={"x-api-key": api_key})
+        r = requests.post(url, json={"address": clean_payload}, headers={"x-api-key": api_key})
         if r.status_code == 200:
             res = r.json()
             if res.get('status') == 'verified':
@@ -64,15 +85,16 @@ def validate_address(address_data):
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", tier="Standard"):
     """
-    Sends the PDF to PostGrid for printing and mailing.
-    FIX: Now creates Contacts first to avoid multipart JSON parsing errors.
+    Sends the PDF to PostGrid.
+    Step 1: Creates Contacts (with CamelCase fix).
+    Step 2: Sends Letter using Contact IDs.
     """
     api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
     if not api_key:
         logger.error("PostGrid API Key missing.")
         return None
 
-    # 1. Prepare Address Payloads
+    # 1. Prepare Address Payloads (Internal Format)
     if address_standard:
         if isinstance(to_addr, dict): to_addr = address_standard.StandardAddress.from_dict(to_addr)
         if isinstance(from_addr, dict): from_addr = address_standard.StandardAddress.from_dict(from_addr)
@@ -83,9 +105,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", t
         to_payload = to_addr if isinstance(to_addr, dict) else to_addr.__dict__
         from_payload = from_addr if isinstance(from_addr, dict) else from_addr.__dict__
 
-    # 2. CREATE CONTACTS FIRST (The Fix)
-    # We must generate IDs because sending JSON strings in multipart form-data 
-    # causes the API to think the JSON string is an ID, resulting in 404.
+    # 2. CREATE CONTACTS FIRST (Using Fixed Mapping)
     to_id = _create_postgrid_contact(to_payload, api_key)
     from_id = _create_postgrid_contact(from_payload, api_key)
 
@@ -110,8 +130,8 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", t
     }
     
     data = {
-        'to': to_id,       # Sending ID (safe)
-        'from': from_id,   # Sending ID (safe)
+        'to': to_id,       # Sending ID
+        'from': from_id,   # Sending ID
         'description': description,
         'color': True,
         'doubleSided': True,
