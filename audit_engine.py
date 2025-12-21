@@ -1,93 +1,82 @@
 import logging
-import time
+import datetime
 import json
-from datetime import datetime
-from sqlalchemy import text 
+import database  # Imports the SQLAlchemy setup
 
-# --- INTERNAL ENGINE IMPORTS ---
-import database
-
-# --- LOGGING CONFIGURATION ---
+# --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
-def log_event(user_email, event_type, description, details=None):
-    """Records a high-integrity system event."""
-    timestamp = datetime.utcnow().isoformat()
-    details_json = details if details else {}
+def log_event(user_email, event_type, session_id=None, metadata=None):
+    """
+    Logs critical system events to the database for security auditing.
     
-    log_msg = f"AUDIT_EVENT | {user_email} | {event_type} | {description}"
-    logger.info(log_msg)
-
-    try:
-        log_entry = {
-            "user_email": user_email,
-            "event_type": event_type,
-            "description": description,
-            "details": details_json,
-            "created_at": timestamp,
-            "platform": "VerbaPost_Web"
-        }
-        # Attempt to save using standard DB function
-        success = database.save_audit_log(log_entry)
-        if not success:
-            logger.error(f"Database rejection for audit event: {event_type}")
-            return False
-        return True
-
-    except Exception as e:
-        logger.error(f"CRITICAL_AUDIT_FAILURE: {str(e)}")
-        return False
-
-# --- FIXED: Points to 'audit_events' to match your database schema ---
-def get_recent_logs(limit=100):
+    Args:
+        user_email (str): The email of the user (or 'guest').
+        event_type (str): Category (e.g., 'PAYMENT_CSRF_BLOCK', 'LOGIN_FAIL').
+        session_id (str, optional): The Stripe or App session ID.
+        metadata (dict, optional): Extra details like error messages or IP.
     """
-    Fetches system logs. Falls back to raw SQL using the correct table name.
-    """
-    try:
-        # 1. Try standard method if it exists
-        if hasattr(database, 'get_audit_logs'):
-            return database.get_audit_logs(None, limit=limit)
-        
-        # 2. Fallback: Raw SQL Query
-        # CRITICAL FIX: Changed table from 'audit_logs' to 'audit_events'
-        with database.get_db_session() as session:
-            query = text("SELECT * FROM audit_events ORDER BY timestamp DESC LIMIT :lim")
-            result = session.execute(query, {"lim": limit})
+    timestamp = datetime.datetime.utcnow()
+    
+    # 1. Console Log (Always happens for cloud observability)
+    meta_str = "{}"
+    if metadata:
+        try:
+            meta_str = json.dumps(metadata)
+        except Exception:
+            meta_str = str(metadata)
             
-            logs = []
-            for row in result:
-                if hasattr(row, '_mapping'):
-                    logs.append(dict(row._mapping))
-                else:
-                    logs.append(dict(row))
-            return logs
+    log_msg = f"[AUDIT] {event_type} | User: {user_email} | {meta_str}"
+    logger.info(log_msg)
+    # Force print to standard output for Cloud Run logs
+    print(log_msg) 
 
-    except Exception as e:
-        logger.error(f"Failed to fetch logs via fallback: {e}")
+    # 2. Database Log (SQLAlchemy)
+    if database:
+        try:
+            with database.get_db_session() as db:
+                # Use the AuditEvent model defined in database.py
+                event = database.AuditEvent(
+                    event_type=event_type,
+                    user_email=user_email,
+                    # We store session_id inside details/metadata or separate column if schema allows.
+                    details=meta_str,
+                    timestamp=timestamp
+                )
+                db.add(event)
+                # Context manager auto-commits here
+        except Exception as e:
+            logger.error(f"Failed to write audit log to DB: {e}")
+
+def get_audit_logs(limit=50):
+    """
+    Retrieves the most recent audit logs for the Admin Console.
+    Renamed from get_recent_logs to match ui_admin.py call.
+    """
+    if not database:
         return []
-
-def get_user_logs(user_email, limit=50):
+        
     try:
-        if hasattr(database, 'get_audit_logs'):
-            return database.get_audit_logs(user_email, limit=limit)
-        return []
+        with database.get_db_session() as db:
+            logs = db.query(database.AuditEvent).order_by(
+                database.AuditEvent.timestamp.desc()
+            ).limit(limit).all()
+            
+            # Convert to dicts for safe consumption
+            results = []
+            for log in logs:
+                results.append({
+                    "id": log.id,
+                    "time": log.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    "type": log.event_type,
+                    "user": log.user_email,
+                    "details": log.details
+                })
+            return results
     except Exception as e:
-        logger.error(f"Failed to fetch user logs: {e}")
+        logger.error(f"Failed to fetch audit logs: {e}")
         return []
 
-def clear_old_logs(retention_days=90):
-    logger.info(f"Cleanup routine initialized for logs older than {retention_days} days.")
-    return True
-
-def log_campaign_milestone(user_email, campaign_id, milestone, success_count, fail_count):
-    description = f"Milestone: {milestone} | S: {success_count} F: {fail_count}"
-    return log_event(
-        user_email=user_email,
-        event_type="CAMPAIGN_PROGRESS",
-        description=description,
-        details={"campaign_id": campaign_id, "success": success_count, "fail": fail_count}
-    )
-
-def verify_persistence():
-    test_email = "system_check@verbapost.com"
-    return log_event(test_email, "DIAGNOSTIC", "Checking database persistence.")
+# --- SAFETY ALIAS ---
+# This ensures that if any other file calls the old name, it still works.
+get_recent_logs = get_audit_logs
