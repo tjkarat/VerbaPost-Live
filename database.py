@@ -161,6 +161,14 @@ class PromoCode(Base):
     current_uses = Column(Integer, default=0)
     uses = Column(Integer, default=0)
 
+class PaymentFulfillment(Base):
+    __tablename__ = 'payment_fulfillments'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    stripe_session_id = Column(String, unique=True, nullable=False)
+    status = Column(String, default="fulfilled")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 # ==========================================
 # 🛠️ FUNCTIONS
 # ==========================================
@@ -407,3 +415,30 @@ def create_promo_code(code, amount):
             db.commit()
             return True
     except Exception: return False
+
+def record_stripe_fulfillment(session_id):
+    """
+    Attempts to log a Stripe Session ID. 
+    Returns True if this is a NEW fulfillment.
+    Returns False if this session_id already exists (Idempotency Check).
+    """
+    if not session_id:
+        return False
+        
+    try:
+        with get_db_session() as session:
+            # Check existence first to avoid exception handling overhead if possible
+            exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
+            if exists:
+                return False
+            
+            # Record new fulfillment
+            new_record = PaymentFulfillment(stripe_session_id=session_id)
+            session.add(new_record)
+            session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Idempotency Check Error: {e}")
+        # If we can't verify, we assume it might be a duplicate to be safe, 
+        # or we return False to prevent double-spending.
+        return False    
