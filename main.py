@@ -73,7 +73,7 @@ except Exception: secrets_manager = None
 
 # --- MAIN LOGIC ---
 def main():
-    # --- SYSTEM HEALTH CHECK (TASK 2) ---
+    # --- SYSTEM HEALTH CHECK ---
     import module_validator
     is_healthy, error_log = module_validator.validate_critical_modules()
     
@@ -262,22 +262,23 @@ def main():
     # 6. SIDEBAR
     with st.sidebar:
         st.header("VerbaPost System")
-        if st.button("📮 Send a Letter", use_container_width=True):
+        # 8. NAVIGATION LABELS (UPDATED)
+        if st.button("✉️ Mail a Keepsake Letter", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "store"
             st.rerun()
-        if st.button("🎙️ Family Archive", use_container_width=True):
+        if st.button("📚 View Family Stories", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "heirloom"
             st.rerun()
         st.markdown("---")
         
-        # Admin Logic
+        # Admin Logic (Button renamed to 'Account Settings' per request, but goes to Admin)
         is_admin = st.session_state.get("admin_authenticated", False)
         if secrets_manager:
             admin_email = secrets_manager.get_secret("admin.email")
             if is_admin or (current_email and admin_email and current_email.strip() == admin_email.strip()):
-                 if st.button("🔐 Admin Console", use_container_width=True):
+                 if st.button("🔒 Account Settings", use_container_width=True):
                     st.session_state.app_mode = "admin"
                     st.rerun()
 

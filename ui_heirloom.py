@@ -217,10 +217,17 @@ def render_dashboard():
     credits = profile.get("credits", 0)
     p_phone = profile.get("parent_phone") 
     
-    # Header
+    # ---------------------------------------------------------
+    # 1. PAGE TITLE & HEADER (UPDATED)
+    # ---------------------------------------------------------
     col_title, col_status = st.columns([3, 1])
-    with col_title: st.title("🎙️ The Family Archive")
-    with col_status: st.metric("Credits Remaining", credits)
+    with col_title: 
+        st.title("The Family Archive")
+        st.markdown("**Preserve your loved one’s voice, stories, and memories—forever.**")
+        st.caption("A simple phone call today becomes a treasured family keepsake tomorrow.")
+    
+    with col_status: 
+        st.metric("Credits Remaining", credits)
 
     if credits <= 0:
         render_paywall()
@@ -232,23 +239,62 @@ def render_dashboard():
     # --- TAB A: SETTINGS & INSTRUCTIONS ---
     with tab_settings:
         
-        # --- NEW: Retractable Instructions ---
-        with st.expander("📖 How VerbaPost Heirloom Works (Click to Read)", expanded=True):
+        # ---------------------------------------------------------
+        # 2. ACCORDION: HOW IT WORKS (UPDATED)
+        # ---------------------------------------------------------
+        with st.expander("📖 How the Family Archive Works (Simple & Stress-Free)", expanded=True):
+            # 3. MAIN WELCOME COPY
             st.markdown("""
-            ### Welcome to your Family Archive!
-            This tool helps you capture the life stories of your loved ones through simple phone calls.
+            ### Welcome to your Family Archive
+            This is the easiest way to preserve the stories, memories, and voice of someone you love—without requiring them to use a computer, smartphone, or app.
             
-            **The Process:**
-            1.  **Setup:** Enter your loved one's name and phone number below.
-            2.  **Interview:** Go to the **Start Interview** tab. Choose a question (or write your own) and click "Call Now".
-            3.  **Record:** Our system calls them immediately. They hear your question, speak their answer, and hang up.
-            4.  **Preserve:** We transcribe the audio automatically.
-            5.  **Mail:** Go to the **Stories** tab to edit the text and mail it as a physical keepsake letter.
+            **If they can answer a phone call, they can be part of your family’s history.**
+            
+            VerbaPost captures real conversations, turns them into written stories, and preserves them as lasting keepsakes your family can return to for generations.
+            """)
+            
+            st.divider()
+
+            # 4. PROCESS SECTION (PLAIN ENGLISH)
+            st.markdown("""
+            ### How It Works (In Plain English)
+            
+            **1. Add your loved one** Enter their name and phone number. That’s it—no logins, no apps, no setup for them.
+
+            **2. Choose a question** Pick from thoughtful, guided prompts—or write your own.  
+            *Examples: “What was your childhood home like?” or “What’s a lesson you learned the hard way?”*
+
+            **3. We call them** At the click of a button, we place a phone call. They hear the question, speak freely, and hang up when finished.
+
+            **4. Their story is preserved** We automatically transcribe the conversation and save it to your private Family Archive.
+
+            **5. Turn it into a keepsake** Edit the story, share it with family, or mail it as a beautiful physical letter—something real you can hold onto.
+            """)
+            
+            st.divider()
+
+            # 5. EMOTIONAL ANCHOR
+            st.info("""
+            **Why families use the Family Archive** Because one day, these stories won’t be possible to capture.  
+            Voices fade. Details are forgotten. Memories disappear.  
+            This gives you a way to say, **"I’m glad we saved this."**
             """)
         
         st.divider()
-        st.markdown("### ⚙️ Account Configuration")
-        st.info("⚠️ **Important:** We need the exact phone number to identify incoming calls.")
+        
+        # ---------------------------------------------------------
+        # 6. SETTINGS HEADER (UPDATED)
+        # ---------------------------------------------------------
+        st.markdown("### ⚙️ Getting Set Up (Takes Less Than a Minute)")
+
+        # 7. PHONE NUMBER EXPLANATION (UPDATED)
+        st.warning("""
+        **⚠️ Why we ask for their phone number** We use your loved one’s phone number only to place and identify recording calls for your Family Archive.  
+        • No spam  
+        • No sales calls  
+        • No sharing—ever  
+        This number ensures their stories are safely captured and correctly saved to your family’s private archive.
+        """)
 
         c_parent, c_user = st.columns(2)
         
@@ -260,7 +306,6 @@ def render_dashboard():
                 
                 new_p_name = st.text_input("Their Name", value=curr_p_name, placeholder="e.g. Grandma")
                 new_p_phone = st.text_input("Their Phone Number", value=curr_p_phone, placeholder="e.g. 615-555-1234")
-                st.caption("We use this number to match recordings to your account.")
                 
                 if st.form_submit_button("Save Parent Info"):
                     if database:
@@ -310,7 +355,10 @@ def render_dashboard():
     # --- TAB B: INTERVIEWER ---
     with tab_int:
         st.markdown("### 🎙️ The Remote Interviewer")
-        st.caption("We call your parent, ask one specific question, and record their answer.")
+        
+        # 9. MICROCOPY SUGGESTION
+        st.caption("Your loved one doesn’t need to prepare—just answer honestly and speak from the heart.")
+        st.markdown("---")
         
         if not p_phone:
             st.warning("⚠️ Please complete the **Setup** tab first.")
@@ -360,7 +408,6 @@ def render_dashboard():
 
         with col_later:
             st.markdown("#### Option B: Schedule for Later")
-            # UPDATED: Clearer Instructions
             st.info("ℹ️ **How Scheduling Works:** Choose a date and time below. We will send **YOU** (the user) an email reminder at that time. You can then log in and trigger the call manually when you know they are available.")
             
             d = st.date_input("Date")
@@ -476,3 +523,7 @@ def render_dashboard():
                             else: st.error("Insufficient Credits.")
                     else:
                         st.info(f"Tracking: {draft.get('tracking_number', 'N/A')}")
+
+    # 10. ONE-LINE VALUE REMINDER (FOOTER)
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; color: #888; font-style: italic;'>VerbaPost helps families save voices, stories, and moments—before they’re gone.</div>", unsafe_allow_html=True)
