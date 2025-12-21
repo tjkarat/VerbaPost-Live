@@ -9,12 +9,6 @@ logger = logging.getLogger(__name__)
 def log_event(user_email, event_type, session_id=None, metadata=None):
     """
     Logs critical system events to the database for security auditing.
-    
-    Args:
-        user_email (str): The email of the user (or 'guest').
-        event_type (str): Category (e.g., 'PAYMENT_CSRF_BLOCK', 'LOGIN_FAIL').
-        session_id (str, optional): The Stripe or App session ID.
-        metadata (dict, optional): Extra details like error messages or IP.
     """
     timestamp = datetime.datetime.utcnow()
     
@@ -28,8 +22,7 @@ def log_event(user_email, event_type, session_id=None, metadata=None):
             
     log_msg = f"[AUDIT] {event_type} | User: {user_email} | {meta_str}"
     logger.info(log_msg)
-    # Force print to standard output for Cloud Run logs
-    print(log_msg) 
+    print(log_msg) # Force print for Cloud Run
 
     # 2. Database Log (SQLAlchemy)
     if database:
@@ -39,8 +32,9 @@ def log_event(user_email, event_type, session_id=None, metadata=None):
                 event = database.AuditEvent(
                     event_type=event_type,
                     user_email=user_email,
-                    # We store session_id inside details/metadata or separate column if schema allows.
-                    details=meta_str,
+                    # Store session_id inside details if specific column is missing, 
+                    # or update model if you have a session_id column.
+                    details=meta_str, 
                     timestamp=timestamp
                 )
                 db.add(event)
@@ -51,18 +45,19 @@ def log_event(user_email, event_type, session_id=None, metadata=None):
 def get_audit_logs(limit=50):
     """
     Retrieves the most recent audit logs for the Admin Console.
-    Renamed from get_recent_logs to match ui_admin.py call.
+    Defined specifically to match the call in ui_admin.py line 443.
     """
     if not database:
         return []
         
     try:
         with database.get_db_session() as db:
+            # Query the AuditEvent table
             logs = db.query(database.AuditEvent).order_by(
                 database.AuditEvent.timestamp.desc()
             ).limit(limit).all()
             
-            # Convert to dicts for safe consumption
+            # Convert to dicts for safe UI rendering
             results = []
             for log in logs:
                 results.append({
@@ -78,5 +73,5 @@ def get_audit_logs(limit=50):
         return []
 
 # --- SAFETY ALIAS ---
-# This ensures that if any other file calls the old name, it still works.
+# This guarantees that if any older code calls 'get_recent_logs', it still works.
 get_recent_logs = get_audit_logs
