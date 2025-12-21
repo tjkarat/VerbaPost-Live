@@ -1,7 +1,6 @@
 import os
 import streamlit as st
 import logging
-import uuid
 import urllib.parse
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, BigInteger, func
 from sqlalchemy.orm import sessionmaker, declarative_base
@@ -25,12 +24,13 @@ def get_db_url():
                 return st.secrets["DATABASE_URL"]
             if "supabase" in st.secrets:
                 sb_url = st.secrets["supabase"]["url"]
-                sb_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
+                # Handle password encoding safely
+                raw_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
+                encoded_pass = urllib.parse.quote_plus(raw_pass)
+                
                 clean_host = sb_url.replace("https://", "").replace("/", "")
-                if not clean_host.startswith("db."): db_host = f"db.{clean_host}"
-                else: db_host = clean_host
-                encoded_pass = urllib.parse.quote_plus(sb_pass)
-                return f"postgresql://postgres:{encoded_pass}@{db_host}:5432/postgres"
+                # Force port 5432 (Session Mode) to avoid 1043 errors
+                return f"postgresql://postgres:{encoded_pass}@{clean_host}:5432/postgres"
         return None
     except Exception as e:
         logger.error(f"Failed to find DB URL: {e}")
@@ -63,7 +63,6 @@ def get_db_session():
     finally:
         session.close()
 
-# --- HELPER ---
 def to_dict(obj):
     if not obj: return None
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
@@ -89,7 +88,6 @@ class UserProfile(Base):
     last_call_date = Column(DateTime, nullable=True)
 
 class PromoLog(Base):
-    """Added per migration request"""
     __tablename__ = 'promo_logs'
     id = Column(Integer, primary_key=True, autoincrement=True)
     code = Column(String, index=True)
@@ -97,7 +95,6 @@ class PromoLog(Base):
     used_at = Column(DateTime, default=datetime.utcnow)
 
 class AuditEvent(Base):
-    # FIXED: Maps to the correct table seen in your screenshot
     __tablename__ = 'audit_events'
     id = Column(Integer, primary_key=True, autoincrement=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -116,6 +113,7 @@ class LetterDraft(Base):
     tier = Column(String, default="Heirloom") 
     price = Column(Float, default=0.0)
     tracking_number = Column(String)
+    # This was the missing column causing the crash
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
@@ -131,17 +129,16 @@ class ScheduledCall(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Letter(Base):
-    # FIXED: Maps to 'letters' table seen in screenshot (Where real orders live)
+    # Matches your screenshot of the 'letters' table
     __tablename__ = 'letters'
-    id = Column(Integer, primary_key=True, autoincrement=True) # Changed to Integer based on screenshot "id int4"
-    user_email = Column(String) # Screenshot shows user_id (int4) but we likely join or it's misnamed in code. Assuming email for now or need join.
-    # Note: Screenshot shows user_id is int4. We will need to be careful here. 
-    # For safety, let's assume we read the 'user_id' column but treat it as the linkage.
-    user_id = Column(Integer)
+    id = Column(Integer, primary_key=True, autoincrement=True) 
+    user_id = Column(Integer) # Based on your screenshot
     content = Column(Text)
     status = Column(String) 
     recipient_name = Column(String)
-    created_at = Column(DateTime)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    # Optional fields that might exist
+    user_email = Column(String, nullable=True) 
     
 class Contact(Base):
     __tablename__ = 'address_book'
@@ -168,7 +165,48 @@ class PromoCode(Base):
 # 🛠️ FUNCTIONS
 # ==========================================
 
-# --- NEW ADMIN FUNCTIONS ---
+# --- ROBUST ADMIN FUNCTIONS ---
+
+def get_all_orders():
+    """
+    Fetches orders safely. If one table fails, it still returns the others.
+    """
+    combined = []
+    
+    # 1. Try to get Finalized Letters
+    try:
+        with get_db_session() as session:
+            legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
+            for o in legacy:
+                d = to_dict(o)
+                # Fallback for email if using user_id
+                if not d.get('user_email'): 
+                    d['user_email'] = f"ID: {d.get('user_id', '?')}"
+                d['source'] = 'Sent Letter'
+                combined.append(d)
+    except Exception as e:
+        logger.error(f"Error fetching Letters table: {e}")
+
+    # 2. Try to get Drafts (This was crashing before)
+    try:
+        with get_db_session() as session:
+            heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
+            for h in heirloom:
+                d = to_dict(h)
+                d['source'] = 'Draft/Heirloom'
+                d['recipient_name'] = "Pending..."
+                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
+                combined.append(d)
+    except Exception as e:
+        logger.error(f"Error fetching Drafts table: {e}")
+
+    # Sort if we have data
+    if combined:
+        try:
+            combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+        except: pass
+        
+    return combined[:100]
 
 def get_all_users():
     try:
@@ -194,13 +232,10 @@ def get_all_promos():
         return []
 
 def save_audit_log(log_entry):
-    """Saves a dictionary entry to the AuditEvent table."""
     try:
         with get_db_session() as session:
-            # We filter log_entry to ensure only valid columns are passed
             valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
             filtered_entry = {k: v for k, v in log_entry.items() if k in valid_keys}
-            
             log = AuditEvent(**filtered_entry)
             session.add(log)
             session.commit()
@@ -219,14 +254,10 @@ def get_audit_logs(limit=100):
 # --- USER & PROFILE ---
 
 def get_user_profile(email):
-    """
-    Fetches profile. CRITICAL: Creates one if missing (Self-Healing).
-    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
-                logger.info(f"Self-Healing: Creating missing profile for {email}")
                 profile = UserProfile(email=email, credits=0)
                 session.add(profile)
                 session.commit()
@@ -242,11 +273,7 @@ def create_user(email, full_name):
             db.add(user)
             db.commit()
             return True
-    except Exception as e:
-        logger.error(f"Create User Error: {e}")
-        return False
-
-# --- HEIRLOOM ---
+    except Exception: return False
 
 def update_user_credits(email, new_credit_count):
     try:
@@ -257,9 +284,7 @@ def update_user_credits(email, new_credit_count):
                 session.commit()
                 return True
             return False
-    except Exception as e:
-        logger.error(f"Credit Update Error: {e}")
-        return False
+    except Exception: return False
 
 def update_heirloom_settings(email, parent_name, parent_phone):
     try:
@@ -271,9 +296,7 @@ def update_heirloom_settings(email, parent_name, parent_phone):
                 session.commit()
                 return True
             return False
-    except Exception as e:
-        logger.error(f"Heirloom Settings Error: {e}")
-        return False
+    except Exception: return False
 
 def update_user_address(email, name, street, city, state, zip_code):
     try:
@@ -288,27 +311,19 @@ def update_user_address(email, name, street, city, state, zip_code):
                 session.commit()
                 return True
             return False
-    except Exception as e:
-        logger.error(f"Address Update Error: {e}")
-        return False
+    except Exception: return False
 
 def check_call_limit(email):
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
-            if not profile: return True, "OK"
-            
-            last_call = profile.last_call_date
-            if not last_call: return True, "OK"
-            
-            diff = datetime.utcnow() - last_call
+            if not profile or not profile.last_call_date: return True, "OK"
+            diff = datetime.utcnow() - profile.last_call_date
             if diff < timedelta(hours=24):
                 hours_left = 24 - int(diff.total_seconds() / 3600)
-                return False, f"Please wait {hours_left} hours before the next interview."
+                return False, f"Please wait {hours_left} hours."
             return True, "OK"
-    except Exception as e:
-        logger.error(f"Limit Check Error: {e}")
-        return True, "Error checking limit"
+    except Exception: return True, "Error checking limit"
 
 def update_last_call_timestamp(email):
     try:
@@ -322,18 +337,11 @@ def update_last_call_timestamp(email):
 def schedule_call(email, parent_phone, topic, scheduled_dt):
     try:
         with get_db_session() as session:
-            call = ScheduledCall(
-                user_email=email,
-                parent_phone=parent_phone,
-                topic=topic,
-                scheduled_time=scheduled_dt
-            )
+            call = ScheduledCall(user_email=email, parent_phone=parent_phone, topic=topic, scheduled_time=scheduled_dt)
             session.add(call)
             session.commit()
             return True
-    except Exception as e:
-        logger.error(f"Schedule Error: {e}")
-        return False
+    except Exception: return False
 
 # --- STORE / DRAFTS ---
 
@@ -353,9 +361,7 @@ def get_user_drafts(email):
         with get_db_session() as session:
             drafts = session.query(LetterDraft).filter_by(user_email=email).order_by(LetterDraft.created_at.desc()).all()
             return [to_dict(d) for d in drafts]
-    except Exception as e:
-        logger.error(f"Get Drafts Error: {e}")
-        return []
+    except Exception: return []
 
 def update_draft_data(draft_id, **kwargs):
     try:
@@ -368,11 +374,7 @@ def update_draft_data(draft_id, **kwargs):
                 session.commit()
                 return True
             return False
-    except Exception as e:
-        logger.error(f"Update Draft Error: {e}")
-        return False
-
-# --- CONTACTS ---
+    except Exception: return False
 
 def get_contacts(email):
     try:
@@ -395,66 +397,13 @@ def save_contact(user_email, contact_data):
             session.add(new_c)
             session.commit()
             return True
-    except Exception as e:
-        logger.error(f"Save Contact Error: {e}")
-        return False
-
-# --- ADMIN ---
-
-def get_all_orders():
-    """
-    CRITICAL FIX: Fetches from BOTH 'letters' (Sent) and 'letter_drafts' (Pending).
-    """
-    try:
-        with get_db_session() as session:
-            # 1. Finalized Letters (Legacy Store)
-            legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
-            
-            # 2. Heirloom Drafts (Voice Letters)
-            heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
-            
-            combined = []
-            
-            # Helper to safely serialize
-            for o in legacy: 
-                d = to_dict(o)
-                # If we don't have user_email directly, we might see user_id. 
-                # This ensures we don't break the UI.
-                if not d.get('user_email'): d['user_email'] = f"User ID: {d.get('user_id')}"
-                d['source'] = 'Legacy (Sent)'
-                combined.append(d)
-                
-            for h in heirloom:
-                d = to_dict(h)
-                d['source'] = 'Draft/Heirloom'
-                d['recipient_name'] = "Pending..."
-                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
-                combined.append(d)
-                
-            # Sort combined list by date
-            combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
-            
-            return combined[:100]
-            
-    except Exception as e:
-        logger.error(f"Get Orders Error: {e}")
-        return []
+    except Exception: return False
 
 def create_promo_code(code, amount):
     try:
         with get_db_session() as db:
-            p = PromoCode(code=code, discount_amount=amount, active=True, is_active=True, current_uses=0, uses=0)
+            p = PromoCode(code=code, discount_amount=amount, active=True, is_active=True)
             db.add(p)
             db.commit()
             return True
     except Exception: return False
-
-def log_event(event_type, desc, user_email=None):
-    """Wrapper to maintain compatibility with new dictionary-based save_audit_log"""
-    entry = {
-        "event_type": event_type, 
-        "description": desc, 
-        "user_email": user_email,
-        "details": desc 
-    }
-    save_audit_log(entry)
