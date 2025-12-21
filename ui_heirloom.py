@@ -25,7 +25,6 @@ except ImportError: email_engine = None
 
 # --- HELPER: EMAIL SENDER ---
 def _send_receipt(user_email, subject, body_html):
-    """Safe wrapper to send receipts without crashing if engine is missing."""
     if email_engine:
         try:
             email_engine.send_email(
@@ -194,11 +193,10 @@ def render_paywall():
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard():
-    # --- CRITICAL FIX: Initialize variables early to prevent UnboundLocalError ---
+    # --- CRITICAL: Initialize to prevent UnboundLocalError ---
     p_phone = None  
     credits = 0
-    # -------------------------------------------------------------------------
-
+    
     if not st.session_state.get("authenticated"):
         st.warning("Please log in to access the archive.")
         if st.button("Go to Login"):
@@ -214,54 +212,197 @@ def render_dashboard():
         st.session_state.user_profile = profile or {}
         st.session_state.profile_synced = True
     
-    # Retrieve profile data safe and early
+    # Retrieve profile data
     profile = st.session_state.get("user_profile", {})
     credits = profile.get("credits", 0)
-    p_phone = profile.get("parent_phone") # Defined here for global scope
+    p_phone = profile.get("parent_phone") 
     
+    # Header
     col_title, col_status = st.columns([3, 1])
     with col_title: st.title("🎙️ The Family Archive")
     with col_status: st.metric("Credits Remaining", credits)
 
-    # Show Paywall if no credits (and not explicitly bypassed)
     if credits <= 0:
         render_paywall()
         return
 
-    tab_inbox, tab_int, tab_settings = st.tabs(["📥 Inbox (Send Mail)", "📞 Interviewer", "⚙️ Settings"])
+    # --- REORDERED TABS: Settings First ---
+    tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & How-To", "📞 Start Interview", "📥 Stories (Inbox)"])
 
-    # --- TAB A: INBOX ---
+    # --- TAB A: SETTINGS & INSTRUCTIONS ---
+    with tab_settings:
+        
+        # --- NEW: Retractable Instructions ---
+        with st.expander("📖 How VerbaPost Heirloom Works (Click to Read)", expanded=True):
+            st.markdown("""
+            ### Welcome to your Family Archive!
+            This tool helps you capture the life stories of your loved ones through simple phone calls.
+            
+            **The Process:**
+            1.  **Setup:** Enter your loved one's name and phone number below.
+            2.  **Interview:** Go to the **Start Interview** tab. Choose a question (or write your own) and click "Call Now".
+            3.  **Record:** Our system calls them immediately. They hear your question, speak their answer, and hang up.
+            4.  **Preserve:** We transcribe the audio automatically.
+            5.  **Mail:** Go to the **Stories** tab to edit the text and mail it as a physical keepsake letter.
+            """)
+        
+        st.divider()
+        st.markdown("### ⚙️ Account Configuration")
+        st.info("⚠️ **Important:** We need the exact phone number to identify incoming calls.")
+
+        c_parent, c_user = st.columns(2)
+        
+        with c_parent:
+            st.markdown("#### 👵 Parent/Interviewee Details")
+            with st.form("settings_parent"):
+                curr_p_name = profile.get("parent_name", "")
+                curr_p_phone = profile.get("parent_phone", "")
+                
+                new_p_name = st.text_input("Their Name", value=curr_p_name, placeholder="e.g. Grandma")
+                new_p_phone = st.text_input("Their Phone Number", value=curr_p_phone, placeholder="e.g. 615-555-1234")
+                st.caption("We use this number to match recordings to your account.")
+                
+                if st.form_submit_button("Save Parent Info"):
+                    if database:
+                        success = database.update_heirloom_settings(user_email, new_p_name, new_p_phone)
+                        if success:
+                            st.session_state.user_profile['parent_name'] = new_p_name
+                            st.session_state.user_profile['parent_phone'] = new_p_phone
+                            st.success("✅ Settings Saved!")
+                            time.sleep(1)
+                            st.rerun()
+                        else: st.error("Database Error")
+
+        with c_user:
+            st.markdown("#### 📬 Your Mailing Address")
+            with st.form("settings_address"):
+                curr_name = profile.get("full_name", "")
+                curr_street = profile.get("address_line1", "")
+                curr_city = profile.get("address_city", "")
+                curr_state = profile.get("address_state", "")
+                curr_zip = profile.get("address_zip", "")
+                
+                n_name = st.text_input("Your Name", value=curr_name)
+                n_street = st.text_input("Street Address", value=curr_street)
+                n_city = st.text_input("City", value=curr_city)
+                
+                col_st, col_zp = st.columns(2)
+                n_state = col_st.text_input("State", value=curr_state)
+                n_zip = col_zp.text_input("Zip Code", value=curr_zip)
+                
+                if st.form_submit_button("Save My Address"):
+                    if database:
+                        success = database.update_user_address(
+                            user_email, n_name, n_street, n_city, n_state, n_zip
+                        )
+                        if success:
+                            st.session_state.user_profile.update({
+                                "full_name": n_name,
+                                "address_line1": n_street,
+                                "address_city": n_city,
+                                "address_state": n_state,
+                                "address_zip": n_zip
+                            })
+                            st.success("Address Updated!")
+                            st.rerun()
+                        else: st.error("Update Failed")
+
+    # --- TAB B: INTERVIEWER ---
+    with tab_int:
+        st.markdown("### 🎙️ The Remote Interviewer")
+        st.caption("We call your parent, ask one specific question, and record their answer.")
+        
+        if not p_phone:
+            st.warning("⚠️ Please complete the **Setup** tab first.")
+            st.stop()
+
+        # 1. TOPIC
+        topic_options = [
+            "Tell me about your childhood home.",
+            "How did you meet your spouse?",
+            "What was your first job like?",
+            "What is your favorite family tradition?",
+            "What advice would you give your younger self?",
+            "Write your own question..."
+        ]
+        selected_topic = st.selectbox("1. Choose a Topic", topic_options)
+        
+        final_topic = selected_topic
+        if selected_topic == "Write your own question...":
+            final_topic = st.text_input("Type your question here", placeholder="e.g. Tell me about the day I was born.")
+
+        st.markdown("---")
+        
+        # 2. ACTION
+        col_now, col_later = st.columns(2)
+        
+        with col_now:
+            st.markdown("#### Option A: Call Immediately")
+            st.caption("We will dial their number right now.")
+            if st.button("📞 Call Now", type="primary", use_container_width=True):
+                allowed, msg = database.check_call_limit(user_email)
+                if not allowed:
+                    st.error(msg)
+                elif ai_engine:
+                    with st.spinner(f"Dialing {p_phone}..."):
+                        # Ensure we trigger outbound call
+                        sid, err = ai_engine.trigger_outbound_call(
+                            p_phone, 
+                            "+16156567667", # Configured Twilio Number
+                            parent_name=profile.get("parent_name", "Mom"), 
+                            topic=final_topic
+                        )
+                        if sid:
+                            database.update_last_call_timestamp(user_email)
+                            st.success(f"Connecting... (SID: {sid})")
+                            st.info("Wait for them to answer and finish speaking. Then check the 'Stories' tab.")
+                        else: st.error(f"Call Failed: {err}")
+
+        with col_later:
+            st.markdown("#### Option B: Schedule for Later")
+            # UPDATED: Clearer Instructions
+            st.info("ℹ️ **How Scheduling Works:** Choose a date and time below. We will send **YOU** (the user) an email reminder at that time. You can then log in and trigger the call manually when you know they are available.")
+            
+            d = st.date_input("Date")
+            t = st.time_input("Time")
+            
+            if st.button("📅 Schedule Reminder", use_container_width=True):
+                combined_time = datetime.combine(d, t)
+                if database.schedule_call(user_email, p_phone, final_topic, combined_time):
+                    st.success(f"Scheduled! We'll remind you on {d} at {t}.")
+                else:
+                    st.error("Scheduling failed.")
+
+    # --- TAB C: INBOX ---
     with tab_inbox:
-        st.info("💡 **Tip:** Once an interview is complete, the story appears here. Edit it, then click 'Send Mail' to print a physical letter.")
+        st.markdown("### 📥 Your Story Inbox")
+        st.info("Click 'Refresh' to look for new calls. If a call is finished, the text will appear below.")
         
         if st.button("🔄 Refresh Stories"):
             if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
             elif ai_engine:
-                with st.spinner("Scanning phone line..."):
+                with st.spinner(f"Scanning for calls from {p_phone}..."):
                     transcript, err = ai_engine.fetch_and_transcribe_latest_call(p_phone)
                     if transcript:
                         if database: database.save_draft(user_email, transcript, "Heirloom", 0.0)
                         st.success("✅ New Story Found!")
                         time.sleep(1)
                         st.rerun()
-                    else: st.info("No new completed calls found.")
+                    else: 
+                        st.warning(f"No new recordings found. ({err})")
+                        st.caption("Note: Calls must be answered and recorded to appear here.")
         
         st.divider()
 
+        # List Drafts
         if database:
             all_drafts = database.get_user_drafts(user_email)
             heirloom_drafts = [d for d in all_drafts if d.get('tier') == 'Heirloom']
-        else:
-            heirloom_drafts = []
+        else: heirloom_drafts = []
 
         if not heirloom_drafts:
-            st.markdown("""
-                <div style="text-align: center; color: #888; padding: 40px;">
-                    <h3>📭 Inbox is Empty</h3>
-                    <p>Go to the <b>Interviewer</b> tab to start a story!</p>
-                </div>
-            """, unsafe_allow_html=True)
+            st.markdown("<div style='text-align:center; color:#888;'>No stories yet. Try calling!</div>", unsafe_allow_html=True)
         
         for draft in heirloom_drafts:
             d_id = draft.get('id')
@@ -272,11 +413,13 @@ def render_dashboard():
             
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
                 new_text = st.text_area("Edit Transcript", value=d_content, height=250, key=f"txt_{d_id}")
+                
                 c_save, c_send = st.columns([1, 4])
                 with c_save:
                     if st.button("💾 Save", key=f"save_{d_id}"):
                         if database: database.update_draft_data(d_id, content=new_text)
                         st.toast("Saved changes.")
+                
                 with c_send:
                     if d_status == "Draft":
                         if st.button("📮 Send Mail (Costs 1 Credit)", key=f"send_{d_id}", type="primary"):
@@ -333,131 +476,3 @@ def render_dashboard():
                             else: st.error("Insufficient Credits.")
                     else:
                         st.info(f"Tracking: {draft.get('tracking_number', 'N/A')}")
-
-    # --- TAB B: INTERVIEWER (Schedule & Call) ---
-    with tab_int:
-        st.markdown("### 🎙️ The Remote Interviewer")
-        st.caption("We call your parent, ask one specific question, and record their answer.")
-        
-        # 1. TOPIC SELECTION
-        topic_options = [
-            "Tell me about your childhood home.",
-            "How did you meet your spouse?",
-            "What was your first job like?",
-            "What is your favorite family tradition?",
-            "What advice would you give your younger self?",
-            "Write your own question..."
-        ]
-        selected_topic = st.selectbox("1. Choose a Topic", topic_options)
-        
-        final_topic = selected_topic
-        if selected_topic == "Write your own question...":
-            final_topic = st.text_input("Type your question here", placeholder="e.g. Tell me about the day I was born.")
-
-        st.markdown("---")
-        
-        # 2. CALL OPTIONS
-        col_now, col_later = st.columns(2)
-        
-        with col_now:
-            st.markdown("#### Call Immediately")
-            if st.button("📞 Call Now", type="primary", use_container_width=True):
-                # Ensure we use the safe variable defined at top
-                safe_p_phone = p_phone 
-                p_name = profile.get("parent_name", "Mom")
-                twilio_phone = "+16156567667" # Config
-                
-                # Check 24-hour limit
-                allowed, msg = database.check_call_limit(user_email)
-                if not allowed:
-                    st.error(msg)
-                elif not safe_p_phone:
-                    st.error("Please set Phone Number in Settings.")
-                elif not final_topic:
-                    st.error("Please select a topic.")
-                elif ai_engine:
-                    with st.spinner(f"Dialing {safe_p_phone}..."):
-                        if hasattr(ai_engine, "trigger_outbound_call"):
-                            sid, err = ai_engine.trigger_outbound_call(safe_p_phone, twilio_phone, parent_name=p_name, topic=final_topic)
-                            if sid:
-                                database.update_last_call_timestamp(user_email)
-                                st.success(f"Calling! SID: {sid}")
-                                st.info("Wait for them to hang up, then check Inbox.")
-                            else: st.error(f"Call Failed: {err}")
-
-        with col_later:
-            st.markdown("#### Schedule for Later")
-            d = st.date_input("Date")
-            t = st.time_input("Time (UTC)")
-            if st.button("📅 Schedule Call", use_container_width=True):
-                if not p_phone:
-                    st.error("Please set Phone Number in Settings.")
-                else:
-                    combined_time = datetime.combine(d, t)
-                    if database.schedule_call(user_email, p_phone, final_topic, combined_time):
-                        st.success(f"Scheduled for {combined_time} UTC")
-                    else:
-                        st.error("Scheduling failed.")
-
-    # --- TAB C: SETTINGS ---
-    with tab_settings:
-        st.markdown("### ⚙️ Account Configuration")
-        c_parent, c_user = st.columns(2)
-        
-        with c_parent:
-            st.markdown("#### 👵 Parent Details")
-            with st.form("settings_parent"):
-                curr_p_name = profile.get("parent_name", "")
-                curr_p_phone = profile.get("parent_phone", "")
-                
-                new_p_name = st.text_input("Parent Name", value=curr_p_name, placeholder="e.g. Mom")
-                new_p_phone = st.text_input("Parent Phone Number", value=curr_p_phone, placeholder="e.g. 6155551234")
-                
-                if st.form_submit_button("Save Parent Info"):
-                    if database:
-                        success = database.update_heirloom_settings(user_email, new_p_name, new_p_phone)
-                        if success:
-                            st.session_state.user_profile['parent_name'] = new_p_name
-                            st.session_state.user_profile['parent_phone'] = new_p_phone
-                            st.success("Saved!")
-                            st.rerun()
-                        else: st.error("Database Error")
-
-        with c_user:
-            st.markdown("#### 📬 Your Mailing Address")
-            with st.form("settings_address"):
-                curr_name = profile.get("full_name", "")
-                curr_street = profile.get("address_line1", "")
-                curr_city = profile.get("address_city", "")
-                curr_state = profile.get("address_state", "")
-                curr_zip = profile.get("address_zip", "")
-                
-                n_name = st.text_input("Your Name", value=curr_name)
-                n_street = st.text_input("Street Address", value=curr_street)
-                n_city = st.text_input("City", value=curr_city)
-                
-                col_st, col_zp = st.columns(2)
-                n_state = col_st.text_input("State", value=curr_state)
-                n_zip = col_zp.text_input("Zip Code", value=curr_zip)
-                
-                if st.form_submit_button("Save My Address"):
-                    if database:
-                        success = database.update_user_address(
-                            user_email, n_name, n_street, n_city, n_state, n_zip
-                        )
-                        if success:
-                            st.session_state.user_profile.update({
-                                "full_name": n_name,
-                                "address_line1": n_street,
-                                "address_city": n_city,
-                                "address_state": n_state,
-                                "address_zip": n_zip
-                            })
-                            st.success("Address Updated!")
-                            st.rerun()
-                        else: st.error("Update Failed")
-    
-    # --- SAFETY CHECK ---
-    # Now safe because p_phone is always defined (None or value) from top of function
-    if not p_phone:
-        st.warning("⚠️ Please set a 'Parent Phone' in the Settings tab to start receiving stories.")

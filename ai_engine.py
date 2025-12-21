@@ -142,6 +142,30 @@ def _get_twilio_client():
         logger.error(f"Twilio Client Error: {e}")
         return None
 
+# --- FIXED: NORMALIZATION HELPER ---
+def _normalize_phone(phone_str):
+    """
+    Aggressively cleans phone number to E.164 format.
+    Ex: (615) 555-1234 -> +16155551234
+    """
+    if not phone_str: return ""
+    
+    # Remove all non-digits
+    digits = "".join(filter(str.isdigit, str(phone_str)))
+    
+    if not digits: return ""
+
+    # Assuming US numbers for now if no country code
+    if len(digits) == 10:
+        return f"+1{digits}"
+    elif len(digits) == 11 and digits.startswith("1"):
+        return f"+{digits}"
+    elif len(digits) > 11:
+        # International likely already has code
+        return f"+{digits}"
+        
+    return f"+{digits}" # Fallback
+
 def trigger_outbound_call(to_number, from_number, parent_name="there", topic="your day"):
     """
     Triggers an outbound call with a DYNAMIC script.
@@ -149,6 +173,9 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
     client = _get_twilio_client()
     if not client:
         return None, "Twilio Client Config Error"
+
+    # FIX: Normalize numbers before calling
+    clean_to = _normalize_phone(to_number)
 
     twiml_script = f"""
     <Response>
@@ -167,7 +194,7 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
 
     try:
         call = client.calls.create(
-            to=to_number,
+            to=clean_to,
             from_=from_number,
             twiml=twiml_script
         )
@@ -178,18 +205,20 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
 def fetch_and_transcribe_latest_call(parent_phone):
     """
     Finds the last call (Inbound OR Outbound) for a specific number.
-    FIX: Now checks both 'from' and 'to' fields to catch Remote Interviewer calls.
+    FIX: Now uses robust normalization and checks BOTH 'from' and 'to'.
     """
     client = _get_twilio_client()
     if not client: return None, "Twilio Config Missing"
 
     try:
-        clean_phone = "".join(filter(lambda x: x.isdigit() or x == '+', str(parent_phone)))
+        # FIX: Normalize user input to ensure it matches Twilio's E.164 log
+        clean_phone = _normalize_phone(parent_phone)
+        logger.info(f"Scanning logs for: {clean_phone}")
         
-        # 1. Check calls FROM parent (Inbound)
-        calls_in = client.calls.list(from_=clean_phone, limit=5)
-        # 2. Check calls TO parent (Outbound / Remote Interviewer)
-        calls_out = client.calls.list(to=clean_phone, limit=5)
+        # 1. Check calls FROM parent (Inbound to us)
+        calls_in = client.calls.list(from_=clean_phone, limit=20)
+        # 2. Check calls TO parent (Outbound from us)
+        calls_out = client.calls.list(to=clean_phone, limit=20)
         
         # Combine and sort by date (newest first)
         all_calls = calls_in + calls_out
@@ -199,18 +228,23 @@ def fetch_and_transcribe_latest_call(parent_phone):
         return None, f"Twilio List Error: {e}"
     
     if not all_calls:
-        return None, "No recent calls found."
+        return None, f"No calls found for {clean_phone}"
 
     target_recording_url = None
     
-    # Iterate to find the first one with a recording
+    # Iterate to find the first COMPLETED one with a recording
     for call in all_calls:
+        # Skip failed/busy/no-answer calls immediately
+        if call.status not in ['completed']:
+            continue
+
         try:
             recordings = call.recordings.list()
             if recordings:
                 rec = recordings[0]
                 base_uri = rec.uri.replace(".json", "")
                 target_recording_url = f"https://api.twilio.com{base_uri}.mp3"
+                logger.info(f"Found recording at: {target_recording_url}")
                 break
         except Exception:
             continue
