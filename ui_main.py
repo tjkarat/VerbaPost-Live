@@ -31,21 +31,6 @@ except ImportError: promo_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
-# --- UI MODULE IMPORTS ---
-try: import ui_splash
-except ImportError: ui_splash = None
-try: import ui_login
-except ImportError: ui_login = None
-try: import ui_admin
-except ImportError: ui_admin = None
-try: import ui_legal
-except ImportError: ui_legal = None
-try: import ui_legacy
-except ImportError: ui_legacy = None
-try: import ui_heirloom
-except ImportError: ui_heirloom = None
-
-
 # --- HELPER: SAFE PROFILE GETTER ---
 def get_profile_field(profile, field, default=""):
     if not profile: return default
@@ -53,21 +38,33 @@ def get_profile_field(profile, field, default=""):
     return getattr(profile, field, default)
 
 def _ensure_profile_loaded():
-    if st.session_state.get("authenticated") and not st.session_state.get("profile_synced"):
-        try:
-            email = st.session_state.get("user_email")
-            profile = database.get_user_profile(email)
-            if profile:
-                st.session_state.user_profile = profile
-                st.session_state.from_name = get_profile_field(profile, "full_name")
-                st.session_state.from_street = get_profile_field(profile, "address_line1")
-                st.session_state.from_city = get_profile_field(profile, "address_city")
-                st.session_state.from_state = get_profile_field(profile, "address_state")
-                st.session_state.from_zip = get_profile_field(profile, "address_zip")
-                st.session_state.profile_synced = True 
-                st.rerun()
-        except Exception as e:
-            print(f"Profile Load Error: {e}")
+    """
+    Robust profile loader. Ensures 'From' address is populated 
+    if the user is logged in, even if they navigated away and came back.
+    """
+    if st.session_state.get("authenticated"):
+        # Check if we need to load: either flag is missing OR data is missing
+        profile_missing = not st.session_state.get("profile_synced")
+        address_missing = not st.session_state.get("from_name")
+        
+        if profile_missing or address_missing:
+            try:
+                email = st.session_state.get("user_email")
+                profile = database.get_user_profile(email)
+                if profile:
+                    st.session_state.user_profile = profile
+                    # Force populate the session keys used by text_input
+                    st.session_state.from_name = get_profile_field(profile, "full_name")
+                    st.session_state.from_street = get_profile_field(profile, "address_line1")
+                    st.session_state.from_city = get_profile_field(profile, "address_city")
+                    st.session_state.from_state = get_profile_field(profile, "address_state")
+                    st.session_state.from_zip = get_profile_field(profile, "address_zip")
+                    
+                    st.session_state.profile_synced = True 
+                    # Rerun to refresh the text_input widgets with new values
+                    st.rerun()
+            except Exception as e:
+                print(f"Profile Load Error: {e}")
 
 # --- CSS INJECTOR ---
 def inject_custom_css(text_size=16):
@@ -113,17 +110,6 @@ def inject_custom_css(text_size=16):
     """, unsafe_allow_html=True)
 
 # --- HELPER FUNCTIONS ---
-def reset_app_state():
-    keys_to_keep = ["authenticated", "user_email", "user_name", "user_role", "user_profile", "profile_synced"]
-    for key in list(st.session_state.keys()):
-        if key not in keys_to_keep:
-            del st.session_state[key]
-    if st.session_state.get("authenticated"):
-        st.session_state.app_mode = "store"
-    else:
-        st.session_state.app_mode = "splash"
-    st.rerun()
-
 def load_address_book():
     if not st.session_state.get("authenticated"):
         return {}
@@ -158,8 +144,10 @@ def cb_select_tier(tier, price, user_email):
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
         st.session_state.app_mode = "workspace"
+        
         if user_email:
             _handle_draft_creation(user_email, tier, price)
+            
     except Exception as e:
         print(f"Draft creation warning: {e}")
         st.session_state.app_mode = "workspace"
@@ -209,8 +197,7 @@ def render_store_page():
     with c1:
         st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
     with c2:
-        # RENAMED TO VINTAGE
-        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
+        st.markdown(html_card("Heirloom", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
     with c3:
         st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
     with c4:
@@ -222,8 +209,7 @@ def render_store_page():
     with b1:
         st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        # RENAMED TO VINTAGE
-        st.button("Select Vintage", key="btn_store_vintage", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
+        st.button("Select Heirloom", key="btn_store_heirloom_product", use_container_width=True, on_click=cb_select_tier, args=("Heirloom", 5.99, u_email))
     with b3:
         st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
     with b4:
@@ -254,7 +240,9 @@ def render_campaign_uploader():
                 st.rerun()
 
 def render_workspace_page():
+    # 1. FORCE PROFILE LOAD IF FIELDS ARE EMPTY
     _ensure_profile_loaded()
+    
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
@@ -265,7 +253,9 @@ def render_workspace_page():
 
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
-        if st.session_state.get("authenticated") and current_tier not in ["Civic", "Santa"]:
+        
+        # FIX: Allow Address Book for Standard, Heirloom, AND Santa. Only exclude Civic.
+        if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             if addr_opts:
                 col_load, col_empty = st.columns([2, 1])
@@ -319,6 +309,7 @@ def render_workspace_page():
 
             with col_from:
                 st.markdown("### From: (Return Address)")
+                # These keys match what _ensure_profile_loaded sets
                 st.text_input("Your Name", key="from_name")
                 st.text_input("Signature (Sign-off)", key="from_sig")
                 st.text_input("Your Street", key="from_street")
@@ -344,9 +335,15 @@ def render_workspace_page():
                         "zip_code": st.session_state.from_zip
                     }
                     st.session_state.signature_text = st.session_state.from_sig
+                    
+                    # Update Draft in DB (Now that columns exist)
                     d_id = st.session_state.get("current_draft_id")
-                    if d_id:
-                        database.update_draft_data(d_id, to_addr=st.session_state.addr_to, from_addr=st.session_state.addr_from)
+                    if d_id and database:
+                        # Convert dicts to strings for simple text storage
+                        to_str = str(st.session_state.addr_to)
+                        from_str = str(st.session_state.addr_from)
+                        database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
+                    
                     if mailer:
                         with st.spinner("Validating with USPS/PostGrid..."):
                             t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
@@ -446,33 +443,23 @@ def render_workspace_page():
 
 def render_review_page():
     st.markdown("## 👁️ Step 4: Secure & Send")
-    
-    # REVENUE PROTECTION: Removed the "Generate PDF" button that allowed skipping payment.
-    # Replaced with an auto-preview that is WATERMARKED or just displayed in viewer.
-    
-    if st.session_state.get("letter_body"):
+    if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
                 tier = st.session_state.get("locked_tier", "Standard")
                 body = st.session_state.get("letter_body", "")
-                
                 if tier == "Civic":
                     std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
                 else:
                     std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                
                 std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                 
-                # Generate byte stream
                 pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
                 
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                
-                # LOOPHOLE CLOSED: Download button removed.
-                st.info("🔒 High-Resolution PDF download will be available after payment.")
-
+                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
             except Exception as e: st.error(f"PDF Error: {e}")
 
     st.divider()
@@ -480,7 +467,6 @@ def render_review_page():
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
     discount = 0.0
-    
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
             raw_code = st.text_input("Enter Code", key="promo_input_field")
@@ -490,27 +476,18 @@ def render_review_page():
                 if not code:
                     st.error("Please enter a code.")
                 else:
-                    # PROMO CODE FIX: Robust tuple unpacking
                     result = promo_engine.validate_code(code)
-                    
-                    valid = False
-                    val = 0
-                    
-                    # Handle Tuple (valid, amount)
                     if isinstance(result, tuple) and len(result) == 2:
                         valid, val = result
-                    # Handle Bool (just validity)
-                    elif isinstance(result, bool):
-                        valid = result
-                        val = 0
-                    
+                    else:
+                        valid, val = False, "Engine Error"
+
                     if valid:
                         st.session_state.applied_promo = code
                         st.session_state.promo_val = val
                         st.success(f"Applied! ${val} off")
                         st.rerun()
-                    else: 
-                        st.error(f"Invalid Code.")
+                    else: st.error(f"Invalid Code: {val}")
                     
     if st.session_state.get("applied_promo"):
         discount = st.session_state.get("promo_val", 0)
