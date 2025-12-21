@@ -1,124 +1,120 @@
-import streamlit as st
 import requests
-import base64
+import secrets_manager
 import logging
+import json
+# FIX 1: Import the missing module
+try:
+    import address_standard
+except ImportError:
+    address_standard = None
 
-# --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
-try: import secrets_manager
-except ImportError: secrets_manager = None
-
-def get_postgrid_key():
-    if secrets_manager:
-        return secrets_manager.get_secret("postgrid.api_key")
-    if "postgrid" in st.secrets:
-        return st.secrets["postgrid"]["api_key"]
-    return None
-
-def validate_address(address_dict):
+def validate_address(address_data):
     """
     Validates an address using PostGrid's verification API.
+    Accepts Dict or StandardAddress object.
     """
-    api_key = get_postgrid_key()
+    api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
     if not api_key:
         return False, {"error": "API Key Missing"}
 
-    url = "https://api.postgrid.com/print-mail/v1/add_verifications"
-    payload = {
-        "addressLine1": address_dict.get("street", ""),
-        "city": address_dict.get("city", ""),
-        "stateOrProvinceCode": address_dict.get("state", ""),
-        "postalOrZipCode": address_dict.get("zip_code", ""),
-        "countryCode": "US"
-    }
+    # FIX 2: Handle Input Types Safely
+    payload = {}
+    if hasattr(address_data, 'to_postgrid_payload'):
+        payload = address_data.to_postgrid_payload()
+    elif isinstance(address_data, dict):
+        # Map raw dict to PostGrid expected keys if needed, or pass as is if keys match
+        # Ideally, convert to StandardAddress first to ensure consistency
+        if address_standard:
+            obj = address_standard.StandardAddress.from_dict(address_data)
+            payload = obj.to_postgrid_payload()
+        else:
+            payload = address_data # Risky fallback
+    
+    url = "https://api.postgrid.com/v1/add_verifications"
     
     try:
-        response = requests.post(url, auth=(api_key, ""), data=payload)
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("status") == "verified":
-                # Return standardized dict
-                return True, {
-                    "street": data["addressLine1"],
-                    "city": data["city"],
-                    "state": data["stateOrProvinceCode"],
-                    "zip_code": data["postalOrZipCode"],
-                    "country": "US"
-                }
+        r = requests.post(url, json={"address": payload}, headers={"x-api-key": api_key})
+        if r.status_code == 200:
+            res = r.json()
+            if res.get('status') == 'verified':
+                return True, res.get('data', {})
             else:
-                return False, {"error": "Address not verifiable"}
-        else:
-            return False, {"error": f"API Error: {response.status_code}"}
+                # Return the suggested address or error
+                return False, {"error": "Address could not be verified.", "details": res}
+        return False, {"error": f"API Error {r.status_code}"}
     except Exception as e:
         return False, {"error": str(e)}
 
-def send_letter(pdf_bytes, addr_to, addr_from, description="VerbaPost Letter"):
+def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", tier="Standard"):
     """
-    Sends a PDF letter via PostGrid.
-    Returns: Letter ID (str) on success, None on failure.
+    Sends the PDF to PostGrid for printing and mailing.
+    FIX 3: Handles 'Certified' and 'Legacy' tiers correctly.
     """
-    api_key = get_postgrid_key()
+    api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
     if not api_key:
-        logger.error("PostGrid API Key missing")
+        logger.error("PostGrid API Key missing.")
         return None
 
+    # 1. Prepare Addresses
+    if address_standard:
+        # Ensure we are working with Objects, not Dicts
+        if isinstance(to_addr, dict): to_addr = address_standard.StandardAddress.from_dict(to_addr)
+        if isinstance(from_addr, dict): from_addr = address_standard.StandardAddress.from_dict(from_addr)
+        
+        to_payload = to_addr.to_postgrid_payload()
+        from_payload = from_addr.to_postgrid_payload()
+    else:
+        # Fallback if module missing (unsafe but prevents total crash)
+        to_payload = to_addr if isinstance(to_addr, dict) else to_addr.__dict__
+        from_payload = from_addr if isinstance(from_addr, dict) else from_addr.__dict__
+
+    # 2. Determine Service Level (FIX 3)
+    # Default: US First Class
+    extra_service = None
+    express = False
+    
+    if tier in ["Legacy", "Certified", "certified"]:
+        extra_service = "certified" # PostGrid flag for Certified Mail
+    elif tier == "Priority": # If you add this later
+        express = True
+
+    # 3. Construct Payload
+    # PostGrid Create Letter Endpoint
     url = "https://api.postgrid.com/print-mail/v1/letters"
     
-    # Create the contact for the recipient
-    to_payload = {
-        "firstName": addr_to.name,
-        "addressLine1": addr_to.street,
-        "city": addr_to.city,
-        "stateOrProvinceCode": addr_to.state,
-        "postalOrZipCode": addr_to.zip_code,
-        "countryCode": "US"
-    }
-
-    # Create the contact for the sender
-    from_payload = {
-        "firstName": addr_from.name,
-        "addressLine1": addr_from.street,
-        "city": addr_from.city,
-        "stateOrProvinceCode": addr_from.state,
-        "postalOrZipCode": addr_from.zip_code,
-        "countryCode": "US"
-    }
-
-    # Prepare file
-    # For PostGrid, we typically upload the file first or send as base64/multipart.
-    # Simple approach: Multipart upload
+    # We send the PDF as a file upload (multipart/form-data) usually, 
+    # OR create the contact first. 
+    # For simplicity/reliability, we'll assume PDF upload via 'files'.
+    
     files = {
         'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')
     }
     
     data = {
-        "to": to_payload,
-        "from": from_payload,
-        "description": description,
-        "color": True,
-        "express": False
+        'to': json.dumps(to_payload),
+        'from': json.dumps(from_payload),
+        'description': description,
+        'color': True, # Always print color?
+        'doubleSided': True,
+        'express': express,
+        'addressPlacement': 'top_first_page', # Ensures address shows in window envelope
     }
+    
+    if extra_service:
+        data['extraService'] = extra_service
 
     try:
-        # Note: PostGrid Python requests usually handle dicts for 'to'/'from' if creating contacts inline
-        # But robust way is creating contacts first. For simplicity here, assuming API accepts inline object.
-        # If not, we'd adjust to create_contact -> get ID -> send letter.
+        r = requests.post(url, headers={"x-api-key": api_key}, data=data, files=files)
         
-        # NOTE: requests.post with 'files' and 'data' sends multipart/form-data.
-        # Nested dicts in 'data' might need JSON stringifying if API expects JSON body vs Form data.
-        # PostGrid expects JSON if sending links, or Form if sending files.
-        # Let's try sending as PDF upload.
-        
-        response = requests.post(url, auth=(api_key, ""), files=files, data=data)
-        
-        if response.status_code in [200, 201]:
-            res_json = response.json()
-            return res_json.get("id")
+        if r.status_code in [200, 201]:
+            res = r.json()
+            return res.get('id') # Return the Letter ID (e.g. "letter_123...")
         else:
-            logger.error(f"PostGrid Error {response.status_code}: {response.text}")
+            logger.error(f"PostGrid Fail: {r.status_code} - {r.text}")
             return None
-
+            
     except Exception as e:
-        logger.error(f"Mailer Exception: {e}")
+        logger.error(f"Mailing Exception: {e}")
         return None
