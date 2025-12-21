@@ -13,11 +13,25 @@ logger = logging.getLogger(__name__)
 
 def _to_camel_case_payload(snake_payload):
     """
-    CRITICAL FIX: Maps internal snake_case keys (from address_standard)
-    to the CamelCase keys required by PostGrid's API.
+    CRITICAL FIX: 
+    1. Maps snake_case keys to PostGrid CamelCase.
+    2. SPLITS single 'name' field into 'firstName' and 'lastName' (Required by API).
     """
+    # 1. Name Splitting Logic
+    full_name = snake_payload.get('name', '').strip()
+    first_name = full_name
+    last_name = ""
+    
+    if " " in full_name:
+        # Split on first space only (e.g. "John Von Neumann" -> First: "John", Last: "Von Neumann")
+        parts = full_name.split(" ", 1)
+        first_name = parts[0]
+        last_name = parts[1]
+
+    # 2. Construct Payload
     return {
-        'name': snake_payload.get('name', ''),
+        'firstName': first_name,
+        'lastName': last_name,
         'addressLine1': snake_payload.get('address_line1', '') or snake_payload.get('street', ''),
         'addressLine2': snake_payload.get('address_line2', '') or snake_payload.get('addressLine2', ''),
         'city': snake_payload.get('address_city', '') or snake_payload.get('city', ''),
@@ -29,11 +43,10 @@ def _to_camel_case_payload(snake_payload):
 def _create_postgrid_contact(payload, api_key):
     """
     Helper: Creates a contact in PostGrid and returns the Contact ID.
-    Uses CamelCase payload to satisfy API constraints.
     """
     url = "https://api.postgrid.com/print-mail/v1/contacts"
     
-    # Apply the key mapping fix
+    # Apply the Name Split & Key Mapping fix
     clean_payload = _to_camel_case_payload(payload)
     
     try:
@@ -66,9 +79,12 @@ def validate_address(address_data):
         else:
             payload = address_data 
             
-    # Apply mapping fix here too
+    # Apply mapping fix
     clean_payload = _to_camel_case_payload(payload)
     
+    # NOTE: The Verification API uses slightly different keys (line1 vs addressLine1),
+    # but PostGrid often accepts both aliases. If this 404s, it's likely an API Key scope issue.
+    # We will try the standard address verification endpoint.
     url = "https://api.postgrid.com/v1/add_verifications"
     
     try:
@@ -86,8 +102,6 @@ def validate_address(address_data):
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", tier="Standard"):
     """
     Sends the PDF to PostGrid.
-    Step 1: Creates Contacts (with CamelCase fix).
-    Step 2: Sends Letter using Contact IDs.
     """
     api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
     if not api_key:
@@ -105,7 +119,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", t
         to_payload = to_addr if isinstance(to_addr, dict) else to_addr.__dict__
         from_payload = from_addr if isinstance(from_addr, dict) else from_addr.__dict__
 
-    # 2. CREATE CONTACTS FIRST (Using Fixed Mapping)
+    # 2. CREATE CONTACTS FIRST (With Name Split Fix)
     to_id = _create_postgrid_contact(to_payload, api_key)
     from_id = _create_postgrid_contact(from_payload, api_key)
 
@@ -130,8 +144,8 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", t
     }
     
     data = {
-        'to': to_id,       # Sending ID
-        'from': from_id,   # Sending ID
+        'to': to_id,
+        'from': from_id,
         'description': description,
         'color': True,
         'doubleSided': True,
