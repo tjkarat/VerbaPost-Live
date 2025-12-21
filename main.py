@@ -113,6 +113,25 @@ def main():
         # --- SUCCESS PATH ---
         if status == "paid":
             
+            # [CRITICAL START] IDEMPOTENCY CHECK
+            # Prevents double-fulfillment on page refresh
+            if db:
+                is_new_transaction = db.record_stripe_fulfillment(session_id)
+                if not is_new_transaction:
+                    st.markdown("""
+                        <div class="success-box">
+                            <div class="success-title">✅ Order Retrieved</div>
+                            <p>This transaction has already been processed.</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    if st.button("🏠 Return Home", type="primary", use_container_width=True):
+                        st.query_params.clear()
+                        st.session_state.app_mode = "store"
+                        st.rerun()
+                    return
+            # [CRITICAL END]
+            
             # RESTORE SESSION (Critical for Heirloom Redirect)
             st.session_state.authenticated = True
             st.session_state.user_email = user_email
