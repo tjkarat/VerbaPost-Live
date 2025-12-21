@@ -1,4 +1,0 @@
-User-agent: *
-Allow: /
-
-Sitemap: https://verbapost.com/app/static/sitemap.xml

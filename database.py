@@ -81,6 +81,7 @@ class UserProfile(Base):
     address_state = Column(String)
     address_zip = Column(String)
     country = Column(String, default="US")
+    timezone = Column(String, default="US/Central") # <--- NEW COLUMN
     parent_name = Column(String)
     parent_phone = Column(String)
     credits = Column(Integer, default=0)

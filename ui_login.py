@@ -6,16 +6,19 @@ try: import auth_engine
 except ImportError: auth_engine = None
 try: import database
 except ImportError: database = None
+try: import mailer
+except ImportError: mailer = None
 
 def render_login_page():
     """
     Renders the Login, Signup, and Password Recovery interface.
-    Smart-redirects user to their intended destination (Store or Heirloom) after login.
+    Includes Address Validation on Signup to ensure return addresses are valid.
     """
     st.markdown("""
     <style>
     .stTextInput input { font-size: 16px; padding: 10px; }
     div[data-testid="stForm"] { border: 1px solid #ddd; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .auth-explanation { background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 10px; font-size: 0.9rem; color: #0c4a6e; margin-bottom: 15px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -69,11 +72,10 @@ def render_login_page():
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
                         
-                        # FIX: CHECK REDIRECT TARGET
                         target = st.session_state.get("redirect_to", "store")
                         if target == "heirloom":
-                            st.session_state.app_mode = "heirloom" # Logic backup
-                            st.query_params["view"] = "heirloom"   # Router force
+                            st.session_state.app_mode = "heirloom"
+                            st.query_params["view"] = "heirloom"
                         else:
                             st.session_state.app_mode = "store"
                         
@@ -83,13 +85,26 @@ def render_login_page():
 
     # --- TAB B: SIGN UP ---
     with tab_signup:
+        st.markdown("""
+        <div class="auth-explanation">
+        <b>Why do we need your address?</b><br>
+        VerbaPost mails physical letters for you. We need a valid <b>Return Address</b> to ensure your mail is accepted by the USPS and can be returned to you if undeliverable.
+        </div>
+        """, unsafe_allow_html=True)
+
         with st.form("signup_form"):
             new_email = st.text_input("Email Address")
             new_pass = st.text_input("Create Password", type="password")
             full_name = st.text_input("Full Name")
             
             st.markdown("---")
-            st.caption("Return Address (For your letters)")
+            st.caption("Mailing & Config")
+            
+            # New Fields
+            c_tz, c_country = st.columns(2)
+            timezone = c_tz.selectbox("Timezone", ["US/Eastern", "US/Central", "US/Mountain", "US/Pacific", "UTC"], index=1)
+            country = c_country.selectbox("Country", ["US", "CA", "UK"], index=0)
+
             addr = st.text_input("Street Address")
             city = st.text_input("City")
             c1, c2 = st.columns(2)
@@ -97,36 +112,65 @@ def render_login_page():
             zip_code = c2.text_input("Zip")
 
             if st.form_submit_button("Create Account"):
-                if auth_engine:
-                    user, error = auth_engine.sign_up(new_email, new_pass, data={"full_name": full_name})
-                    if user:
-                        if database:
-                            database.create_user(new_email, full_name)
-                            with database.get_db_session() as db:
-                                p = db.query(database.UserProfile).filter(database.UserProfile.email == new_email).first()
-                                if p:
-                                    p.address_line1 = addr
-                                    p.address_city = city
-                                    p.address_state = state
-                                    p.address_zip = zip_code
-                                    db.commit()
-                        
-                        st.success("✅ Account created! You are now logged in.")
-                        st.session_state.authenticated = True
-                        st.session_state.user_email = new_email
-                        
-                        # FIX: CHECK REDIRECT TARGET
-                        target = st.session_state.get("redirect_to", "store")
-                        if target == "heirloom":
-                            st.session_state.app_mode = "heirloom"
-                            st.query_params["view"] = "heirloom"
-                        else:
-                            st.session_state.app_mode = "store"
-
-                        time.sleep(1)
-                        st.rerun()
+                # 1. Validation Step
+                if not addr or not city or not state or not zip_code:
+                    st.error("Please complete your full address.")
+                else:
+                    # Validate with PostGrid BEFORE creating auth user
+                    is_valid = False
+                    details = {}
+                    
+                    if mailer:
+                        with st.spinner("Verifying Address..."):
+                            address_payload = {
+                                "street": addr, 
+                                "city": city, 
+                                "state": state, 
+                                "zip": zip_code, 
+                                "country": country
+                            }
+                            is_valid, details = mailer.validate_address(address_payload)
                     else:
-                        st.error(f"Signup failed: {error}")
+                        # Fallback if mailer engine missing (dev mode)
+                        is_valid = True 
+
+                    if not is_valid:
+                        st.error(f"❌ Invalid Address: {details.get('error', 'Unknown Error')}")
+                        st.warning("Please double-check your street, city, and zip.")
+                    else:
+                        # 2. Create User
+                        if auth_engine:
+                            user, error = auth_engine.sign_up(new_email, new_pass, data={"full_name": full_name})
+                            if user:
+                                if database:
+                                    database.create_user(new_email, full_name)
+                                    # Update Profile with Validated Address & Timezone
+                                    with database.get_db_session() as db:
+                                        p = db.query(database.UserProfile).filter(database.UserProfile.email == new_email).first()
+                                        if p:
+                                            p.address_line1 = addr
+                                            p.address_city = city
+                                            p.address_state = state
+                                            p.address_zip = zip_code
+                                            p.country = country
+                                            p.timezone = timezone
+                                            db.commit()
+                                
+                                st.success("✅ Account created! Address Verified.")
+                                st.session_state.authenticated = True
+                                st.session_state.user_email = new_email
+                                
+                                target = st.session_state.get("redirect_to", "store")
+                                if target == "heirloom":
+                                    st.session_state.app_mode = "heirloom"
+                                    st.query_params["view"] = "heirloom"
+                                else:
+                                    st.session_state.app_mode = "store"
+
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error(f"Signup failed: {error}")
 
     # --- TAB C: FORGOT PASSWORD ---
     with tab_forgot:
