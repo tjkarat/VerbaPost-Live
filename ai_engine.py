@@ -145,17 +145,14 @@ def _get_twilio_client():
 def get_all_twilio_recordings(limit=50):
     """
     Fetches list of actual recordings and their metadata.
-    FIX: Now targets actual call records to get caller identification for the admin console.
     """
     client = _get_twilio_client()
     if not client: return []
     try:
-        # Get recordings from the server
         recordings = client.recordings.list(limit=limit)
         results = []
         for r in recordings:
             try:
-                # FIX: Cross-reference call_sid to find the caller's phone number
                 call = client.calls(r.call_sid).fetch()
                 from_num = call.from_formatted or call.from_
             except Exception:
@@ -165,7 +162,6 @@ def get_all_twilio_recordings(limit=50):
                 'sid': r.sid,
                 'date_created': r.date_created.strftime("%Y-%m-%d %H:%M"),
                 'duration': r.duration,
-                # Convert Internal API path to playable MP3 link
                 'uri': f"https://api.twilio.com{r.uri.replace('.json', '.mp3')}",
                 'from': from_num,
                 'call_sid': r.call_sid
@@ -184,45 +180,47 @@ def delete_twilio_recording(recording_sid):
         return True
     except: return False
     
-# --- FIXED: NORMALIZATION HELPER ---
+# --- FIXED: ROBUST NORMALIZATION HELPER ---
 def _normalize_phone(phone_str):
     """
     Aggressively cleans phone number to E.164 format.
-    Ex: (615) 555-1234 -> +16155551234
+    Prevents silent failures by rejecting invalid lengths.
     """
-    if not phone_str: return ""
+    if not phone_str: 
+        return None
     
     # Remove all non-digits
     digits = "".join(filter(str.isdigit, str(phone_str)))
     
-    if not digits: return ""
+    if not digits: 
+        return None
 
-    # Assuming US numbers for now if no country code
-    if len(digits) == 10:
-        return f"+1{digits}"
-    elif len(digits) == 11 and digits.startswith("1"):
-        return f"+{digits}"
-    elif len(digits) > 11:
-        # International likely already has code
+    # Reject invalid lengths (Must be 10 or 11 digits for US/North America)
+    if len(digits) not in [10, 11]:
+        raise ValueError(f"Invalid phone length: {phone_str}")
+    
+    if len(digits) == 11:
+        # 11-digit number must start with 1 (US Country Code)
+        if not digits.startswith("1"):
+            raise ValueError(f"11-digit number must start with country code 1: {phone_str}")
         return f"+{digits}"
         
-    return f"+{digits}" # Fallback
+    return f"+1{digits}"
 
 def trigger_outbound_call(to_number, from_number, parent_name="there", topic="your day"):
     """
     Triggers an outbound call with a DYNAMIC script.
-    UPDATED: Uses Neural Voice (Polly.Joanna) for human sound and explicit pauses for the beep.
     """
     client = _get_twilio_client()
     if not client:
         return None, "Twilio Client Config Error"
 
-    # FIX: Normalize numbers before calling
-    clean_to = _normalize_phone(to_number)
+    # Normalize number before calling
+    try:
+        clean_to = _normalize_phone(to_number)
+    except ValueError as ve:
+        return None, str(ve)
 
-    # UPDATED TwiML:
-    # 1. voice="Polly.Joanna-Neural" is much more human.
-    # 2. Explicit <Pause> before <Record> ensures the beep isn't stepped on.
     twiml_script = f"""
     <Response>
         <Pause length="1"/>
@@ -251,23 +249,18 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
 
 def fetch_and_transcribe_latest_call(parent_phone):
     """
-    Finds the last call (Inbound OR Outbound) for a specific number.
-    FIX: Now uses robust normalization and checks BOTH 'from' and 'to'.
+    Finds the last call for a specific number.
     """
     client = _get_twilio_client()
     if not client: return None, "Twilio Config Missing"
 
     try:
-        # FIX: Normalize user input to ensure it matches Twilio's E.164 log
         clean_phone = _normalize_phone(parent_phone)
         logger.info(f"Scanning logs for: {clean_phone}")
         
-        # 1. Check calls FROM parent (Inbound to us)
         calls_in = client.calls.list(from_=clean_phone, limit=20)
-        # 2. Check calls TO parent (Outbound from us)
         calls_out = client.calls.list(to=clean_phone, limit=20)
         
-        # Combine and sort by date (newest first)
         all_calls = calls_in + calls_out
         all_calls.sort(key=lambda c: c.date_created, reverse=True)
         
@@ -278,13 +271,9 @@ def fetch_and_transcribe_latest_call(parent_phone):
         return None, f"No calls found for {clean_phone}"
 
     target_recording_url = None
-    
-    # Iterate to find the first COMPLETED one with a recording
     for call in all_calls:
-        # Skip failed/busy/no-answer calls immediately
         if call.status not in ['completed']:
             continue
-
         try:
             recordings = call.recordings.list()
             if recordings:
@@ -299,7 +288,6 @@ def fetch_and_transcribe_latest_call(parent_phone):
     if not target_recording_url:
         return None, "Found calls, but no audio recordings."
 
-    # Download & Transcribe
     try:
         account_sid = client.username
         auth_token = client.password

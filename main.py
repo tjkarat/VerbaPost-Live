@@ -84,8 +84,17 @@ def main():
 
     if "session_id" in params:
         session_id = params["session_id"]
-        pay_eng = get_module("payment_engine")
         db = get_module("database")
+        
+        # FIXED: IDEMPOTENCY-FIRST CHECK
+        if db and hasattr(db, "record_stripe_fulfillment"):
+            # Check if this session has already been marked completed in DB
+            if not db.record_stripe_fulfillment(session_id):
+                st.warning("⚠️ This payment has already been processed.")
+                st.query_params.clear()
+                return
+
+        pay_eng = get_module("payment_engine")
         status = "error"
         result = {}
         user_email = st.session_state.get("user_email")
@@ -101,7 +110,7 @@ def main():
                 logger.error(f"Verify Error: {e}")
 
         if status == "paid":
-            if db: db.record_stripe_fulfillment(session_id)
+            # (Fulfillment recording moved to the top logic block for idempotency)
             st.session_state.authenticated = True
             st.session_state.user_email = user_email
             
@@ -110,7 +119,6 @@ def main():
             if hasattr(result, 'metadata') and result.metadata:
                 meta_id = result.metadata.get('draft_id', '')
 
-            # [VAULT UNLOCK] Grant 48 credits for Annual purchase
             is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
             if is_annual:
                 if db and user_email: db.update_user_credits(user_email, 48)
@@ -147,9 +155,6 @@ def main():
         if st.button("✉️ Write a Letter", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "store"; st.rerun()
-        if st.button("🕊️ Compose Legacy Letter", use_container_width=True):
-            st.query_params.clear()
-            st.session_state.app_mode = "legacy"; st.rerun()
         if st.button("📚 Family Archive", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "heirloom"; st.rerun()
@@ -170,4 +175,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    #

@@ -421,16 +421,28 @@ def render_dashboard():
                         </div>
                         """, unsafe_allow_html=True)
                         
+                        # FIXED: ATOMIC CREDIT DEDUCTION (generate and send first)
                         if st.button("🚀 Send Keepsake Mail", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
                                 with st.spinner("Preparing Mailer..."):
-                                    if database:
+                                    # 1. Generate PDF first
+                                    to_addr = {"name": r_name, "address_line1": r_addr, "city": profile.get("address_city"), "state": profile.get("address_state"), "zip_code": profile.get("address_zip")}
+                                    from_addr = {"name": s_name, "address_line1": profile.get("address_line1", "The Family Archive")}
+                                    pdf_bytes = letter_format.create_pdf(txt, to_addr, from_addr, tier="Vintage") if letter_format else b""
+
+                                    # 2. Attempt mailing
+                                    tracking_id = mailer.send_letter(pdf_bytes, to_addr, from_addr, tier="Vintage") if mailer else None
+
+                                    # 3. Only deduct credits on SUCCESS
+                                    if tracking_id and database:
                                         database.update_user_credits(user_email, credits - 1)
-                                        database.update_draft_data(d_id, status="Sent")
-                                        st.success("✅ Dispatched! Your physical keepsake is on its way.")
+                                        database.update_draft_data(d_id, status="Sent", tracking_number=tracking_id)
+                                        st.success(f"✅ Dispatched! Ref: {tracking_id}")
                                         st.balloons()
                                         time.sleep(2)
                                         st.rerun()
+                                    else:
+                                        st.error("❌ Mailing failed. Credits not deducted.")
                             else:
                                 st.error("Insufficient Credits.")
                 else:

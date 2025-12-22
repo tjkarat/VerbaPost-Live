@@ -2,6 +2,7 @@ import requests
 import secrets_manager
 import logging
 import json
+import os
 
 # Import the missing module safely
 try:
@@ -58,10 +59,10 @@ def _create_postgrid_contact(payload, api_key):
         if r.status_code in [200, 201]:
             return r.json().get('id')
         else:
-            logger.error(f"Contact Creation Failed: {r.status_code} - {r.text}")
+            logger.error(f"Contact Creation Failed: {r.status_code} - [Response Hidden]")
             return None
     except Exception as e:
-        logger.error(f"Contact Creation Exception: {e}")
+        logger.error(f"Contact Creation Exception: [Details Hidden]")
         return None
 
 def validate_address(address_data):
@@ -90,8 +91,6 @@ def validate_address(address_data):
     verification_payload = _to_verification_payload(contact_payload)
     
     # 4. Correct Endpoint URL (Fixes 404)
-    # Was: v1/add_verifications (Wrong)
-    # Now: v1/addver/verifications (Correct)
     url = "https://api.postgrid.com/v1/addver/verifications"
     
     try:
@@ -103,17 +102,15 @@ def validate_address(address_data):
                 # Return the original payload but marked as verified
                 return True, contact_payload 
             else:
-                return False, {"error": "Address could not be verified.", "details": res}
+                return False, {"error": "Address could not be verified.", "details": "[Details Hidden]"}
         
-        # Fallback: If 403/404, implies API Key might be Print-Only. 
-        # We allow it to pass but warn, so the user can still try to print.
         if r.status_code in [401, 403, 404]:
-             logger.warning(f"Verification Skipped (API {r.status_code}). Proceeding with raw address.")
+             logger.warning(f"Verification Skipped (API {r.status_code}). Proceeding.")
              return True, contact_payload
 
         return False, {"error": f"API Error {r.status_code}"}
     except Exception as e:
-        return False, {"error": str(e)}
+        return False, {"error": "[Exception Hidden]"}
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", tier="Standard"):
     api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
@@ -136,7 +133,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", t
     from_id = _create_postgrid_contact(from_payload, api_key)
 
     if not to_id or not from_id:
-        logger.error("Failed to create contacts. Aborting letter send.")
+        logger.error("Failed to create contacts. Aborting.")
         return None
 
     # 3. Determine Service Level
@@ -168,8 +165,10 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", t
         if r.status_code in [200, 201]:
             return r.json().get('id')
         else:
-            logger.error(f"PostGrid Fail: {r.status_code} - {r.text}")
+            # FIXED: API Key leak protection
+            logger.error(f"PostGrid Fail: {r.status_code} - [Response Content Hidden]")
+            if os.environ.get("DEBUG") == "true": logger.debug(f"DEBUG: {r.text}")
             return None
     except Exception as e:
-        logger.error(f"Mailing Exception: {e}")
+        logger.error(f"Mailing Exception: [Details Hidden]")
         return None
