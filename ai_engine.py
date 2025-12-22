@@ -141,7 +141,27 @@ def _get_twilio_client():
     except Exception as e:
         logger.error(f"Twilio Client Error: {e}")
         return None
+def get_all_twilio_recordings(limit=50):
+    """Fetches list of all recordings from Twilio."""
+    # Initialization of Twilio Client using secrets_manager
+    try:
+        recordings = client.recordings.list(limit=limit)
+        return [{
+            'sid': r.sid,
+            'date_created': r.date_created.strftime("%Y-%m-%d %H:%M"),
+            'duration': r.duration,
+            'uri': f"https://api.twilio.com{r.uri.replace('.json', '.mp3')}",
+            'call_sid': r.call_sid
+        } for r in recordings]
+    except: return []
 
+def delete_twilio_recording(recording_sid):
+    """Permanently deletes a recording from Twilio."""
+    try:
+        client.recordings(recording_sid).delete()
+        return True
+    except: return False
+    
 # --- FIXED: NORMALIZATION HELPER ---
 def _normalize_phone(phone_str):
     """
