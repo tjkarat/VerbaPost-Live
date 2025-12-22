@@ -141,22 +141,44 @@ def _get_twilio_client():
     except Exception as e:
         logger.error(f"Twilio Client Error: {e}")
         return None
+
 def get_all_twilio_recordings(limit=50):
-    """Fetches list of all recordings from Twilio."""
-    # Initialization of Twilio Client using secrets_manager
+    """
+    Fetches list of actual recordings and their metadata.
+    FIX: Now targets actual call records to get caller identification for the admin console.
+    """
+    client = _get_twilio_client()
+    if not client: return []
     try:
+        # Get recordings from the server
         recordings = client.recordings.list(limit=limit)
-        return [{
-            'sid': r.sid,
-            'date_created': r.date_created.strftime("%Y-%m-%d %H:%M"),
-            'duration': r.duration,
-            'uri': f"https://api.twilio.com{r.uri.replace('.json', '.mp3')}",
-            'call_sid': r.call_sid
-        } for r in recordings]
-    except: return []
+        results = []
+        for r in recordings:
+            try:
+                # FIX: Cross-reference call_sid to find the caller's phone number
+                call = client.calls(r.call_sid).fetch()
+                from_num = call.from_formatted or call.from_
+            except Exception:
+                from_num = "Unknown"
+                
+            results.append({
+                'sid': r.sid,
+                'date_created': r.date_created.strftime("%Y-%m-%d %H:%M"),
+                'duration': r.duration,
+                # Convert Internal API path to playable MP3 link
+                'uri': f"https://api.twilio.com{r.uri.replace('.json', '.mp3')}",
+                'from': from_num,
+                'call_sid': r.call_sid
+            })
+        return results
+    except Exception as e:
+        logger.error(f"Recording scan failed: {e}")
+        return []
 
 def delete_twilio_recording(recording_sid):
     """Permanently deletes a recording from Twilio."""
+    client = _get_twilio_client()
+    if not client: return False
     try:
         client.recordings(recording_sid).delete()
         return True
