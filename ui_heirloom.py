@@ -40,7 +40,7 @@ def _send_receipt(user_email, subject, body_html):
 
 # --- HELPER: PAYWALL RENDERER ---
 def render_paywall():
-    """Renders the Digital Vault Annual Pass paywall."""
+    """Renders the Digital Vault Annual Pass paywall with integrated Promo entry."""
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
@@ -106,7 +106,7 @@ def render_paywall():
         display: inline-block;
         color: #374151;
         font-size: 18px;
-        margin: 0 auto;
+        margin: 0 auto 30px auto;
     }
     .feature-item {
         margin-bottom: 15px;
@@ -122,7 +122,7 @@ def render_paywall():
     </style>
     """, unsafe_allow_html=True)
 
-    # FIX: Added .strip() to the end to prevent leading spaces from being interpreted as a Markdown code block
+    # Main Card logic
     html_content = textwrap.dedent("""
         <div class="paywall-container">
             <div class="lock-icon">🔒</div>
@@ -145,12 +145,13 @@ def render_paywall():
         </div>
     """).strip()
 
-    # FIX: Using st.html in 2025 is more robust for complex raw HTML than st.markdown
     st.html(html_content)
     
-    c_pad_left, c_main, c_pad_right = st.columns([1, 2, 1])
-    with c_main:
-        if st.button("🔓 Unlock the Archive", type="primary", use_container_width=True):
+    # Action Buttons & Promo Entry (Now visibly associated with the card)
+    c_left, c_pay, c_promo, c_right = st.columns([0.5, 2, 2, 0.5])
+    
+    with c_pay:
+        if st.button("🔓 Unlock with Stripe", type="primary", use_container_width=True):
             user_email = st.session_state.get("user_email")
             if payment_engine:
                 with st.spinner("Connecting to Secure Checkout..."):
@@ -171,28 +172,25 @@ def render_paywall():
                         else: st.error("Link creation failed.")
                     except Exception as e: st.error(f"Error: {e}")
     
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("🎟️ Redeem an Access Code", expanded=False):
-        st.caption("If you received a gift code or a promotional bypass, enter it below.")
-        c_code, c_btn = st.columns([3, 1])
-        with c_code:
-            promo_input = st.text_input("Code", label_visibility="collapsed", placeholder="Enter Access Code")
-        with c_btn:
-            if st.button("Redeem"):
+    with c_promo:
+        # Integrated promo logic
+        with st.container(border=True):
+            promo_input = st.text_input("Have an Access Code?", placeholder="Enter Code", label_visibility="collapsed")
+            if st.button("Redeem Code", use_container_width=True):
                 if promo_engine:
                     valid, val = promo_engine.validate_code(promo_input)
                     if valid:
                         user_email = st.session_state.get("user_email")
                         if database:
-                            # Grant a small trial limit (1 credit/session) for promo codes
-                            database.update_user_credits(user_email, 1)
+                            database.update_user_credits(user_email, 1) # Small trial
                             if "user_profile" in st.session_state:
                                 st.session_state.user_profile["credits"] = 1
                         st.balloons()
-                        st.success("Access Granted! Code Redeemed.")
+                        st.success("Access Granted!")
                         time.sleep(1)
                         st.rerun()
-                    else: st.error(f"Invalid: {val}")
+                    else: 
+                        st.error(f"Invalid: {val}")
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard():
@@ -319,7 +317,15 @@ def render_dashboard():
         if topic == "Custom Question...":
             topic = st.text_input("Type your own question here...")
 
-        if st.button("📞 Start Call Now", type="primary", use_container_width=True):
+        # ACTIVE CALL LOCK Logic
+        call_lock = False
+        if "last_call_time" in st.session_state:
+            elapsed = time.time() - st.session_state.last_call_time
+            if elapsed < 300: # 5 Minute Lock
+                call_lock = True
+                st.warning(f"⏳ **Call in Progress:** Please wait {int((300 - elapsed)/60)} more minutes before starting a new interview.")
+
+        if st.button("📞 Start Call Now", type="primary", use_container_width=True, disabled=call_lock):
             allowed, msg = database.check_call_limit(user_email) if database else (True, "")
             if not allowed:
                 st.error(msg)
@@ -332,9 +338,11 @@ def render_dashboard():
                         topic=topic
                     )
                     if sid:
+                        st.session_state.last_call_time = time.time()
                         if database: database.update_last_call_timestamp(user_email)
                         st.success(f"✅ Connection initiated! (SID: {sid})")
                         st.info("Please wait for your loved one to finish speaking before checking the Inbox.")
+                        st.rerun()
                     else: st.error(f"Call Error: {err}")
 
     # --- TAB C: INBOX (Story Protection) ---
