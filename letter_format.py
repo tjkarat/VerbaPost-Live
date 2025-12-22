@@ -11,9 +11,16 @@ class LetterPDF(FPDF):
         pass
 
     def footer(self):
+        # Position at 1.5 cm from bottom
         self.set_y(-15)
         self.set_font('Arial', 'I', 8)
-        self.cell(0, 10, 'Page ' + str(self.page_no()) + '/{nb}', 0, 0, 'C')
+        self.set_text_color(128) # Gray color
+        
+        # --- NEW BRANDING FOOTER ---
+        # Line 1: Page Number
+        self.cell(0, 5, 'Page ' + str(self.page_no()) + '/{nb}', 0, 1, 'C')
+        # Line 2: Attribution
+        self.cell(0, 5, 'Dictated and written by VerbaPost.com', 0, 0, 'C')
 
 def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None, date_str=None, clean_render=False):
     """

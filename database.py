@@ -64,8 +64,20 @@ def get_db_session():
         session.close()
 
 def to_dict(obj):
+    """
+    Converts SQLAlchemy models to dicts.
+    CRITICAL: Includes a PERMANENT polyfill to ensure 'address_line1' always exists
+    if 'street' is present. This prevents UI refactors from breaking addresses.
+    """
     if not obj: return None
-    return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+    data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+    
+    # --- THE PERMANENT FIX ---
+    # If the database has 'street' but not 'address_line1', we auto-create it.
+    if 'street' in data and 'address_line1' not in data:
+        data['address_line1'] = data['street']
+        
+    return data
 
 # ==========================================
 # 🏛️ MODELS
