@@ -31,7 +31,6 @@ def validate_code(code):
                 return False, "Code is inactive"
 
             # 2. Check usage count (DEFENSIVE: Handle missing table)
-            # This prevents the "AttributeError: module 'database' has no attribute 'PromoLog'" crash
             if hasattr(database, 'PromoLog'):
                 usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
                 
@@ -39,20 +38,23 @@ def validate_code(code):
                     logger.warning(f"Promo code {code} exhausted ({usage_count}/{promo.max_uses})")
                     return False, "Limit Reached"
             else:
-                # If table is missing, we log a warning but ALLOW the code (fail open) 
-                # or block it. Here we allow it to prevent checkout blocking.
                 logger.warning("PromoLog table missing in database. Skipping usage limit check.")
 
             # 3. Return success tuple
-            discount_val = getattr(promo, 'value', 0.0)
-            if discount_val == 0.0:
-                discount_val = getattr(promo, 'discount_amount', 5.00) # Fallback
+            # FIX: Eagerly look for ANY non-zero value
+            val_a = getattr(promo, 'value', 0.0)
+            val_b = getattr(promo, 'discount_amount', 0.0)
             
-            return True, discount_val
+            final_val = val_a if val_a > 0 else val_b
+            
+            if final_val <= 0:
+                 # If both are 0, use fallback default
+                 final_val = 5.00
+            
+            return True, float(final_val)
             
     except Exception as e:
         logger.error(f"Error validating code {code}: {e}")
-        # SAFEGUARD: Return tuple to prevent UI crash
         return False, f"System Error: {str(e)}"
 
 def log_usage(code, user_email):
@@ -62,14 +64,12 @@ def log_usage(code, user_email):
     if not code: return False
     code = code.strip().upper()
     
-    # DEFENSIVE: Exit if table missing
     if not hasattr(database, 'PromoLog'):
         logger.warning("Cannot log promo usage: PromoLog model missing.")
         return False
 
     try:
         with database.get_db_session() as db:
-            # Atomic check inside transaction
             promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
             if not promo: return False
 
@@ -82,7 +82,7 @@ def log_usage(code, user_email):
                     used_at=datetime.utcnow()
                 )
                 db.add(log_entry)
-                db.commit() # Commit explicitly
+                db.commit() 
                 return True
             return False
             
@@ -100,12 +100,10 @@ def create_code(code, max_uses=1, discount_amount=5.00):
     
     try:
         with database.get_db_session() as db:
-            # Check if code already exists
             existing = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
             if existing:
                 return False, f"Code '{code}' already exists."
             
-            # Handle dynamic model attributes (value vs discount_amount)
             new_promo = database.PromoCode(
                 code=code,
                 max_uses=max_uses,

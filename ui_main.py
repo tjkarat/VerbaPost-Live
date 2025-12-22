@@ -206,15 +206,15 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3, b4 = st.columns(4)
     
-    # Passing Tier Names to Callback
+    # Passing Tier Names to Callback with UNIQUE KEYS to prevent state loss
     with b1:
-        st.button("Select Standard", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
+        st.button("Select Standard", key="btn_std", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        st.button("Select Vintage", key="btn_store_vintage", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
+        st.button("Select Vintage", key="btn_vint", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
     with b3:
-        st.button("Select Civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
+        st.button("Select Civic", key="btn_civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
     with b4:
-        st.button("Select Santa", use_container_width=True, on_click=cb_select_tier, args=("Santa", 9.99, u_email))
+        st.button("Select Santa", key="btn_santa", use_container_width=True, on_click=cb_select_tier, args=("Santa", 9.99, u_email))
 
 
 def render_campaign_uploader():
@@ -255,18 +255,14 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC (FIXED)
-        # Show Address Book for EVERYONE except Civic
+        # 2. ADDRESS BOOK LOGIC
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             
             if addr_opts:
                 col_load, col_empty = st.columns([2, 1])
                 with col_load:
-                    # Dropdown to load saved contacts
                     selected_contact_label = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
-                    
-                    # If selection changes, update inputs
                     if selected_contact_label != "Select..." and selected_contact_label != st.session_state.get("last_loaded_contact"):
                         data = addr_opts[selected_contact_label]
                         st.session_state.to_name_input = data.get('name', '')
@@ -317,7 +313,6 @@ def render_workspace_page():
 
             with col_from:
                 st.markdown("### From: (Return Address)")
-                # These keys match what _ensure_profile_loaded sets
                 st.text_input("Your Name", key="from_name")
                 st.text_input("Signature (Sign-off)", key="from_sig")
                 st.text_input("Your Street", key="from_street")
@@ -344,10 +339,8 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # Update Draft in DB (Now safe because columns exist)
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
-                        # Convert dicts to strings for simple text storage
                         to_str = str(st.session_state.addr_to)
                         from_str = str(st.session_state.addr_from)
                         database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
@@ -384,9 +377,23 @@ def render_workspace_page():
         st.markdown("### ⌨️ Typing Mode")
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
-        col_polish, col_undo = st.columns([1, 1])
+        
+        # --- NEW BUTTON LAYOUT ---
+        col_save, col_polish, col_undo = st.columns([1, 1, 1])
+        
+        with col_save:
+             if st.button("💾 Save Draft", use_container_width=True):
+                 st.session_state.letter_body = new_text
+                 d_id = st.session_state.get("current_draft_id")
+                 if d_id and database:
+                     database.update_draft_data(d_id, content=new_text)
+                     st.session_state.last_autosave = time.time()
+                     st.toast("✅ Draft Saved Successfully")
+                 else:
+                     st.error("No draft ID found. Please refresh.")
+
         with col_polish:
-            if st.button("✨ AI Polish (Professional)"):
+            if st.button("✨ AI Polish (Professional)", use_container_width=True):
                 if new_text and ai_engine:
                     with st.spinner("Polishing..."):
                         try:
@@ -399,9 +406,11 @@ def render_workspace_page():
                         except Exception as e: st.error(f"AI Error: {e}")
         with col_undo:
             if "letter_body_history" in st.session_state and len(st.session_state.letter_body_history) > 0:
-                if st.button("↩️ Undo Last Change"):
+                if st.button("↩️ Undo Last Change", use_container_width=True):
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
+
+        # Auto-save Logic (Background)
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
@@ -450,11 +459,12 @@ def render_workspace_page():
             st.rerun()
 
 def render_review_page():
-    st.markdown("## 👁️ Step 4: Secure & Send")
+    tier = st.session_state.get("locked_tier", "Standard")
+    st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
+    
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
-                tier = st.session_state.get("locked_tier", "Standard")
                 body = st.session_state.get("letter_body", "")
                 if tier == "Civic":
                     std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
@@ -471,10 +481,22 @@ def render_review_page():
             except Exception as e: st.error(f"PDF Error: {e}")
 
     st.divider()
-    tier = st.session_state.get("locked_tier", "Standard")
+    
+    # --- PRICING LOGIC ---
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
+    
+    # Calculate Base Total
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
+    
+    # Ensure tier wasn't reset to standard if price mismatches
+    if tier == "Vintage" and total < 5.00:
+        total = 5.99 + (12.00 if is_cert else 0.0)
+    elif tier == "Santa" and total < 9.00:
+        total = 9.99 + (12.00 if is_cert else 0.0)
+
     discount = 0.0
+    
+    # --- PROMO CODE LOGIC ---
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
             raw_code = st.text_input("Enter Code", key="promo_input_field")
@@ -491,16 +513,22 @@ def render_review_page():
                         valid, val = False, "Engine Error"
 
                     if valid:
-                        st.session_state.applied_promo = code
-                        st.session_state.promo_val = val
-                        st.success(f"Applied! ${val} off")
-                        st.rerun()
+                        if val > 0:
+                            st.session_state.applied_promo = code
+                            st.session_state.promo_val = val
+                            st.success(f"Applied! ${val} off")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.warning("Code is valid but has $0.00 value. Please check with support.")
                     else: st.error(f"Invalid Code: {val}")
                     
     if st.session_state.get("applied_promo"):
         discount = st.session_state.get("promo_val", 0)
+        st.markdown(f"**Item Price:** ${total:.2f}")
         total = max(0, total - discount)
-        st.info(f"Discount Applied: -${discount}")
+        st.info(f"Discount Applied: -${discount:.2f}")
+    
     st.markdown(f"### Total: ${total:.2f}")
 
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
