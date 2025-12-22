@@ -263,11 +263,18 @@ def main():
     with st.sidebar:
         st.header("VerbaPost System")
         # 8. NAVIGATION LABELS (UPDATED)
-        if st.button("✉️ Mail a Keepsake Letter", use_container_width=True):
+        if st.button("✉️ Write a Letter", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "store"
             st.rerun()
-        if st.button("📚 View Family Stories", use_container_width=True):
+            
+        # --- NEW LEGACY LINK ---
+        if st.button("🕊️ Legacy Service", use_container_width=True, help="Certified End-of-Life & Legal Correspondence"):
+            st.query_params.clear()
+            st.session_state.app_mode = "legacy"
+            st.rerun()
+            
+        if st.button("📚 Family Stories", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "heirloom"
             st.rerun()
