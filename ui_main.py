@@ -54,7 +54,8 @@ def _ensure_profile_loaded():
                     st.session_state.user_profile = profile
                     # Auto-Populate Session State for Text Inputs
                     st.session_state.from_name = get_profile_field(profile, "full_name")
-                    st.session_state.from_street = get_profile_field(profile, "address_line1")
+                    # FIX: Handle both 'street' and 'address_line1'
+                    st.session_state.from_street = get_profile_field(profile, "address_line1") or get_profile_field(profile, "street")
                     st.session_state.from_city = get_profile_field(profile, "address_city")
                     st.session_state.from_state = get_profile_field(profile, "address_state")
                     st.session_state.from_zip = get_profile_field(profile, "address_zip")
@@ -292,7 +293,8 @@ def render_workspace_page():
                     if selected_contact_label != "Select..." and selected_contact_label != st.session_state.get("last_loaded_contact"):
                         data = addr_opts[selected_contact_label]
                         st.session_state.to_name_input = data.get('name', '')
-                        st.session_state.to_street_input = data.get('street', '')
+                        # FIX: Handle both 'street' and 'address_line1'
+                        st.session_state.to_street_input = data.get('street', '') or data.get('address_line1', '')
                         st.session_state.to_city_input = data.get('city', '')
                         st.session_state.to_state_input = data.get('state', '')
                         st.session_state.to_zip_input = data.get('zip_code', '') 
@@ -355,9 +357,12 @@ def render_workspace_page():
 
             if current_tier != "Civic":
                 if st.form_submit_button("💾 Save Addresses"):
+                    # CRITICAL FIX: Ensure 'street' AND 'address_line1' are both present
+                    # This redundancy prevents "missing address" errors in PostGrid or PDF.
                     st.session_state.addr_to = {
                         "name": st.session_state.to_name_input, 
-                        "street": st.session_state.to_street_input, 
+                        "street": st.session_state.to_street_input,
+                        "address_line1": st.session_state.to_street_input, # Duplicate for compatibility
                         "city": st.session_state.to_city_input, 
                         "state": st.session_state.to_state_input, 
                         "zip_code": st.session_state.to_zip_input
@@ -365,6 +370,7 @@ def render_workspace_page():
                     st.session_state.addr_from = {
                         "name": st.session_state.from_name, 
                         "street": st.session_state.from_street, 
+                        "address_line1": st.session_state.from_street, # Duplicate for compatibility
                         "city": st.session_state.from_city, 
                         "state": st.session_state.from_state, 
                         "zip_code": st.session_state.from_zip
@@ -395,8 +401,10 @@ def render_workspace_page():
                                 err = f_data.get('error', 'Invalid Sender Address')
                                 st.error(f"❌ Sender Address Error: {err}")
                             if t_valid and f_valid:
-                                st.session_state.addr_to = t_data
-                                st.session_state.addr_from = f_data
+                                # Apply validated data but keep our dual keys
+                                st.session_state.addr_to.update(t_data)
+                                st.session_state.addr_from.update(f_data)
+                                
                                 st.session_state.addresses_saved_at = time.time()
                                 st.success(f"✅ Addresses Verified & Saved!{saved_msg}")
                     else:
