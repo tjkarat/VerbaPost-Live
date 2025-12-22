@@ -38,14 +38,21 @@ def _send_alert_email(to_email, subject, html_body):
     try:
         k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
         if not k_raw: return False
+        
         api_key = str(k_raw).strip().replace("'", "").replace('"', "")
+        
         payload = {
             "from": "VerbaPost <receipts@verbapost.com>",
             "to": [to_email],
             "subject": subject,
             "html": html_body
         }
-        requests.post("https://api.resend.com/emails", json=payload, headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"})
+        
+        requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        )
         return True
     except Exception as e:
         print(f"Email Alert Failed: {e}")
@@ -140,11 +147,11 @@ def cb_buy_tier(tier, base_price, user_email, is_certified=False):
         
         d_id = database.save_draft(user_email, "", tier, total_price) if database else None
         
+        # BYPASS LOGIC
         if total_price <= 0:
             st.session_state.paid_tier = tier
             st.session_state.current_draft_id = d_id
             st.session_state.app_mode = "workspace"
-            # Clear promo
             if "promo_val" in st.session_state: del st.session_state.promo_val
             st.rerun()
             return
@@ -202,12 +209,6 @@ def render_store_page():
         except: pass
 
     st.markdown("## 📮 Select & Pay")
-    
-    mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
-    if mode == "Bulk Campaign":
-        render_campaign_uploader()
-        return
-
     st.info("ℹ️ **Process:** Select Tier ➝ Pay Securely ➝ Write Letter ➝ We Mail It.")
 
     if promo_engine:
@@ -241,7 +242,10 @@ def render_store_page():
         </div>
         """
     with c1: st.markdown(html_card("Standard", "ONE LETTER", p_std, "Premium paper. #10 Envelope."), unsafe_allow_html=True)
-    with c2: st.markdown(html_card("Vintage", "ONE LETTER", p_vin, "Heavy cream paper. Wax seal."), unsafe_allow_html=True)
+    
+    # UPDATED DESCRIPTION HERE
+    with c2: st.markdown(html_card("Vintage", "ONE LETTER", p_vin, "Heavy cream paper. Handwritten envelope. Real stamp."), unsafe_allow_html=True)
+    
     with c3: st.markdown(html_card("Civic", "3 LETTERS", p_civ, "Write to Congress."), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True) 
@@ -340,6 +344,7 @@ def render_workspace_page():
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
     
     with tab_type:
+        # Resume text logic
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed")
         
@@ -439,12 +444,12 @@ def render_workspace_page():
                     _send_alert_email(u_email, f"Receipt: Order {tracking_ref}", f"<h3>Sent!</h3><p>Tracking: {tracking_ref}</p>")
             
             if tracking_ref:
-                # [CRITICAL FIX: BURN THE TOKEN & REDIRECT]
+                # BURN THE TOKEN & REDIRECT
                 st.session_state.receipt_data = {
                     "ref": tracking_ref,
                     "pdf": pdf_bytes
                 }
-                del st.session_state.paid_tier # User can NO LONGER access workspace
+                del st.session_state.paid_tier 
                 st.session_state.app_mode = "receipt"
                 st.rerun()
             else:
