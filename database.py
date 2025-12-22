@@ -142,7 +142,8 @@ class Letter(Base):
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    __tablename__ = 'address_book'
+    # FIXED: Table name changed from 'address_book' to 'saved_contacts'
+    __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
     name = Column(String)
@@ -442,4 +443,4 @@ def record_stripe_fulfillment(session_id):
         logger.error(f"Idempotency Check Error: {e}")
         # If we can't verify, we assume it might be a duplicate to be safe, 
         # or we return False to prevent double-spending.
-        return False    
+        return False

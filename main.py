@@ -289,23 +289,31 @@ def main():
                     st.session_state.app_mode = "admin"
                     st.rerun()
 
-    # 7. ROUTER
+    # 7. ROUTER (FIXED: Unwrapped expressions to prevent 'None' at bottom)
     if mode == "splash":
-        m = get_module("ui_splash"); m.render_splash_page() if m else None
+        m = get_module("ui_splash")
+        if m: m.render_splash_page()
     elif mode == "login":
-        m = get_module("ui_login"); m.render_login_page() if m else None
+        m = get_module("ui_login")
+        if m: m.render_login_page()
     elif mode in ["store", "workspace", "review"]:
-        m = get_module("ui_main"); m.render_main() if m else None
+        m = get_module("ui_main")
+        if m: m.render_main()
     elif mode == "heirloom":
-        m = get_module("ui_heirloom"); m.render_dashboard() if m else None
+        m = get_module("ui_heirloom")
+        if m: m.render_dashboard()
     elif mode == "admin":
-        m = get_module("ui_admin"); m.render_admin_page() if m else None
+        m = get_module("ui_admin")
+        if m: m.render_admin_page()
     elif mode == "legacy":
-        m = get_module("ui_legacy"); m.render_legacy_page() if m else None
+        m = get_module("ui_legacy")
+        if m: m.render_legacy_page()
     elif mode == "legal":
-        m = get_module("ui_legal"); m.render_legal_page() if m else None
+        m = get_module("ui_legal")
+        if m: m.render_legal_page()
     else:
-        m = get_module("ui_splash"); m.render_splash_page() if m else None
+        m = get_module("ui_splash")
+        if m: m.render_splash_page()
 
 if __name__ == "__main__":
     main()
