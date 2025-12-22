@@ -39,7 +39,6 @@ st.markdown("""
         margin-bottom: 20px;
     }
     .success-title { color: #047857; font-size: 24px; font-weight: bold; margin-bottom: 10px; }
-    .tracking-code { font-family: monospace; font-size: 20px; color: #d93025; background: #fff; padding: 5px 10px; border-radius: 4px; border: 1px dashed #ccc;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -79,7 +78,7 @@ def main():
         st.error("🚨 SYSTEM CRITICAL FAILURE")
         st.stop()
 
-    # 1. SEO & ANALYTICS (RESTORED)
+    # 1. SEO & ANALYTICS
     seo = get_module("seo_injector")
     if seo: seo.inject_meta()
     analytics = get_module("analytics")
@@ -112,32 +111,21 @@ def main():
                 logger.error(f"Verify Error: {e}")
 
         if status == "paid":
-            # 2. Record Transaction (Idempotency)
+            # Record Transaction (Idempotency)
             if db: db.record_stripe_fulfillment(session_id)
             
+            # UNLOCK WORKSPACE LOGIC
             st.session_state.authenticated = True
             st.session_state.user_email = user_email
             
-            # ... (Subscription logic remains the same) ...
-
-            # LETTER PATH
-            paid_tier = "Standard"
-            if db and meta_id:
-                with db.get_db_session() as s:
-                    d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
-                    if d: 
-                        paid_tier = d.tier
-                        # [CRITICAL FIX] Mark DB as Paid so they don't lose it on refresh
-                        d.status = "Paid/Writing"
-                        s.commit()
+            # Initialize variables safely to prevent NameError
+            meta_id = None
+            ref_id = getattr(result, 'client_reference_id', '')
             
-            st.session_state.paid_tier = paid_tier
-            st.session_state.current_draft_id = meta_id
-            st.session_state.app_mode = "workspace"
-            st.query_params.clear()
-            st.rerun()
+            if hasattr(result, 'metadata') and result.metadata:
+                meta_id = result.metadata.get('draft_id', '')
 
-            # SUBSCRIPTION PATH (RESTORED)
+            # SUBSCRIPTION PATH
             is_subscription = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
             if is_subscription:
                 if db and user_email: db.update_user_credits(user_email, 4)
@@ -146,20 +134,28 @@ def main():
                 if st.button("Enter Archive"): st.session_state.app_mode = "heirloom"; st.rerun()
                 return
 
-            # LETTER PATH (NEW PAY-FIRST LOGIC)
+            # LETTER PATH (Correct Pay-First Logic)
             paid_tier = "Standard"
             if db and meta_id:
-                with db.get_db_session() as s:
-                    d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
-                    if d: paid_tier = d.tier
+                try:
+                    with db.get_db_session() as s:
+                        d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
+                        if d: 
+                            paid_tier = d.tier
+                            # CRITICAL: Mark as Paid so user can resume if browser closes
+                            d.status = "Paid/Writing"
+                            s.commit()
+                except Exception as e:
+                    logger.error(f"DB Update Error: {e}")
             
             st.session_state.paid_tier = paid_tier
             st.session_state.current_draft_id = meta_id
-            st.session_state.app_mode = "workspace" # SEND TO WRITE
+            st.session_state.app_mode = "workspace" # SEND USER TO WRITE, DO NOT MAIL YET
+            
             st.query_params.clear()
             st.rerun()
 
-    # 4. PASSWORD RESET (RESTORED)
+    # 4. PASSWORD RESET
     elif params.get("type") == "recovery":
         st.session_state.app_mode = "login"
 
