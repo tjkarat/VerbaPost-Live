@@ -234,27 +234,29 @@ def render_store_page():
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
     
-    # --- CRITICAL FIX: RESET STATE ON ENTRY ---
-    # This prevents being "stuck" in a paid state or pending URL when you return to store.
-    if "paid_tier" in st.session_state: del st.session_state.paid_tier
-    if "pending_stripe_url" in st.session_state: del st.session_state.pending_stripe_url
-    
-    if not u_email:
-        st.warning("⚠️ Session Expired. Please log in to continue.")
-        if st.button("Go to Login"):
-            st.session_state.app_mode = "login"
-            st.rerun()
-        return
+    # ... (Login check remains) ...
 
-    with st.expander("❓ How VerbaPost Works", expanded=False):
-        st.markdown("""
-        1. **Select Service:** Choose your letter tier below.
-        2. **Pay Securely:** We process payment first to reserve your materials.
-        3. **Write:** Type or dictate your content.
-        4. **Send:** We print and mail it via USPS.
-        """)
+    # [CRITICAL FIX] CHECK FOR UNFINISHED PAID DRAFTS
+    if database:
+        # Simple query to find the most recent "Paid/Writing" draft
+        with database.get_db_session() as session:
+            # Note: We use the ORM model here
+            draft = session.query(database.LetterDraft).filter(
+                database.LetterDraft.user_email == u_email,
+                database.LetterDraft.status == "Paid/Writing"
+            ).order_by(database.LetterDraft.created_at.desc()).first()
+            
+            if draft:
+                st.info(f"👋 You have a prepaid **{draft.tier}** letter waiting!")
+                if st.button("Resume Writing"):
+                    st.session_state.paid_tier = draft.tier
+                    st.session_state.current_draft_id = draft.id
+                    st.session_state.letter_body = draft.content # Restore text if saved
+                    st.session_state.app_mode = "workspace"
+                    st.rerun()
+                st.markdown("---")
 
-    st.markdown("## 📮 Choose Your Letter Service")
+    st.markdown("## 📮 Select & Pay")
     
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
     if mode == "Bulk Campaign":

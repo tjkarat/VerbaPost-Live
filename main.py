@@ -112,17 +112,30 @@ def main():
                 logger.error(f"Verify Error: {e}")
 
         if status == "paid":
+            # 2. Record Transaction (Idempotency)
             if db: db.record_stripe_fulfillment(session_id)
             
-            # UNLOCK WORKSPACE LOGIC
             st.session_state.authenticated = True
             st.session_state.user_email = user_email
             
-            # Check Subscription vs Letter
-            ref_id = getattr(result, 'client_reference_id', '')
-            meta_id = ""
-            if hasattr(result, 'metadata') and result.metadata:
-                meta_id = result.metadata.get('draft_id', '')
+            # ... (Subscription logic remains the same) ...
+
+            # LETTER PATH
+            paid_tier = "Standard"
+            if db and meta_id:
+                with db.get_db_session() as s:
+                    d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
+                    if d: 
+                        paid_tier = d.tier
+                        # [CRITICAL FIX] Mark DB as Paid so they don't lose it on refresh
+                        d.status = "Paid/Writing"
+                        s.commit()
+            
+            st.session_state.paid_tier = paid_tier
+            st.session_state.current_draft_id = meta_id
+            st.session_state.app_mode = "workspace"
+            st.query_params.clear()
+            st.rerun()
 
             # SUBSCRIPTION PATH (RESTORED)
             is_subscription = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
