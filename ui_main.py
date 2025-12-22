@@ -2,6 +2,7 @@ import streamlit as st
 import time
 import os
 import hashlib
+import requests
 from datetime import datetime
 
 # --- CRITICAL IMPORTS ---
@@ -31,6 +32,32 @@ except ImportError: promo_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
+# --- HELPER: EMAIL ALERT (Using Requests directly) ---
+def _send_alert_email(to_email, subject, html_body):
+    """Sends receipts and admin alerts via Resend."""
+    try:
+        k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
+        if not k_raw: return False
+        
+        api_key = str(k_raw).strip().replace("'", "").replace('"', "")
+        
+        payload = {
+            "from": "VerbaPost <receipts@verbapost.com>",
+            "to": [to_email],
+            "subject": subject,
+            "html": html_body
+        }
+        
+        requests.post(
+            "https://api.resend.com/emails",
+            json=payload,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        )
+        return True
+    except Exception as e:
+        print(f"Email Alert Failed: {e}")
+        return False
+
 # --- HELPER: SAFE PROFILE GETTER ---
 def get_profile_field(profile, field, default=""):
     if not profile: return default
@@ -43,7 +70,6 @@ def _ensure_profile_loaded():
     and re-fetches it from the database if needed.
     """
     if st.session_state.get("authenticated"):
-        # Load if synced flag is missing OR if the actual data is empty
         needs_load = not st.session_state.get("profile_synced") or not st.session_state.get("from_name")
         
         if needs_load:
@@ -52,16 +78,13 @@ def _ensure_profile_loaded():
                 profile = database.get_user_profile(email)
                 if profile:
                     st.session_state.user_profile = profile
-                    # Auto-Populate Session State for Text Inputs
                     st.session_state.from_name = get_profile_field(profile, "full_name")
-                    # FIX: Handle both 'street' and 'address_line1'
                     st.session_state.from_street = get_profile_field(profile, "address_line1") or get_profile_field(profile, "street")
                     st.session_state.from_city = get_profile_field(profile, "address_city")
                     st.session_state.from_state = get_profile_field(profile, "address_state")
                     st.session_state.from_zip = get_profile_field(profile, "address_zip")
-                    
                     st.session_state.profile_synced = True 
-                    st.rerun() # Refresh to show data
+                    st.rerun() 
             except Exception as e:
                 print(f"Profile Load Error: {e}")
 
@@ -111,7 +134,6 @@ def inject_custom_css(text_size=16):
 
 # --- HELPER FUNCTIONS ---
 def load_address_book():
-    """Fetches contacts from DB safely."""
     if not st.session_state.get("authenticated"):
         return {}
     try:
@@ -120,7 +142,6 @@ def load_address_book():
         result = {}
         for c in contacts:
             name = c.get('name', 'Unknown')
-            # Create a label like "Mom (123 Main St)"
             street = c.get('street', '')[:10]
             label = f"{name} ({street}...)"
             result[label] = c
@@ -130,27 +151,18 @@ def load_address_book():
         return {}
 
 def _save_new_contact(contact_data):
-    """Smartly saves a contact only if it doesn't exist."""
     try:
         if not st.session_state.get("authenticated"): return
-        
         user_email = st.session_state.get("user_email")
         current_book = load_address_book()
-        
-        # Simple Deduplication: Check if Name + Street matches any existing key
-        # We reconstruct the label or check the values directly
         is_new = True
         for label, existing in current_book.items():
             if (existing.get('name') == contact_data.get('name') and 
                 existing.get('street') == contact_data.get('street')):
                 is_new = False
                 break
-        
         if is_new:
-            # We assume database.add_contact exists or we use generic save
-            if hasattr(database, "add_contact"):
-                database.add_contact(user_email, contact_data)
-            elif hasattr(database, "save_contact"):
+            if hasattr(database, "save_contact"):
                 database.save_contact(user_email, contact_data)
             return True
         return False
@@ -168,20 +180,49 @@ def _handle_draft_creation(email, tier, price):
         st.session_state.current_draft_id = d_id
     return d_id
 
-# --- GLOBAL CALLBACKS ---
-def cb_select_tier(tier, price, user_email):
-    try:
-        st.query_params.clear()
-        st.session_state.locked_tier = tier
-        st.session_state.locked_price = price
-        st.session_state.app_mode = "workspace"
-        
-        if user_email:
-            _handle_draft_creation(user_email, tier, price)
+# --- CALLBACKS ---
+def cb_buy_tier(tier, base_price, user_email, is_certified=False):
+    """
+    Triggers Stripe Checkout immediately.
+    """
+    if payment_engine:
+        # Calculate final price (Base + Certified - Promo)
+        total_price = base_price
+        if is_certified:
+            total_price += 12.00
             
-    except Exception as e:
-        print(f"Draft creation warning: {e}")
-        st.session_state.app_mode = "workspace"
+        # Apply Promo
+        if "promo_val" in st.session_state:
+            total_price = max(0.0, total_price - st.session_state.promo_val)
+        
+        # Save Draft Context
+        d_id = database.save_draft(user_email, "", tier, total_price) if database else None
+        
+        # If $0 (Promo), bypass Stripe
+        if total_price <= 0:
+            st.session_state.paid_tier = tier
+            st.session_state.current_draft_id = d_id
+            st.session_state.app_mode = "workspace"
+            st.rerun()
+            return
+
+        # Stripe Link
+        url = payment_engine.create_checkout_session(
+            line_items=[{
+                "price_data": {
+                    "currency": "usd",
+                    "product_data": {"name": f"VerbaPost - {tier} {'(Certified)' if is_certified else ''}"},
+                    "unit_amount": int(total_price * 100),
+                },
+                "quantity": 1,
+            }],
+            user_email=user_email,
+            draft_id=d_id 
+        )
+        if url: 
+            st.session_state.pending_stripe_url = url
+        else:
+            st.error("Payment Gateway Error")
 
 # --- PAGE RENDERERS ---
 
@@ -199,49 +240,73 @@ def render_store_page():
     with st.expander("❓ How VerbaPost Works", expanded=False):
         st.markdown("""
         1. **Select Service:** Choose your letter tier below.
-        2. **Write:** Type or dictate your content.
-        3. **Address:** Load or enter recipient.
+        2. **Pay Securely:** We process payment first to reserve your materials.
+        3. **Write:** Type or dictate your content.
         4. **Send:** We print and mail it via USPS.
         """)
 
     st.markdown("## 📮 Choose Your Letter Service")
     
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
-    
     if mode == "Bulk Campaign":
         st.info("📢 **Campaign Mode:** Upload a CSV to send letters to hundreds of people.")
         render_campaign_uploader()
         return
 
-    # --- 3 COLUMN LAYOUT (NO SANTA, NO LEGACY HERE) ---
-    c1, c2, c3 = st.columns(3)
+    # --- PROMO & ADD-ONS ---
+    c_add, c_promo = st.columns([1, 1])
+    with c_add:
+        is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
+    with c_promo:
+        if promo_engine:
+            with st.expander("Have a Promo Code?"):
+                raw_code = st.text_input("Code", label_visibility="collapsed", placeholder="Enter Code")
+                if st.button("Apply"):
+                    valid, val = promo_engine.validate_code(raw_code)
+                    if valid:
+                        st.session_state.promo_val = val
+                        st.success(f"Applied! ${val} off")
+                        st.rerun()
+                    else: st.error(val)
+
+    discount = st.session_state.get("promo_val", 0.0)
+    extra = 12.00 if is_cert else 0.0
     
+    # Calculate Display Prices
+    p_std = max(0.0, 2.99 + extra - discount)
+    p_vin = max(0.0, 5.99 + extra - discount)
+    p_civ = max(0.0, 6.99 + extra - discount)
+
+    c1, c2, c3 = st.columns(3)
     def html_card(title, qty_text, price, desc):
         return f"""
         <div class="price-card">
             <div class="price-header">{title}</div>
             <div class="price-sub">{qty_text}</div>
-            <div class="price-tag">${price}</div>
+            <div class="price-tag">${price:.2f}</div>
             <div class="price-desc">{desc}</div>
         </div>
         """
 
-    with c1:
-        st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
-    with c2:
-        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
-    with c3:
-        st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
+    with c1: st.markdown(html_card("Standard", "ONE LETTER", p_std, "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
+    with c2: st.markdown(html_card("Vintage", "ONE LETTER", p_vin, "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
+    with c3: st.markdown(html_card("Civic", "3 LETTERS", p_civ, "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
     with b1:
-        st.button("Select Standard", key="btn_std", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
+        if st.button("Buy Standard", key="btn_std", use_container_width=True):
+            cb_buy_tier("Standard", 2.99, u_email, is_cert)
     with b2:
-        st.button("Select Vintage", key="btn_vint", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
+        if st.button("Buy Vintage", key="btn_vint", use_container_width=True):
+            cb_buy_tier("Vintage", 5.99, u_email, is_cert)
     with b3:
-        st.button("Select Civic", key="btn_civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
+        if st.button("Buy Civic", key="btn_civic", use_container_width=True):
+            cb_buy_tier("Civic", 6.99, u_email, is_cert)
+
+    if "pending_stripe_url" in st.session_state:
+        st.link_button("👉 Click Here to Complete Payment", st.session_state.pending_stripe_url, type="primary", use_container_width=True)
 
 
 def render_campaign_uploader():
@@ -258,34 +323,33 @@ def render_campaign_uploader():
         total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
         st.metric("Estimated Total", f"${total}")
         if st.button("Proceed with Campaign"):
-            with st.spinner(f"Preparing {len(contacts)} letters..."):
-                time.sleep(1)
-                st.session_state.locked_tier = "Campaign"
-                st.session_state.bulk_targets = contacts
-                st.success(f"✅ Ready!")
-                time.sleep(1)
-                st.session_state.app_mode = "workspace"
-                st.rerun()
+            st.info("Campaign mode requires custom checkout logic. (Placeholder)")
 
 def render_workspace_page():
-    # 1. AUTO-POPULATE TRIGGER
+    # --- SECURITY CHECK ---
+    paid_tier = st.session_state.get("paid_tier")
+    if not paid_tier:
+        st.error("⛔ Access Denied: Payment required.")
+        if st.button("Back to Store"):
+            st.session_state.app_mode = "store"
+            st.rerun()
+        return
+
     _ensure_profile_loaded()
-    
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
     inject_custom_css(text_size)
 
-    current_tier = st.session_state.get('locked_tier', 'Draft')
-    st.markdown(f"## 📝 Workspace: {current_tier}")
+    st.markdown(f"## 📝 Writing: {paid_tier}")
+    st.caption("✅ Payment Confirmed. Write your letter below.")
 
-    with st.expander("📍 Step 2: Addressing", expanded=True):
+    with st.expander("📍 Step 1: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC
-        if st.session_state.get("authenticated") and current_tier != "Civic":
+        # ADDRESS BOOK
+        if st.session_state.get("authenticated") and paid_tier != "Civic":
             addr_opts = load_address_book()
-            
             if addr_opts:
                 col_load, col_empty = st.columns([2, 1])
                 with col_load:
@@ -293,21 +357,18 @@ def render_workspace_page():
                     if selected_contact_label != "Select..." and selected_contact_label != st.session_state.get("last_loaded_contact"):
                         data = addr_opts[selected_contact_label]
                         st.session_state.to_name_input = data.get('name', '')
-                        # FIX: Handle both 'street' and 'address_line1'
                         st.session_state.to_street_input = data.get('street', '') or data.get('address_line1', '')
                         st.session_state.to_city_input = data.get('city', '')
                         st.session_state.to_state_input = data.get('state', '')
                         st.session_state.to_zip_input = data.get('zip_code', '') 
                         st.session_state.last_loaded_contact = selected_contact_label
                         st.rerun()
-            else:
-                st.caption("ℹ️ No saved contacts found. Add friends in your Profile to see them here.")
 
         with st.form("addressing_form"):
             col_to, col_from = st.columns(2)
             with col_to:
                 st.markdown("### To: (Recipient)")
-                if current_tier == "Civic" and civic_engine:
+                if paid_tier == "Civic" and civic_engine:
                     st.info("ℹ️ We will send 3 letters: One to your Rep, and two to your Senators.")
                     if st.form_submit_button("🏛️ Find My Representatives"):
                         temp_addr = {
@@ -349,20 +410,13 @@ def render_workspace_page():
                 c_fs.text_input("Your State", key="from_state")
                 c_fz.text_input("Your Zip", key="from_zip")
             
-            # Add Smart Save Option
-            save_to_book = False
-            if current_tier != "Civic" and st.session_state.get("authenticated"):
-                 st.caption("✅ New contacts will be automatically saved to your Address Book.")
-                 save_to_book = True
-
-            if current_tier != "Civic":
+            save_to_book = (paid_tier != "Civic" and st.session_state.get("authenticated"))
+            if paid_tier != "Civic":
                 if st.form_submit_button("💾 Save Addresses"):
-                    # CRITICAL FIX: Ensure 'street' AND 'address_line1' are both present
-                    # This redundancy prevents "missing address" errors in PostGrid or PDF.
                     st.session_state.addr_to = {
                         "name": st.session_state.to_name_input, 
                         "street": st.session_state.to_street_input,
-                        "address_line1": st.session_state.to_street_input, # Duplicate for compatibility
+                        "address_line1": st.session_state.to_street_input,
                         "city": st.session_state.to_city_input, 
                         "state": st.session_state.to_state_input, 
                         "zip_code": st.session_state.to_zip_input
@@ -370,56 +424,40 @@ def render_workspace_page():
                     st.session_state.addr_from = {
                         "name": st.session_state.from_name, 
                         "street": st.session_state.from_street, 
-                        "address_line1": st.session_state.from_street, # Duplicate for compatibility
+                        "address_line1": st.session_state.from_street,
                         "city": st.session_state.from_city, 
                         "state": st.session_state.from_state, 
                         "zip_code": st.session_state.from_zip
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # Update Draft
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
-                        to_str = str(st.session_state.addr_to)
-                        from_str = str(st.session_state.addr_from)
-                        database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
+                        database.update_draft_data(d_id, to_addr=str(st.session_state.addr_to), from_addr=str(st.session_state.addr_from))
 
-                    # Smart Address Book Save
-                    saved_msg = ""
-                    if save_to_book:
-                        was_new = _save_new_contact(st.session_state.addr_to)
-                        if was_new: saved_msg = " + Saved to Address Book"
+                    if save_to_book: _save_new_contact(st.session_state.addr_to)
 
                     if mailer:
                         with st.spinner("Validating with USPS/PostGrid..."):
                             t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
                             f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
-                            if not t_valid:
-                                err = t_data.get('error', 'Invalid Recipient Address')
-                                st.error(f"❌ Recipient Address Error: {err}")
-                            if not f_valid:
-                                err = f_data.get('error', 'Invalid Sender Address')
-                                st.error(f"❌ Sender Address Error: {err}")
                             if t_valid and f_valid:
-                                # Apply validated data but keep our dual keys
                                 st.session_state.addr_to.update(t_data)
                                 st.session_state.addr_from.update(f_data)
-                                
                                 st.session_state.addresses_saved_at = time.time()
-                                st.success(f"✅ Addresses Verified & Saved!{saved_msg}")
+                                st.success(f"✅ Addresses Verified & Saved!")
+                            else:
+                                st.error("❌ Address Verification Failed")
                     else:
                         st.session_state.addresses_saved_at = time.time()
-                        st.success(f"✅ Addresses Saved (Verification Offline){saved_msg}")
+                        st.success(f"✅ Addresses Saved (Verification Offline)")
         
-        # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
-        # Only show if timestamp exists and is recent
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
 
     st.divider()
 
     st.markdown("## ✍️ Step 3: Write Your Letter")
-    st.info("🎙️ **Voice Instructions:** Click the small microphone icon below. Speak for up to 5 minutes. Click the square 'Stop' button when finished.")
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
 
     with tab_type:
@@ -427,9 +465,8 @@ def render_workspace_page():
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
         
-        # --- NEW BUTTON LAYOUT ---
+        # RESTORED UNDO/SAVE/POLISH
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
-        
         with col_save:
              if st.button("💾 Save Draft", use_container_width=True):
                  st.session_state.letter_body = new_text
@@ -438,28 +475,24 @@ def render_workspace_page():
                      database.update_draft_data(d_id, content=new_text)
                      st.session_state.last_autosave = time.time()
                      st.toast("✅ Draft Saved Successfully")
-                 else:
-                     st.error("No draft ID found. Please refresh.")
 
         with col_polish:
             if st.button("✨ AI Polish (Professional)", use_container_width=True):
                 if new_text and ai_engine:
                     with st.spinner("Polishing..."):
-                        try:
-                            if "letter_body_history" not in st.session_state: st.session_state.letter_body_history = []
-                            st.session_state.letter_body_history.append(new_text)
-                            polished = ai_engine.refine_text(new_text, style="Professional")
-                            if polished:
-                                st.session_state.letter_body = polished
-                                st.rerun()
-                        except Exception as e: st.error(f"AI Error: {e}")
+                        if "letter_body_history" not in st.session_state: st.session_state.letter_body_history = []
+                        st.session_state.letter_body_history.append(new_text)
+                        polished = ai_engine.refine_text(new_text, style="Professional")
+                        if polished:
+                            st.session_state.letter_body = polished
+                            st.rerun()
         with col_undo:
             if "letter_body_history" in st.session_state and len(st.session_state.letter_body_history) > 0:
                 if st.button("↩️ Undo Last Change", use_container_width=True):
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
 
-        # Auto-save Logic (Background)
+        # RESTORED AUTO-SAVE
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
@@ -474,131 +507,78 @@ def render_workspace_page():
         audio_val = st.audio_input("Record", label_visibility="collapsed")
         if audio_val:
             audio_bytes = audio_val.getvalue()
-            audio_hash = hashlib.md5(audio_bytes).hexdigest()
-            if audio_hash != st.session_state.get("last_processed_audio_hash"):
-                st.info("⏳ Processing...")
-                tmp_path = f"/tmp/temp_{int(time.time())}.wav"
-                with open(tmp_path, "wb") as f: f.write(audio_bytes)
-                try:
-                    text = ai_engine.transcribe_audio(tmp_path)
-                    if text:
-                        if hasattr(ai_engine, 'enhance_transcription_for_seniors'):
-                            text = ai_engine.enhance_transcription_for_seniors(text)
-                        current = st.session_state.get("letter_body", "")
-                        st.session_state.letter_body = (current + "\n\n" + text).strip()
-                        st.session_state.last_processed_audio_hash = audio_hash
-                        st.success("✅ Transcribed! Switch to 'Type Manually' to see the text.")
+            h = hashlib.md5(audio_bytes).hexdigest()
+            if h != st.session_state.get("last_processed_audio_hash"):
+                if ai_engine:
+                    st.info("⏳ Processing...")
+                    tmp = f"/tmp/{int(time.time())}.wav"
+                    with open(tmp, "wb") as f: f.write(audio_bytes)
+                    txt = ai_engine.transcribe_audio(tmp)
+                    if txt:
+                        st.session_state.letter_body = (st.session_state.letter_body + "\n\n" + txt).strip()
+                        st.session_state.last_processed_audio_hash = h
                         st.rerun()
-                    else: st.warning("⚠️ No speech detected.")
-                except Exception as e: st.error(f"Error: {e}")
-                finally:
-                    if os.path.exists(tmp_path):
-                        try: os.remove(tmp_path)
-                        except: pass 
 
     st.divider()
     
-    if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-        if not st.session_state.get("letter_body"):
-            st.error("⚠️ Letter is empty!")
-        elif not st.session_state.get("addr_to") and current_tier != "Civic":
-            st.error("⚠️ Please save addresses first.")
-        else:
-            st.session_state.app_mode = "review"
-            st.rerun()
+    # --- FINAL SEND LOGIC (NO REVIEW PAGE) ---
+    if st.button(f"🚀 Send {paid_tier} Letter", type="primary", use_container_width=True):
+        if not new_text.strip():
+            st.error("Letter body is empty.")
+            return
+        if paid_tier != "Civic" and not st.session_state.get("addr_to"):
+            st.error("Please save addresses first.")
+            return
 
-def render_review_page():
-    tier = st.session_state.get("locked_tier", "Standard")
-    st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
-    
-    if st.button("📄 Generate PDF Proof"):
-        with st.spinner("Generating Proof..."):
-            try:
-                body = st.session_state.get("letter_body", "")
-                if tier == "Civic":
-                    std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
-                else:
-                    std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                
-                pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                
-                import base64
-                b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
-            except Exception as e: st.error(f"PDF Error: {e}")
-
-    st.divider()
-    
-    # --- PRICING LOGIC ---
-    is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
-    
-    # Calculate Base Total
-    total = pricing_engine.calculate_total(tier, is_certified=is_cert)
-    
-    # Ensure tier wasn't reset to standard if price mismatches
-    if tier == "Vintage" and total < 5.00:
-        total = 5.99 + (12.00 if is_cert else 0.0)
-    elif tier == "Santa" and total < 9.00:
-        total = 9.99 + (12.00 if is_cert else 0.0)
-
-    discount = 0.0
-    
-    # --- PROMO CODE LOGIC ---
-    if promo_engine:
-        with st.expander("🎟️ Have a Promo Code?"):
-            raw_code = st.text_input("Enter Code", key="promo_input_field")
-            code = raw_code.upper().strip() if raw_code else ""
-            
-            if st.button("Apply Code"):
-                if not code:
-                    st.error("Please enter a code.")
-                else:
-                    result = promo_engine.validate_code(code)
-                    if isinstance(result, tuple) and len(result) == 2:
-                        valid, val = result
-                    else:
-                        valid, val = False, "Engine Error"
-
-                    if valid:
-                        if val > 0:
-                            st.session_state.applied_promo = code
-                            st.session_state.promo_val = val
-                            st.success(f"Applied! ${val} off")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.warning("Code is valid but has $0.00 value. Please check with support.")
-                    else: st.error(f"Invalid Code: {val}")
-                    
-    if st.session_state.get("applied_promo"):
-        discount = st.session_state.get("promo_val", 0)
-        st.markdown(f"**Item Price:** ${total:.2f}")
-        total = max(0, total - discount)
-        st.info(f"Discount Applied: -${discount:.2f}")
-    
-    st.markdown(f"### Total: ${total:.2f}")
-
-    if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+        # Prep Data
+        to_addr = st.session_state.get("addr_to")
+        from_addr = st.session_state.get("addr_from")
         u_email = st.session_state.get("user_email")
-        d_id = st.session_state.get("current_draft_id")
-        if d_id and database:
-            database.update_draft_data(d_id, price=total, status="Pending Payment")
-        url = payment_engine.create_checkout_session(
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {"name": f"VerbaPost - {tier}"},
-                    "unit_amount": int(total * 100),
-                },
-                "quantity": 1,
-            }],
-            user_email=u_email,
-            draft_id=d_id
-        )
-        if url: st.link_button("👉 Click to Pay", url)
-        else: st.error("Payment Gateway Error")
+
+        # GENERATE PDF
+        pdf_bytes = b""
+        if letter_format:
+            pdf_bytes = letter_format.create_pdf(new_text, to_addr, from_addr, tier=paid_tier)
+
+        tracking_ref = "PENDING"
+        
+        with st.spinner("Processing..."):
+            
+            # --- PATH A: VINTAGE (MANUAL) ---
+            if paid_tier == "Vintage":
+                tracking_ref = f"VINTAGE-{int(time.time())}"
+                d_id = st.session_state.get("current_draft_id")
+                if d_id and database:
+                    database.update_draft_data(d_id, status="Pending Manual Fulfillment", content=new_text, tracking_number=tracking_ref)
+                
+                # Alerts
+                _send_alert_email("support@verbapost.com", f"ACTION REQUIRED: Vintage Order {tracking_ref}", f"<p>User: {u_email}</p>")
+                _send_alert_email(u_email, "Receipt: Your Vintage Letter", f"<h3>Order Received</h3><p>Ref: {tracking_ref}</p>")
+
+            # --- PATH B: AUTOMATED (Standard/Civic) ---
+            else:
+                if mailer:
+                    tracking_ref = mailer.send_letter(pdf_bytes, to_addr, from_addr, description=f"VerbaPost {paid_tier}", tier=paid_tier)
+                
+                if tracking_ref:
+                    d_id = st.session_state.get("current_draft_id")
+                    if d_id and database:
+                        database.update_draft_data(d_id, status="Sent", content=new_text, tracking_number=tracking_ref)
+                    
+                    _send_alert_email(u_email, f"Receipt: Order {tracking_ref}", f"<h3>Sent!</h3><p>Tracking: {tracking_ref}</p>")
+            
+            if tracking_ref:
+                st.success(f"✅ Success! Reference: {tracking_ref}")
+                st.balloons()
+                if pdf_bytes:
+                    st.download_button("⬇️ Download Copy", pdf_bytes, "letter_copy.pdf", "application/pdf")
+                
+                if st.button("Start New Letter"):
+                    st.session_state.paid_tier = None
+                    st.session_state.app_mode = "store"
+                    st.rerun()
+            else:
+                st.error("❌ Fulfillment Error.")
 
 # --- ROUTER CONTROLLER ---
 def render_application():
@@ -607,28 +587,18 @@ def render_application():
 
     if mode == "splash":
         if ui_splash: ui_splash.render_splash_page()
-        else: st.error("Splash missing")
     elif mode == "login":
         if ui_login: ui_login.render_login_page()
-        else: st.error("Login missing")
     elif mode == "store":
         render_store_page()
     elif mode == "heirloom": 
         if ui_heirloom: ui_heirloom.render_dashboard()
-        else: st.error("Heirloom Module Missing")
     elif mode == "workspace":
         render_workspace_page()
-    elif mode == "review":
-        render_review_page()
     elif mode == "admin":
         if ui_admin: ui_admin.render_admin_page()
-        else: st.error("Admin missing")
-    elif mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
-        else: st.error("Legal missing")
     elif mode == "legacy":
         if ui_legacy: ui_legacy.render_legacy_page()
-        else: st.error("Legacy missing")
     else:
         st.session_state.app_mode = "splash"
         st.rerun()
