@@ -204,7 +204,7 @@ def cb_buy_tier(tier, base_price, user_email, is_certified=False):
             st.session_state.current_draft_id = d_id
             st.session_state.app_mode = "workspace"
             
-            # --- FIX: CLEAR PROMO SO IT DOESN'T STICK ---
+            # --- CLEAR PROMO SO IT DOESN'T STICK ---
             if "promo_val" in st.session_state: del st.session_state.promo_val
             
             st.rerun()
@@ -234,29 +234,49 @@ def render_store_page():
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
     
-    # ... (Login check remains) ...
+    # --- RESET STATE ON ENTRY ---
+    if "paid_tier" in st.session_state: del st.session_state.paid_tier
+    if "pending_stripe_url" in st.session_state: del st.session_state.pending_stripe_url
+    
+    if not u_email:
+        st.warning("⚠️ Session Expired. Please log in to continue.")
+        if st.button("Go to Login"):
+            st.session_state.app_mode = "login"
+            st.rerun()
+        return
 
-    # [CRITICAL FIX] CHECK FOR UNFINISHED PAID DRAFTS
+    # [CRITICAL FIX] CHECK FOR UNFINISHED PAID DRAFTS (Resume Feature)
     if database:
-        # Simple query to find the most recent "Paid/Writing" draft
-        with database.get_db_session() as session:
-            # Note: We use the ORM model here
-            draft = session.query(database.LetterDraft).filter(
-                database.LetterDraft.user_email == u_email,
-                database.LetterDraft.status == "Paid/Writing"
-            ).order_by(database.LetterDraft.created_at.desc()).first()
-            
-            if draft:
-                st.info(f"👋 You have a prepaid **{draft.tier}** letter waiting!")
-                if st.button("Resume Writing"):
-                    st.session_state.paid_tier = draft.tier
-                    st.session_state.current_draft_id = draft.id
-                    st.session_state.letter_body = draft.content # Restore text if saved
-                    st.session_state.app_mode = "workspace"
-                    st.rerun()
-                st.markdown("---")
+        try:
+            with database.get_db_session() as session:
+                # Find most recent draft marked as Paid/Writing
+                draft = session.query(database.LetterDraft).filter(
+                    database.LetterDraft.user_email == u_email,
+                    database.LetterDraft.status == "Paid/Writing"
+                ).order_by(database.LetterDraft.created_at.desc()).first()
+                
+                if draft:
+                    st.info(f"👋 **Welcome Back!** You have a prepaid **{draft.tier}** letter waiting.")
+                    if st.button("Resume Writing"):
+                        st.session_state.paid_tier = draft.tier
+                        st.session_state.current_draft_id = draft.id
+                        st.session_state.letter_body = draft.content if draft.content else ""
+                        st.session_state.app_mode = "workspace"
+                        st.rerun()
+                    st.markdown("---")
+        except Exception as e:
+            # Silently fail if DB is busy, user can just start new
+            print(f"Resume Check Error: {e}")
 
-    st.markdown("## 📮 Select & Pay")
+    with st.expander("❓ How VerbaPost Works", expanded=False):
+        st.markdown("""
+        1. **Select Service:** Choose your letter tier below.
+        2. **Pay Securely:** We process payment first to reserve your materials.
+        3. **Write:** Type or dictate your content.
+        4. **Send:** We print and mail it via USPS.
+        """)
+
+    st.markdown("## 📮 Choose Your Letter Service")
     
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
     if mode == "Bulk Campaign":
@@ -444,7 +464,8 @@ def render_workspace_page():
                     
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
-                        database.update_draft_data(d_id, to_addr=str(st.session_state.addr_to), from_addr=str(st.session_state.addr_from))
+                        # Ensure we keep the Paid/Writing status
+                        database.update_draft_data(d_id, to_addr=str(st.session_state.addr_to), from_addr=str(st.session_state.addr_from), status="Paid/Writing")
 
                     if save_to_book: _save_new_contact(st.session_state.addr_to)
 
@@ -473,6 +494,11 @@ def render_workspace_page():
 
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
+        # Resume Text if empty
+        if "letter_body" not in st.session_state and st.session_state.get("current_draft_id"):
+             # Optional: re-fetch from DB if needed, but render_store_page should have set it
+             pass
+
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
         
@@ -483,7 +509,7 @@ def render_workspace_page():
                  st.session_state.letter_body = new_text
                  d_id = st.session_state.get("current_draft_id")
                  if d_id and database:
-                     database.update_draft_data(d_id, content=new_text)
+                     database.update_draft_data(d_id, content=new_text, status="Paid/Writing")
                      st.session_state.last_autosave = time.time()
                      st.toast("✅ Draft Saved Successfully")
 
@@ -503,13 +529,13 @@ def render_workspace_page():
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
 
-        # RESTORED AUTO-SAVE
+        # [CRITICAL FIX] ROBUST AUTO-SAVE (Maintains "Paid/Writing" status)
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
                 d_id = st.session_state.get("current_draft_id")
-                if d_id:
-                    database.update_draft_data(d_id, content=new_text)
+                if d_id and database:
+                    database.update_draft_data(d_id, content=new_text, status="Paid/Writing")
                     st.session_state.last_autosave = time.time()
                     st.caption("💾 Auto-saved")
 
