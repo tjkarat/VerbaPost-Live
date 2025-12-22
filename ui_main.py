@@ -1,7 +1,3 @@
-{
-type: uploaded file
-fileName: ui_main.py
-fullContent:
 import streamlit as st
 import time
 import os
@@ -107,10 +103,6 @@ def inject_custom_css(text_size=16):
         .stTabs [aria-selected="true"] p {{ color: white !important; }}
         .instruction-box {{ background-color: #FEF3C7; border-left: 6px solid #F59E0B; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #000; }}
         
-        /* FIX: HIDE 'None' ALERTS */
-        .stAlert:has(div.stMarkdown p:contains("None")) {{ display: none !important; }}
-        div[data-testid="stAlert"] > div > div > p:contains("None") {{ display: none !important; }}
-        
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
@@ -155,14 +147,10 @@ def _save_new_contact(contact_data):
         
         if is_new:
             # We assume database.add_contact exists or we use generic save
-            # Fallback to update_contact or similar if specific add isn't exposed
             if hasattr(database, "add_contact"):
                 database.add_contact(user_email, contact_data)
             elif hasattr(database, "save_contact"):
                 database.save_contact(user_email, contact_data)
-            else:
-                # Fallback if no specific method, though add_contact is standard
-                pass
             return True
         return False
     except Exception as e:
@@ -224,7 +212,8 @@ def render_store_page():
         render_campaign_uploader()
         return
 
-    c1, c2, c3, c4 = st.columns(4)
+    # --- 3 COLUMN LAYOUT (NO SANTA, NO LEGACY HERE) ---
+    c1, c2, c3 = st.columns(3)
     
     def html_card(title, qty_text, price, desc):
         return f"""
@@ -242,21 +231,16 @@ def render_store_page():
         st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
     with c3:
         st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
-    with c4:
-        st.markdown(html_card("Santa", "ONE LETTER", "9.99", "North Pole Postmark. Golden Ticket."), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True) 
-    b1, b2, b3, b4 = st.columns(4)
+    b1, b2, b3 = st.columns(3)
     
-    # Passing Tier Names to Callback with UNIQUE KEYS to prevent state loss
     with b1:
         st.button("Select Standard", key="btn_std", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
         st.button("Select Vintage", key="btn_vint", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
     with b3:
         st.button("Select Civic", key="btn_civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
-    with b4:
-        st.button("Select Santa", key="btn_santa", use_container_width=True, on_click=cb_select_tier, args=("Santa", 9.99, u_email))
 
 
 def render_campaign_uploader():
@@ -419,6 +403,8 @@ def render_workspace_page():
                         st.session_state.addresses_saved_at = time.time()
                         st.success(f"✅ Addresses Saved (Verification Offline){saved_msg}")
         
+        # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
+        # Only show if timestamp exists and is recent
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
 
@@ -644,4 +630,3 @@ def render_main():
 
 if __name__ == "__main__":
     render_main()
-}
