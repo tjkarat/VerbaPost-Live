@@ -32,24 +32,30 @@ def validate_code(code):
 
             # 2. Check usage count (DEFENSIVE: Handle missing table)
             if hasattr(database, 'PromoLog'):
-                usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
-                
-                if usage_count >= promo.max_uses:
-                    logger.warning(f"Promo code {code} exhausted ({usage_count}/{promo.max_uses})")
-                    return False, "Limit Reached"
+                try:
+                    usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar() or 0
+                    
+                    if promo.max_uses and usage_count >= promo.max_uses:
+                        logger.warning(f"Promo code {code} exhausted ({usage_count}/{promo.max_uses})")
+                        return False, "Limit Reached"
+                except Exception:
+                    logger.warning("Error checking usage count. Allowing.")
             else:
                 logger.warning("PromoLog table missing in database. Skipping usage limit check.")
 
             # 3. Return success tuple
-            # FIX: Eagerly look for ANY non-zero value
+            # FIX: Eagerly look for ANY non-zero value from DB
             val_a = getattr(promo, 'value', 0.0)
             val_b = getattr(promo, 'discount_amount', 0.0)
             
             final_val = val_a if val_a > 0 else val_b
             
+            # --- LOGIC UPDATE: ZERO OUT COST ---
+            # If the DB value is 0.0 (default) or low, we override it to 50.00.
+            # This ensures it covers the cost of any letter ($15.99) or sub ($19.00),
+            # effectively making the total $0.00.
             if final_val <= 0:
-                 # If both are 0, use fallback default
-                 final_val = 5.00
+                 final_val = 50.00
             
             return True, float(final_val)
             
@@ -73,9 +79,10 @@ def log_usage(code, user_email):
             promo = db.query(database.PromoCode).filter(database.PromoCode.code == code).first()
             if not promo: return False
 
-            current_usage = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar()
+            current_usage = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == code).scalar() or 0
             
-            if current_usage < promo.max_uses:
+            # Only log if we haven't hit the limit (or if no limit exists)
+            if promo.max_uses is None or current_usage < promo.max_uses:
                 log_entry = database.PromoLog(
                     code=code,
                     user_email=user_email,
@@ -90,9 +97,10 @@ def log_usage(code, user_email):
         logger.error(f"Failed to log usage for {code}: {e}")
         return False
 
-def create_code(code, max_uses=1, discount_amount=5.00):
+def create_code(code, max_uses=1, discount_amount=50.00):
     """
     Admin function to generate new promo codes.
+    Default discount set to 50.00 to ensure 100% off for standard items.
     """
     if not code: return False, "Code cannot be empty"
     
@@ -118,6 +126,7 @@ def create_code(code, max_uses=1, discount_amount=5.00):
                 new_promo.discount_amount = discount_amount
                 
             db.add(new_promo)
+            db.commit() # Ensure commit happens
             
         return True, f"✅ Created code: {code} (Limit: {max_uses})"
         
@@ -137,15 +146,19 @@ def get_all_codes_with_usage():
             for p in promos:
                 usage_count = 0
                 if hasattr(database, 'PromoLog'):
-                     usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == p.code).scalar()
+                     usage_count = db.query(func.count(database.PromoLog.id)).filter(database.PromoLog.code == p.code).scalar() or 0
+                
+                # Safe attribute access
+                limit = getattr(p, 'max_uses', 0) or 0
+                remaining = (limit - usage_count) if limit else "∞"
                 
                 results.append({
                     "Code": p.code,
                     "Used": usage_count,
-                    "Max Limit": p.max_uses,
-                    "Remaining": p.max_uses - usage_count,
+                    "Max Limit": limit,
+                    "Remaining": remaining,
                     "Active": p.active,
-                    "Created At": p.created_at.strftime("%Y-%m-%d")
+                    "Created At": p.created_at.strftime("%Y-%m-%d") if p.created_at else "?"
                 })
             return results
             
