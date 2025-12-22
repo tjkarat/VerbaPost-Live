@@ -40,7 +40,7 @@ def _send_receipt(user_email, subject, body_html):
 
 # --- HELPER: PAYWALL RENDERER ---
 def render_paywall():
-    """Renders the Annual Pass paywall with expanded benefits text."""
+    """Renders the Digital Vault Annual Pass paywall."""
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
@@ -134,11 +134,12 @@ def render_paywall():
             </div>
 
             <div class="feature-list">
+                <div class="feature-item"><span class="check">✔</span> <b>48 Story Recording Sessions:</b> Capture a new memory every week.</div>
+                <div class="feature-item"><span class="check">✔</span> <b>Protected Vault:</b> Full access to edit, copy, and export your history.</div>
                 <div class="feature-item"><span class="check">✔</span> <b>48 Keepsake Letters:</b> Mailed on heavy cream paper.</div>
                 <div class="feature-item"><span class="check">✔</span> <b>Automated Interviews:</b> We call your loved ones for you.</div>
                 <div class="feature-item"><span class="check">✔</span> <b>AI Transcription:</b> Audio converted to text automatically.</div>
-                <div class="feature-item"><span class="check">✔</span> <b>Digital Vault:</b> Secure storage for all recordings and stories.</div>
-                <div class="feature-item"><span class="check">✔</span> <b>Family Access:</b> Share the dashboard with siblings or children.</div>
+                <div class="feature-item"><span class="check">✔</span> <b>Permanent Storage:</b> We hold the legacy so you don't have to.</div>
             </div>
         </div>
     """)
@@ -180,9 +181,10 @@ def render_paywall():
                     if valid:
                         user_email = st.session_state.get("user_email")
                         if database:
-                            database.update_user_credits(user_email, 48)
+                            # Grant a small trial limit (1 credit/session) for promo codes
+                            database.update_user_credits(user_email, 1)
                             if "user_profile" in st.session_state:
-                                st.session_state.user_profile["credits"] = 48
+                                st.session_state.user_profile["credits"] = 1
                         st.balloons()
                         st.success("Access Granted! Code Redeemed.")
                         time.sleep(1)
@@ -222,7 +224,7 @@ def render_dashboard():
     with col_status: 
         st.metric("Annual Letter Credits", credits)
 
-    # --- THE GATE ---
+    # --- THE GATE (Vault-First Protection) ---
     if credits <= 0:
         render_paywall()
         return
@@ -287,6 +289,11 @@ def render_dashboard():
             st.warning("⚠️ **Wait!** You must complete **Step 1** in the Settings tab before you can start an interview.")
             st.stop()
 
+        # VAULT CHOKE POINT: Limit recording sessions
+        if credits <= 0:
+            st.warning("🔒 **Recorder Locked:** You have reached your trial limit. Purchase an Annual Pass to ask more questions.")
+            st.stop()
+
         st.markdown("""
         <div style="background-color: #f0f7ff; border-left: 5px solid #007bff; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
         <b>How to perform an interview:</b><br>
@@ -327,8 +334,18 @@ def render_dashboard():
                         st.info("Please wait for your loved one to finish speaking before checking the Inbox.")
                     else: st.error(f"Call Error: {err}")
 
-    # --- TAB C: INBOX ---
+    # --- TAB C: INBOX (Story Protection) ---
     with tab_inbox:
+        # PROTECT FROM COPY-PASTE (CSS INJECTION)
+        st.markdown("""
+        <style>
+        .stTextArea textarea {
+            user-select: none; /* Block copying */
+            -webkit-user-select: none;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
         st.markdown("### 📥 Captured Stories")
         st.caption("New recordings are automatically transcribed and saved here.")
         
@@ -357,6 +374,12 @@ def render_dashboard():
             status_color = "green" if d_status == "Draft" else "blue"
             
             with st.expander(f"📜 Story from {d.get('created_at')} ({d_status})", expanded=(d_status == "Draft")):
+                # VAULT PROTECTION: Block viewing/editing if credits exhausted
+                if credits <= 0:
+                    st.error("🔒 **Story Locked:** Upgrade to the Annual Pass to read the full transcript, edit details, or download copies.")
+                    st.caption(f"Snippet: {d.get('content', '')[:100]}...")
+                    continue
+
                 st.markdown("**Transcript Editor**")
                 txt = st.text_area("Review and edit the transcription here.", value=d.get('content'), height=300, key=f"edit_{d_id}")
                 
@@ -390,7 +413,6 @@ def render_dashboard():
                         if st.button("🚀 Send Keepsake Mail", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
                                 with st.spinner("Preparing Mailer..."):
-                                    # [Logic to call mailer and decrement credits]
                                     if database:
                                         database.update_user_credits(user_email, credits - 1)
                                         database.update_draft_data(d_id, status="Sent")
