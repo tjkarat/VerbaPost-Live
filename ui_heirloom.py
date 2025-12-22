@@ -218,13 +218,12 @@ def render_dashboard():
     p_phone = profile.get("parent_phone") 
     
     # ---------------------------------------------------------
-    # 1. PAGE TITLE & HEADER (UPDATED)
+    # 1. PAGE TITLE & HEADER
     # ---------------------------------------------------------
     col_title, col_status = st.columns([3, 1])
     with col_title: 
         st.title("The Family Archive")
         st.markdown("**Preserve your loved one’s voice, stories, and memories—forever.**")
-        st.caption("A simple phone call today becomes a treasured family keepsake tomorrow.")
     
     with col_status: 
         st.metric("Credits Remaining", credits)
@@ -233,93 +232,40 @@ def render_dashboard():
         render_paywall()
         return
 
-    # --- REORDERED TABS: Settings First ---
-    tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & How-To", "📞 Start Interview", "📥 Stories (Inbox)"])
+    # --- TABS ---
+    tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & Setup", "📞 Start Interview", "📥 Stories (Inbox)"])
 
     # --- TAB A: SETTINGS & INSTRUCTIONS ---
     with tab_settings:
-        
-        # ---------------------------------------------------------
-        # 2. ACCORDION: HOW IT WORKS (UPDATED)
-        # ---------------------------------------------------------
-        with st.expander("📖 How the Family Archive Works (Simple & Stress-Free)", expanded=True):
-            # 3. MAIN WELCOME COPY
-            st.markdown("""
-            ### Welcome to your Family Archive
-            This is the easiest way to preserve the stories, memories, and voice of someone you love—without requiring them to use a computer, smartphone, or app.
-            
-            **If they can answer a phone call, they can be part of your family’s history.**
-            
-            VerbaPost captures real conversations, turns them into written stories, and preserves them as lasting keepsakes your family can return to for generations.
-            """)
-            
-            st.divider()
-
-            # 4. PROCESS SECTION (PLAIN ENGLISH)
-            st.markdown("""
-            ### How It Works (In Plain English)
-            
-            **1. Add your loved one** Enter their name and phone number. That’s it—no logins, no apps, no setup for them.
-
-            **2. Choose a question** Pick from thoughtful, guided prompts—or write your own.  
-            *Examples: “What was your childhood home like?” or “What’s a lesson you learned the hard way?”*
-
-            **3. We call them** At the click of a button, we place a phone call. They hear the question, speak freely, and hang up when finished.
-
-            **4. Their story is preserved** We automatically transcribe the conversation and save it to your private Family Archive.
-
-            **5. Turn it into a keepsake** Edit the story, share it with family, or mail it as a beautiful physical letter—something real you can hold onto.
-            """)
-            
-            st.divider()
-
-            # 5. EMOTIONAL ANCHOR
-            st.info("""
-            **Why families use the Family Archive** Because one day, these stories won’t be possible to capture.  
-            Voices fade. Details are forgotten. Memories disappear.  
-            This gives you a way to say, **"I’m glad we saved this."**
-            """)
-        
-        st.divider()
-        
-        # ---------------------------------------------------------
-        # 6. SETTINGS HEADER (UPDATED)
-        # ---------------------------------------------------------
-        st.markdown("### ⚙️ Getting Set Up (Takes Less Than a Minute)")
-
-        # 7. PHONE NUMBER EXPLANATION (UPDATED)
-        st.warning("""
-        **⚠️ Why we ask for their phone number** We use your loved one’s phone number only to place and identify recording calls for your Family Archive.  
-        • No spam  
-        • No sales calls  
-        • No sharing—ever  
-        This number ensures their stories are safely captured and correctly saved to your family’s private archive.
-        """)
+        st.markdown("### ⚙️ Account Setup")
+        st.info("ℹ️ **Important:** We need to know who to call (the interviewee) and where to mail the finished letters (you).")
 
         c_parent, c_user = st.columns(2)
         
         with c_parent:
-            st.markdown("#### 👵 Parent/Interviewee Details")
+            st.markdown("#### Step 1: Who are we interviewing?")
+            st.caption("We will call this person to record stories.")
             with st.form("settings_parent"):
                 curr_p_name = profile.get("parent_name", "")
                 curr_p_phone = profile.get("parent_phone", "")
                 
-                new_p_name = st.text_input("Their Name", value=curr_p_name, placeholder="e.g. Grandma")
+                new_p_name = st.text_input("Their Name (e.g. Grandma)", value=curr_p_name)
                 new_p_phone = st.text_input("Their Phone Number", value=curr_p_phone, placeholder="e.g. 615-555-1234")
                 
-                if st.form_submit_button("Save Parent Info"):
+                if st.form_submit_button("Save Interviewee"):
                     if database:
                         success = database.update_heirloom_settings(user_email, new_p_name, new_p_phone)
                         if success:
                             st.session_state.user_profile['parent_name'] = new_p_name
                             st.session_state.user_profile['parent_phone'] = new_p_phone
-                            st.success("✅ Settings Saved!")
+                            st.success("✅ Saved!")
                             time.sleep(1)
                             st.rerun()
                         else: st.error("Database Error")
 
         with c_user:
-            st.markdown("#### 📬 Your Mailing Address")
+            st.markdown("#### Step 2: Where should we mail letters?")
+            st.caption("When you click 'Send', the physical letter goes here.")
             with st.form("settings_address"):
                 curr_name = profile.get("full_name", "")
                 curr_street = profile.get("address_line1", "")
@@ -348,7 +294,7 @@ def render_dashboard():
                                 "address_state": n_state,
                                 "address_zip": n_zip
                             })
-                            st.success("Address Updated!")
+                            st.success("✅ Address Updated!")
                             st.rerun()
                         else: st.error("Update Failed")
 
@@ -356,12 +302,8 @@ def render_dashboard():
     with tab_int:
         st.markdown("### 🎙️ The Remote Interviewer")
         
-        # 9. MICROCOPY SUGGESTION
-        st.caption("Your loved one doesn’t need to prepare—just answer honestly and speak from the heart.")
-        st.markdown("---")
-        
         if not p_phone:
-            st.warning("⚠️ Please complete the **Setup** tab first.")
+            st.warning("⚠️ Please complete **Step 1** in the Settings tab to add a phone number.")
             st.stop()
 
         # 1. TOPIC
@@ -393,10 +335,9 @@ def render_dashboard():
                     st.error(msg)
                 elif ai_engine:
                     with st.spinner(f"Dialing {p_phone}..."):
-                        # Ensure we trigger outbound call
                         sid, err = ai_engine.trigger_outbound_call(
                             p_phone, 
-                            "+16156567667", # Configured Twilio Number
+                            "+16156567667",
                             parent_name=profile.get("parent_name", "Mom"), 
                             topic=final_topic
                         )
@@ -408,7 +349,7 @@ def render_dashboard():
 
         with col_later:
             st.markdown("#### Option B: Schedule for Later")
-            st.info("ℹ️ **How Scheduling Works:** Choose a date and time below. We will send **YOU** (the user) an email reminder at that time. You can then log in and trigger the call manually when you know they are available.")
+            st.info("ℹ️ Choose a date/time. We will email **YOU** a reminder to trigger the call.")
             
             d = st.date_input("Date")
             t = st.time_input("Time")
@@ -423,9 +364,8 @@ def render_dashboard():
     # --- TAB C: INBOX ---
     with tab_inbox:
         st.markdown("### 📥 Your Story Inbox")
-        st.info("Click 'Refresh' to look for new calls. If a call is finished, the text will appear below.")
         
-        if st.button("🔄 Refresh Stories"):
+        if st.button("🔄 Check for New Recordings"):
             if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
             elif ai_engine:
@@ -438,7 +378,6 @@ def render_dashboard():
                         st.rerun()
                     else: 
                         st.warning(f"No new recordings found. ({err})")
-                        st.caption("Note: Calls must be answered and recorded to appear here.")
         
         st.divider()
 
@@ -459,29 +398,55 @@ def render_dashboard():
             status_icon = "🟢" if d_status == "Draft" else "✅ Sent"
             
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
-                new_text = st.text_area("Edit Transcript", value=d_content, height=250, key=f"txt_{d_id}")
                 
-                c_save, c_send = st.columns([1, 4])
+                # --- EDITING AREA ---
+                new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{d_id}")
+                
+                c_save, c_send = st.columns([1, 1])
                 with c_save:
-                    if st.button("💾 Save", key=f"save_{d_id}"):
+                    if st.button("💾 Save Changes", key=f"save_{d_id}", use_container_width=True):
                         if database: database.update_draft_data(d_id, content=new_text)
                         st.toast("Saved changes.")
                 
-                with c_send:
-                    if d_status == "Draft":
-                        if st.button("📮 Send Mail (Costs 1 Credit)", key=f"send_{d_id}", type="primary"):
+                st.divider()
+
+                # --- MAILING SECTION ---
+                if d_status == "Draft":
+                    st.markdown("#### 📮 Mail this Story")
+                    
+                    # 1. Retrieve Addresses
+                    recipient_name = profile.get("full_name", "")
+                    recipient_street = profile.get("address_line1", "")
+                    recipient_city = profile.get("address_city", "")
+                    recipient_state = profile.get("address_state", "")
+                    recipient_zip = profile.get("address_zip", "")
+                    
+                    sender_name = profile.get("parent_name", "The Family Archive")
+                    
+                    # 2. Validation / Flight Check
+                    if not recipient_street or not recipient_city:
+                        st.warning("⚠️ **Missing Address:** Go to the 'Settings' tab and fill out 'Where should we mail letters?' before sending.")
+                    else:
+                        st.info(f"""
+                        **Flight Check:**
+                        • **From:** {sender_name}
+                        • **To:** {recipient_name}, {recipient_street}
+                        • **Cost:** 1 Credit (Balance: {credits})
+                        """)
+                        
+                        # 3. Send Action
+                        if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
                                 if address_standard:
                                     std_to = address_standard.StandardAddress(
-                                        name=profile.get("full_name", "Valued Member"), 
-                                        street=profile.get("address_line1", ""), 
-                                        city=profile.get("address_city", ""),
-                                        state=profile.get("address_state", ""),
-                                        zip_code=profile.get("address_zip", "")
+                                        name=recipient_name, 
+                                        street=recipient_street, 
+                                        city=recipient_city,
+                                        state=recipient_state,
+                                        zip_code=recipient_zip
                                     )
-                                    p_name = profile.get("parent_name", "The Family Archive")
                                     std_from = address_standard.StandardAddress(
-                                        name=p_name, 
+                                        name=sender_name, 
                                         street="VerbaPost Archive Ctr", 
                                         city="Nashville", 
                                         state="TN", 
@@ -520,10 +485,10 @@ def render_dashboard():
                                             else: st.error("Mailing API Failed.")
                                     except Exception as e: st.error(f"System Error: {e}")
                                 else: st.error("System modules missing.")
-                            else: st.error("Insufficient Credits.")
-                    else:
-                        st.info(f"Tracking: {draft.get('tracking_number', 'N/A')}")
+                            else: st.error("Insufficient Credits. Please top up.")
+                else:
+                    st.success(f"Sent! Tracking Number: {draft.get('tracking_number', 'N/A')}")
 
-    # 10. ONE-LINE VALUE REMINDER (FOOTER)
+    # FOOTER
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     st.markdown("<div style='text-align: center; color: #888; font-style: italic;'>VerbaPost helps families save voices, stories, and moments—before they’re gone.</div>", unsafe_allow_html=True)
