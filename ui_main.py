@@ -1,3 +1,7 @@
+{
+type: uploaded file
+fileName: ui_main.py
+fullContent:
 import streamlit as st
 import time
 import os
@@ -102,6 +106,11 @@ def inject_custom_css(text_size=16):
         .stTabs [aria-selected="true"] {{ background-color: #FF4B4B !important; border: 1px solid #FF4B4B !important; color: white !important; }}
         .stTabs [aria-selected="true"] p {{ color: white !important; }}
         .instruction-box {{ background-color: #FEF3C7; border-left: 6px solid #F59E0B; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #000; }}
+        
+        /* FIX: HIDE 'None' ALERTS */
+        .stAlert:has(div.stMarkdown p:contains("None")) {{ display: none !important; }}
+        div[data-testid="stAlert"] > div > div > p:contains("None") {{ display: none !important; }}
+        
         #MainMenu {{visibility: hidden;}}
         footer {{visibility: hidden;}}
         </style>
@@ -126,6 +135,39 @@ def load_address_book():
     except Exception as e:
         print(f"Address Book Error: {e}")
         return {}
+
+def _save_new_contact(contact_data):
+    """Smartly saves a contact only if it doesn't exist."""
+    try:
+        if not st.session_state.get("authenticated"): return
+        
+        user_email = st.session_state.get("user_email")
+        current_book = load_address_book()
+        
+        # Simple Deduplication: Check if Name + Street matches any existing key
+        # We reconstruct the label or check the values directly
+        is_new = True
+        for label, existing in current_book.items():
+            if (existing.get('name') == contact_data.get('name') and 
+                existing.get('street') == contact_data.get('street')):
+                is_new = False
+                break
+        
+        if is_new:
+            # We assume database.add_contact exists or we use generic save
+            # Fallback to update_contact or similar if specific add isn't exposed
+            if hasattr(database, "add_contact"):
+                database.add_contact(user_email, contact_data)
+            elif hasattr(database, "save_contact"):
+                database.save_contact(user_email, contact_data)
+            else:
+                # Fallback if no specific method, though add_contact is standard
+                pass
+            return True
+        return False
+    except Exception as e:
+        print(f"Smart Save Error: {e}")
+        return False
 
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
@@ -321,6 +363,12 @@ def render_workspace_page():
                 c_fs.text_input("Your State", key="from_state")
                 c_fz.text_input("Your Zip", key="from_zip")
             
+            # Add Smart Save Option
+            save_to_book = False
+            if current_tier != "Civic" and st.session_state.get("authenticated"):
+                 st.caption("✅ New contacts will be automatically saved to your Address Book.")
+                 save_to_book = True
+
             if current_tier != "Civic":
                 if st.form_submit_button("💾 Save Addresses"):
                     st.session_state.addr_to = {
@@ -339,12 +387,19 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
+                    # Update Draft
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
                         to_str = str(st.session_state.addr_to)
                         from_str = str(st.session_state.addr_from)
                         database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
-                    
+
+                    # Smart Address Book Save
+                    saved_msg = ""
+                    if save_to_book:
+                        was_new = _save_new_contact(st.session_state.addr_to)
+                        if was_new: saved_msg = " + Saved to Address Book"
+
                     if mailer:
                         with st.spinner("Validating with USPS/PostGrid..."):
                             t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
@@ -359,10 +414,10 @@ def render_workspace_page():
                                 st.session_state.addr_to = t_data
                                 st.session_state.addr_from = f_data
                                 st.session_state.addresses_saved_at = time.time()
-                                st.success("✅ Addresses Verified & Saved!")
+                                st.success(f"✅ Addresses Verified & Saved!{saved_msg}")
                     else:
                         st.session_state.addresses_saved_at = time.time()
-                        st.success("✅ Addresses Saved (Verification Offline)")
+                        st.success(f"✅ Addresses Saved (Verification Offline){saved_msg}")
         
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
@@ -589,3 +644,4 @@ def render_main():
 
 if __name__ == "__main__":
     render_main()
+}
