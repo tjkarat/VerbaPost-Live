@@ -122,6 +122,7 @@ def render_paywall():
     </style>
     """, unsafe_allow_html=True)
 
+    # FIX: Added .strip() to the end to prevent leading spaces from being interpreted as a Markdown code block
     html_content = textwrap.dedent("""
         <div class="paywall-container">
             <div class="lock-icon">🔒</div>
@@ -142,8 +143,10 @@ def render_paywall():
                 <div class="feature-item"><span class="check">✔</span> <b>Permanent Storage:</b> We hold the legacy so you don't have to.</div>
             </div>
         </div>
-    """)
-    st.markdown(html_content, unsafe_allow_html=True)
+    """).strip()
+
+    # FIX: Using st.html in 2025 is more robust for complex raw HTML than st.markdown
+    st.html(html_content)
     
     c_pad_left, c_main, c_pad_right = st.columns([1, 2, 1])
     with c_main:
