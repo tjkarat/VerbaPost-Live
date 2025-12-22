@@ -53,10 +53,10 @@ def render_splash_page():
         # BUTTON 2: THE FAMILY ARCHIVE (Red/Primary)
         if st.button("The Family Archive", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
-                st.query_params["view"] = "heirloom"
+                st.session_state.app_mode = "heirloom"
             else:
                 st.session_state.app_mode = "login"
-                # FIX: Set the redirection target so ui_login knows where to go next
+                # REDIRECTION TARGET: ui_login knows where to go next
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
@@ -86,6 +86,7 @@ def render_splash_page():
     col_foot1, col_foot2, col_foot3 = st.columns([1, 2, 1])
     with col_foot2:
         st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
+        # NAVIGATION FIX: Assigning the mode correctly
         if st.button("⚖️ Legal / Terms", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()

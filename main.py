@@ -52,6 +52,7 @@ def get_module(module_name):
         if module_name == "ui_admin": import ui_admin as m; return m
         if module_name == "ui_legacy": import ui_legacy as m; return m
         if module_name == "ui_heirloom": import ui_heirloom as m; return m
+        if module_name == "ui_legal": import ui_legal as m; return m
         if module_name == "payment_engine": import payment_engine as m; return m
         if module_name == "database": import database as m; return m
         if module_name == "analytics": import analytics as m; return m
@@ -163,6 +164,7 @@ def main():
     elif mode == "heirloom": m = get_module("ui_heirloom"); m.render_dashboard() if m else None
     elif mode == "admin": m = get_module("ui_admin"); m.render_admin_page() if m else None
     elif mode == "legacy": m = get_module("ui_legacy"); m.render_legacy_page() if m else None
+    elif mode == "legal": m = get_module("ui_legal"); m.render_legal_page() if m else None
     elif mode == "receipt": m = get_module("ui_main"); m.render_receipt_page() if m else None
     else: m = get_module("ui_splash"); m.render_splash_page() if m else None
 
