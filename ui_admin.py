@@ -170,12 +170,18 @@ def render_admin_page():
                         st.markdown(f":{item['Color']}[{item['Status']}]")
                         st.markdown("---")
 
-    # --- TAB 2: ORDERS (REPAIR STATION) ---
+    # --- TAB 2: ORDERS (REPAIR STATION & VINTAGE) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
             # 1. Fetch from DB
             all_orders = database.get_all_orders()
+            
+            # --- VINTAGE ALERT ---
+            vintage_pending = [o for o in all_orders if o.get('status') == "Pending Manual Fulfillment"]
+            if vintage_pending:
+                st.error(f"🚨 {len(vintage_pending)} VINTAGE ORDERS REQUIRE MANUAL ACTION")
+                st.dataframe(pd.DataFrame(vintage_pending)[['id', 'created_at', 'user_email', 'status', 'tier']], use_container_width=True)
             
             if all_orders:
                 total_orders = len(all_orders)
@@ -201,16 +207,16 @@ def render_admin_page():
                 df_orders = pd.DataFrame(data)
                 st.dataframe(df_orders, use_container_width=True, height=400)
                 
-                # 3. REPAIR STATION
+                # 3. ACTION STATION
                 st.divider()
-                st.markdown("### 🛠️ Repair & Export Station")
-                st.info("Select an order to view details, download the PDF, or force a re-send.")
+                st.markdown("### 🛠️ Repair, Export & Processing")
+                st.info("Select an order to export PDF (Vintage) or force re-send (Standard).")
                 
                 c_sel, c_act = st.columns([3, 1])
                 with c_sel:
                     # Dropdown for easier selection
                     order_opts = [f"{x['ID']} ({x['Status']})" for x in data]
-                    selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
+                    selected_order_str = st.selectbox("Select Order to Fix/Process", ["Select..."] + order_opts)
                 
                 if selected_order_str and selected_order_str != "Select...":
                     selected_uuid = selected_order_str.split(" ")[0]
@@ -223,104 +229,127 @@ def render_admin_page():
                             record = db.query(database.Letter).filter(database.Letter.id == selected_uuid).first()
                             
                         if record:
-                            # --- FIXED: NO st.form HERE ---
-                            # We removed the form wrapper because st.download_button cannot live inside a form.
+                            st.markdown(f"**Processing Order:** `{selected_uuid}` | **Tier:** `{getattr(record, 'tier', 'Unknown')}`")
                             
-                            st.markdown(f"**Editing Order:** `{selected_uuid}`")
-                            
-                            # Retrieve User Profile for Fallback Data
-                            user_profile = database.get_user_profile(record.user_email) if record.user_email else {}
-
-                            def safe_val(attr, profile_key, fallback=""):
-                                val = getattr(record, attr, None)
-                                if val: return val
-                                if user_profile: return user_profile.get(profile_key, fallback)
-                                return fallback
-
-                            cur_name = safe_val('to_name', 'full_name', 'Recipient Name')
-                            cur_city = safe_val('to_city', 'address_city', 'City')
-                            cur_street = safe_val('to_street', 'address_line1', 'Street Address')
-                            cur_state = safe_val('to_state', 'address_state', 'State')
-                            cur_zip = safe_val('to_zip', 'address_zip', 'Zip')
-
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                new_to_name = st.text_input("Recipient Name", value=cur_name, key="rep_name")
-                                new_to_city = st.text_input("City", value=cur_city, key="rep_city")
-                                new_to_zip = st.text_input("Zip", value=cur_zip, key="rep_zip")
-                            with c2:
-                                new_status = st.text_input("Force Status", value=record.status, key="rep_status")
-                                new_to_street = st.text_input("Street", value=cur_street, key="rep_street")
-                                new_to_state = st.text_input("State", value=cur_state, key="rep_state")
+                            # --- VINTAGE WORKFLOW ---
+                            if getattr(record, 'tier', '') == "Vintage" or record.status == "Pending Manual Fulfillment":
+                                st.info("📜 **Vintage/Manual Workflow Detected**")
                                 
-                            new_content = st.text_area("Letter Body", value=record.content, height=150, key="rep_body")
-                            
-                            # --- GENERATE PDF OBJECT ---
-                            to_obj = {
-                                "name": new_to_name, 
-                                "address_line1": new_to_street,
-                                "city": new_to_city, 
-                                "state": new_to_state,
-                                "zip": new_to_zip,
-                                "zip_code": new_to_zip 
-                            }
-                            from_obj = {"name": "VerbaPost", "address_line1": "1000 Main", "city": "Nash", "state": "TN", "zip": "37203"}
-                            
-                            pdf_bytes = b""
-                            if letter_format:
+                                # Re-Generate PDF for Print
+                                import ast
+                                to_obj = {}
+                                from_obj = {}
+                                try: 
+                                    raw_to = getattr(record, 'to_addr', "{}")
+                                    if raw_to: to_obj = ast.literal_eval(raw_to)
+                                except: pass
+                                
                                 try:
-                                    tier = getattr(record, 'tier', 'Standard')
-                                    pdf_bytes = letter_format.create_pdf(new_content, to_obj, from_obj, tier)
-                                except Exception as e:
-                                    st.error(f"PDF Gen Error: {e}")
-
-                            col_export, col_send = st.columns(2)
-                            
-                            # EXPORT BUTTON (Now works because it's outside a form)
-                            with col_export:
-                                if pdf_bytes:
-                                    st.download_button(
-                                        label="⬇️ Download PDF",
-                                        data=pdf_bytes,
-                                        file_name=f"order_{selected_uuid}.pdf",
-                                        mime="application/pdf"
-                                    )
-                                else:
-                                    st.warning("PDF generation failed.")
-
-                            # SEND BUTTON
-                            with col_send:
-                                if st.button("🚀 Update & Re-Send", type="primary"):
-                                    # Update DB
-                                    record.status = "Repaired/Sending"
-                                    record.content = new_content
-                                    if hasattr(record, 'to_name'): record.to_name = new_to_name
-                                    db.commit()
+                                    raw_from = getattr(record, 'from_addr', "{}")
+                                    if raw_from: from_obj = ast.literal_eval(raw_from)
+                                except: pass
+                                
+                                pdf_bytes = b""
+                                if letter_format:
+                                    pdf_bytes = letter_format.create_pdf(record.content, to_obj, from_obj, tier="Vintage")
+                                
+                                c1, c2 = st.columns(2)
+                                
+                                # STEP A: DOWNLOAD
+                                with c1:
+                                    if pdf_bytes:
+                                        st.download_button(
+                                            label="⬇️ Download PDF (For Wax Seal)",
+                                            data=pdf_bytes,
+                                            file_name=f"VINTAGE_{selected_uuid}.pdf",
+                                            mime="application/pdf",
+                                            key="dl_vin"
+                                        )
+                                    else: st.error("PDF Gen Failed")
                                     
-                                    # Trigger Mailer
-                                    if mailer and pdf_bytes:
-                                        with st.spinner("Dispatching to PostGrid..."):
-                                            res_id = mailer.send_letter(
-                                                pdf_bytes, 
-                                                to_obj, 
-                                                from_obj, 
-                                                description=f"Admin Fix {selected_uuid}",
-                                                tier=getattr(record, 'tier', 'Standard')
-                                            )
-                                            
-                                            if res_id:
-                                                record.status = f"Sent (Admin): {res_id}"
-                                                db.commit()
-                                                st.success(f"✅ Success! Tracking ID: {res_id}")
-                                                time.sleep(2)
-                                                st.rerun()
-                                            else:
-                                                st.error("❌ Mailing API Failed. Check Logs.")
-                        else:
-                            st.error("Could not find record in database.")
+                                # STEP B: MARK SHIPPED
+                                with c2:
+                                    manual_tracking = st.text_input("Manual Tracking Number", key="man_track")
+                                    if st.button("✅ Mark Shipped (Manual)"):
+                                        if manual_tracking:
+                                            record.status = "Sent (Manual)"
+                                            record.tracking_number = manual_tracking
+                                            db.commit()
+                                            st.success("Order Updated!")
+                                            time.sleep(1)
+                                            st.rerun()
+                                        else:
+                                            st.error("Please enter a tracking number first.")
 
+                            # --- STANDARD WORKFLOW (REPAIR) ---
+                            else:
+                                # Retrieve User Profile for Fallback Data
+                                user_profile = database.get_user_profile(record.user_email) if record.user_email else {}
+
+                                def safe_val(attr, profile_key, fallback=""):
+                                    val = getattr(record, attr, None)
+                                    if val: return val
+                                    if user_profile: return user_profile.get(profile_key, fallback)
+                                    return fallback
+
+                                cur_name = safe_val('to_name', 'full_name', 'Recipient Name')
+                                cur_city = safe_val('to_city', 'address_city', 'City')
+                                cur_street = safe_val('to_street', 'address_line1', 'Street Address')
+                                cur_state = safe_val('to_state', 'address_state', 'State')
+                                cur_zip = safe_val('to_zip', 'address_zip', 'Zip')
+
+                                # Allow Editing
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    new_to_name = st.text_input("Recipient Name", value=cur_name, key="rep_name")
+                                    new_to_city = st.text_input("City", value=cur_city, key="rep_city")
+                                    new_to_zip = st.text_input("Zip", value=cur_zip, key="rep_zip")
+                                with c2:
+                                    new_to_street = st.text_input("Street", value=cur_street, key="rep_street")
+                                    new_to_state = st.text_input("State", value=cur_state, key="rep_state")
+                                    
+                                new_content = st.text_area("Letter Body", value=record.content, height=150, key="rep_body")
+                                
+                                # Generate PDF Object for Retry
+                                to_obj = { "name": new_to_name, "address_line1": new_to_street, "city": new_to_city, "state": new_to_state, "zip": new_to_zip }
+                                from_obj = {"name": "VerbaPost", "address_line1": "1000 Main", "city": "Nash", "state": "TN", "zip": "37203"}
+                                
+                                if letter_format:
+                                    pdf_bytes = letter_format.create_pdf(new_content, to_obj, from_obj, tier=getattr(record, 'tier', 'Standard'))
+                                else: pdf_bytes = b""
+
+                                col_export, col_send = st.columns(2)
+                                
+                                with col_export:
+                                    if pdf_bytes:
+                                        st.download_button("⬇️ Download PDF", pdf_bytes, f"order_{selected_uuid}.pdf", "application/pdf")
+
+                                with col_send:
+                                    if st.button("🚀 Update & Force PostGrid", type="primary"):
+                                        record.status = "Repaired/Sending"
+                                        record.content = new_content
+                                        db.commit()
+                                        
+                                        if mailer and pdf_bytes:
+                                            with st.spinner("Dispatching..."):
+                                                res_id = mailer.send_letter(
+                                                    pdf_bytes, 
+                                                    to_obj, 
+                                                    from_obj, 
+                                                    description=f"Admin Fix {selected_uuid}",
+                                                    tier=getattr(record, 'tier', 'Standard')
+                                                )
+                                                if res_id:
+                                                    record.status = f"Sent (Admin): {res_id}"
+                                                    db.commit()
+                                                    st.success(f"✅ Sent! ID: {res_id}")
+                                                    time.sleep(2); st.rerun()
+                                                else:
+                                                    st.error("Mailing Failed.")
+                        else:
+                            st.error("Record not found.")
             else:
-                st.info("No orders found in database.")
+                st.info("No orders found.")
         except Exception as e:
             st.error(f"Error fetching orders: {e}")
 
@@ -334,11 +363,10 @@ def render_admin_page():
                 st.error("AI Engine not loaded.")
             else:
                 with st.spinner("Scanning logs..."):
-                    # 1. Fetch recent raw calls from Twilio (via ai_engine wrapper)
+                    # 1. Fetch recent raw calls from Twilio
                     if hasattr(ai_engine, 'get_recent_call_logs'):
                         raw_calls = ai_engine.get_recent_call_logs(limit=50)
                     else:
-                        st.error("ai_engine.get_recent_call_logs missing.")
                         raw_calls = []
 
                     # 2. Fetch all known user parent phones
@@ -348,20 +376,17 @@ def render_admin_page():
                     for u in users:
                         p = u.get('parent_phone')
                         if p:
-                            # Normalize user numbers: +16155550100 -> 6155550100
                             norm = "".join(filter(str.isdigit, str(p)))
                             if len(norm) > 10 and norm.startswith('1'): norm = norm[1:]
                             known_numbers.add(norm)
                     
-                    # 3. Filter for Ghosts (Calls NOT in known_numbers)
+                    # 3. Filter for Ghosts
                     ghosts = []
                     for c in raw_calls:
                         c_from = c.get('from', '')
-                        # Normalize call number
                         norm_c = "".join(filter(str.isdigit, str(c_from)))
                         if len(norm_c) > 10 and norm_c.startswith('1'): norm_c = norm_c[1:]
                         
-                        # Only track completed calls that are NOT known
                         if norm_c and norm_c not in known_numbers:
                             ghosts.append({
                                 "From": c_from,
@@ -375,10 +400,9 @@ def render_admin_page():
                     if ghosts:
                         st.warning(f"Found {len(ghosts)} Ghost Calls")
                         df_ghosts = pd.DataFrame(ghosts)
-                        # Hide the SID from main view to keep it clean, but keep in data
                         st.dataframe(df_ghosts[['From', 'Date', 'Duration', 'Status']], use_container_width=True)
                     else:
-                        st.success("✅ Clean! No ghost calls found. All recent calls belong to registered users.")
+                        st.success("✅ Clean! No ghost calls found.")
 
     # --- TAB 4: PROMOS ---
     with tab_promos:
@@ -393,30 +417,19 @@ def render_admin_page():
                         time.sleep(1); st.rerun()
                     else: st.error("Failed.")
         
-        # Display Promo Data with VERIFIED LOGS
         promos = database.get_all_promos()
-        
         if promos:
-            # --- FIX: CALCULATE REAL USAGE FROM LOGS ---
             try:
                 with database.get_db_session() as session:
-                    # Fetch all logs (or optimize with group_by in SQL if large scale)
                     logs = session.query(database.PromoLog).all()
-                    
                     usage_map = {}
                     for log in logs:
                         c = log.code.upper() if log.code else "UNKNOWN"
                         usage_map[c] = usage_map.get(c, 0) + 1
-                    
-                    # Update the display data
                     for p in promos:
                         code_key = p.get('code', '').upper()
-                        # Override the static 'current_uses' with verified log count
                         p['verified_usage'] = usage_map.get(code_key, 0)
-                        
-            except Exception as e:
-                st.warning(f"Could not verify logs: {e}")
-
+            except: pass
             st.dataframe(pd.DataFrame(promos), use_container_width=True)
         else:
             st.info("No promo codes found.")

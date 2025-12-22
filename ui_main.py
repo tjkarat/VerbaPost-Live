@@ -203,6 +203,10 @@ def cb_buy_tier(tier, base_price, user_email, is_certified=False):
             st.session_state.paid_tier = tier
             st.session_state.current_draft_id = d_id
             st.session_state.app_mode = "workspace"
+            
+            # --- FIX: CLEAR PROMO SO IT DOESN'T STICK ---
+            if "promo_val" in st.session_state: del st.session_state.promo_val
+            
             st.rerun()
             return
 
@@ -229,6 +233,11 @@ def cb_buy_tier(tier, base_price, user_email, is_certified=False):
 def render_store_page():
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
+    
+    # --- CRITICAL FIX: RESET STATE ON ENTRY ---
+    # This prevents being "stuck" in a paid state or pending URL when you return to store.
+    if "paid_tier" in st.session_state: del st.session_state.paid_tier
+    if "pending_stripe_url" in st.session_state: del st.session_state.pending_stripe_url
     
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
