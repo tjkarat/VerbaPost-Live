@@ -32,7 +32,7 @@ except ImportError: promo_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
-# --- HELPER: EMAIL ALERT ---
+# --- HELPER: EMAIL ALERT (Using Requests directly) ---
 def _send_alert_email(to_email, subject, html_body):
     """Sends receipts and admin alerts via Resend."""
     try:
@@ -65,8 +65,13 @@ def get_profile_field(profile, field, default=""):
     return getattr(profile, field, default)
 
 def _ensure_profile_loaded():
+    """
+    Robust profile loader. Checks if the 'From' address is missing 
+    and re-fetches it from the database if needed.
+    """
     if st.session_state.get("authenticated"):
         needs_load = not st.session_state.get("profile_synced") or not st.session_state.get("from_name")
+        
         if needs_load:
             try:
                 email = st.session_state.get("user_email")
@@ -80,7 +85,8 @@ def _ensure_profile_loaded():
                     st.session_state.from_zip = get_profile_field(profile, "address_zip")
                     st.session_state.profile_synced = True 
                     st.rerun() 
-            except Exception: pass
+            except Exception as e:
+                print(f"Profile Load Error: {e}")
 
 # --- CSS INJECTOR ---
 def inject_custom_css(text_size=16):
@@ -95,7 +101,8 @@ def inject_custom_css(text_size=16):
                 src: url('data:font/ttf;base64,{b64_font}') format('truetype');
             }}
         """
-    except FileNotFoundError: font_face_css = ""
+    except FileNotFoundError:
+        font_face_css = ""
 
     st.markdown(f"""
         <style>
@@ -107,55 +114,107 @@ def inject_custom_css(text_size=16):
             background-color: #fdfbf7; 
             color: #333;
         }}
-        .price-card {{ background-color: #ffffff; border-radius: 12px; padding: 20px 15px; text-align: center; border: 1px solid #e0e0e0; height: 220px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: flex-start; gap: 5px; }}
+        .stTextInput input {{ font-family: 'Helvetica Neue', sans-serif !important; }}
+        p, li, .stMarkdown {{ font-family: 'Helvetica Neue', sans-serif; font-size: {text_size}px !important; line-height: 1.6 !important; }}
+        /* INCREASED HEIGHT TO 300px HERE */
+        .price-card {{ background-color: #ffffff; border-radius: 12px; padding: 20px 15px; text-align: center; border: 1px solid #e0e0e0; height: 300px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: flex-start; gap: 5px; }}
         .price-header {{ font-weight: 700; font-size: 1.4rem; color: #1f2937; margin-bottom: 2px; height: 35px; display: flex; align-items: center; justify-content: center; }}
         .price-sub {{ font-size: 0.75rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 5px; }}
         .price-tag {{ font-size: 2.4rem; font-weight: 800; color: #d93025; margin: 5px 0; }}
         .price-desc {{ font-size: 0.9rem; color: #4b5563; line-height: 1.3; margin-top: auto; padding-bottom: 5px; min-height: 50px; }}
+        .stTabs [data-baseweb="tab"] p {{ font-size: 1.2rem !important; font-weight: 600 !important; }}
+        .stTabs [data-baseweb="tab"] {{ height: 60px; white-space: pre-wrap; background-color: #F0F2F6; border-radius: 8px 8px 0px 0px; gap: 2px; padding: 10px; border: 1px solid #ccc; border-bottom: none; color: #333; }}
+        .stTabs [aria-selected="true"] {{ background-color: #FF4B4B !important; border: 1px solid #FF4B4B !important; color: white !important; }}
+        .stTabs [aria-selected="true"] p {{ color: white !important; }}
+        .instruction-box {{ background-color: #FEF3C7; border-left: 6px solid #F59E0B; padding: 15px; margin-bottom: 20px; border-radius: 4px; color: #000; }}
         .success-box {{ background-color: #ecfdf5; border: 1px solid #10b981; padding: 20px; border-radius: 10px; text-align: center; margin-bottom: 20px; }}
         .success-title {{ color: #047857; font-size: 24px; font-weight: bold; margin-bottom: 10px; }}
         .tracking-code {{ font-family: monospace; font-size: 20px; color: #d93025; background: #fff; padding: 5px 10px; border-radius: 4px; border: 1px dashed #ccc; }}
+        
+        #MainMenu {{visibility: hidden;}}
+        footer {{visibility: hidden;}}
         </style>
     """, unsafe_allow_html=True)
 
+# --- HELPER FUNCTIONS ---
 def load_address_book():
-    if not st.session_state.get("authenticated"): return {}
+    if not st.session_state.get("authenticated"):
+        return {}
     try:
-        contacts = database.get_contacts(st.session_state.get("user_email"))
+        user_email = st.session_state.get("user_email")
+        contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
-            label = f"{c.get('name', 'Unknown')} ({c.get('street', '')[:10]}...)"
+            name = c.get('name', 'Unknown')
+            street = c.get('street', '')[:10]
+            label = f"{name} ({street}...)"
             result[label] = c
         return result
-    except: return {}
+    except Exception as e:
+        print(f"Address Book Error: {e}")
+        return {}
 
 def _save_new_contact(contact_data):
     try:
         if not st.session_state.get("authenticated"): return
         user_email = st.session_state.get("user_email")
-        if hasattr(database, "save_contact"):
-            database.save_contact(user_email, contact_data)
+        current_book = load_address_book()
+        is_new = True
+        for label, existing in current_book.items():
+            if (existing.get('name') == contact_data.get('name') and 
+                existing.get('street') == contact_data.get('street')):
+                is_new = False
+                break
+        if is_new:
+            if hasattr(database, "save_contact"):
+                database.save_contact(user_email, contact_data)
             return True
-    except: return False
+        return False
+    except Exception as e:
+        print(f"Smart Save Error: {e}")
+        return False
+
+def _handle_draft_creation(email, tier, price):
+    d_id = st.session_state.get("current_draft_id")
+    success = False
+    if d_id:
+        success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+    if not success or not d_id:
+        d_id = database.save_draft(email, "", tier, price)
+        st.session_state.current_draft_id = d_id
+    return d_id
 
 # --- CALLBACKS ---
 def cb_buy_tier(tier, base_price, user_email, is_certified=False):
+    """
+    Triggers Stripe Checkout immediately.
+    """
     if payment_engine:
+        # Calculate final price (Base + Certified - Promo)
         total_price = base_price
-        if is_certified: total_price += 12.00
-        if "promo_val" in st.session_state: total_price = max(0.0, total_price - st.session_state.promo_val)
+        if is_certified:
+            total_price += 12.00
+            
+        # Apply Promo
+        if "promo_val" in st.session_state:
+            total_price = max(0.0, total_price - st.session_state.promo_val)
         
+        # Save Draft Context
         d_id = database.save_draft(user_email, "", tier, total_price) if database else None
         
-        # BYPASS LOGIC
+        # If $0 (Promo), bypass Stripe
         if total_price <= 0:
             st.session_state.paid_tier = tier
             st.session_state.current_draft_id = d_id
             st.session_state.app_mode = "workspace"
+            
+            # --- CLEAR PROMO SO IT DOESN'T STICK ---
             if "promo_val" in st.session_state: del st.session_state.promo_val
+            
             st.rerun()
             return
 
+        # Stripe Link
         url = payment_engine.create_checkout_session(
             line_items=[{
                 "price_data": {
@@ -179,14 +238,16 @@ def render_store_page():
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
     
-    # RESET STATE ON ENTRY
+    # --- RESET STATE ON ENTRY ---
     if "paid_tier" in st.session_state: del st.session_state.paid_tier
     if "receipt_data" in st.session_state: del st.session_state.receipt_data
     if "pending_stripe_url" in st.session_state: del st.session_state.pending_stripe_url
     
     if not u_email:
-        st.warning("⚠️ Session Expired. Please log in.")
-        if st.button("Go to Login"): st.session_state.app_mode = "login"; st.rerun()
+        st.warning("⚠️ Session Expired. Please log in to continue.")
+        if st.button("Go to Login"):
+            st.session_state.app_mode = "login"
+            st.rerun()
         return
 
     # RESUME CHECK
@@ -241,11 +302,9 @@ def render_store_page():
             <div class="price-desc">{desc}</div>
         </div>
         """
+
     with c1: st.markdown(html_card("Standard", "ONE LETTER", p_std, "Premium paper. #10 Envelope."), unsafe_allow_html=True)
-    
-    # UPDATED DESCRIPTION HERE
     with c2: st.markdown(html_card("Vintage", "ONE LETTER", p_vin, "Heavy cream paper. Handwritten envelope. Real stamp."), unsafe_allow_html=True)
-    
     with c3: st.markdown(html_card("Civic", "3 LETTERS", p_civ, "Write to Congress."), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True) 
