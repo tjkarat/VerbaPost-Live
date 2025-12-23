@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 import logging
 
-# Standard imports: The "python -m" command in YAML handles finding these
+# FIX: Standard imports now work because the YAML uses 'python -m'
 from ai_engine import _normalize_phone
 import mailer
 

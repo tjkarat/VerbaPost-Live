@@ -160,14 +160,14 @@ def main():
         if st.button("🔒 Account Settings", use_container_width=True):
             st.session_state.app_mode = "admin"; st.rerun()
 
-    # --- FULL ROUTING LOGIC (RESTORED) ---
+    # --- ROUTING LOGIC ---
     m = get_module(f"ui_{mode}")
     if m:
         if mode == "splash" and hasattr(m, "render_splash_page"):
             m.render_splash_page()
         elif mode == "login" and hasattr(m, "render_login_page"):
             m.render_login_page()
-        # ROUTER ALIGNMENT
+        # FIXED: Added route for 'main' mode
         elif mode == "main" and hasattr(m, "render_store_page"):
             m.render_store_page()
         elif mode == "workspace" and hasattr(m, "render_workspace_page"):

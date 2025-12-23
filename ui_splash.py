@@ -42,11 +42,12 @@ def render_splash_page():
         # BUTTON 1: START A LETTER (White/Secondary)
         if st.button("Start a Letter", use_container_width=True):
             if st.session_state.get("authenticated"):
-                # Aligning to "main" standard
-                st.session_state.app_mode = "main"
+                # FIXED: Pointing to "main" (ui_main.py) instead of "store"
+                st.session_state.app_mode = "main" 
             else:
                 st.session_state.app_mode = "login"
-                st.session_state.redirect_to = "main"
+                # FIXED: Redirect target is now "main"
+                st.session_state.redirect_to = "main" 
             st.rerun()
 
         st.write("") 
@@ -86,9 +87,9 @@ def render_splash_page():
     col_foot1, col_foot2, col_foot3 = st.columns([1, 2, 1])
     with col_foot2:
         st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
-        # RESTORED LEGAL TRIGGER
+        # LEGAL NAVIGATION
         if st.button("⚖️ Legal / Terms", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
     
-    return "" # Artifact Prevention
+    return ""
