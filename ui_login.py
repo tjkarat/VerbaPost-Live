@@ -135,7 +135,16 @@ def render_login_page():
                         is_valid = True 
 
                     if not is_valid:
-                        st.error(f"❌ Invalid Address: {details.get('error', 'Unknown Error')}")
+                        # --- FIX: SAFEGUARD AGAINST ATTRIBUTE ERROR ---
+                        error_msg = "Unknown Error"
+                        if isinstance(details, dict):
+                            error_msg = details.get('error', 'Unknown Error')
+                        elif isinstance(details, str):
+                            error_msg = details
+                        elif details is None:
+                            error_msg = "Address validation service unavailable."
+                        
+                        st.error(f"❌ Invalid Address: {error_msg}")
                         st.warning("Please double-check your street, city, and zip.")
                     else:
                         # 2. Create User
