@@ -3,8 +3,7 @@ import streamlit as st
 def render_splash_page():
     """
     Renders the professional landing page for VerbaPost.
-    Preserves all original minimalist CSS and hero sections.
-    Fixed: 'Start a Letter' button now sets app_mode to 'store' correctly.
+    Fixed: Direct trigger for 'Start a Letter' sets app_mode to 'store'.
     """
     # --- PROFESSIONAL MINIMALIST CSS ---
     st.markdown("""
@@ -15,7 +14,6 @@ def render_splash_page():
     .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(0.9rem, 3vw, 1.1rem); font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #d93025; margin-bottom: 1.5rem; margin-top: 1rem; }
     .hero-text { font-family: 'Helvetica Neue', sans-serif; font-size: 1.15rem; font-weight: 300; color: #555; max-width: 600px; margin: 0 auto; line-height: 1.6; }
     
-    /* TRUST LOGO STYLING */
     .trust-container { text-align: center; padding: 20px 0; opacity: 0.8; margin-top: 10px; }
     .trust-logo { display: inline-block; margin: 0 15px; height: 24px; vertical-align: middle; }
     
@@ -40,24 +38,21 @@ def render_splash_page():
     # --- ACTION BUTTONS ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # BUTTON 1: START A LETTER (Fixed trigger to 'store')
         if st.button("Start a Letter", use_container_width=True, key="splash_btn_start_letter"):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
             else:
                 st.session_state.app_mode = "login"
-                st.session_state.redirect_to = "store" # Ensure redirection target is set
+                st.session_state.redirect_to = "store"
             st.rerun()
 
         st.write("") 
         
-        # BUTTON 2: THE FAMILY ARCHIVE (Direct trigger to 'heirloom')
         if st.button("The Family Archive", type="primary", use_container_width=True, key="splash_btn_heirloom"):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
             else:
                 st.session_state.app_mode = "login"
-                # REDIRECTION TARGET: ui_login knows where to go next
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
@@ -87,7 +82,6 @@ def render_splash_page():
     col_foot1, col_foot2, col_foot3 = st.columns([1, 2, 1])
     with col_foot2:
         st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
-        # NAVIGATION FIX: Assigning the mode correctly
         if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_btn_legal"):
             st.session_state.app_mode = "legal"
             st.rerun()

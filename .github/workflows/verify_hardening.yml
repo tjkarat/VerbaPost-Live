@@ -9,9 +9,6 @@ on:
 jobs:
   run-safety-tests:
     runs-on: ubuntu-latest
-    # NEW: This sets the path for the entire job
-    env:
-      PYTHONPATH: ${{ github.workspace }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -26,7 +23,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-mock
 
-      - name: Run Tests
-        run: |
-          # Use "python -m pytest" to force the root folder into the path
-          python -m pytest tests/test_hardening.py
+- name: Run Tests
+  run: |
+    PYTHONPATH=. pytest tests/test_hardening.py
