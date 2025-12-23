@@ -323,6 +323,8 @@ def render_store_page():
     if "pending_stripe_url" in st.session_state:
         st.link_button("👉 Click Here to Complete Payment", st.session_state.pending_stripe_url, type="primary", use_container_width=True)
 
+    return ""
+
 
 def render_campaign_uploader():
     st.markdown("### 📁 Upload Recipient List (CSV)")
@@ -514,6 +516,8 @@ def render_workspace_page():
             else:
                 st.error("❌ Fulfillment Error.")
 
+    return ""
+
 def render_receipt_page():
     data = st.session_state.get("receipt_data", {})
     if not data:
@@ -539,30 +543,4 @@ def render_receipt_page():
         st.session_state.app_mode = "store"
         st.rerun()
 
-def render_application():
-    if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
-    mode = st.session_state.app_mode
-    if mode == "splash":
-        if ui_splash: ui_splash.render_splash_page()
-    elif mode == "login":
-        if ui_login: ui_login.render_login_page()
-    elif mode == "store":
-        render_store_page()
-    elif mode == "workspace":
-        render_workspace_page()
-    elif mode == "receipt":
-        render_receipt_page()
-    elif mode == "heirloom": 
-        if ui_heirloom: ui_heirloom.render_dashboard()
-    elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
-    elif mode == "legacy":
-        if ui_legacy: ui_legacy.render_legacy_page()
-    else:
-        st.session_state.app_mode = "splash"
-        st.rerun()
-
-def render_main(): render_application()
-
-if __name__ == "__main__":
-    render_main()
+    return ""

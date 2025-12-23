@@ -162,16 +162,31 @@ def main():
         if st.button("🔒 Account Settings", use_container_width=True):
             st.session_state.app_mode = "admin"; st.rerun()
 
-    if mode == "splash": m = get_module("ui_splash"); m.render_splash_page() if m else None
-    elif mode == "login": m = get_module("ui_login"); m.render_login_page() if m else None
-    elif mode == "store": m = get_module("ui_main"); m.render_store_page() if m else None
-    elif mode == "workspace": m = get_module("ui_main"); m.render_workspace_page() if m else None
-    elif mode == "heirloom": m = get_module("ui_heirloom"); m.render_dashboard() if m else None
-    elif mode == "admin": m = get_module("ui_admin"); m.render_admin_page() if m else None
-    elif mode == "legacy": m = get_module("ui_legacy"); m.render_legacy_page() if m else None
-    elif mode == "legal": m = get_module("ui_legal"); m.render_legal_page() if m else None
-    elif mode == "receipt": m = get_module("ui_main"); m.render_receipt_page() if m else None
-    else: m = get_module("ui_splash"); m.render_splash_page() if m else None
+    # --- MODIFIED ROUTING TO PREVENT "None" DISPLAY ---
+    m = get_module(f"ui_{mode}")
+    if m:
+        if mode == "splash" and hasattr(m, "render_splash_page"):
+            m.render_splash_page()
+        elif mode == "login" and hasattr(m, "render_login_page"):
+            m.render_login_page()
+        elif mode == "store" and hasattr(m, "render_store_page"):
+            m.render_store_page()
+        elif mode == "workspace" and hasattr(m, "render_workspace_page"):
+            m.render_workspace_page()
+        elif mode == "heirloom" and hasattr(m, "render_dashboard"):
+            m.render_dashboard()
+        elif mode == "admin" and hasattr(m, "render_admin_page"):
+            m.render_admin_page()
+        elif mode == "legacy" and hasattr(m, "render_legacy_page"):
+            m.render_legacy_page()
+        elif mode == "legal" and hasattr(m, "render_legal_page"):
+            m.render_legal_page()
+        elif mode == "receipt" and hasattr(m, "render_receipt_page"):
+            m.render_receipt_page()
+    else:
+        m_splash = get_module("ui_splash")
+        if m_splash:
+            m_splash.render_splash_page()
 
 if __name__ == "__main__":
     main()

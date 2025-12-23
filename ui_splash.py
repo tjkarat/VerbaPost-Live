@@ -90,6 +90,5 @@ def render_splash_page():
         if st.button("⚖️ Legal / Terms", use_container_width=True):
             st.session_state.app_mode = "legal"
             st.rerun()
-
-if __name__ == "__main__":
-    render_splash_page()
+    
+    return ""
