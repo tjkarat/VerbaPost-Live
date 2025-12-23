@@ -3,10 +3,15 @@ name: VerbaPost Safety Check
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
   run-safety-tests:
     runs-on: ubuntu-latest
+    # NEW: This sets the path for the entire job
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -23,6 +28,5 @@ jobs:
 
       - name: Run Tests
         run: |
-          # This line allows tests/test_hardening.py to see ai_engine.py
-          export PYTHONPATH=$PYTHONPATH:.
-          pytest tests/test_hardening.py
+          # Use "python -m pytest" to force the root folder into the path
+          python -m pytest tests/test_hardening.py

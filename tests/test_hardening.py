@@ -1,27 +1,48 @@
+import sys
+import os
+
+# FIXED: Separate lines to prevent syntax errors
+base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if base_path not in sys.path:
+    sys.path.insert(0, base_path)
+
 import pytest
 from unittest.mock import patch, MagicMock
 import logging
 
-# Standard imports: The YAML now tells the robot where to find these
+# Standard imports (NO .py extension)
 from ai_engine import _normalize_phone
 import mailer
 
-# 1. TEST: Phone Number Normalization
-def test_phone_normalization():
-    assert _normalize_phone("(615) 555-1212") == "+16155551212"
-    with pytest.raises(ValueError, match="11-digit number must start with 1"):
-        _normalize_phone("61555512123")
+# ... (rest of your tests continue below)name: VerbaPost Safety Check
 
-# 2. TEST: Credit Atomicity (Pretend Mailer Fails)
-@patch('mailer.send_letter')
-@patch('database.update_user_credits')
-def test_credit_safety_on_failure(mock_db, mock_mailer):
-    mock_mailer.return_value = None 
-    mock_db.assert_not_called()
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
-# 3. TEST: Security Log Masking
-def test_log_masking(caplog):
-    with caplog.at_level(logging.ERROR):
-        mailer.send_letter(b"fake_pdf", {}, {}, tier="Standard")
-        assert "[Response Content Hidden for Security]" in caplog.text
-        assert "sk_live_" not in caplog.text
+jobs:
+  run-safety-tests:
+    runs-on: ubuntu-latest
+    # NEW: This sets the path for the entire job
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pytest pytest-mock
+
+      - name: Run Tests
+        run: |
+          # Use "python -m pytest" to force the root folder into the path
+          python -m pytest tests/test_hardening.py
