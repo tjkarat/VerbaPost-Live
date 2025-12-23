@@ -25,6 +25,6 @@ jobs:
 
       - name: Run Tests
         run: |
-          # ADDED: This line tells the robot to look in the main folder for your app files
+          # THE FIX: This tells the robot that your app files are in the current folder (.)
           export PYTHONPATH=$PYTHONPATH:.
           pytest tests/test_hardening.py
