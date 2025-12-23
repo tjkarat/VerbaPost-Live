@@ -4,6 +4,7 @@ def render_splash_page():
     """
     Renders the professional landing page for VerbaPost.
     Preserves all original minimalist CSS and hero sections.
+    Fixed: 'Start a Letter' button now sets app_mode to 'store' correctly.
     """
     # --- PROFESSIONAL MINIMALIST CSS ---
     st.markdown("""
@@ -39,19 +40,19 @@ def render_splash_page():
     # --- ACTION BUTTONS ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # BUTTON 1: START A LETTER (White/Secondary)
-        if st.button("Start a Letter", use_container_width=True):
+        # BUTTON 1: START A LETTER (Fixed trigger to 'store')
+        if st.button("Start a Letter", use_container_width=True, key="splash_btn_start_letter"):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "store"
             else:
                 st.session_state.app_mode = "login"
-                st.session_state.redirect_to = "store" # Default
+                st.session_state.redirect_to = "store" # Ensure redirection target is set
             st.rerun()
 
         st.write("") 
         
-        # BUTTON 2: THE FAMILY ARCHIVE (Red/Primary)
-        if st.button("The Family Archive", type="primary", use_container_width=True):
+        # BUTTON 2: THE FAMILY ARCHIVE (Direct trigger to 'heirloom')
+        if st.button("The Family Archive", type="primary", use_container_width=True, key="splash_btn_heirloom"):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
             else:
@@ -87,7 +88,7 @@ def render_splash_page():
     with col_foot2:
         st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
         # NAVIGATION FIX: Assigning the mode correctly
-        if st.button("⚖️ Legal / Terms", use_container_width=True):
+        if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_btn_legal"):
             st.session_state.app_mode = "legal"
             st.rerun()
     

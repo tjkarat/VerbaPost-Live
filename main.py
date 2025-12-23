@@ -110,7 +110,6 @@ def main():
                 logger.error(f"Verify Error: {e}")
 
         if status == "paid":
-            # (Fulfillment recording moved to the top logic block for idempotency)
             st.session_state.authenticated = True
             st.session_state.user_email = user_email
             
@@ -162,7 +161,7 @@ def main():
         if st.button("🔒 Account Settings", use_container_width=True):
             st.session_state.app_mode = "admin"; st.rerun()
 
-    # --- MODIFIED ROUTING TO PREVENT "None" DISPLAY ---
+    # --- MODIFIED ROUTING TO ENSURE STORE BUTTON WORKS ---
     m = get_module(f"ui_{mode}")
     if m:
         if mode == "splash" and hasattr(m, "render_splash_page"):
@@ -187,6 +186,8 @@ def main():
         m_splash = get_module("ui_splash")
         if m_splash:
             m_splash.render_splash_page()
+
+    return ""
 
 if __name__ == "__main__":
     main()
