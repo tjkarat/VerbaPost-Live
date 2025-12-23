@@ -335,7 +335,6 @@ def render_campaign_uploader():
         if st.button("Proceed with Campaign"):
             st.info("Campaign mode requires custom checkout logic. (Placeholder)")
 
-
 def render_workspace_page():
     paid_tier = st.session_state.get("paid_tier")
     if not paid_tier:
@@ -344,6 +343,11 @@ def render_workspace_page():
         return
 
     _ensure_profile_loaded()
+    
+    # --- FIX FOR ATTRIBUTE ERROR: Initialize letter_body ---
+    if "letter_body" not in st.session_state:
+        st.session_state.letter_body = ""
+        
     col_slide, col_gap = st.columns([1, 2])
     with col_slide: text_size = st.slider("Text Size", 12, 24, 16)
     inject_custom_css(text_size)
@@ -470,6 +474,7 @@ def render_workspace_page():
                     with open(tmp, "wb") as f: f.write(audio_bytes)
                     txt = ai_engine.transcribe_audio(tmp)
                     if txt:
+                        # SAFELY APPEND TEXT
                         st.session_state.letter_body = (st.session_state.letter_body + "\n\n" + txt).strip()
                         st.session_state.last_processed_audio_hash = h
                         st.rerun()
