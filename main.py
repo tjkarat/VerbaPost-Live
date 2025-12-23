@@ -161,8 +161,20 @@ def main():
             st.query_params.clear()
             st.session_state.app_mode = "heirloom"; st.rerun()
         st.markdown("---")
-        if st.button("🔒 Account Settings", use_container_width=True):
-            st.session_state.app_mode = "admin"; st.rerun()
+        
+        # --- ADMIN BUTTON VISIBILITY CHECK ---
+        admin_email = None
+        if secrets_manager:
+            admin_email = secrets_manager.get_secret("admin.email")
+        
+        # Fallback check
+        if not admin_email and "admin" in st.secrets:
+            admin_email = st.secrets["admin"]["email"]
+
+        # Only show button if authenticated AND email matches admin email
+        if st.session_state.get("authenticated") and st.session_state.get("user_email") == admin_email:
+            if st.button("🔒 Account Settings", use_container_width=True):
+                st.session_state.app_mode = "admin"; st.rerun()
 
     # --- ROUTING LOGIC ---
     m = get_module(f"ui_{mode}")
