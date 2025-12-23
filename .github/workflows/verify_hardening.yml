@@ -25,4 +25,6 @@ jobs:
 
       - name: Run Tests
         run: |
+          # ADDED: This line tells the robot to look in the main folder for your app files
+          export PYTHONPATH=$PYTHONPATH:.
           pytest tests/test_hardening.py
