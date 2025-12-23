@@ -3,8 +3,6 @@ name: VerbaPost Safety Check
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
 
 jobs:
   run-safety-tests:
@@ -25,6 +23,6 @@ jobs:
 
       - name: Run Tests
         run: |
-          # THE FIX: This tells the robot that your app files are in the current folder (.)
+          # This line allows tests/test_hardening.py to see ai_engine.py
           export PYTHONPATH=$PYTHONPATH:.
           pytest tests/test_hardening.py
