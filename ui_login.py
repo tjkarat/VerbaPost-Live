@@ -201,3 +201,4 @@ def render_login_page():
                         st.rerun()
                     else:
                         st.error(f"Invalid Code: {error}")
+    return ""
