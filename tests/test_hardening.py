@@ -1,17 +1,18 @@
 import sys
 import os
 
-# FIXED: Ensure these are on separate lines so the robot can find your app files
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Aggressive Path Finder: Forces the robot to see the root directory
+base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if base_path not in sys.path:
+    sys.path.insert(0, base_path)
 
 import pytest
 from unittest.mock import patch, MagicMock
 import logging
 
-# Now the robot can successfully find these files
+# Now it will definitely find ai_engine
 from ai_engine import _normalize_phone
 import mailer
-
 # 1. TEST: Phone Number Normalization
 def test_phone_normalization():
     # Test valid formats
