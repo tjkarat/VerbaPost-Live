@@ -344,7 +344,7 @@ def render_workspace_page():
 
     _ensure_profile_loaded()
     
-    # --- FIX FOR ATTRIBUTE ERROR: Initialize letter_body ---
+    # --- INITIALIZE LETTER BODY ---
     if "letter_body" not in st.session_state:
         st.session_state.letter_body = ""
         
@@ -474,8 +474,9 @@ def render_workspace_page():
                     with open(tmp, "wb") as f: f.write(audio_bytes)
                     txt = ai_engine.transcribe_audio(tmp)
                     if txt:
-                        # SAFELY APPEND TEXT
-                        st.session_state.letter_body = (st.session_state.letter_body + "\n\n" + txt).strip()
+                        # CRITICAL FIX: Safe access to prevent crash
+                        current_body = st.session_state.get("letter_body", "")
+                        st.session_state.letter_body = (current_body + "\n\n" + txt).strip()
                         st.session_state.last_processed_audio_hash = h
                         st.rerun()
 

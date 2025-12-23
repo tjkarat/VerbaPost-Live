@@ -104,9 +104,14 @@ def validate_address(address_data):
             else:
                 return False, {"error": "Address could not be verified.", "details": "[Details Hidden]"}
         
-        if r.status_code in [401, 403, 404]:
-             logger.warning(f"Verification Skipped (API {r.status_code}). Proceeding.")
-             return True, contact_payload
+        # --- FIXED LOGIC: FAIL CLOSED ON AUTH ERRORS ---
+        if r.status_code in [401, 403]:
+             logger.error(f"PostGrid Auth Error {r.status_code}. Check API Key.")
+             return False, "System Error: Address Validation Unauthorized"
+
+        if r.status_code == 404:
+             logger.error(f"PostGrid API Endpoint Not Found (404).")
+             return False, "System Error: Validation Service Unavailable"
 
         return False, {"error": f"API Error {r.status_code}"}
     except Exception as e:
