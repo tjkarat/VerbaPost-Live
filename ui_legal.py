@@ -76,6 +76,8 @@ def render_legal_page():
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True) # End legal-container
+    
+    return "" # Mandatory to prevent "None" artifact
 
 if __name__ == "__main__":
     render_legal_page()

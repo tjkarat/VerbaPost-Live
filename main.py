@@ -88,7 +88,6 @@ def main():
         
         # FIXED: IDEMPOTENCY-FIRST CHECK
         if db and hasattr(db, "record_stripe_fulfillment"):
-            # Check if this session has already been marked completed in DB
             if not db.record_stripe_fulfillment(session_id):
                 st.warning("⚠️ This payment has already been processed.")
                 st.query_params.clear()
@@ -140,7 +139,7 @@ def main():
             
             st.session_state.paid_tier = paid_tier
             st.session_state.current_draft_id = meta_id
-            st.session_state.app_mode = "workspace"
+            st.session_state.app_mode = "main" # Standard redirect
             st.query_params.clear()
             st.rerun()
 
@@ -153,7 +152,7 @@ def main():
         st.header("VerbaPost System")
         if st.button("✉️ Write a Letter", use_container_width=True):
             st.query_params.clear()
-            st.session_state.app_mode = "store"; st.rerun()
+            st.session_state.app_mode = "main"; st.rerun()
         if st.button("📚 Family Archive", use_container_width=True):
             st.query_params.clear()
             st.session_state.app_mode = "heirloom"; st.rerun()
@@ -161,33 +160,32 @@ def main():
         if st.button("🔒 Account Settings", use_container_width=True):
             st.session_state.app_mode = "admin"; st.rerun()
 
-    # --- ROUTER LOGIC: ENSURES STORE MODE CALLS UI_MAIN ---
-    if mode == "splash":
-        module = get_module("ui_splash")
-        if module: module.render_splash_page()
-    elif mode == "login":
-        module = get_module("ui_login")
-        if module: module.render_login_page()
-    elif mode == "store":
-        module = get_module("ui_main")
-        if module: module.render_store_page()
-    elif mode == "workspace":
-        module = get_module("ui_main")
-        if module: module.render_workspace_page()
-    elif mode == "heirloom":
-        module = get_module("ui_heirloom")
-        if module: module.render_dashboard()
-    elif mode == "admin":
-        module = get_module("ui_admin")
-        if module: module.render_admin_page()
-    elif mode == "receipt":
-        module = get_module("ui_main")
-        if module: module.render_receipt_page()
+    # --- FULL ROUTING LOGIC (RESTORED) ---
+    m = get_module(f"ui_{mode}")
+    if m:
+        if mode == "splash" and hasattr(m, "render_splash_page"):
+            m.render_splash_page()
+        elif mode == "login" and hasattr(m, "render_login_page"):
+            m.render_login_page()
+        # ROUTER ALIGNMENT
+        elif mode == "main" and hasattr(m, "render_store_page"):
+            m.render_store_page()
+        elif mode == "workspace" and hasattr(m, "render_workspace_page"):
+            m.render_workspace_page()
+        elif mode == "heirloom" and hasattr(m, "render_dashboard"):
+            m.render_dashboard()
+        elif mode == "admin" and hasattr(m, "render_admin_page"):
+            m.render_admin_page()
+        elif mode == "legacy" and hasattr(m, "render_legacy_page"):
+            m.render_legacy_page()
+        elif mode == "legal" and hasattr(m, "render_legal_page"):
+            m.render_legal_page()
+        elif mode == "receipt" and hasattr(m, "render_receipt_page"):
+            m.render_receipt_page()
     else:
-        module = get_module("ui_splash")
-        if module: module.render_splash_page()
-
-    return ""
+        m_splash = get_module("ui_splash")
+        if m_splash:
+            m_splash.render_splash_page()
 
 if __name__ == "__main__":
     main()

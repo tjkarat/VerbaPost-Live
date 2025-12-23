@@ -22,5 +22,8 @@ jobs:
         run: |
           pip install -r requirements.txt
           pip install pytest pytest-mock
-- name: Run Tests
-  run: PYTHONPATH=. pytest tests/test_hardening.py
+
+      - name: Run Tests
+        run: |
+          # THE FIX: python -m forces the root folder into the search path
+          python -m pytest tests/test_hardening.py
