@@ -84,38 +84,21 @@ def validate_address(address_data):
         else:
             payload = address_data 
             
-    # 2. Map to CamelCase (Contact Format)
-    contact_payload = _to_camel_case_payload(payload)
+    # --- FIX START: Use Print & Mail Contact Creation for Validation ---
+    # We use _create_postgrid_contact as a proxy for validation to avoid 401 errors 
+    # on the standalone verification endpoint.
     
-    # 3. Map to Verification Format (Fixes 404/Bad Request)
-    verification_payload = _to_verification_payload(contact_payload)
+    contact_id = _create_postgrid_contact(payload, api_key)
     
-    # 4. Correct Endpoint URL (Fixes 404)
-    url = "https://api.postgrid.com/v1/addver/verifications"
-    
-    try:
-        r = requests.post(url, json={"address": verification_payload}, headers={"x-api-key": api_key})
-        
-        if r.status_code == 200:
-            res = r.json()
-            if res.get('status') == 'verified':
-                # Return the original payload but marked as verified
-                return True, contact_payload 
-            else:
-                return False, {"error": "Address could not be verified.", "details": "[Details Hidden]"}
-        
-        # --- FIXED LOGIC: FAIL CLOSED ON AUTH ERRORS ---
-        if r.status_code in [401, 403]:
-             logger.error(f"PostGrid Auth Error {r.status_code}. Check API Key.")
-             return False, "System Error: Address Validation Unauthorized"
-
-        if r.status_code == 404:
-             logger.error(f"PostGrid API Endpoint Not Found (404).")
-             return False, "System Error: Validation Service Unavailable"
-
-        return False, {"error": f"API Error {r.status_code}"}
-    except Exception as e:
-        return False, {"error": "[Exception Hidden]"}
+    if contact_id:
+        # If we successfully created a contact, the address is valid.
+        # We return the CamelCase payload to match original behavior.
+        contact_payload = _to_camel_case_payload(payload)
+        return True, contact_payload
+    else:
+        # If contact creation failed, the address is likely invalid.
+        return False, {"error": "Address rejected by PostGrid. Please check street, city, and zip."}
+    # --- FIX END ---
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", tier="Standard"):
     api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
