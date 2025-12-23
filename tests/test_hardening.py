@@ -1,9 +1,14 @@
+import sys
+import os
+
+# FIXED: Ensure these are on separate lines so the robot can find your app files
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import pytest
 from unittest.mock import patch, MagicMock
 import logging
-import os
 
-# Import your actual app functions to be tested
+# Now the robot can successfully find these files
 from ai_engine import _normalize_phone
 import mailer
 
