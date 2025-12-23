@@ -53,6 +53,7 @@ def get_module(module_name):
         if module_name == "ui_legacy": import ui_legacy as m; return m
         if module_name == "ui_heirloom": import ui_heirloom as m; return m
         if module_name == "ui_legal": import ui_legal as m; return m
+        if module_name == "ui_blog": import ui_blog as m; return m
         if module_name == "payment_engine": import payment_engine as m; return m
         if module_name == "database": import database as m; return m
         if module_name == "analytics": import analytics as m; return m
@@ -159,19 +160,16 @@ def main():
         st.markdown("---")
         if st.button("🔒 Account Settings", use_container_width=True):
             st.session_state.app_mode = "admin"; st.rerun()
-   # --- ROUTING LOGIC ---
+
+    # --- ROUTING LOGIC ---
     m = get_module(f"ui_{mode}")
     if m:
         if mode == "splash" and hasattr(m, "render_splash_page"):
             m.render_splash_page()
         elif mode == "login" and hasattr(m, "render_login_page"):
             m.render_login_page()
-        elif mode == "main":
-            # Route 'main' to the store page in ui_main.py
-            if hasattr(m, "render_store_page"):
-                m.render_store_page()
-            else:
-                st.error("Store page not available")
+        elif mode == "main" and hasattr(m, "render_store_page"):
+            m.render_store_page()
         elif mode == "workspace" and hasattr(m, "render_workspace_page"):
             m.render_workspace_page()
         elif mode == "heirloom" and hasattr(m, "render_dashboard"):
@@ -182,11 +180,14 @@ def main():
             m.render_legacy_page()
         elif mode == "legal" and hasattr(m, "render_legal_page"):
             m.render_legal_page()
+        elif mode == "blog" and hasattr(m, "render_blog_page"):
+            m.render_blog_page()
         elif mode == "receipt" and hasattr(m, "render_receipt_page"):
             m.render_receipt_page()
     else:
         m_splash = get_module("ui_splash")
         if m_splash:
             m_splash.render_splash_page()
+
 if __name__ == "__main__":
     main()

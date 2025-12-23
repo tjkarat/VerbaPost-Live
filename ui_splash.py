@@ -87,9 +87,16 @@ def render_splash_page():
     col_foot1, col_foot2, col_foot3 = st.columns([1, 2, 1])
     with col_foot2:
         st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
-        # LEGAL NAVIGATION
-        if st.button("⚖️ Legal / Terms", use_container_width=True):
-            st.session_state.app_mode = "legal"
-            st.rerun()
+        
+        # FOOTER NAVIGATION
+        c_blog, c_legal = st.columns(2)
+        with c_blog:
+             if st.button("📰 Read our Blog", use_container_width=True):
+                 st.session_state.app_mode = "blog"
+                 st.rerun()
+        with c_legal:
+             if st.button("⚖️ Legal / Terms", use_container_width=True):
+                st.session_state.app_mode = "legal"
+                st.rerun()
     
     return ""
