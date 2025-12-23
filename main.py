@@ -159,17 +159,19 @@ def main():
         st.markdown("---")
         if st.button("🔒 Account Settings", use_container_width=True):
             st.session_state.app_mode = "admin"; st.rerun()
-
-    # --- ROUTING LOGIC ---
+   # --- ROUTING LOGIC ---
     m = get_module(f"ui_{mode}")
     if m:
         if mode == "splash" and hasattr(m, "render_splash_page"):
             m.render_splash_page()
         elif mode == "login" and hasattr(m, "render_login_page"):
             m.render_login_page()
-        # FIXED: Added route for 'main' mode
-        elif mode == "main" and hasattr(m, "render_store_page"):
-            m.render_store_page()
+        elif mode == "main":
+            # Route 'main' to the store page in ui_main.py
+            if hasattr(m, "render_store_page"):
+                m.render_store_page()
+            else:
+                st.error("Store page not available")
         elif mode == "workspace" and hasattr(m, "render_workspace_page"):
             m.render_workspace_page()
         elif mode == "heirloom" and hasattr(m, "render_dashboard"):
@@ -186,6 +188,5 @@ def main():
         m_splash = get_module("ui_splash")
         if m_splash:
             m_splash.render_splash_page()
-
 if __name__ == "__main__":
     main()
