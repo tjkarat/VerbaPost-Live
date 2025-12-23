@@ -3,6 +3,7 @@ import time
 import os
 import hashlib
 import requests
+import base64
 from datetime import datetime
 
 # --- CRITICAL IMPORTS ---
@@ -32,7 +33,7 @@ except ImportError: promo_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
-# --- HELPER: EMAIL ALERT (Using Requests directly) ---
+# --- HELPER: EMAIL ALERT ---
 def _send_alert_email(to_email, subject, html_body):
     """Sends receipts and admin alerts via Resend."""
     try:
@@ -90,18 +91,18 @@ def _ensure_profile_loaded():
 
 # --- CSS INJECTOR ---
 def inject_custom_css(text_size=16):
-    import base64
     font_face_css = ""
     try:
-        with open("type_right.ttf", "rb") as f:
-            b64_font = base64.b64encode(f.read()).decode()
-        font_face_css = f"""
-            @font-face {{
-                font-family: 'TypeRight';
-                src: url('data:font/ttf;base64,{b64_font}') format('truetype');
-            }}
-        """
-    except FileNotFoundError:
+        if os.path.exists("type_right.ttf"):
+            with open("type_right.ttf", "rb") as f:
+                b64_font = base64.b64encode(f.read()).decode()
+            font_face_css = f"""
+                @font-face {{
+                    font-family: 'TypeRight';
+                    src: url('data:font/ttf;base64,{b64_font}') format('truetype');
+                }}
+            """
+    except Exception:
         font_face_css = ""
 
     st.markdown(f"""
@@ -116,8 +117,7 @@ def inject_custom_css(text_size=16):
         }}
         .stTextInput input {{ font-family: 'Helvetica Neue', sans-serif !important; }}
         p, li, .stMarkdown {{ font-family: 'Helvetica Neue', sans-serif; font-size: {text_size}px !important; line-height: 1.6 !important; }}
-        /* INCREASED HEIGHT TO 300px HERE */
-        .price-card {{ background-color: #ffffff; border-radius: 12px; padding: 20px 15px; text-align: center; border: 1px solid #e0e0e0; height: 300px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: flex-start; gap: 5px; }}
+        .price-card {{ background-color: #ffffff; border-radius: 12px; padding: 20px 15px; text-align: center; border: 1px solid #e0e0e0; height: 320px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); display: flex; flex-direction: column; justify-content: flex-start; gap: 5px; }}
         .price-header {{ font-weight: 700; font-size: 1.4rem; color: #1f2937; margin-bottom: 2px; height: 35px; display: flex; align-items: center; justify-content: center; }}
         .price-sub {{ font-size: 0.75rem; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 5px; }}
         .price-tag {{ font-size: 2.4rem; font-weight: 800; color: #d93025; margin: 5px 0; }}
@@ -166,23 +166,13 @@ def _save_new_contact(contact_data):
                 is_new = False
                 break
         if is_new:
-            if hasattr(database, "save_contact"):
-                database.save_contact(user_email, contact_data)
+            if hasattr(database, "add_contact"):
+                database.add_contact(user_email, contact_data)
             return True
         return False
     except Exception as e:
         print(f"Smart Save Error: {e}")
         return False
-
-def _handle_draft_creation(email, tier, price):
-    d_id = st.session_state.get("current_draft_id")
-    success = False
-    if d_id:
-        success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
-    if not success or not d_id:
-        d_id = database.save_draft(email, "", tier, price)
-        st.session_state.current_draft_id = d_id
-    return d_id
 
 # --- CALLBACKS ---
 def cb_buy_tier(tier, base_price, user_email, is_certified=False):
@@ -229,6 +219,7 @@ def cb_buy_tier(tier, base_price, user_email, is_certified=False):
         )
         if url: 
             st.session_state.pending_stripe_url = url
+            st.rerun()
         else:
             st.error("Payment Gateway Error")
 
@@ -331,17 +322,19 @@ def render_campaign_uploader():
     st.info("📢 **Campaign Mode:** Upload a CSV to send letters to hundreds of people.")
     st.markdown("**Format Required:** `name, street, city, state, zip`")
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-    if uploaded_file:
+    if uploaded_file and bulk_engine:
         contacts = bulk_engine.parse_csv(uploaded_file)
         if not contacts:
             st.error("❌ Could not parse CSV. Please check the format.")
             return
         st.success(f"✅ Loaded {len(contacts)} recipients.")
         st.dataframe(contacts[:5])
-        total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
-        st.metric("Estimated Total", f"${total}")
+        if pricing_engine:
+            total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
+            st.metric("Estimated Total", f"${total}")
         if st.button("Proceed with Campaign"):
             st.info("Campaign mode requires custom checkout logic. (Placeholder)")
+
 
 def render_workspace_page():
     paid_tier = st.session_state.get("paid_tier")
@@ -369,7 +362,7 @@ def render_workspace_page():
                     st.session_state.to_street = d.get('street', '') or d.get('address_line1', '')
                     st.session_state.to_city = d.get('city', '')
                     st.session_state.to_state = d.get('state', '')
-                    st.session_state.to_zip = d.get('zip_code', '') 
+                    st.session_state.to_zip = d.get('zip_code', '') or d.get('zip', '')
                     st.session_state.last_load = sel
                     st.rerun()
 
@@ -377,26 +370,57 @@ def render_workspace_page():
         with c_to:
             st.markdown("**To (Recipient)**")
             if paid_tier == "Civic" and civic_engine:
-                st.info("We will find your reps automatically.")
-                if st.button("Find Reps"):
-                    # Civic Logic Placeholder - restored from previous
-                    pass
+                st.info("Civic Mode: We automatically address this to your federal representatives.")
+                if st.button("🏛️ Find My Representatives"):
+                    with st.spinner("Looking up district..."):
+                        addr = f"{st.session_state.from_street}, {st.session_state.from_city}, {st.session_state.from_state} {st.session_state.from_zip}"
+                        reps = civic_engine.get_legislators(addr)
+                        if reps:
+                            st.session_state.civic_reps = reps
+                            st.success(f"Found {len(reps)} officials!")
+                        else: st.error("Lookup failed.")
             else:
                 st.text_input("Name", key="to_name")
-                st.text_input("Street", key="to_street")
+                st.text_input("Street Address", key="to_street")
                 st.text_input("City", key="to_city")
                 c_s, c_z = st.columns(2)
                 c_s.text_input("State", key="to_state")
-                c_z.text_input("Zip", key="to_zip")
+                c_z.text_input("Zip Code", key="to_zip")
 
         with c_from:
             st.markdown("**From (You)**")
-            st.text_input("Name", key="from_name")
+            st.text_input("Your Name", key="from_name")
             st.text_input("Street", key="from_street")
             st.text_input("City", key="from_city")
             c_fs, c_fz = st.columns(2)
             c_fs.text_input("State", key="from_state")
             c_fz.text_input("Zip", key="from_zip")
+
+        # --- RESTORED: ADDRESS HARDENING BUTTONS ---
+        c_v, c_s = st.columns(2)
+        with c_v:
+            if st.button("🛡️ Validate Recipient Address", use_container_width=True):
+                if mailer:
+                    payload = {
+                        "street": st.session_state.to_street,
+                        "city": st.session_state.to_city,
+                        "state": st.session_state.to_state,
+                        "zip": st.session_state.to_zip
+                    }
+                    valid, msg = mailer.validate_address(payload)
+                    if valid: st.success("✅ USPS Verified!")
+                    else: st.error(f"❌ Invalid: {msg}")
+        with c_s:
+            if st.button("💾 Save to Address Book", use_container_width=True):
+                contact = {
+                    "name": st.session_state.to_name,
+                    "street": st.session_state.to_street,
+                    "city": st.session_state.to_city,
+                    "state": st.session_state.to_state,
+                    "zip_code": st.session_state.to_zip
+                }
+                if _save_new_contact(contact): st.success("✅ Saved to address book!")
+                else: st.info("ℹ️ Contact already exists.")
 
     st.divider()
 
