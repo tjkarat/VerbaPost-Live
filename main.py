@@ -83,6 +83,9 @@ def main():
     if params.get("view") == "admin":
         st.session_state.app_mode = "admin"
 
+    if params.get("view") == "blog":
+        st.session_state.app_mode = "blog"
+
     if "session_id" in params:
         session_id = params["session_id"]
         db = get_module("database")
