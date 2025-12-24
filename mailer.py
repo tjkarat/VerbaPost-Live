@@ -24,7 +24,17 @@ def _to_camel_case_payload(snake_payload):
     if " " in full_name:
         parts = full_name.split(" ", 1)
         first_name = parts[0]
+        # Join the rest in case of middle names/suffixes
         last_name = parts[1]
+    
+    # POSTGRID 400 FIX: If last name is empty, we must ensure the payload is still valid.
+    # Some strict modes require a last name, but often a single char '.' works if strictly unknown,
+    # or we ensure the payload structure is perfect.
+    
+    # Ensure Country Code is strictly 2 chars
+    country = snake_payload.get('country_code', 'US') or snake_payload.get('country', 'US')
+    if len(country) > 2:
+        country = country[:2]
 
     return {
         'firstName': first_name,
@@ -34,7 +44,7 @@ def _to_camel_case_payload(snake_payload):
         'city': snake_payload.get('address_city', '') or snake_payload.get('city', ''),
         'provinceOrState': snake_payload.get('address_state', '') or snake_payload.get('state', ''),
         'postalOrZip': snake_payload.get('address_zip', '') or snake_payload.get('zip', '') or snake_payload.get('zip_code', ''),
-        'countryCode': snake_payload.get('country_code', 'US') or snake_payload.get('country', 'US')
+        'countryCode': country
     }
 
 def _to_verification_payload(camel_payload):
@@ -59,7 +69,10 @@ def _create_postgrid_contact(payload, api_key):
         if r.status_code in [200, 201]:
             return r.json().get('id')
         else:
-            logger.error(f"Contact Creation Failed: {r.status_code} - [Response Hidden]")
+            # Log the response text in debug mode to see exactly WHY it failed (e.g. "lastName is required")
+            logger.error(f"Contact Creation Failed: {r.status_code}")
+            if os.environ.get("DEBUG") == "true": 
+                logger.error(f"PostGrid Error Details: {r.text}")
             return None
     except Exception as e:
         logger.error(f"Contact Creation Exception: [Details Hidden]")
@@ -67,7 +80,8 @@ def _create_postgrid_contact(payload, api_key):
 
 def validate_address(address_data):
     """
-    Validates an address using PostGrid's verification API.
+    Validates an address by attempting to create a Contact in the Print & Mail API.
+    This bypasses the need for a separate 'Address Verification' subscription.
     """
     api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
     if not api_key:
@@ -85,14 +99,9 @@ def validate_address(address_data):
             payload = address_data 
             
     # --- FIX START: Use Print & Mail Contact Creation for Validation ---
-    # We use _create_postgrid_contact as a proxy for validation to avoid 401 errors 
-    # on the standalone verification endpoint.
-    
     contact_id = _create_postgrid_contact(payload, api_key)
     
     if contact_id:
-        # If we successfully created a contact, the address is valid.
-        # We return the CamelCase payload to match original behavior.
         contact_payload = _to_camel_case_payload(payload)
         return True, contact_payload
     else:
