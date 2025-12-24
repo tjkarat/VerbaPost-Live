@@ -232,7 +232,7 @@ def render_store_page():
     # --- RESET STATE ON ENTRY ---
     if "paid_tier" in st.session_state: del st.session_state.paid_tier
     if "receipt_data" in st.session_state: del st.session_state.receipt_data
-    if "pending_stripe_url" in st.session_state: del st.session_state.pending_stripe_url
+    # FIXED: We do NOT delete pending_stripe_url here, otherwise the button below never shows.
     
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
