@@ -126,11 +126,12 @@ class LetterDraft(Base):
     tier = Column(String, default="Heirloom") 
     price = Column(Float, default=0.0)
     tracking_number = Column(String)
-    # This was the missing column causing the crash
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
+    # The new column that caused the confusion, now properly supported
     audio_ref = Column(Text)
+
 class ScheduledCall(Base):
     __tablename__ = 'scheduled_calls'
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -367,10 +368,18 @@ def schedule_call(email, parent_phone, topic, scheduled_dt):
 
 # --- STORE / DRAFTS ---
 
-def save_draft(email, content, tier="Standard", price=0.0):
+# FIXED: Added audio_ref=None to signature to match ui_heirloom.py calls
+def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
     try:
         with get_db_session() as session:
-            draft = LetterDraft(user_email=email, content=content, tier=tier, price=price, status="Draft")
+            draft = LetterDraft(
+                user_email=email, 
+                content=content, 
+                tier=tier, 
+                price=price, 
+                status="Draft",
+                audio_ref=audio_ref # New field
+            )
             session.add(draft)
             session.commit()
             return draft.id
