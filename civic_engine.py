@@ -123,6 +123,6 @@ def get_legislators(address_input):
         logger.error(f"❌ CIVIC EXCEPTION: {e}")
         return []
 
-# --- SAFETY ALIAS ---
-# This ensures older code calling 'find_representatives' still works
+# --- CRITICAL: BACKWARD COMPATIBILITY ALIAS ---
+# This ensures that if ui_main.py calls the old name, it still works.
 find_representatives = get_legislators
