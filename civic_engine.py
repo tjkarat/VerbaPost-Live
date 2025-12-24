@@ -1,25 +1,36 @@
 import requests
-import secrets_manager
 import logging
 import json
+import streamlit as st
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def find_representatives(address_input):
+# Try to get secrets manager
+try: import secrets_manager
+except ImportError: secrets_manager = None
+
+def get_api_key():
+    """Retrieves Geocodio API Key safely."""
+    key = None
+    if secrets_manager:
+        key = secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCODIO_API_KEY")
+    
+    if not key and "geocodio" in st.secrets:
+        key = st.secrets["geocodio"]["api_key"]
+        
+    return key
+
+def get_legislators(address_input):
     """
     Looks up US Senators and Representatives.
     Uses 'cd' field (Congressional Districts) which includes legislators.
     """
-    # 1. KEY RETRIEVAL
-    api_key = (
-        secrets_manager.get_secret("geocodio.api_key") or 
-        secrets_manager.get_secret("GEOCODIO_API_KEY")
-    )
+    api_key = get_api_key()
     
     if not api_key:
-        print("❌ CIVIC DEBUG: Geocodio API Key is MISSING.")
+        logger.error("❌ CIVIC DEBUG: Geocodio API Key is MISSING.")
         return []
 
     # 2. ADDRESS FORMATTING
@@ -34,14 +45,13 @@ def find_representatives(address_input):
     else:
         address_str = str(address_input)
 
-    print(f"🔍 CIVIC DEBUG: Sending Address: '{address_str}'")
+    logger.info(f"🔍 CIVIC DEBUG: Sending Address: '{address_str}'")
 
-    # 3. API CALL (Updated to use 'cd' instead of 'congress')
-    # Use v1.7 as per your logs, but 'cd' is the standard field now.
+    # 3. API CALL
     url = "https://api.geocod.io/v1.7/geocode"
     params = {
         "q": address_str,
-        "fields": "cd", # FIX: Changed from 'congress' to 'cd'
+        "fields": "cd", # Congressional District
         "api_key": api_key
     }
 
@@ -49,26 +59,21 @@ def find_representatives(address_input):
         r = requests.get(url, params=params, timeout=10)
         
         if r.status_code != 200:
-            print(f"❌ CIVIC API ERROR: {r.status_code} - {r.text}")
+            logger.error(f"❌ CIVIC API ERROR: {r.status_code} - {r.text}")
             return []
             
         data = r.json()
-        
-        # DEBUG: Print raw to confirm structure
-        print(f"📦 CIVIC RAW RESPONSE: {json.dumps(data)}")
-
         results = []
         
         if 'results' in data and len(data['results']) > 0:
             result_block = data['results'][0]
             fields = result_block.get('fields', {})
             
-            # PARSING UPDATE: Geocodio returns 'congressional_districts' array
-            # We default to the first one found (standard for single address)
+            # PARSING: Geocodio returns 'congressional_districts' array
             districts = fields.get('congressional_districts', [])
             
             if not districts:
-                print("⚠️ CIVIC DEBUG: No 'congressional_districts' found in response.")
+                logger.warning("⚠️ CIVIC DEBUG: No 'congressional_districts' found.")
                 return []
 
             for dist in districts:
@@ -77,9 +82,10 @@ def find_representatives(address_input):
                 
                 for leg in legislators:
                     role_type = leg.get('type') # 'senator' or 'representative'
-                    full_name = f"{leg['bio']['first_name']} {leg['bio']['last_name']}"
+                    # Safe extraction of bio
+                    bio = leg.get('bio', {})
+                    full_name = f"{bio.get('first_name', '')} {bio.get('last_name', '')}".strip()
                     
-                    # Map Geocodio structure to our App structure
                     entry = {
                         "name": "", 
                         "office": "",
@@ -105,14 +111,18 @@ def find_representatives(address_input):
                         entry['office'] = "House of Representatives"
                         entry['address']['zip'] = "20515" # House Zip
                     
-                    results.append(entry)
-                    print(f"   -> Found {entry['name']}")
+                    if entry['name']:
+                        results.append(entry)
 
         else:
-            print("⚠️ CIVIC DEBUG: Geocodio returned 0 results for this address.")
+            logger.warning("⚠️ CIVIC DEBUG: Geocodio returned 0 results.")
         
         return results
 
     except Exception as e:
-        print(f"❌ CIVIC EXCEPTION: {e}")
+        logger.error(f"❌ CIVIC EXCEPTION: {e}")
         return []
+
+# --- SAFETY ALIAS ---
+# This ensures older code calling 'find_representatives' still works
+find_representatives = get_legislators
