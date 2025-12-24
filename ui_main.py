@@ -229,10 +229,10 @@ def render_store_page():
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
     
-    # --- RESET STATE ON ENTRY ---
-    if "paid_tier" in st.session_state: del st.session_state.paid_tier
-    if "receipt_data" in st.session_state: del st.session_state.receipt_data
-    # FIXED: We do NOT delete pending_stripe_url here, otherwise the button below never shows.
+    # --- SAFETY FIX: Do NOT delete 'paid_tier' here.
+    # We rely on 'app_mode="workspace"' to protect the state.
+    # If users click "Store" manually, we simply overwrite 'paid_tier' if they buy again.
+    # Deleting it here caused the "Return Loop" bug.
     
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
@@ -311,8 +311,12 @@ def render_store_page():
         if st.button("Buy Civic", key="btn_civic", use_container_width=True):
             cb_buy_tier("Civic", 6.99, u_email, is_cert)
             
+    # FIXED: PENDING URL LOGIC
+    # We display this OUTSIDE the button logic so it survives a rerun
     if "pending_stripe_url" in st.session_state:
-        st.link_button("👉 Click Here to Complete Payment", st.session_state.pending_stripe_url, type="primary", use_container_width=True)
+         st.markdown("---")
+         st.success("✅ Payment Link Ready")
+         st.link_button("👉 Click Here to Complete Payment", st.session_state.pending_stripe_url, type="primary", use_container_width=True)
 
     return ""
 
