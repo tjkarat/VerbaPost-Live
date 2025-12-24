@@ -65,11 +65,12 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         line_height = 6
         bold_style = 'B' 
 
-    # --- HELPER: FORMAT ADDRESS (FIXED) ---
+    # --- HELPER: FORMAT ADDRESS (CRITICAL FIX) ---
     def format_addr(addr_obj):
         if not addr_obj: return []
         
         # Helper to safely get string value or empty string
+        # This prevents 'NoneType has no attribute strip' crashes
         def safe_get(key, alt_key=None):
             val = None
             if isinstance(addr_obj, dict):
@@ -86,7 +87,11 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         state = safe_get("state", "address_state")
         zip_code = safe_get("zip_code", "zip")
             
-        lines = [name, street, f"{city}, {state} {zip_code}"]
+        # Only add the city/state line if data exists
+        line3 = f"{city}, {state} {zip_code}".strip()
+        if line3 == ",": line3 = ""
+            
+        lines = [name, street, line3]
         return [l for l in lines if l.strip()]
 
     # Prep address lines (needed for logic later even if not printed)
@@ -100,7 +105,7 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         pdf.set_font(header_font, '', 10)
         pdf.set_xy(20, 15) 
         for line in from_lines:
-            pdf.set_x(20) # FIXED: Force alignment for every line
+            pdf.set_x(20) # Force alignment for every line
             pdf.cell(0, 5, line, ln=True, align='L') 
 
         # TO ADDRESS (MIDDLE LEFT WINDOW)
@@ -108,7 +113,7 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         pdf.set_xy(20, 50) 
         pdf.set_font(header_font, bold_style, 11)
         for line in to_lines:
-            pdf.set_x(20) # FIXED: Force alignment for every line
+            pdf.set_x(20) # Force alignment for every line
             pdf.cell(0, 5, line, ln=True)
     
     # Render Date (Moved to Right to balance layout) - Always render date
@@ -124,16 +129,16 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
     pdf.set_y(safe_body_start) 
     pdf.set_font(main_font, '', font_size)
     
-    clean_content = content.strip()
+    clean_content = str(content or "").strip()
     
     # Auto-Insert "Dear X" if missing (except for Heirloom)
     if tier != "Heirloom" and not clean_content.lower().startswith("dear"):
         to_name = to_lines[0] if to_lines else "Friend"
         first_name = to_name.split()[0]
-        pdf.set_x(20) # FIXED: Ensure Body starts at margin
+        pdf.set_x(20)
         pdf.multi_cell(0, line_height, f"Dear {first_name},\n\n")
         
-    pdf.set_x(20) # FIXED: Ensure main body starts at margin
+    pdf.set_x(20)
     pdf.multi_cell(0, line_height, clean_content)
 
     # --- 5. SIGNATURE ---
@@ -149,7 +154,7 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
             sender_name = from_lines[0] if from_lines else ""
             sign_off = "Sincerely,\n\n" + sender_name
         
-        pdf.set_x(20) # FIXED: Ensure signature starts at margin
+        pdf.set_x(20)
         pdf.multi_cell(0, line_height, sign_off)
 
     # --- 6. OUTPUT ---
