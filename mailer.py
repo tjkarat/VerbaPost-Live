@@ -18,20 +18,23 @@ def _to_camel_case_payload(snake_payload):
     SPLITS single 'name' field into 'firstName' and 'lastName' (Required by Contact API).
     """
     full_name = snake_payload.get('name', '').strip()
+    
+    # --- CRITICAL FIX: PostGrid 400 Error ---
+    # The validation payload from ui_login.py often has NO name.
+    # PostGrid rejects contacts without a name. We inject a placeholder
+    # so the API accepts the request and validates the address.
+    if not full_name:
+        full_name = "VerbaPost Resident"
+    
     first_name = full_name
     last_name = ""
     
     if " " in full_name:
         parts = full_name.split(" ", 1)
         first_name = parts[0]
-        # Join the rest in case of middle names/suffixes
         last_name = parts[1]
-    
-    # POSTGRID 400 FIX: If last name is empty, we must ensure the payload is still valid.
-    # Some strict modes require a last name, but often a single char '.' works if strictly unknown,
-    # or we ensure the payload structure is perfect.
-    
-    # Ensure Country Code is strictly 2 chars
+
+    # Ensure Country Code is strictly 2 chars (Fixes potential 400s)
     country = snake_payload.get('country_code', 'US') or snake_payload.get('country', 'US')
     if len(country) > 2:
         country = country[:2]
@@ -69,7 +72,6 @@ def _create_postgrid_contact(payload, api_key):
         if r.status_code in [200, 201]:
             return r.json().get('id')
         else:
-            # Log the response text in debug mode to see exactly WHY it failed (e.g. "lastName is required")
             logger.error(f"Contact Creation Failed: {r.status_code}")
             if os.environ.get("DEBUG") == "true": 
                 logger.error(f"PostGrid Error Details: {r.text}")
@@ -98,16 +100,13 @@ def validate_address(address_data):
         else:
             payload = address_data 
             
-    # --- FIX START: Use Print & Mail Contact Creation for Validation ---
+    # 2. "Validation by Creation" Strategy
     contact_id = _create_postgrid_contact(payload, api_key)
     
     if contact_id:
-        contact_payload = _to_camel_case_payload(payload)
-        return True, contact_payload
+        return True, _to_camel_case_payload(payload)
     else:
-        # If contact creation failed, the address is likely invalid.
         return False, {"error": "Address rejected by PostGrid. Please check street, city, and zip."}
-    # --- FIX END ---
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", tier="Standard"):
     api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
