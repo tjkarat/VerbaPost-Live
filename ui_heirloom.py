@@ -24,6 +24,10 @@ try: import promo_engine
 except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
+try: import heirloom_engine # NEW: For Audio/Vault Logic
+except ImportError: heirloom_engine = None
+try: import storage_engine # NEW: For Audio Playback
+except ImportError: storage_engine = None
 
 # --- HELPER: EMAIL SENDER ---
 def _send_receipt(user_email, subject, body_html):
@@ -360,16 +364,38 @@ def render_dashboard():
         st.markdown("### 📥 Captured Stories")
         st.caption("New recordings are automatically transcribed and saved here.")
         
+        # --- NEW: INTEGRATED ARCHIVE ENGINE ---
         if st.button("🔄 Check for New Recordings", use_container_width=True):
-            if ai_engine and p_phone:
-                with st.spinner("Checking phone logs..."):
+            if not p_phone:
+                st.error("⚠️ Set 'Parent Phone' in Settings first.")
+            elif heirloom_engine: 
+                with st.spinner(f"Scanning calls from {p_phone} & Archiving..."):
+                    # Uses the new engine to download, upload to Vault, and transcribe
+                    transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
+                    
+                    if transcript:
+                        if database: 
+                            # Save with the new audio_ref column
+                            database.save_draft(
+                                user_email, 
+                                transcript, 
+                                "Heirloom", 
+                                0.0, 
+                                audio_ref=audio_path
+                            )
+                        st.success("✅ Story Archived & Transcribed!")
+                        time.sleep(1)
+                        st.rerun()
+                    else: 
+                        msg = f"No new recordings found. ({err})" if err else "No new recordings found."
+                        st.warning(msg)
+            elif ai_engine: # Fallback to old engine if new one fails load
+                with st.spinner("Checking phone logs (Legacy Mode)..."):
                     transcript, err = ai_engine.fetch_and_transcribe_latest_call(p_phone)
                     if transcript:
                         if database: database.save_draft(user_email, transcript, "Heirloom", 0.0)
-                        st.success("✅ New Story Found and Transcribed!")
-                        time.sleep(1)
+                        st.success("✅ New Story Found!")
                         st.rerun()
-                    else: st.warning("No new recordings found since your last check.")
 
         st.divider()
 
@@ -390,6 +416,15 @@ def render_dashboard():
                     st.error("🔒 **Story Locked:** Upgrade to the Annual Pass to read the full transcript, edit details, or download copies.")
                     st.caption(f"Snippet: {d.get('content', '')[:100]}...")
                     continue
+                
+                # --- NEW: AUDIO PLAYER ---
+                d_audio = d.get('audio_ref')
+                if d_audio and storage_engine:
+                    url = storage_engine.get_signed_url(d_audio)
+                    if url:
+                        st.audio(url, format="audio/mp3")
+                    else:
+                        st.caption("Audio unavailable (Link Expired or Missing)")
 
                 st.markdown("**Transcript Editor**")
                 txt = st.text_area("Review and edit the transcription here.", value=d.get('content'), height=300, key=f"edit_{d_id}")
@@ -407,7 +442,7 @@ def render_dashboard():
                     r_name = profile.get("full_name", "")
                     r_addr = profile.get("address_line1", "")
                     s_name = profile.get("parent_name", "The Family Archive")
-                    
+
                     if not r_addr:
                         st.warning("⚠️ **Missing Address:** Please go to 'Settings' and add a mailing address before sending.")
                     else:

@@ -130,7 +130,7 @@ class LetterDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
-
+    audio_ref = Column(Text)
 class ScheduledCall(Base):
     __tablename__ = 'scheduled_calls'
     id = Column(Integer, primary_key=True, autoincrement=True)
