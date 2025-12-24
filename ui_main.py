@@ -347,6 +347,15 @@ def render_workspace_page():
         return
 
     _ensure_profile_loaded()
+
+    # --- CRITICAL FIX START: INITIALIZE STATE VARIABLES ---
+    # This prevents the 'AttributeError: st.session_state has no attribute to_street' crash
+    # when the inputs are hidden (Civic Mode) but the code tries to read them.
+    defaults = ["to_name", "to_street", "to_city", "to_state", "to_zip", "letter_body"]
+    for d in defaults:
+        if d not in st.session_state:
+            st.session_state[d] = ""
+    # --- CRITICAL FIX END ---
     
     # --- INITIALIZE LETTER BODY ---
     if "letter_body" not in st.session_state:
@@ -405,30 +414,32 @@ def render_workspace_page():
             c_fz.text_input("Zip", key="from_zip")
 
         # --- RESTORED: ADDRESS HARDENING BUTTONS ---
-        c_v, c_s = st.columns(2)
-        with c_v:
-            if st.button("🛡️ Validate Recipient Address", use_container_width=True):
-                if mailer:
-                    payload = {
+        # FIX: Only show validation buttons if NOT in Civic mode
+        if paid_tier != "Civic":
+            c_v, c_s = st.columns(2)
+            with c_v:
+                if st.button("🛡️ Validate Recipient Address", use_container_width=True):
+                    if mailer:
+                        payload = {
+                            "street": st.session_state.to_street,
+                            "city": st.session_state.to_city,
+                            "state": st.session_state.to_state,
+                            "zip": st.session_state.to_zip
+                        }
+                        valid, msg = mailer.validate_address(payload)
+                        if valid: st.success("✅ USPS Verified!")
+                        else: st.error(f"❌ Invalid: {msg}")
+            with c_s:
+                if st.button("💾 Save to Address Book", use_container_width=True):
+                    contact = {
+                        "name": st.session_state.to_name,
                         "street": st.session_state.to_street,
                         "city": st.session_state.to_city,
                         "state": st.session_state.to_state,
-                        "zip": st.session_state.to_zip
+                        "zip_code": st.session_state.to_zip
                     }
-                    valid, msg = mailer.validate_address(payload)
-                    if valid: st.success("✅ USPS Verified!")
-                    else: st.error(f"❌ Invalid: {msg}")
-        with c_s:
-            if st.button("💾 Save to Address Book", use_container_width=True):
-                contact = {
-                    "name": st.session_state.to_name,
-                    "street": st.session_state.to_street,
-                    "city": st.session_state.to_city,
-                    "state": st.session_state.to_state,
-                    "zip_code": st.session_state.to_zip
-                }
-                if _save_new_contact(contact): st.success("✅ Saved to address book!")
-                else: st.info("ℹ️ Contact already exists.")
+                    if _save_new_contact(contact): st.success("✅ Saved to address book!")
+                    else: st.info("ℹ️ Contact already exists.")
 
     st.divider()
 
@@ -490,17 +501,8 @@ def render_workspace_page():
         if not new_text.strip():
             st.error("Letter body is empty.")
             return
-        if paid_tier != "Civic" and not st.session_state.get("to_street"):
-            st.error("Recipient address missing.")
-            return
-
-        to_addr = {
-            "name": st.session_state.get("to_name"),
-            "address_line1": st.session_state.get("to_street"),
-            "city": st.session_state.get("to_city"),
-            "state": st.session_state.get("to_state"),
-            "zip_code": st.session_state.get("to_zip")
-        }
+            
+        # --- ADDRESS PAYLOAD BUILDING ---
         from_addr = {
             "name": st.session_state.get("from_name"),
             "address_line1": st.session_state.get("from_street"),
@@ -508,8 +510,37 @@ def render_workspace_page():
             "state": st.session_state.get("from_state"),
             "zip_code": st.session_state.get("from_zip")
         }
-        
-        if paid_tier != "Civic": _save_new_contact(to_addr)
+
+        to_addr = {}
+        if paid_tier == "Civic":
+            # AUTO-POPULATE from Civic Engine results
+            reps = st.session_state.get("civic_reps", [])
+            if reps:
+                # Use the first rep for the PDF preview/record
+                rep = reps[0]
+                to_addr = {
+                    "name": rep['name'],
+                    "address_line1": rep['address']['street'], 
+                    "city": rep['address']['city'],
+                    "state": rep['address']['state'],
+                    "zip_code": rep['address']['zip']
+                }
+            else:
+                st.error("Please click 'Find My Representatives' first.")
+                return
+        else:
+            # STANDARD/VINTAGE
+            if not st.session_state.get("to_street"):
+                st.error("Recipient address missing.")
+                return
+            to_addr = {
+                "name": st.session_state.get("to_name"),
+                "address_line1": st.session_state.get("to_street"),
+                "city": st.session_state.get("to_city"),
+                "state": st.session_state.get("to_state"),
+                "zip_code": st.session_state.get("to_zip")
+            }
+            _save_new_contact(to_addr)
 
         pdf_bytes = b""
         if letter_format:

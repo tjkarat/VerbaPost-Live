@@ -65,21 +65,26 @@ def create_pdf(content, to_addr, from_addr, tier="Standard", signature_text=None
         line_height = 6
         bold_style = 'B' 
 
-    # --- HELPER: FORMAT ADDRESS ---
+    # --- HELPER: FORMAT ADDRESS (FIXED) ---
     def format_addr(addr_obj):
         if not addr_obj: return []
-        if isinstance(addr_obj, dict):
-            name = addr_obj.get("name") or addr_obj.get("first_name", "") or addr_obj.get("full_name", "")
-            street = addr_obj.get("street") or addr_obj.get("address_line1", "")
-            city = addr_obj.get("city", "")
-            state = addr_obj.get("state", "")
-            zip_code = addr_obj.get("zip_code") or addr_obj.get("zip", "")
-        else:
-            name = getattr(addr_obj, "name", "")
-            street = getattr(addr_obj, "street", "")
-            city = getattr(addr_obj, "city", "")
-            state = getattr(addr_obj, "state", "")
-            zip_code = getattr(addr_obj, "zip_code", "")
+        
+        # Helper to safely get string value or empty string
+        def safe_get(key, alt_key=None):
+            val = None
+            if isinstance(addr_obj, dict):
+                val = addr_obj.get(key)
+                if not val and alt_key: val = addr_obj.get(alt_key)
+            else:
+                val = getattr(addr_obj, key, None)
+                if not val and alt_key: val = getattr(addr_obj, alt_key, None)
+            return str(val or "") # FORCE STRING
+
+        name = safe_get("name", "full_name")
+        street = safe_get("street", "address_line1")
+        city = safe_get("city", "address_city")
+        state = safe_get("state", "address_state")
+        zip_code = safe_get("zip_code", "zip")
             
         lines = [name, street, f"{city}, {state} {zip_code}"]
         return [l for l in lines if l.strip()]
