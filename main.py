@@ -143,7 +143,8 @@ def main():
             
             st.session_state.paid_tier = paid_tier
             st.session_state.current_draft_id = meta_id
-            st.session_state.app_mode = "main" # Standard redirect
+            # FIXED: REDIRECT TO WORKSPACE (EDITOR), NOT MAIN (STORE)
+            st.session_state.app_mode = "workspace" 
             st.query_params.clear()
             st.rerun()
 
