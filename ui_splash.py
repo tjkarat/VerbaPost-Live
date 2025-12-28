@@ -91,11 +91,13 @@ def render_splash_page():
         # FOOTER NAVIGATION
         c_blog, c_legal = st.columns(2)
         with c_blog:
-             if st.button("📰 Read our Blog", use_container_width=True):
+             # FIXED: Added key="splash_btn_blog" to prevent DuplicateElementId error
+             if st.button("📰 Read our Blog", use_container_width=True, key="splash_btn_blog"):
                  st.session_state.app_mode = "blog"
                  st.rerun()
         with c_legal:
-             if st.button("⚖️ Legal / Terms", use_container_width=True):
+             # FIXED: Added key="splash_btn_legal" to prevent DuplicateElementId error
+             if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_btn_legal"):
                 st.session_state.app_mode = "legal"
                 st.rerun()
     
