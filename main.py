@@ -7,7 +7,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- 1. HARD ROUTER & CONFIGURATION ---
+# --- 1. CONFIGURATION ---
 st.set_page_config(
     page_title="VerbaPost",
     page_icon="📮",
@@ -19,7 +19,7 @@ st.set_page_config(
     }
 )
 
-# --- CSS STYLING (Global) ---
+# --- CSS STYLING ---
 st.markdown("""
 <style>
     [data-testid="stSidebarNav"] {display: none !important;}
@@ -61,7 +61,7 @@ def get_module(module_name):
 try: import secrets_manager
 except Exception: secrets_manager = None
 
-# --- SEO INJECTOR (Fixed & Dynamic) ---
+# --- SEO INJECTOR ---
 def inject_dynamic_seo(mode):
     if mode == "archive":
         meta_title = "VerbaPost | The Family Archive"
@@ -108,15 +108,17 @@ def main():
     if "session_id" in params:
         handle_payment_return(params["session_id"], system_mode)
 
-    # 4. Router Logic
+    # 4. DEFAULT ROUTING (BLANK PAGE FIX)
     if "app_mode" not in st.session_state:
+        # If user is returning via utility link
         if system_mode == "utility":
             st.session_state.app_mode = "main" 
         else:
+            # Default to splash if not logged in
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
             else:
-                st.session_state.app_mode = "heirloom" 
+                st.session_state.app_mode = "splash"
 
     # 5. SIDEBAR NAVIGATION
     render_sidebar(system_mode)
@@ -137,16 +139,17 @@ def main():
         "blog":      ("ui_blog", "render_blog_page")
     }
 
-    # Route Protection
+    # Cross-Mode Protection
     utility_only = ["main", "workspace", "receipt", "legacy"]
-    archive_only = ["heirloom", "blog"]
+    archive_only = ["heirloom"]
 
-    if system_mode == "utility" and current_page in archive_only:
-        st.session_state.app_mode = "main"
-        st.rerun()
-    elif system_mode == "archive" and current_page in utility_only:
-        st.session_state.app_mode = "heirloom"
-        st.rerun()
+    if st.session_state.get("authenticated"):
+        if system_mode == "utility" and current_page in archive_only:
+            st.session_state.app_mode = "main"
+            st.rerun()
+        elif system_mode == "archive" and current_page in utility_only:
+            st.session_state.app_mode = "heirloom"
+            st.rerun()
 
     if current_page in route_map:
         module_name, function_name = route_map[current_page]
@@ -155,40 +158,27 @@ def main():
             getattr(mod, function_name)()
         else:
             st.error(f"404: Route {current_page} not found.")
-            if system_mode == "utility":
-                m = get_module("ui_main")
-                if m: m.render_store_page()
-            else:
-                m = get_module("ui_heirloom")
-                if m: m.render_dashboard()
+            st.session_state.app_mode = "splash"
+            st.rerun()
 
 def render_sidebar(mode):
-    """
-    Renders sidebar elements strictly based on the active Hard Router mode.
-    """
     with st.sidebar:
         st.header("VerbaPost" if mode == "utility" else "The Archive")
         
-        # --- MODE A: UTILITY (Transactional) ---
-        if mode == "utility":
-            if st.button("📮 Letter Store", use_container_width=True):
-                st.session_state.app_mode = "main"
-                st.rerun()
-            
-            if st.button("🛡️ Certified Mail", use_container_width=True):
-                st.session_state.app_mode = "legacy"
-                st.rerun()
-
-        # --- MODE B: ARCHIVE (Service) ---
-        elif mode == "archive":
-            if st.button("📚 Family Archive", use_container_width=True):
-                st.session_state.app_mode = "heirloom"
-                st.rerun()
-            # REMOVED Journal button per request
+        # --- NAVIGATION ---
+        if st.session_state.get("authenticated"):
+            if mode == "utility":
+                if st.button("📮 Letter Store", use_container_width=True):
+                    st.session_state.app_mode = "main"; st.rerun()
+                if st.button("🛡️ Certified Mail", use_container_width=True):
+                    st.session_state.app_mode = "legacy"; st.rerun()
+            elif mode == "archive":
+                if st.button("📚 Family Archive", use_container_width=True):
+                    st.session_state.app_mode = "heirloom"; st.rerun()
 
         st.markdown("---")
 
-        # --- AUTHENTICATION & ADMIN (Shared) ---
+        # --- AUTHENTICATION ---
         if not st.session_state.get("authenticated"):
             if st.button("🔐 Login / Sign Up", use_container_width=True):
                 st.session_state.app_mode = "login"
@@ -200,31 +190,25 @@ def render_sidebar(mode):
             if st.button("🚪 Sign Out", use_container_width=True):
                 st.session_state.authenticated = False
                 st.session_state.user_email = None
+                st.session_state.app_mode = "splash"
                 st.rerun()
             
-            # Admin Link (Hidden Logic)
+            # ADMIN LOGIC (STRICT)
             admin_email = None
-            if secrets_manager:
-                admin_email = secrets_manager.get_secret("admin.email")
-            if not admin_email and "admin" in st.secrets:
-                admin_email = st.secrets["admin"]["email"]
+            if secrets_manager: admin_email = secrets_manager.get_secret("admin.email")
+            if not admin_email and "admin" in st.secrets: admin_email = st.secrets["admin"]["email"]
             
-            # Only show if logged in AND email matches admin
-            if user_email and admin_email and user_email == admin_email:
+            if user_email and admin_email and user_email.strip() == admin_email.strip():
                 st.divider()
                 if st.button("⚡ Admin Console", use_container_width=True):
-                    st.session_state.app_mode = "admin"
-                    st.rerun()
-        
-        # REMOVED Legal/Terms Footer button per request
+                    st.session_state.app_mode = "admin"; st.rerun()
 
 def handle_payment_return(session_id, system_mode):
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
     if db and hasattr(db, "record_stripe_fulfillment"):
-        if not db.record_stripe_fulfillment(session_id):
-            return 
+        if not db.record_stripe_fulfillment(session_id): return 
 
     if pay_eng:
         user_email = st.session_state.get("user_email")
@@ -233,7 +217,6 @@ def handle_payment_return(session_id, system_mode):
             if hasattr(raw_obj, 'payment_status') and raw_obj.payment_status == 'paid':
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
-                
                 st.session_state.authenticated = True
                 st.session_state.user_email = user_email
 
@@ -244,12 +227,8 @@ def handle_payment_return(session_id, system_mode):
 
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
-                    if db and user_email: 
-                        db.update_user_credits(user_email, 48)
-                    st.query_params.clear()
-                    st.session_state.app_mode = "heirloom"
-                    st.rerun()
-                    return
+                    if db and user_email: db.update_user_credits(user_email, 48)
+                    st.query_params.clear(); st.session_state.app_mode = "heirloom"; st.rerun(); return
 
                 if db and meta_id:
                     with db.get_db_session() as s:
@@ -261,13 +240,10 @@ def handle_payment_return(session_id, system_mode):
                             s.commit()
                 
                 st.query_params.clear()
-                if system_mode == "utility":
-                    st.session_state.app_mode = "workspace"
-                else:
-                    st.session_state.app_mode = "heirloom"
+                if system_mode == "utility": st.session_state.app_mode = "workspace"
+                else: st.session_state.app_mode = "heirloom"
                 st.rerun()
-        except Exception as e:
-            logger.error(f"Payment Verification Error: {e}")
+        except Exception as e: logger.error(f"Payment Verification Error: {e}")
 
 if __name__ == "__main__":
     main()
