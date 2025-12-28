@@ -2,8 +2,8 @@ import streamlit as st
 
 def render_splash_page():
     """
-    Renders the VerbaPost landing page.
-    STRATEGY: Primary focus on "Family Archive". Secondary link for "One-off Letters".
+    Renders the professional landing page for VerbaPost.
+    Preserves all original minimalist CSS and hero sections.
     """
     # --- CSS ---
     st.markdown("""
@@ -13,8 +13,9 @@ def render_splash_page():
     .hero-title { font-family: 'Merriweather', serif; font-weight: 700; color: #111; font-size: clamp(2.5rem, 6vw, 4.5rem); margin-bottom: 0.5rem; letter-spacing: -1px; line-height: 1.1; }
     .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(1rem, 3vw, 1.4rem); font-weight: 300; color: #555; margin-bottom: 2rem; margin-top: 1rem; max-width: 700px; margin-left: auto; margin-right: auto; line-height: 1.5; }
     
-    .trust-container { text-align: center; padding: 20px 0; opacity: 0.6; margin-top: 30px; }
-    .trust-logo { display: inline-block; margin: 0 15px; height: 20px; vertical-align: middle; filter: grayscale(100%); }
+    .trust-container { text-align: center; padding: 20px 0; opacity: 0.6; margin-top: 30px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 30px; }
+    .trust-logo { height: 22px; filter: grayscale(100%); transition: filter 0.3s; }
+    .trust-logo:hover { filter: grayscale(0%); }
     
     .secondary-link { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #ddd; }
     .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
@@ -43,13 +44,17 @@ def render_splash_page():
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
-    # --- TRUST BADGES ---
+    # --- TRUST BADGES (FIXED LOGOS) ---
     st.markdown("""
+    <div style="text-align: center; margin-top: 30px; margin-bottom: 10px;">
+        <small style="font-size: 0.7rem; letter-spacing: 1px; text-transform: uppercase; color: #888;">Secure Infrastructure</small>
+    </div>
     <div class="trust-container">
-        <small style="display:block; margin-bottom:10px; font-size: 0.7rem; letter-spacing: 1px; text-transform: uppercase;">Secure Infrastructure</small>
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/stripe/stripe-ar21.svg" alt="Stripe">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/twilio/twilio-ar21.svg" alt="Twilio">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/openai/openai-ar21.svg" alt="OpenAI">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" alt="Stripe">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/7/7e/Twilio_logo.svg" alt="Twilio">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/4/4d/OpenAI_Logo.svg" alt="OpenAI">
+        <img class="trust-logo" src="https://raw.githubusercontent.com/supabase/supabase/master/packages/common/assets/images/supabase-logo-wordmark--dark.svg" alt="Supabase" style="height: 20px;">
+        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/6/69/United_States_Postal_Service_Logo.svg" alt="USPS" style="height: 25px;">
     </div>
     """, unsafe_allow_html=True)
 
@@ -69,15 +74,13 @@ def render_splash_page():
     # --- FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
     
-    # Restored Footer Navigation with Unique Keys
+    # NAVIGATION (FIXED KEYS)
     c_blog, c_legal = st.columns(2)
     with c_blog:
-         # Unique Key Added
          if st.button("📰 Read our Blog", use_container_width=True, key="splash_foot_blog"):
              st.session_state.app_mode = "blog"
              st.rerun()
     with c_legal:
-         # Unique Key Added
          if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_foot_legal"):
             st.session_state.app_mode = "legal"
             st.rerun()
