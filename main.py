@@ -43,6 +43,7 @@ def get_module(module_name):
     Safely imports modules and logs specific errors if they fail.
     """
     try:
+        # Static map ensures we don't try to import random strings
         known_modules = {
             "ui_splash": "ui_splash",
             "ui_login": "ui_login",
@@ -112,6 +113,8 @@ def main():
     # Options: 'archive' (Default) or 'utility'
     params = st.query_params
     system_mode = params.get("mode", "archive").lower()
+    
+    # Validation
     if system_mode not in ["archive", "utility"]:
         system_mode = "archive"
     
@@ -132,7 +135,6 @@ def main():
     # 4. Default Routing Logic
     if "app_mode" not in st.session_state:
         # Default is always splash unless deep linked mode suggests otherwise
-        # but splash now handles both.
         st.session_state.app_mode = "splash"
 
     # 5. SIDEBAR NAVIGATION (Exclusive Split)
@@ -142,6 +144,7 @@ def main():
     current_page = st.session_state.app_mode
     
     # --- ROUTE MAP ---
+    # Map: 'mode_name': ('file_name', 'function_name')
     route_map = {
         # Shared Routes
         "login":     ("ui_login", "render_login_page"),
@@ -149,23 +152,24 @@ def main():
         "admin":     ("ui_admin", "render_admin_page"),
         "splash":    ("ui_splash", "render_splash_page"), 
 
-        # Utility Routes
+        # Utility Routes (Exclusive)
         "main":      ("ui_main", "render_store_page"),
         "workspace": ("ui_main", "render_workspace_page"),
         "receipt":   ("ui_main", "render_receipt_page"),
         "legacy":    ("ui_legacy", "render_legacy_page"),
 
-        # Archive Routes
+        # Archive Routes (Exclusive)
         "heirloom":  ("ui_heirloom", "render_dashboard"),
         "blog":      ("ui_blog", "render_blog_page")
     }
 
     # --- CROSS-MODE PROTECTION ---
-    # Prevent Utility users from seeing Archive pages and vice versa
+    # Prevent Utility users from seeing Archive pages and vice versa.
+    # Only enforce if logged in, otherwise let Splash/Login handle flow.
+    
     utility_only = ["main", "workspace", "receipt", "legacy"]
     archive_only = ["heirloom"]
 
-    # Only enforce if logged in, otherwise let Splash/Login handle flow
     if st.session_state.get("authenticated"):
         if system_mode == "utility" and current_page in archive_only:
             st.session_state.app_mode = "main"
@@ -180,12 +184,14 @@ def main():
         mod = get_module(module_name)
         
         if mod and hasattr(mod, function_name):
+            # Execute the UI function
             getattr(mod, function_name)()
         else:
             st.error(f"404: Route {current_page} not found.")
             st.session_state.app_mode = "splash"
             st.rerun()
     else:
+        # Fallback for unknown states
         st.error(f"Unknown Route: {current_page}")
         st.session_state.app_mode = "splash"
         st.rerun()
@@ -246,12 +252,12 @@ def render_sidebar(mode):
 
 def handle_payment_return(session_id, system_mode):
     """
-    Handles Stripe callbacks.
+    Handles Stripe callbacks. Consolidates logic to keep main() clean.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
-    # Idempotency
+    # Idempotency (Prevent Double-Processing)
     if db and hasattr(db, "record_stripe_fulfillment"):
         if not db.record_stripe_fulfillment(session_id):
             return # Already handled
@@ -262,7 +268,7 @@ def handle_payment_return(session_id, system_mode):
             raw_obj = pay_eng.verify_session(session_id)
             if hasattr(raw_obj, 'payment_status') and raw_obj.payment_status == 'paid':
                 
-                # Recover Email
+                # Recover Email from Stripe if session expired locally
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
@@ -279,6 +285,7 @@ def handle_payment_return(session_id, system_mode):
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
                     if db and user_email: 
+                        # Update credits in database
                         db.update_user_credits(user_email, 48)
                     st.query_params.clear()
                     st.session_state.app_mode = "heirloom"
@@ -291,6 +298,7 @@ def handle_payment_return(session_id, system_mode):
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
                         if d:
                             d.status = "Paid/Writing"
+                            # If it was a Legacy (Certified) letter, store that state
                             st.session_state.paid_tier = d.tier
                             st.session_state.current_draft_id = meta_id
                             s.commit()
