@@ -1,22 +1,13 @@
 import streamlit as st
 
-# --- ROBUST LOGOS (URL-Encoded SVGs) ---
-# We use direct URL-encoded SVG strings. This is the most compatible method for web rendering.
-
-# Stripe (Blurple)
-STRIPE_SVG = "https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg"
-
-# Twilio (Red Circle - High Reliability Link)
-TWILIO_SVG = "https://www.vectorlogo.zone/logos/twilio/twilio-icon.svg"
-
-# OpenAI (Black)
-OPENAI_SVG = "https://upload.wikimedia.org/wikipedia/commons/0/04/ChatGPT_logo.svg"
-
-# Supabase (Emerald Green)
-SUPABASE_SVG = "https://raw.githubusercontent.com/supabase/supabase/master/packages/common/assets/images/supabase-logo-icon.png"
-
-# USPS (Eagle)
-USPS_SVG = "https://upload.wikimedia.org/wikipedia/commons/6/69/United_States_Postal_Service_Logo.svg"
+# --- RELIABLE LOGO SOURCES (SimpleIcons CDN + Wiki PNG) ---
+# These are optimized for web delivery and do not block requests.
+LOGO_STRIPE = "https://cdn.simpleicons.org/stripe/635BFF"
+LOGO_TWILIO = "https://cdn.simpleicons.org/twilio/F22F46"
+LOGO_OPENAI = "https://cdn.simpleicons.org/openai/000000"
+LOGO_SUPABASE = "https://cdn.simpleicons.org/supabase/3ECF8E"
+# Using a PNG thumbnail for USPS is 10x more reliable than raw SVG
+LOGO_USPS = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/United_States_Postal_Service_Logo.svg/320px-United_States_Postal_Service_Logo.svg.png"
 
 def render_splash_page():
     # --- CSS ---
@@ -29,24 +20,29 @@ def render_splash_page():
     
     .trust-container { 
         text-align: center; 
-        padding: 30px 0; 
+        padding: 20px 0; 
         margin-top: 40px; 
         display: flex; 
         flex-wrap: wrap; 
         justify-content: center; 
         align-items: center; 
-        gap: 35px; 
+        gap: 30px; 
+        opacity: 0.8;
     }
     
+    /* Force images to behave */
     .trust-logo { 
-        height: 28px; 
+        height: 24px; 
         width: auto; 
-        opacity: 0.6; 
-        filter: grayscale(100%); 
-        transition: all 0.3s; 
+        object-fit: contain;
+        filter: grayscale(100%);
+        transition: filter 0.3s;
     }
-    .trust-logo:hover { opacity: 1.0; filter: grayscale(0%); }
+    .trust-logo:hover { filter: grayscale(0%); }
     
+    /* USPS needs specific sizing because it's square/tall */
+    .logo-usps { height: 35px; filter: grayscale(0%); } 
+
     .secondary-link { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px dashed #ddd; }
     .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
     </style>
@@ -75,17 +71,16 @@ def render_splash_page():
             st.rerun()
 
     # --- TRUST BADGES ---
-    # Using standard HTML img tags which are more robust than markdown images for layout
     st.markdown(f"""
-    <div style="text-align: center; margin-top: 50px; margin-bottom: 10px;">
+    <div style="text-align: center; margin-top: 50px; margin-bottom: 15px;">
         <small style="font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 600;">Secure Infrastructure</small>
     </div>
     <div class="trust-container">
-        <img class="trust-logo" src="{STRIPE_SVG}" alt="Stripe">
-        <img class="trust-logo" src="{TWILIO_SVG}" alt="Twilio" style="height: 32px;">
-        <img class="trust-logo" src="{OPENAI_SVG}" alt="OpenAI">
-        <img class="trust-logo" src="{SUPABASE_SVG}" alt="Supabase" style="height: 26px;">
-        <img class="trust-logo" src="{USPS_SVG}" alt="USPS" style="height: 35px;">
+        <img class="trust-logo" src="{LOGO_STRIPE}" title="Stripe">
+        <img class="trust-logo" src="{LOGO_TWILIO}" title="Twilio">
+        <img class="trust-logo" src="{LOGO_OPENAI}" title="OpenAI">
+        <img class="trust-logo" src="{LOGO_SUPABASE}" title="Supabase">
+        <img class="trust-logo logo-usps" src="{LOGO_USPS}" title="USPS">
     </div>
     """, unsafe_allow_html=True)
 
@@ -95,7 +90,9 @@ def render_splash_page():
     col_sec1, col_sec2, col_sec3 = st.columns([1, 1, 1])
     with col_sec2:
         if st.button("📮 Go to Letter Store", use_container_width=True):
-            st.query_params["mode"] = "utility" # Hard switch
+            # FORCE Utility Mode
+            st.query_params["mode"] = "utility"
+            
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "main" 
             else:
