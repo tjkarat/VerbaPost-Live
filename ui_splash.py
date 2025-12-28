@@ -13,12 +13,34 @@ def render_splash_page():
     .hero-title { font-family: 'Merriweather', serif; font-weight: 700; color: #111; font-size: clamp(2.5rem, 6vw, 4.5rem); margin-bottom: 0.5rem; letter-spacing: -1px; line-height: 1.1; }
     .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(1rem, 3vw, 1.4rem); font-weight: 300; color: #555; margin-bottom: 2rem; margin-top: 1rem; max-width: 700px; margin-left: auto; margin-right: auto; line-height: 1.5; }
     
-    .trust-container { text-align: center; padding: 20px 0; opacity: 0.7; margin-top: 30px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 40px; }
-    /* Greyscale filter for logos until hover */
-    .trust-logo { height: 25px; filter: grayscale(100%); transition: filter 0.3s; opacity: 0.8; }
-    .trust-logo:hover { filter: grayscale(0%); opacity: 1.0; }
+    /* TRUST BADGE CONTAINER */
+    .trust-container { 
+        text-align: center; 
+        padding: 30px 0; 
+        margin-top: 40px; 
+        display: flex; 
+        flex-wrap: wrap; 
+        justify-content: center; 
+        align-items: center; 
+        gap: 40px; /* Increased gap for better breathing room */
+        opacity: 0.8;
+    }
     
-    .secondary-link { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #ddd; }
+    /* LOGO STYLING */
+    .trust-logo { 
+        height: 35px; /* Increased base height */
+        width: auto;
+        filter: grayscale(100%); 
+        transition: all 0.3s ease; 
+        opacity: 0.7; 
+    }
+    .trust-logo:hover { 
+        filter: grayscale(0%); 
+        opacity: 1.0; 
+        transform: scale(1.05);
+    }
+    
+    .secondary-link { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px dashed #ddd; }
     .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
@@ -45,17 +67,17 @@ def render_splash_page():
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
-    # --- TRUST BADGES (FIXED URLS) ---
+    # --- TRUST BADGES (RELIABLE VENDOR LINKS) ---
     st.markdown("""
-    <div style="text-align: center; margin-top: 40px; margin-bottom: 15px;">
-        <small style="font-size: 0.7rem; letter-spacing: 1px; text-transform: uppercase; color: #888;">Secure Infrastructure</small>
+    <div style="text-align: center; margin-top: 50px; margin-bottom: 10px;">
+        <small style="font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 600;">Secure Infrastructure</small>
     </div>
     <div class="trust-container">
-        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" alt="Stripe">
-        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/7/7e/Twilio_logo.svg" alt="Twilio" style="height: 28px;">
-        <img class="trust-logo" src="https://upload.wikimedia.org/wikipedia/commons/4/4d/OpenAI_Logo.svg" alt="OpenAI">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/supabase/supabase-ar21.svg" alt="Supabase" style="height: 32px;">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/usps/usps-ar21.svg" alt="USPS" style="height: 35px;">
+        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/stripe/stripe-ar21.svg" alt="Stripe">
+        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/twilio/twilio-ar21.svg" alt="Twilio">
+        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/openai/openai-ar21.svg" alt="OpenAI">
+        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/supabase/supabase-ar21.svg" alt="Supabase">
+        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/usps/usps-ar21.svg" alt="USPS" style="height: 40px;">
     </div>
     """, unsafe_allow_html=True)
 
