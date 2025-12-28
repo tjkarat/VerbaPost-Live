@@ -32,7 +32,7 @@ st.markdown("""
     }
     .stDeployButton {display:none;}
     
-    /* SEO HACK: Try to force meta tags visibility */
+    /* SEO HACK: Try to force meta tags visibility if inspected */
     meta { display: block; }
 </style>
 """, unsafe_allow_html=True)
@@ -163,7 +163,7 @@ def main():
     # --- CROSS-MODE PROTECTION ---
     # Prevent Utility users from seeing Archive pages and vice versa
     utility_only = ["main", "workspace", "receipt", "legacy"]
-    archive_only = ["heirloom", "blog"]
+    archive_only = ["heirloom"]
 
     # Only enforce if logged in, otherwise let Splash/Login handle flow
     if st.session_state.get("authenticated"):
@@ -292,4 +292,18 @@ def handle_payment_return(session_id, system_mode):
                         if d:
                             d.status = "Paid/Writing"
                             st.session_state.paid_tier = d.tier
-                            st.session
+                            st.session_state.current_draft_id = meta_id
+                            s.commit()
+                
+                # Redirect based on mode
+                st.query_params.clear()
+                if system_mode == "utility":
+                    st.session_state.app_mode = "workspace"
+                else:
+                    st.session_state.app_mode = "heirloom"
+                st.rerun()
+        except Exception as e:
+            logger.error(f"Payment Verification Error: {e}")
+
+if __name__ == "__main__":
+    main()
