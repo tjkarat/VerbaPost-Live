@@ -3,7 +3,7 @@ import streamlit as st
 def render_splash_page():
     """
     Renders the professional landing page for VerbaPost.
-    FIX: Replaced fragile SVG links with the robust Clearbit Logo API.
+    FIX: Switched to robust PNGs from Wikimedia/Official sources to guarantee rendering.
     """
     # --- CSS ---
     st.markdown("""
@@ -22,26 +22,32 @@ def render_splash_page():
         flex-wrap: wrap; 
         justify-content: center; 
         align-items: center; 
-        gap: 30px; 
-        opacity: 0.8;
+        gap: 40px; 
+        opacity: 0.85; /* Slightly less transparent for better visibility */
     }
     
     /* LOGO STYLING */
-    /* Clearbit logos are square icons, so we style them to look uniform */
     .trust-logo { 
-        height: 35px; 
-        width: 35px;
+        height: 30px; /* Standardized height */
+        width: auto;
         object-fit: contain;
         filter: grayscale(100%); 
         transition: all 0.3s ease; 
-        opacity: 0.6; 
+        opacity: 0.7; 
     }
     .trust-logo:hover { 
         filter: grayscale(0%); 
         opacity: 1.0; 
-        transform: scale(1.1);
+        transform: scale(1.05);
     }
     
+    /* Individual Logo Tweaks for Visual Balance */
+    .logo-stripe { height: 28px; }
+    .logo-twilio { height: 26px; }
+    .logo-openai { height: 24px; }
+    .logo-supabase { height: 28px; }
+    .logo-usps { height: 35px; } /* USPS needs to be taller to be legible */
+
     .secondary-link { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px dashed #ddd; }
     .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
     </style>
@@ -69,18 +75,17 @@ def render_splash_page():
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
-    # --- TRUST BADGES (RELIABLE CLEARBIT API) ---
-    # We use logo.clearbit.com which is designed for hotlinking.
+    # --- TRUST BADGES (ROBUST PNG LINKS) ---
     st.markdown("""
     <div style="text-align: center; margin-top: 50px; margin-bottom: 10px;">
         <small style="font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 600;">Secure Infrastructure</small>
     </div>
     <div class="trust-container">
-        <img class="trust-logo" src="https://logo.clearbit.com/stripe.com" title="Stripe Payments">
-        <img class="trust-logo" src="https://logo.clearbit.com/twilio.com" title="Twilio Voice">
-        <img class="trust-logo" src="https://logo.clearbit.com/openai.com" title="OpenAI Intelligence">
-        <img class="trust-logo" src="https://logo.clearbit.com/supabase.com" title="Supabase Database">
-        <img class="trust-logo" src="https://logo.clearbit.com/usps.com" title="USPS Delivery">
+        <img class="trust-logo logo-stripe" src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/ba/Stripe_Logo%2C_revised_2016.svg/512px-Stripe_Logo%2C_revised_2016.svg.png" title="Stripe">
+        <img class="trust-logo logo-twilio" src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Twilio_logo.svg/512px-Twilio_logo.svg.png" title="Twilio">
+        <img class="trust-logo logo-openai" src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/OpenAI_Logo.svg/512px-OpenAI_Logo.svg.png" title="OpenAI">
+        <img class="trust-logo logo-supabase" src="https://seeklogo.com/images/S/supabase-logo-DCC676FFE2-seeklogo.com.png" title="Supabase">
+        <img class="trust-logo logo-usps" src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/United_States_Postal_Service_Logo.svg/512px-United_States_Postal_Service_Logo.svg.png" title="USPS">
     </div>
     """, unsafe_allow_html=True)
 
