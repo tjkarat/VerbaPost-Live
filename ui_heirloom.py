@@ -189,6 +189,11 @@ def render_paywall():
                             database.update_user_credits(user_email, 1) # Small trial
                             if "user_profile" in st.session_state:
                                 st.session_state.user_profile["credits"] = 1
+                        
+                        # AUDIT LOG
+                        if audit_engine:
+                            audit_engine.log_event(user_email, "PROMO_REDEEMED", metadata={"code": promo_input})
+
                         st.balloons()
                         st.success("Access Granted!")
                         time.sleep(1)
@@ -204,7 +209,7 @@ def render_dashboard():
     
     if not st.session_state.get("authenticated"):
         st.warning("Please log in to access the archive.")
-        return
+        return ""
 
     user_email = st.session_state.get("user_email")
     
@@ -232,7 +237,7 @@ def render_dashboard():
     # --- THE GATE (Vault-First Protection) ---
     if credits <= 0:
         render_paywall()
-        return
+        return ""
 
     # --- TABS ---
     tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & Setup", "📞 Start Interview", "📥 Stories (Inbox)"])
@@ -258,6 +263,11 @@ def render_dashboard():
                     if database:
                         if database.update_heirloom_settings(user_email, new_p_name, new_p_phone):
                             st.session_state.user_profile.update({'parent_name': new_p_name, 'parent_phone': new_p_phone})
+                            
+                            # AUDIT LOG
+                            if audit_engine:
+                                audit_engine.log_event(user_email, "SETTINGS_UPDATE_PARENT", metadata={"name": new_p_name, "phone": new_p_phone})
+
                             st.success("✅ Details Saved!")
                             time.sleep(1)
                             st.rerun()
@@ -284,6 +294,11 @@ def render_dashboard():
                                 "address_state": n_state,
                                 "address_zip": n_zip
                             })
+                            
+                            # AUDIT LOG
+                            if audit_engine:
+                                audit_engine.log_event(user_email, "SETTINGS_UPDATE_ADDRESS", metadata={"zip": n_zip})
+
                             st.success("✅ Address Updated!")
 
     # --- TAB B: INTERVIEWER ---
@@ -344,8 +359,14 @@ def render_dashboard():
                     if sid:
                         st.session_state.last_call_time = time.time()
                         if database: database.update_last_call_timestamp(user_email)
+                        
+                        # AUDIT LOG
+                        if audit_engine:
+                            audit_engine.log_event(user_email, "INTERVIEW_STARTED", metadata={"sid": sid, "topic": topic})
+
                         st.success(f"✅ Connection initiated! (SID: {sid})")
                         st.info("Please wait for your loved one to finish speaking before checking the Inbox.")
+                        time.sleep(2)
                         st.rerun()
                     else: st.error(f"Call Error: {err}")
 
@@ -369,6 +390,10 @@ def render_dashboard():
             if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
             elif heirloom_engine: 
+                # AUDIT LOG (SCAN START)
+                if audit_engine:
+                    audit_engine.log_event(user_email, "ARCHIVE_SCAN_INITIATED", metadata={"target": p_phone})
+
                 with st.spinner(f"Scanning calls from {p_phone} & Archiving..."):
                     # Uses the new engine to download, upload to Vault, and transcribe
                     transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
@@ -376,26 +401,23 @@ def render_dashboard():
                     if transcript:
                         if database: 
                             # Save with the new audio_ref column
-                            database.save_draft(
+                            d_id = database.save_draft(
                                 user_email, 
                                 transcript, 
                                 "Heirloom", 
                                 0.0, 
                                 audio_ref=audio_path
                             )
+                            # AUDIT LOG (SUCCESS)
+                            if audit_engine:
+                                audit_engine.log_event(user_email, "DRAFT_CREATED", metadata={"id": d_id, "source": "Heirloom"})
+
                         st.success("✅ Story Archived & Transcribed!")
                         time.sleep(1)
                         st.rerun()
                     else: 
                         msg = f"No new recordings found. ({err})" if err else "No new recordings found."
                         st.warning(msg)
-            elif ai_engine: # Fallback to old engine if new one fails load
-                with st.spinner("Checking phone logs (Legacy Mode)..."):
-                    transcript, err = ai_engine.fetch_and_transcribe_latest_call(p_phone)
-                    if transcript:
-                        if database: database.save_draft(user_email, transcript, "Heirloom", 0.0)
-                        st.success("✅ New Story Found!")
-                        st.rerun()
 
         st.divider()
 
@@ -417,23 +439,30 @@ def render_dashboard():
                     st.caption(f"Snippet: {d.get('content', '')[:100]}...")
                     continue
                 
-                # --- NEW: AUDIO PLAYER ---
-                d_audio = d.get('audio_ref')
-                if d_audio and storage_engine:
-                    url = storage_engine.get_signed_url(d_audio)
-                    if url:
-                        st.audio(url, format="audio/mp3")
-                    else:
-                        st.caption("Audio unavailable (Link Expired or Missing)")
-
+                # --- NEW LAYOUT: TEXT FIRST (HERO) ---
                 st.markdown("**Transcript Editor**")
                 txt = st.text_area("Review and edit the transcription here.", value=d.get('content'), height=300, key=f"edit_{d_id}")
                 
+                # SAVE BUTTON
                 if st.button("💾 Save Changes", key=f"s_{d_id}"):
                     if database:
                         database.update_draft_data(d_id, content=txt)
+                        # AUDIT LOG
+                        if audit_engine:
+                            audit_engine.log_event(user_email, "DRAFT_SAVED", metadata={"id": d_id})
                         st.toast("Saved!")
+
+                # --- AUDIO PLAYER (SECONDARY/COLLAPSED) ---
+                d_audio = d.get('audio_ref')
+                if d_audio and storage_engine:
+                    with st.expander("🎧 Listen to Original Audio"):
+                        url = storage_engine.get_signed_url(d_audio)
+                        if url:
+                            st.audio(url, format="audio/mp3")
+                        else:
+                            st.caption("Audio unavailable (Link Expired or Missing)")
                 
+                # MAILING LOGIC
                 if d_status == "Draft":
                     st.markdown("---")
                     st.markdown("#### 📮 The Flight Check")
@@ -456,7 +485,6 @@ def render_dashboard():
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # FIXED: ATOMIC CREDIT DEDUCTION (generate and send first)
                         if st.button("🚀 Send Keepsake Mail", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
                                 with st.spinner("Preparing Mailer..."):
@@ -472,6 +500,11 @@ def render_dashboard():
                                     if tracking_id and database:
                                         database.update_user_credits(user_email, credits - 1)
                                         database.update_draft_data(d_id, status="Sent", tracking_number=tracking_id)
+                                        
+                                        # AUDIT LOG (CRITICAL)
+                                        if audit_engine:
+                                            audit_engine.log_event(user_email, "MAIL_SENT", metadata={"draft_id": d_id, "tracking": tracking_id})
+
                                         st.success(f"✅ Dispatched! Ref: {tracking_id}")
                                         st.balloons()
                                         time.sleep(2)
@@ -485,3 +518,5 @@ def render_dashboard():
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<div style='text-align: center; color: #9ca3af; font-size: 14px;'>Helping families preserve their history, one phone call at a time.</div>", unsafe_allow_html=True)
+    
+    return
