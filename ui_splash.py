@@ -1,27 +1,24 @@
 import streamlit as st
 
-# --- EMBEDDED LOGOS (Base64 Data URIs) ---
-# These are the actual image data strings. They function instantly without internet.
+# --- ROBUST LOGOS (URL-Encoded SVGs) ---
+# We use direct URL-encoded SVG strings. This is the most compatible method for web rendering.
 
-# Stripe (Blurple Wordmark)
-STRIPE_B64 = "data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgNjAgMjUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTU5LjYgMTMuOGMtLjEgMC0uMiAwLS4zLjF2Ni44aC0zLjR2LTguOGgzLjR2MS4yYy43LTEgMS44LTEuNCAzLTEuNCAwIDAgLjEgMCAuMSAwVjEzLjh6bS01Ny4xIDMuOWMuNyAxLjcgMi4zIDIuNiA0LjEgMi42IDIuMyAwIDMuOS0xLjIgMy45LTMuMSAwLTEuNy0xLjMtMi41LTMuNS0zLjMtMi4xLS44LTMuMi0xLjQtMy4yLTIuOCAwLTEuNSAxLjMtMi41IDMuNS0yLjUgMS45IDAgMy40LjkgMy45IDIuNGwyLjktMS44QzEzLjIgNy4zIDEwLjggNiA3IDYgMy4yIDYgMCA4LjMgMCAxMi40YzAgMyAxLjkgNC42IDUuMiA1LjcgMi4yLjggMi43IDEuNSAyLjcgMi40IDAgMS4xLTEuMyAxLjctMy4xIDEuNy0yLjMgMC0zLjgtMS4zLTQuNC0zTDIuNSAxNy43ek0zNi4yIDZ2MTEuMmgyLjR2Mi42aC01LjhWNmgzLjR6bS04LjggMTQuNmMtMi4xIDAtMy43LTEuNy0zLjctNC4xIDAtMi40IDEuNS00LjEgMy43LTQuMSAxLjEgMCAyLjEuNSAyLjYgMS40di01LjJoMy40djEyLjVoLTMuNHYtMS4xYy0uNi45LTEuNSAxLjUtMi42IDEuNXptLjQtMi41Yy45IDAgMS42LS41IDItMS4zdi0yLjhjLS40LS44LTEuMS0xLjMtMi0xLjMtMS4xIDAtMS45LjktMS45IDIuNyAwIDEuOC44IDIuNyAxLjkgMi43em0xMC4yIDMuOGMtMS4zIDAtMi4zLS4zLTMtLjh2LTIuOWMuOC41IDEuOC45IDIuOC45IDEuMSAwIDEuNS0uNCAxLjUtLjk2IDAtLjU3LS40LS44My0xLjU4LTEuMTUtMS43Ni0uNDYtMy4zNS0xLjI2LTMuMzUtMy43MiAwLTEuOTcgMS41Mi0zLjM3IDMuNzYtMy4zNyAxLjIyIDAgMi4xNi4zMiAyLjc4LjZsLS42IDIuNWMtLjctLjQtMS41My0uNy0yLjM4LS43LS45IDAtMS4yNi4zNi0xLjI2Ljg3IDAgLjUzLjM3LjgxIDEuNjQgMS4yMSAxLjguNTcgMy4yOCAxLjQ2IDMuMjggMy43IDAgMi4xLTEuNiAzLjQxLTMuNjggMy40MXptMTUuMiAwaC0zLjR2LTEuMWMtLjUuOS0xLjUgMS41LTIuNiAxLjUtMi4xIDAtMy43LTEuNy0zLjctNC4xIDAtMi40IDEuNS00LjEgMy43LTQuMSAxLjEgMCAyLjEuNSAyLjYgMS40di01LjJoMy40djEyLjV6bS01LjYtMS4zYy45IDAgMS42LS41IDItMS4zdi0yLjhjLS40LS44LTEuMS0xLjMtMi0xLjMtMS4xIDAtMS45LjktMS45IDIuNyAwIDEuOC44IDIuNyAxLjkgMi43em0tMzYuMy0uNmwtMy40IDEuOVY2aDMuNHYxMS45eiIgZmlsbD0iIzYzN0MyQyIvPjwvc3ZnPg=="
+# Stripe (Blurple)
+STRIPE_SVG = "https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg"
 
-# Twilio (Red Circle)
-TWILIO_B64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0MCA0MCI+PHBhdGggZmlsbD0iI0YyMjkzRCIgZD0iTTIwIDBDOC45NTQgMCAwIDguOTU0IDAgMjBzOC45NTQgMjAgMjAgMjAgMjAtOC45NTQgMjAtMjBTMzEuMDQ2IDAgMjAgMHptMCAzNWMtOC4yODQgMC0xNS02LjcxNi0xNS0xNVMxMS43MTYgNSAyMCA1czE1IDYuNzE2IDE1IDE1LTYuNzE2IDE1LTE1IDE1eiIvPjxjaXJjbGUgZmlsbD0iI0YyMjkzRCIgY3g9IjIwIiBjeT0iMjAiIHI9IjciLz48L3N2Zz4="
+# Twilio (Red Circle - High Reliability Link)
+TWILIO_SVG = "https://www.vectorlogo.zone/logos/twilio/twilio-icon.svg"
 
-# OpenAI (Black Swirl)
-OPENAI_B64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzQxMjkyMSI+PHBhdGggZD0iTTIyLjI4MTkgOS44MjExYTUuOTk3OCA1Ljk5NzggMCAwIDAtLjQ3NjUtNC44ODc5IDYuMDA3IDYuMDA3IDAgMCAwLTQuMDg1OS0zLjA2NTkgOC45MzcgOC45MzcgMCAwIDAtOC45MjcxLjE3NDEgNi4wMDM5IDYuMDAzOSAwIDAgMC0zLjcwMzYgMS45OCBFLjAxMjUgNi4wMTI1IDAgMCAwIDkuNTQ0NSAxMi43NyA4LjkyNjcgOC45MjY3IDAgMCAwIDExLjc1NyAyMS41NzFBNS45OTU5IDUuOTk1OSAwIDAgMCAxNi44ODMxIDIxYTYuMDAxNiA2LjAwMTYgMCAwIDAgMy43OTA2LTEuOTAxOCA1Ljk5OTEgNS45OTkxIDAgMCAwIDEuMjQwMi00Ljk0MDMgOC45NDIgOC45NDIgMCAwIDAgLjM2OC00LjMzNjh6bS0zLjY2MDYgOC44NDY2YTQuNDQ0IDQuNDQ0IDAgMCAxLTIuNjkwNiAxLjQ1NTNsLTEuOTU4LS40MDk3YTEuNDUyNiAxLjQ1MjYgMCAwIDAtLjQ3MS0yLjgyNjdsMS4yODkyLjkzNDYgNC4wNjUzLjg0NTh6Ii8+PC9zdmc+"
+# OpenAI (Black)
+OPENAI_SVG = "https://upload.wikimedia.org/wikipedia/commons/0/04/ChatGPT_logo.svg"
 
-# Supabase (Emerald Green Bolt)
-SUPABASE_B64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iIzNDQ0Y4RSI+PHBhdGggZD0iTTEyIDBDNS4zNzMgMCAwIDUuMzczIDAgMTJzNS4zNzMgMTIgMTIgMTIgMTItNS4zNzMgMTItMTJTMTguNjI3IDAgMTIgMHptMS4yIDUuNGwzLjYgNkg5LjZ2Ny4ybC0zLjYtNmg3LjJWNS40eiIvPjwvc3ZnPg=="
+# Supabase (Emerald Green)
+SUPABASE_SVG = "https://raw.githubusercontent.com/supabase/supabase/master/packages/common/assets/images/supabase-logo-icon.png"
 
-# USPS (Blue Eagle Symbol)
-USPS_B64 = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MCA1MCI+PHBhdGggZmlsbD0iIzMzMzM2NiIgZD0iTTI1IDBDMTEuMiAwIDAgMTEuMiAwIDI1czExLjIgMjUgMjUgMjUgMjUtMTEuMiAyNS0yNVMzOC44IDAgMjUgMHptMTQuMyAxNS4xbC05LjYgMjAuNi0xOS4zLTguNyA5LjctMjAuNiAxOS4yIDguN3oiLz48L3N2Zz4="
+# USPS (Eagle)
+USPS_SVG = "https://upload.wikimedia.org/wikipedia/commons/6/69/United_States_Postal_Service_Logo.svg"
 
 def render_splash_page():
-    """
-    Renders the professional landing page for VerbaPost.
-    """
     # --- CSS ---
     st.markdown("""
     <style>
@@ -38,24 +35,17 @@ def render_splash_page():
         flex-wrap: wrap; 
         justify-content: center; 
         align-items: center; 
-        gap: 40px; 
-        opacity: 0.85;
+        gap: 35px; 
     }
     
-    /* LOGO STYLING */
     .trust-logo { 
-        height: 35px; /* Standardized height */
-        width: auto;
-        object-fit: contain;
+        height: 28px; 
+        width: auto; 
+        opacity: 0.6; 
         filter: grayscale(100%); 
-        transition: all 0.3s ease; 
-        opacity: 0.7; 
+        transition: all 0.3s; 
     }
-    .trust-logo:hover { 
-        filter: grayscale(0%); 
-        opacity: 1.0; 
-        transform: scale(1.05);
-    }
+    .trust-logo:hover { opacity: 1.0; filter: grayscale(0%); }
     
     .secondary-link { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px dashed #ddd; }
     .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
@@ -73,7 +63,7 @@ def render_splash_page():
     </div>
     """, unsafe_allow_html=True)
 
-    # --- PRIMARY CTA (ARCHIVE) ---
+    # --- PRIMARY CTA ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("📚 Start Your Family Archive", type="primary", use_container_width=True):
@@ -84,30 +74,28 @@ def render_splash_page():
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
-    # --- TRUST BADGES (USING EMBEDDED STRINGS) ---
-    # We inject the python string variables directly into the HTML format string
+    # --- TRUST BADGES ---
+    # Using standard HTML img tags which are more robust than markdown images for layout
     st.markdown(f"""
     <div style="text-align: center; margin-top: 50px; margin-bottom: 10px;">
         <small style="font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 600;">Secure Infrastructure</small>
     </div>
     <div class="trust-container">
-        <img class="trust-logo" src="{STRIPE_B64}" title="Stripe Payments" style="height: 30px;">
-        <img class="trust-logo" src="{TWILIO_B64}" title="Twilio Voice" style="height: 32px;">
-        <img class="trust-logo" src="{OPENAI_B64}" title="OpenAI Intelligence" style="height: 28px;">
-        <img class="trust-logo" src="{SUPABASE_B64}" title="Supabase Database" style="height: 30px;">
-        <img class="trust-logo" src="{USPS_B64}" title="USPS Delivery" style="height: 38px;">
+        <img class="trust-logo" src="{STRIPE_SVG}" alt="Stripe">
+        <img class="trust-logo" src="{TWILIO_SVG}" alt="Twilio" style="height: 32px;">
+        <img class="trust-logo" src="{OPENAI_SVG}" alt="OpenAI">
+        <img class="trust-logo" src="{SUPABASE_SVG}" alt="Supabase" style="height: 26px;">
+        <img class="trust-logo" src="{USPS_SVG}" alt="USPS" style="height: 35px;">
     </div>
     """, unsafe_allow_html=True)
 
-    # --- SECONDARY OPTION (VENDING MACHINE) ---
+    # --- SECONDARY OPTION ---
     st.markdown("<div class='secondary-link'><div class='secondary-text'>Looking to send a single letter?</div></div>", unsafe_allow_html=True)
     
     col_sec1, col_sec2, col_sec3 = st.columns([1, 1, 1])
     with col_sec2:
         if st.button("📮 Go to Letter Store", use_container_width=True):
-            # CRITICAL FIX: Ensure we explicitly switch mode to utility
-            st.query_params["mode"] = "utility"
-            
+            st.query_params["mode"] = "utility" # Hard switch
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "main" 
             else:
@@ -117,17 +105,13 @@ def render_splash_page():
 
     # --- FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
-    
-    # NAVIGATION (FIXED KEYS)
     c_blog, c_legal = st.columns(2)
     with c_blog:
          if st.button("📰 Read our Blog", use_container_width=True, key="splash_foot_blog"):
-             st.session_state.app_mode = "blog"
-             st.rerun()
+             st.session_state.app_mode = "blog"; st.rerun()
     with c_legal:
          if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_foot_legal"):
-            st.session_state.app_mode = "legal"
-            st.rerun()
+            st.session_state.app_mode = "legal"; st.rerun()
 
     st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px; margin-top: 20px;'>VerbaPost • Private • Secure • Forever</div>", unsafe_allow_html=True)
     
