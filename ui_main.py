@@ -166,8 +166,9 @@ def _save_new_contact(contact_data):
                 is_new = False
                 break
         if is_new:
-            if hasattr(database, "add_contact"):
-                database.add_contact(user_email, contact_data)
+            if hasattr(database, "save_contact"):
+                # Fixed method name: 'save_contact' not 'add_contact' based on database.py
+                database.save_contact(user_email, contact_data)
             return True
         return False
     except Exception as e:
@@ -227,19 +228,26 @@ def cb_buy_tier(tier, base_price, user_email, is_certified=False):
 
 def render_store_page():
     inject_custom_css(16)
+    
+    # --- CRITICAL FIX FOR BLANK PAGE ---
+    # We must handle the case where user_email is missing gracefully.
     u_email = st.session_state.get("user_email", "")
     
-    # --- SAFETY FIX: Do NOT delete 'paid_tier' here.
-    # We rely on 'app_mode="workspace"' to protect the state.
-    # If users click "Store" manually, we simply overwrite 'paid_tier' if they buy again.
-    # Deleting it here caused the "Return Loop" bug.
-    
     if not u_email:
-        st.warning("⚠️ Session Expired. Please log in to continue.")
-        if st.button("Go to Login"):
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.info("👋 **Welcome to the Letter Store**")
+        st.markdown("Please log in to purchase credits and send letters.")
+        
+        if st.button("🔐 Login / Create Account", type="primary", use_container_width=True):
             st.session_state.app_mode = "login"
+            st.session_state.redirect_to = "main" # Redirect back here after login
             st.rerun()
-        return
+        
+        if st.button("⬅️ Back to Home", use_container_width=True):
+            st.session_state.app_mode = "splash"
+            st.rerun()
+            
+        return "" # Stop rendering the store, show the login prompt instead
 
     # RESUME CHECK
     if database:
@@ -312,7 +320,6 @@ def render_store_page():
             cb_buy_tier("Civic", 6.99, u_email, is_cert)
             
     # FIXED: PENDING URL LOGIC
-    # We display this OUTSIDE the button logic so it survives a rerun
     if "pending_stripe_url" in st.session_state:
          st.markdown("---")
          st.success("✅ Payment Link Ready")
@@ -349,15 +356,12 @@ def render_workspace_page():
     _ensure_profile_loaded()
 
     # --- CRITICAL FIX START: INITIALIZE STATE VARIABLES ---
-    # This prevents the 'AttributeError: st.session_state has no attribute to_street' crash
-    # when the inputs are hidden (Civic Mode) but the code tries to read them.
     defaults = ["to_name", "to_street", "to_city", "to_state", "to_zip", "letter_body"]
     for d in defaults:
         if d not in st.session_state:
             st.session_state[d] = ""
     # --- CRITICAL FIX END ---
     
-    # --- INITIALIZE LETTER BODY ---
     if "letter_body" not in st.session_state:
         st.session_state.letter_body = ""
         
@@ -414,7 +418,6 @@ def render_workspace_page():
             c_fz.text_input("Zip", key="from_zip")
 
         # --- RESTORED: ADDRESS HARDENING BUTTONS ---
-        # FIX: Only show validation buttons if NOT in Civic mode
         if paid_tier != "Civic":
             c_v, c_s = st.columns(2)
             with c_v:
@@ -448,11 +451,9 @@ def render_workspace_page():
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
     
     with tab_type:
-        # Resume text logic
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed")
         
-        # Auto-save Logic
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
@@ -489,7 +490,6 @@ def render_workspace_page():
                     with open(tmp, "wb") as f: f.write(audio_bytes)
                     txt = ai_engine.transcribe_audio(tmp)
                     if txt:
-                        # CRITICAL FIX: Safe access to prevent crash
                         current_body = st.session_state.get("letter_body", "")
                         st.session_state.letter_body = (current_body + "\n\n" + txt).strip()
                         st.session_state.last_processed_audio_hash = h
@@ -502,7 +502,6 @@ def render_workspace_page():
             st.error("Letter body is empty.")
             return
             
-        # --- ADDRESS PAYLOAD BUILDING ---
         from_addr = {
             "name": st.session_state.get("from_name"),
             "address_line1": st.session_state.get("from_street"),
@@ -513,10 +512,8 @@ def render_workspace_page():
 
         to_addr = {}
         if paid_tier == "Civic":
-            # AUTO-POPULATE from Civic Engine results
             reps = st.session_state.get("civic_reps", [])
             if reps:
-                # Use the first rep for the PDF preview/record
                 rep = reps[0]
                 to_addr = {
                     "name": rep['name'],
@@ -529,7 +526,6 @@ def render_workspace_page():
                 st.error("Please click 'Find My Representatives' first.")
                 return
         else:
-            # STANDARD/VINTAGE
             if not st.session_state.get("to_street"):
                 st.error("Recipient address missing.")
                 return
@@ -550,7 +546,6 @@ def render_workspace_page():
         u_email = st.session_state.get("user_email")
         
         with st.spinner("Processing..."):
-            # VINTAGE
             if paid_tier == "Vintage":
                 tracking_ref = f"VINTAGE-{int(time.time())}"
                 d_id = st.session_state.get("current_draft_id")
@@ -559,7 +554,6 @@ def render_workspace_page():
                 _send_alert_email("support@verbapost.com", f"ACTION REQUIRED: Vintage Order {tracking_ref}", f"<p>User: {u_email}</p>")
                 _send_alert_email(u_email, "Receipt: Your Vintage Letter", f"<h3>Order Received</h3><p>Ref: {tracking_ref}</p>")
 
-            # STANDARD
             else:
                 if mailer:
                     tracking_ref = mailer.send_letter(pdf_bytes, to_addr, from_addr, description=f"VerbaPost {paid_tier}", tier=paid_tier)
@@ -570,7 +564,6 @@ def render_workspace_page():
                     _send_alert_email(u_email, f"Receipt: Order {tracking_ref}", f"<h3>Sent!</h3><p>Tracking: {tracking_ref}</p>")
             
             if tracking_ref:
-                # BURN THE TOKEN & REDIRECT
                 st.session_state.receipt_data = {
                     "ref": tracking_ref,
                     "pdf": pdf_bytes
