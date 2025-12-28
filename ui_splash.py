@@ -3,7 +3,7 @@ import streamlit as st
 def render_splash_page():
     """
     Renders the professional landing page for VerbaPost.
-    Preserves all original minimalist CSS and hero sections.
+    FIX: Replaced fragile SVG links with the robust Clearbit Logo API.
     """
     # --- CSS ---
     st.markdown("""
@@ -22,22 +22,24 @@ def render_splash_page():
         flex-wrap: wrap; 
         justify-content: center; 
         align-items: center; 
-        gap: 40px; /* Increased gap for better breathing room */
+        gap: 30px; 
         opacity: 0.8;
     }
     
     /* LOGO STYLING */
+    /* Clearbit logos are square icons, so we style them to look uniform */
     .trust-logo { 
-        height: 35px; /* Increased base height */
-        width: auto;
+        height: 35px; 
+        width: 35px;
+        object-fit: contain;
         filter: grayscale(100%); 
         transition: all 0.3s ease; 
-        opacity: 0.7; 
+        opacity: 0.6; 
     }
     .trust-logo:hover { 
         filter: grayscale(0%); 
         opacity: 1.0; 
-        transform: scale(1.05);
+        transform: scale(1.1);
     }
     
     .secondary-link { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px dashed #ddd; }
@@ -67,17 +69,18 @@ def render_splash_page():
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
-    # --- TRUST BADGES (RELIABLE VENDOR LINKS) ---
+    # --- TRUST BADGES (RELIABLE CLEARBIT API) ---
+    # We use logo.clearbit.com which is designed for hotlinking.
     st.markdown("""
     <div style="text-align: center; margin-top: 50px; margin-bottom: 10px;">
         <small style="font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 600;">Secure Infrastructure</small>
     </div>
     <div class="trust-container">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/stripe/stripe-ar21.svg" alt="Stripe">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/twilio/twilio-ar21.svg" alt="Twilio">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/openai/openai-ar21.svg" alt="OpenAI">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/supabase/supabase-ar21.svg" alt="Supabase">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/usps/usps-ar21.svg" alt="USPS" style="height: 40px;">
+        <img class="trust-logo" src="https://logo.clearbit.com/stripe.com" title="Stripe Payments">
+        <img class="trust-logo" src="https://logo.clearbit.com/twilio.com" title="Twilio Voice">
+        <img class="trust-logo" src="https://logo.clearbit.com/openai.com" title="OpenAI Intelligence">
+        <img class="trust-logo" src="https://logo.clearbit.com/supabase.com" title="Supabase Database">
+        <img class="trust-logo" src="https://logo.clearbit.com/usps.com" title="USPS Delivery">
     </div>
     """, unsafe_allow_html=True)
 
