@@ -31,8 +31,6 @@ st.markdown("""
         font-weight: 600;
     }
     .stDeployButton {display:none;}
-    
-    /* SEO HACK: Try to force meta tags visibility if inspected */
     meta { display: block; }
 </style>
 """, unsafe_allow_html=True)
@@ -211,9 +209,7 @@ def render_sidebar(mode):
                     st.session_state.app_mode = "main"
                     st.rerun()
                 
-                if st.button("🛡️ Certified Mail", use_container_width=True):
-                    st.session_state.app_mode = "legacy"
-                    st.rerun()
+                # [REMOVED CERTIFIED MAIL BUTTON]
 
             elif mode == "archive":
                 if st.button("📚 Family Archive", use_container_width=True):
