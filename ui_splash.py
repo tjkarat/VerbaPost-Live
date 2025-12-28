@@ -3,7 +3,7 @@ import streamlit as st
 def render_splash_page():
     """
     Renders the professional landing page for VerbaPost.
-    FIX: Switched to robust PNGs from Wikimedia/Official sources to guarantee rendering.
+    FIX: Updated logos to official/reliable SVG sources.
     """
     # --- CSS ---
     st.markdown("""
@@ -23,17 +23,17 @@ def render_splash_page():
         justify-content: center; 
         align-items: center; 
         gap: 40px; 
-        opacity: 0.85; /* Slightly less transparent for better visibility */
+        opacity: 0.9;
     }
     
     /* LOGO STYLING */
     .trust-logo { 
-        height: 30px; /* Standardized height */
+        height: 32px; 
         width: auto;
         object-fit: contain;
         filter: grayscale(100%); 
         transition: all 0.3s ease; 
-        opacity: 0.7; 
+        opacity: 0.6; 
     }
     .trust-logo:hover { 
         filter: grayscale(0%); 
@@ -41,12 +41,12 @@ def render_splash_page():
         transform: scale(1.05);
     }
     
-    /* Individual Logo Tweaks for Visual Balance */
-    .logo-stripe { height: 28px; }
-    .logo-twilio { height: 26px; }
-    .logo-openai { height: 24px; }
+    /* Individual Tweaks */
+    .logo-stripe { height: 30px; }
+    .logo-twilio { height: 32px; }
+    .logo-openai { height: 28px; }
     .logo-supabase { height: 28px; }
-    .logo-usps { height: 35px; } /* USPS needs to be taller to be legible */
+    .logo-usps { height: 35px; } /* Eagle needs to be slightly taller */
 
     .secondary-link { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px dashed #ddd; }
     .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
@@ -75,17 +75,17 @@ def render_splash_page():
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
-    # --- TRUST BADGES (ROBUST PNG LINKS) ---
+    # --- TRUST BADGES ---
     st.markdown("""
     <div style="text-align: center; margin-top: 50px; margin-bottom: 10px;">
         <small style="font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 600;">Secure Infrastructure</small>
     </div>
     <div class="trust-container">
-        <img class="trust-logo logo-stripe" src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/ba/Stripe_Logo%2C_revised_2016.svg/512px-Stripe_Logo%2C_revised_2016.svg.png" title="Stripe">
-        <img class="trust-logo logo-twilio" src="https://upload.wikimedia.org/wikipedia/commons/thumb/7/7e/Twilio_logo.svg/512px-Twilio_logo.svg.png" title="Twilio">
-        <img class="trust-logo logo-openai" src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/OpenAI_Logo.svg/512px-OpenAI_Logo.svg.png" title="OpenAI">
-        <img class="trust-logo logo-supabase" src="https://seeklogo.com/images/S/supabase-logo-DCC676FFE2-seeklogo.com.png" title="Supabase">
-        <img class="trust-logo logo-usps" src="https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/United_States_Postal_Service_Logo.svg/512px-United_States_Postal_Service_Logo.svg.png" title="USPS">
+        <img class="trust-logo logo-stripe" src="https://upload.wikimedia.org/wikipedia/commons/b/ba/Stripe_Logo%2C_revised_2016.svg" title="Stripe">
+        <img class="trust-logo logo-twilio" src="https://upload.wikimedia.org/wikipedia/commons/e/e5/Twilio_logo_2019.svg" title="Twilio">
+        <img class="trust-logo logo-openai" src="https://upload.wikimedia.org/wikipedia/commons/4/4d/OpenAI_Logo.svg" title="OpenAI">
+        <img class="trust-logo logo-supabase" src="https://raw.githubusercontent.com/supabase/supabase/master/packages/common/assets/images/supabase-logo-wordmark--dark.svg" title="Supabase">
+        <img class="trust-logo logo-usps" src="https://upload.wikimedia.org/wikipedia/commons/7/7b/USPS_Eagle_Symbol.svg" title="USPS">
     </div>
     """, unsafe_allow_html=True)
 
