@@ -2,58 +2,40 @@ import streamlit as st
 
 def render_splash_page():
     """
-    Renders the professional landing page for VerbaPost.
-    Preserves all original minimalist CSS and hero sections.
+    Renders the VerbaPost landing page.
+    STRATEGY: Primary focus on "Family Archive". Secondary link for "One-off Letters".
     """
-    # --- PROFESSIONAL MINIMALIST CSS ---
+    # --- CSS ---
     st.markdown("""
     <style>
     .block-container { padding-top: 2rem !important; padding-bottom: 3rem; max-width: 900px; }
-    .hero-container { background-color: #ffffff; width: 100%; padding: 3rem 1rem 2rem 1rem; text-align: center; border-bottom: 1px solid #eaeaea; margin-bottom: 2rem; }
-    .hero-title { font-family: 'Merriweather', serif; font-weight: 700; color: #111; font-size: clamp(2.5rem, 6vw, 4rem); margin-bottom: 0.5rem; letter-spacing: -0.5px; line-height: 1.2; }
-    .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(0.9rem, 3vw, 1.1rem); font-weight: 600; text-transform: uppercase; letter-spacing: 2px; color: #d93025; margin-bottom: 1.5rem; margin-top: 1rem; }
-    .hero-text { font-family: 'Helvetica Neue', sans-serif; font-size: 1.15rem; font-weight: 300; color: #555; max-width: 600px; margin: 0 auto; line-height: 1.6; }
+    .hero-container { background-color: #ffffff; width: 100%; padding: 4rem 1rem; text-align: center; border-bottom: 1px solid #eaeaea; margin-bottom: 2rem; }
+    .hero-title { font-family: 'Merriweather', serif; font-weight: 700; color: #111; font-size: clamp(2.5rem, 6vw, 4.5rem); margin-bottom: 0.5rem; letter-spacing: -1px; line-height: 1.1; }
+    .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(1rem, 3vw, 1.4rem); font-weight: 300; color: #555; margin-bottom: 2rem; margin-top: 1rem; max-width: 700px; margin-left: auto; margin-right: auto; line-height: 1.5; }
     
-    /* TRUST LOGO STYLING */
-    .trust-container { text-align: center; padding: 20px 0; opacity: 0.8; margin-top: 10px; }
-    .trust-logo { display: inline-block; margin: 0 15px; height: 24px; vertical-align: middle; }
+    .trust-container { text-align: center; padding: 20px 0; opacity: 0.6; margin-top: 30px; }
+    .trust-logo { display: inline-block; margin: 0 15px; height: 20px; vertical-align: middle; filter: grayscale(100%); }
     
-    .feature-icon { font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.8; }
-    .feature-head { font-weight: 600; color: #111; margin-bottom: 0.25rem; font-family: 'Merriweather', serif; }
-    .feature-body { color: #666; font-size: 0.9rem; line-height: 1.5; }
+    .secondary-link { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 1px dashed #ddd; }
+    .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
-    # --- HERO CONTENT ---
+    # --- HERO SECTION (ARCHIVE FOCUSED) ---
     st.markdown("""
     <div class="hero-container">
-        <div class="hero-title">VerbaPost</div>
-        <div class="hero-subtitle">REAL MAIL GETS READ</div>
-        <div class="hero-text">
-            Texts are trivial. Emails are ignored.<br>
-            <span style="font-style: italic;">"Don't know how to start? Speak it first, and we'll transcribe."</span>
+        <div class="hero-title">The Family Archive</div>
+        <div class="hero-subtitle">
+            Don't let their stories fade.<br>
+            We interview your parents over the phone, transcribe their memories, and mail you physical keepsake letters.
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- ACTION BUTTONS ---
+    # --- PRIMARY CTA (ARCHIVE) ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # BUTTON 1: START A LETTER (White/Secondary)
-        if st.button("Start a Letter", use_container_width=True):
-            if st.session_state.get("authenticated"):
-                # FIXED: Pointing to "main" (ui_main.py) instead of "store"
-                st.session_state.app_mode = "main" 
-            else:
-                st.session_state.app_mode = "login"
-                # FIXED: Redirect target is now "main"
-                st.session_state.redirect_to = "main" 
-            st.rerun()
-
-        st.write("") 
-        
-        # BUTTON 2: THE FAMILY ARCHIVE (Red/Primary)
-        if st.button("The Family Archive", type="primary", use_container_width=True):
+        if st.button("📚 Start Your Family Archive", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
             else:
@@ -61,44 +43,45 @@ def render_splash_page():
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
 
-    # --- INFRASTRUCTURE LOGOS ---
+    # --- TRUST BADGES ---
     st.markdown("""
     <div class="trust-container">
-        <small style="display:block; margin-bottom:12px; color:#666; font-weight: 600; letter-spacing:1px; text-transform: uppercase; font-size: 0.7rem;">Powered by Secure & Reliable Infrastructure</small>
+        <small style="display:block; margin-bottom:10px; font-size: 0.7rem; letter-spacing: 1px; text-transform: uppercase;">Secure Infrastructure</small>
         <img class="trust-logo" src="https://www.vectorlogo.zone/logos/stripe/stripe-ar21.svg" alt="Stripe">
         <img class="trust-logo" src="https://www.vectorlogo.zone/logos/twilio/twilio-ar21.svg" alt="Twilio">
-        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/supabase/supabase-ar21.svg" alt="Supabase">
+        <img class="trust-logo" src="https://www.vectorlogo.zone/logos/openai/openai-ar21.svg" alt="OpenAI">
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # --- FEATURES ---
-    c_a, c_b, c_c = st.columns(3)
-    with c_a:
-        st.markdown("""<div style="text-align: center;"><div class="feature-icon">🎙️</div><div class="feature-head">Speak</div><div class="feature-body">Dictate your letter. AI transcribes and formats it instantly.</div></div>""", unsafe_allow_html=True)
-    with c_b:
-        st.markdown("""<div style="text-align: center;"><div class="feature-icon">📄</div><div class="feature-head">Print</div><div class="feature-body">Printed on archival bond paper, folded, and enveloped.</div></div>""", unsafe_allow_html=True)
-    with c_c:
-        st.markdown("""<div style="text-align: center;"><div class="feature-icon">📬</div><div class="feature-head">Send</div><div class="feature-body">USPS First Class or Certified Mail. Full tracking included.</div></div>""", unsafe_allow_html=True)
+    # --- SECONDARY OPTION (VENDING MACHINE) ---
+    st.markdown("<div class='secondary-link'><div class='secondary-text'>Looking to send a single letter?</div></div>", unsafe_allow_html=True)
+    
+    col_sec1, col_sec2, col_sec3 = st.columns([1, 1, 1])
+    with col_sec2:
+        if st.button("📮 Go to Letter Store", use_container_width=True):
+            if st.session_state.get("authenticated"):
+                st.session_state.app_mode = "main" 
+            else:
+                st.session_state.app_mode = "login"
+                st.session_state.redirect_to = "main" 
+            st.rerun()
 
     # --- FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
-    col_foot1, col_foot2, col_foot3 = st.columns([1, 2, 1])
-    with col_foot2:
-        st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px;'>VerbaPost • Secure • Private • Real</div>", unsafe_allow_html=True)
-        
-        # FOOTER NAVIGATION
-        c_blog, c_legal = st.columns(2)
-        with c_blog:
-             # FIXED: Added key="splash_btn_blog" to prevent DuplicateElementId error
-             if st.button("📰 Read our Blog", use_container_width=True, key="splash_btn_blog"):
-                 st.session_state.app_mode = "blog"
-                 st.rerun()
-        with c_legal:
-             # FIXED: Added key="splash_btn_legal" to prevent DuplicateElementId error
-             if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_btn_legal"):
-                st.session_state.app_mode = "legal"
-                st.rerun()
+    
+    # Restored Footer Navigation with Unique Keys
+    c_blog, c_legal = st.columns(2)
+    with c_blog:
+         # Unique Key Added
+         if st.button("📰 Read our Blog", use_container_width=True, key="splash_foot_blog"):
+             st.session_state.app_mode = "blog"
+             st.rerun()
+    with c_legal:
+         # Unique Key Added
+         if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_foot_legal"):
+            st.session_state.app_mode = "legal"
+            st.rerun()
+
+    st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px; margin-top: 20px;'>VerbaPost • Private • Secure • Forever</div>", unsafe_allow_html=True)
     
     return ""
