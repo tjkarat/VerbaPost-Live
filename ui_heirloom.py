@@ -452,10 +452,11 @@ def render_dashboard():
                             audit_engine.log_event(user_email, "DRAFT_SAVED", metadata={"id": d_id})
                         st.toast("Saved!")
 
-                # --- AUDIO PLAYER (SECONDARY/COLLAPSED) ---
+                # --- AUDIO PLAYER (FIXED: NO NESTED EXPANDER) ---
                 d_audio = d.get('audio_ref')
                 if d_audio and storage_engine:
-                    with st.expander("🎧 Listen to Original Audio"):
+                    # REPLACED NESTED EXPANDER WITH CHECKBOX
+                    if st.checkbox("🎧 Listen to Original Audio", key=f"audio_show_{d_id}"):
                         url = storage_engine.get_signed_url(d_audio)
                         if url:
                             st.audio(url, format="audio/mp3")
@@ -519,4 +520,4 @@ def render_dashboard():
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.markdown("<div style='text-align: center; color: #9ca3af; font-size: 14px;'>Helping families preserve their history, one phone call at a time.</div>", unsafe_allow_html=True)
     
-    return
+    return ""

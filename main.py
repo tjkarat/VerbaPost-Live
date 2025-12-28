@@ -8,10 +8,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- 1. HARD ROUTER & CONFIGURATION ---
-# We must read params before page config to set the title dynamically if desired,
-# but usually set_page_config must be the very first command.
-# We will use a generic title in config, but specific SEO tags later.
-
 st.set_page_config(
     page_title="VerbaPost",
     page_icon="📮",
@@ -34,10 +30,7 @@ st.markdown("""
         color: white !important; 
         font-weight: 600;
     }
-    /* Hide the "Deploy" button if in cloud */
     .stDeployButton {display:none;}
-    
-    /* SEO HACK: Try to force meta tags visibility if inspected */
     meta { display: block; }
 </style>
 """, unsafe_allow_html=True)
@@ -70,9 +63,6 @@ except Exception: secrets_manager = None
 
 # --- SEO INJECTOR (Fixed & Dynamic) ---
 def inject_dynamic_seo(mode):
-    """
-    Injects specific metadata based on the active mode (Archive vs Utility).
-    """
     if mode == "archive":
         meta_title = "VerbaPost | The Family Archive"
         meta_desc = "Preserve your family's legacy. We interview your loved ones over the phone and mail you physical keepsake letters."
@@ -80,7 +70,6 @@ def inject_dynamic_seo(mode):
         meta_title = "VerbaPost | Send Mail Online"
         meta_desc = "The easiest way to send physical letters from your screen. No stamps, no printers. Just write and send."
 
-    # Using st.html (Streamlit 1.35+) or Markdown fallback for head injection
     seo_html = f"""
         <meta name="description" content="{meta_desc}">
         <meta property="og:type" content="website">
@@ -103,20 +92,15 @@ def main():
         st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
         st.stop()
 
-    # 2. DETERMINE SYSTEM MODE (The Hard Router)
-    # Options: 'archive' (Default) or 'utility'
+    # 2. DETERMINE SYSTEM MODE
     params = st.query_params
     system_mode = params.get("mode", "archive").lower()
     if system_mode not in ["archive", "utility"]:
         system_mode = "archive"
     
-    # Persist system mode
     st.session_state.system_mode = system_mode
-    
-    # Inject SEO based on mode
     inject_dynamic_seo(system_mode)
     
-    # Analytics (Global)
     analytics = get_module("analytics")
     if analytics: analytics.inject_ga()
 
@@ -125,46 +109,35 @@ def main():
         handle_payment_return(params["session_id"], system_mode)
 
     # 4. Router Logic
-    # Initialize app_mode if missing
     if "app_mode" not in st.session_state:
-        # Default landing pages differ by mode
         if system_mode == "utility":
-            st.session_state.app_mode = "main" # Store
+            st.session_state.app_mode = "main" 
         else:
-            # For Archive, we prefer they see the splash or login if not authenticated
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
             else:
-                st.session_state.app_mode = "heirloom" # ui_heirloom will handle the "Not Logged In" state via paywall/login prompt
+                st.session_state.app_mode = "heirloom" 
 
-    # 5. SIDEBAR NAVIGATION (Exclusive Split)
+    # 5. SIDEBAR NAVIGATION
     render_sidebar(system_mode)
 
     # 6. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
     
-    # --- ROUTE MAP ---
-    # Map: 'mode_name': ('file_name', 'function_name')
     route_map = {
-        # Shared Routes
         "login":     ("ui_login", "render_login_page"),
         "legal":     ("ui_legal", "render_legal_page"),
         "admin":     ("ui_admin", "render_admin_page"),
-        "splash":    ("ui_splash", "render_splash_page"), # Mostly legacy, but kept for safety
-
-        # Utility Routes (Exclusive)
+        "splash":    ("ui_splash", "render_splash_page"),
         "main":      ("ui_main", "render_store_page"),
         "workspace": ("ui_main", "render_workspace_page"),
         "receipt":   ("ui_main", "render_receipt_page"),
-        "legacy":    ("ui_legacy", "render_legacy_page"), # Old "Legacy" is now part of Utility offering
-
-        # Archive Routes (Exclusive)
+        "legacy":    ("ui_legacy", "render_legacy_page"),
         "heirloom":  ("ui_heirloom", "render_dashboard"),
         "blog":      ("ui_blog", "render_blog_page")
     }
 
-    # --- ROUTE PROTECTION ---
-    # Prevent Utility users from seeing Archive pages and vice versa
+    # Route Protection
     utility_only = ["main", "workspace", "receipt", "legacy"]
     archive_only = ["heirloom", "blog"]
 
@@ -175,7 +148,6 @@ def main():
         st.session_state.app_mode = "heirloom"
         st.rerun()
 
-    # Execution
     if current_page in route_map:
         module_name, function_name = route_map[current_page]
         mod = get_module(module_name)
@@ -183,7 +155,6 @@ def main():
             getattr(mod, function_name)()
         else:
             st.error(f"404: Route {current_page} not found.")
-            # Fallback
             if system_mode == "utility":
                 m = get_module("ui_main")
                 if m: m.render_store_page()
@@ -204,7 +175,6 @@ def render_sidebar(mode):
                 st.session_state.app_mode = "main"
                 st.rerun()
             
-            # The "Legacy" certified letter is part of Utility now
             if st.button("🛡️ Certified Mail", use_container_width=True):
                 st.session_state.app_mode = "legacy"
                 st.rerun()
@@ -214,10 +184,7 @@ def render_sidebar(mode):
             if st.button("📚 Family Archive", use_container_width=True):
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
-            
-            if st.button("📰 Journal", use_container_width=True):
-                st.session_state.app_mode = "blog"
-                st.rerun()
+            # REMOVED Journal button per request
 
         st.markdown("---")
 
@@ -241,74 +208,58 @@ def render_sidebar(mode):
                 admin_email = secrets_manager.get_secret("admin.email")
             if not admin_email and "admin" in st.secrets:
                 admin_email = st.secrets["admin"]["email"]
-                
-            if user_email == admin_email:
+            
+            # Only show if logged in AND email matches admin
+            if user_email and admin_email and user_email == admin_email:
                 st.divider()
                 if st.button("⚡ Admin Console", use_container_width=True):
                     st.session_state.app_mode = "admin"
                     st.rerun()
         
-        # Footer
-        st.markdown("---")
-        if st.button("⚖️ Legal / Terms", use_container_width=True):
-            st.session_state.app_mode = "legal"
-            st.rerun()
+        # REMOVED Legal/Terms Footer button per request
 
 def handle_payment_return(session_id, system_mode):
-    """
-    Handles Stripe callbacks. Consolidates logic to keep main() clean.
-    """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
-    # Idempotency
     if db and hasattr(db, "record_stripe_fulfillment"):
         if not db.record_stripe_fulfillment(session_id):
-            return # Already handled
+            return 
 
     if pay_eng:
         user_email = st.session_state.get("user_email")
         try:
             raw_obj = pay_eng.verify_session(session_id)
-            # Basic validation
             if hasattr(raw_obj, 'payment_status') and raw_obj.payment_status == 'paid':
-                
-                # Recover Email
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
                 st.session_state.authenticated = True
                 st.session_state.user_email = user_email
 
-                # Check Metadata
                 meta_id = None
                 ref_id = getattr(raw_obj, 'client_reference_id', '')
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
 
-                # 1. SUBSCRIPTION (Archive Mode)
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
                     if db and user_email: 
-                        # Giving credits for the Archive
                         db.update_user_credits(user_email, 48)
                     st.query_params.clear()
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
                     return
 
-                # 2. SINGLE LETTER (Utility Mode)
                 if db and meta_id:
                     with db.get_db_session() as s:
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
                         if d:
                             d.status = "Paid/Writing"
-                            # If it was a Legacy (Certified) letter, store that state
                             st.session_state.paid_tier = d.tier
                             st.session_state.current_draft_id = meta_id
                             s.commit()
                 
-                # Redirect based on mode
                 st.query_params.clear()
                 if system_mode == "utility":
                     st.session_state.app_mode = "workspace"
