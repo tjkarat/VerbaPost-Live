@@ -545,15 +545,16 @@ def render_review_page():
     
     st.markdown(f"### Total: ${total:.2f}")
 
-    # --- PERSISTENT PAYMENT BUTTON ---
-    # This prevents the button from vanishing or reloading the page incorrectly.
-    if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-        u_email = st.session_state.get("user_email")
-        d_id = st.session_state.get("current_draft_id")
+    # --- AUTO-READY PAYMENT LINK (FIX) ---
+    # Generates URL automatically on load if missing. No "Proceed" click required.
+    u_email = st.session_state.get("user_email")
+    d_id = st.session_state.get("current_draft_id")
+    
+    # Check if we already have a generated link for this exact draft & price
+    if "pending_checkout_url" not in st.session_state:
         if d_id and database:
             database.update_draft_data(d_id, price=total, status="Pending Payment")
         
-        # Save URL to session so it persists after rerun
         url = payment_engine.create_checkout_session(
             line_items=[{
                 "price_data": {
@@ -568,12 +569,13 @@ def render_review_page():
         )
         if url:
             st.session_state.pending_checkout_url = url
-            st.rerun()
-        else: st.error("Payment Gateway Error")
+            # No rerun needed, just display it below
+        else:
+            st.error("⚠️ Connection to Payment Gateway Failed. Please refresh.")
 
-    # If URL exists in session, display link button (Persists across reloads)
+    # DISPLAY DIRECT LINK
     if st.session_state.get("pending_checkout_url"):
-        st.link_button("👉 Click Here to Pay Now", st.session_state.pending_checkout_url, type="primary", use_container_width=True)
+        st.link_button("👉 Click Here to Pay Now (Secure Stripe)", st.session_state.pending_checkout_url, type="primary", use_container_width=True)
 
 def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
