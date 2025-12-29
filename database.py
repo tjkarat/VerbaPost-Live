@@ -107,7 +107,7 @@ class UserProfile(Base):
     last_call_date = Column(DateTime, nullable=True)
     
     # SAFETY: Commented out because these don't exist in your DB yet.
-    # Uncomment only after you run the SQL migration to add them.
+    # This prevents the UndefinedColumn crash.
     # stripe_subscription_id = Column(String, nullable=True)
     # subscription_end_date = Column(DateTime, nullable=True)
 
