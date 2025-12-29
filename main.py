@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # --- 1. CONFIGURATION ---
 st.set_page_config(
     page_title="VerbaPost",
-    page_icon="動",
+    page_icon="📮",
     layout="centered",
     initial_sidebar_state="collapsed",
     menu_items={
@@ -81,28 +81,30 @@ def inject_dynamic_seo(mode):
 
 # --- MAIN LOGIC ---
 def main():
-    import module_validator
-    is_healthy, error_log = module_validator.validate_critical_modules()
-    if not is_healthy:
-        st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
-        st.stop()
+    # 1. PRE-FLIGHT CHECK
+    try:
+        import module_validator
+        is_healthy, error_log = module_validator.validate_critical_modules()
+        if not is_healthy:
+            st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
+            st.stop()
+    except ImportError:
+        pass # Skip if validator missing
 
     # 2. DETERMINE SYSTEM MODE
-    params = st.query_params
-    system_mode = params.get("mode", "archive").lower()
+    # Default to whatever is in session, or fallback to URL, or default to archive
+    if "system_mode" not in st.session_state:
+        st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
     
-    if system_mode not in ["archive", "utility"]:
-        system_mode = "archive"
-    
-    st.session_state.system_mode = system_mode
+    system_mode = st.session_state.system_mode
     inject_dynamic_seo(system_mode)
     
     analytics = get_module("analytics")
     if analytics: analytics.inject_ga()
 
-    # 3. Handle Stripe/Payment Returns (RUNS BEFORE ROUTING)
-    if "session_id" in params:
-        handle_payment_return(params["session_id"])
+    # 3. Handle Stripe/Payment Returns
+    if "session_id" in st.query_params:
+        handle_payment_return(st.query_params["session_id"])
 
     # 4. Default Routing Logic
     if "app_mode" not in st.session_state:
@@ -114,6 +116,25 @@ def main():
     # 6. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
     
+    # --- CRITICAL FIX: MODE ALIGNMENT ---
+    # Instead of kicking the user out, we update the mode to match where they want to go.
+    utility_pages = ["main", "workspace", "receipt", "legacy"]
+    archive_pages = ["heirloom"]
+
+    if current_page in archive_pages and system_mode != "archive":
+        st.session_state.system_mode = "archive"
+        # Update URL without full reload if supported, or just let session handle it
+        try: st.query_params["mode"] = "archive"
+        except: pass
+        st.rerun()
+        
+    if current_page in utility_pages and system_mode != "utility":
+        st.session_state.system_mode = "utility"
+        try: st.query_params["mode"] = "utility"
+        except: pass
+        st.rerun()
+
+    # Route Map
     route_map = {
         "login":     ("ui_login", "render_login_page"),
         "legal":     ("ui_legal", "render_legal_page"),
@@ -126,20 +147,6 @@ def main():
         "heirloom":  ("ui_heirloom", "render_dashboard"),
         "blog":      ("ui_blog", "render_blog_page")
     }
-
-    # Cross-Mode Protection
-    utility_only = ["main", "workspace", "receipt", "legacy"]
-    archive_only = ["heirloom"]
-
-    if st.session_state.get("authenticated"):
-        # If we are in Utility mode (Store), don't allow Archive pages
-        if system_mode == "utility" and current_page in archive_only:
-            st.session_state.app_mode = "main"
-            st.rerun()
-        # If we are in Archive mode, don't allow Store pages
-        elif system_mode == "archive" and current_page in utility_only:
-            st.session_state.app_mode = "heirloom"
-            st.rerun()
 
     if current_page in route_map:
         module_name, function_name = route_map[current_page]
@@ -160,7 +167,6 @@ def render_sidebar(mode):
         
         if st.session_state.get("authenticated"):
             # --- LAZY CREDIT REFILL CHECK ---
-            # Triggers once per session to check for monthly renewals
             if not st.session_state.get("credits_synced"):
                 pay_eng = get_module("payment_engine")
                 user_email = st.session_state.get("user_email")
@@ -169,44 +175,50 @@ def render_sidebar(mode):
                         st.toast("🔄 Monthly Credits Refilled!")
                     st.session_state.credits_synced = True
 
+            # Navigation Buttons
             if mode == "utility":
-                if st.button("動 Letter Store", use_container_width=True):
+                if st.button("✉️ Letter Store", use_container_width=True):
                     st.session_state.app_mode = "main"; st.rerun()
-            elif mode == "archive":
-                if st.button("答 Family Archive", use_container_width=True):
+                if st.button("🔄 Switch to Family Archive", use_container_width=True):
                     st.session_state.app_mode = "heirloom"; st.rerun()
+                    
+            elif mode == "archive":
+                if st.button("📚 Family Archive", use_container_width=True):
+                    st.session_state.app_mode = "heirloom"; st.rerun()
+                if st.button("🔄 Switch to Letter Store", use_container_width=True):
+                    st.session_state.app_mode = "main"; st.rerun()
 
         st.markdown("---")
 
         if not st.session_state.get("authenticated"):
-            if st.button("柏 Login / Sign Up", use_container_width=True):
+            if st.button("🔐 Login / Sign Up", use_container_width=True):
                 st.session_state.app_mode = "login"
+                # Smart Redirect: Send them to the mode they are currently viewing
                 st.session_state.redirect_to = "heirloom" if mode == "archive" else "main"
                 st.rerun()
         else:
             user_email = st.session_state.get("user_email")
             st.caption(f"Logged in as: {user_email}")
-            if st.button("坎 Sign Out", use_container_width=True):
+            if st.button("🚪 Sign Out", use_container_width=True):
                 st.session_state.authenticated = False
                 st.session_state.user_email = None
-                st.session_state.credits_synced = False # Reset sync flag
+                st.session_state.credits_synced = False
                 st.session_state.app_mode = "splash"
                 st.rerun()
             
             admin_email = None
             if secrets_manager: admin_email = secrets_manager.get_secret("admin.email")
-            if not admin_email and "admin" in st.secrets: admin_email = st.secrets["admin"]["email"]
+            if not admin_email and hasattr(st, "secrets") and "admin" in st.secrets: 
+                admin_email = st.secrets["admin"]["email"]
             
             if user_email and admin_email and user_email.strip() == admin_email.strip():
                 st.divider()
-                if st.button("笞｡ Admin Console", use_container_width=True):
+                if st.button("⚡ Admin Console", use_container_width=True):
                     st.session_state.app_mode = "admin"; st.rerun()
 
 def handle_payment_return(session_id):
     """
     Handles Stripe Callback.
-    CRITICAL FIX: Detects if the purchase was for a Letter Draft and forces Utility Mode.
-    Also handles Subscription initialization by saving the sub_id.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
@@ -215,10 +227,11 @@ def handle_payment_return(session_id):
         if not db.record_stripe_fulfillment(session_id): return 
 
     if pay_eng:
-        user_email = st.session_state.get("user_email")
         try:
             raw_obj = pay_eng.verify_session(session_id)
             if hasattr(raw_obj, 'payment_status') and raw_obj.payment_status == 'paid':
+                # Recover email if not in session
+                user_email = st.session_state.get("user_email")
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
@@ -233,21 +246,16 @@ def handle_payment_return(session_id):
                 # CASE 1: ANNUAL PASS / MONTHLY SUB (Archive Mode)
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
-                    # 48 credits for annual (placeholder logic) or just 4 for monthly init
-                    # For now, let's assume the standard Heirloom offer is 4 credits/month
                     if db and user_email: 
                         db.update_user_credits(user_email, 4)
-                        
-                        # SAVE SUBSCRIPTION ID FOR LAZY REFILL
                         if hasattr(raw_obj, 'subscription'):
                             sub_id = raw_obj.subscription
                             db.update_user_subscription_id(user_email, sub_id)
-                            # Initialize the date
-                            if pay_eng:
-                                pay_eng.check_subscription_status(user_email)
+                            # Initialize dates
+                            pay_eng.check_subscription_status(user_email)
 
                     st.query_params.clear()
-                    st.session_state.system_mode = "archive" # Force Archive
+                    st.session_state.system_mode = "archive"
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
                     return
@@ -262,11 +270,9 @@ def handle_payment_return(session_id):
                             st.session_state.current_draft_id = meta_id
                             s.commit()
                             
-                            # FORCE UTILITY MODE
-                            # This ensures we don't get kicked back to Heirloom
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "workspace"
-                            st.query_params["mode"] = "utility" # Update URL for consistency
+                            st.query_params["mode"] = "utility"
                             st.rerun()
                             return
                 
