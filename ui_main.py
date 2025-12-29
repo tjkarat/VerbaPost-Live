@@ -115,25 +115,32 @@ def load_address_book():
         return {}
     try:
         user_email = st.session_state.get("user_email")
-        # Use the updated database function that handles case-insensitivity
+        # Explicit strip to handle potential whitespace in session
+        if user_email: user_email = user_email.strip()
+        
+        # Database call using safe model
         contacts = database.get_contacts(user_email)
+        
+        # Safety: Ensure list
+        if contacts is None: contacts = []
+        
         result = {}
-        # CRITICAL FIX: Check if 'contacts' itself is None
-        if contacts is None:
-            contacts = []
-            
         for c in contacts:
-            # CRITICAL FIX: Skip if an individual contact record is None
-            if c is None: continue
+            if not c: continue # Skip empty records
             
             name = c.get('name', 'Unknown')
-            street = c.get('street', '')[:10]
-            label = f"{name} ({street}...)"
+            
+            # CRITICAL FIX: Safe String Conversion to prevent "NoneType" error
+            street_raw = c.get('street')
+            street_str = str(street_raw) if street_raw else ""
+            street_preview = street_str[:10]
+            
+            label = f"{name} ({street_preview}...)"
             result[label] = c
         return result
     except Exception as e:
-        # Output error to console instead of UI to avoid clutter
-        print(f"Address Book Error: {e}")
+        # VISIBLE ERROR FOR DEBUGGING
+        st.error(f"Address Book Load Error: {e}")
         return {}
 
 def _save_new_contact(contact_data):
@@ -146,24 +153,19 @@ def _save_new_contact(contact_data):
         
         is_new = True
         for label, existing in current_book.items():
-            # Safety check for existing records
-            if existing is None: continue
-            
+            if not existing: continue
             if (existing.get('name') == contact_data.get('name') and 
                 existing.get('street') == contact_data.get('street')):
                 is_new = False
                 break
         
         if is_new:
-            # Fallback compatibility for different database versions
-            if hasattr(database, "add_contact"):
-                database.add_contact(user_email, contact_data)
-            elif hasattr(database, "save_contact"):
+            if hasattr(database, "save_contact"):
                 database.save_contact(user_email, contact_data)
             return True
         return False
     except Exception as e:
-        print(f"Smart Save Error: {e}")
+        st.error(f"Save Contact Error: {e}")
         return False
 
 def _handle_draft_creation(email, tier, price):
@@ -228,7 +230,6 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
     with b1:
         if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
