@@ -66,22 +66,21 @@ def get_db_session():
 def to_dict(obj):
     """
     Converts SQLAlchemy models to dicts.
-    CRITICAL: Includes polyfills to ensure UI compatibility regardless 
-    of underlying DB column names.
+    CRITICAL: Includes a PERMANENT polyfill to ensure 'address_line1' always exists
+    if 'street' is present. This prevents UI refactors from breaking addresses.
     """
     if not obj: return None
     data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
     
-    # --- POLYFILLS ---
-    # 1. Address Line 1 consistency
+    # --- THE PERMANENT FIX ---
+    # If the database has 'street' but not 'address_line1', we auto-create it.
     if 'street' in data and 'address_line1' not in data:
         data['address_line1'] = data['street']
     
-    # 2. State/Zip Safety Defaults (Because they are missing from DB)
+    # Polyfill for Zip/State if missing from DB
     if 'state' not in data:
         data['state'] = ''
     if 'zip_code' not in data:
-        # Try 'zip', otherwise empty string
         data['zip_code'] = data.get('zip', '')
         
     return data
@@ -100,15 +99,17 @@ class UserProfile(Base):
     address_state = Column(String)
     address_zip = Column(String)
     country = Column(String, default="US")
-    timezone = Column(String, default="US/Central") 
+    timezone = Column(String, default="US/Central") # <--- NEW COLUMN
     parent_name = Column(String)
     parent_phone = Column(String)
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
-    # --- NEW COLUMNS FOR SUBSCRIPTION LAZY SYNC ---
-    stripe_subscription_id = Column(String, nullable=True)
-    subscription_end_date = Column(DateTime, nullable=True)
+    
+    # SAFETY: Commented out because these don't exist in your DB yet.
+    # Uncomment only after you run the SQL migration to add them.
+    # stripe_subscription_id = Column(String, nullable=True)
+    # subscription_end_date = Column(DateTime, nullable=True)
 
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
@@ -139,6 +140,7 @@ class LetterDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
+    # The new column that caused the confusion, now properly supported
     audio_ref = Column(Text)
 
 class ScheduledCall(Base):
@@ -152,17 +154,19 @@ class ScheduledCall(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Letter(Base):
+    # Matches your screenshot of the 'letters' table
     __tablename__ = 'letters'
     id = Column(Integer, primary_key=True, autoincrement=True) 
-    user_id = Column(Integer) 
+    user_id = Column(Integer) # Based on your screenshot
     content = Column(Text)
     status = Column(String) 
     recipient_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Optional fields that might exist
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    # FIXED: Table name is 'saved_contacts'
+    # FIXED: Table name changed to 'saved_contacts' based on screenshot
     __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -170,10 +174,10 @@ class Contact(Base):
     street = Column(String)
     city = Column(String)
     
-    # CRITICAL FIX: Commented out because they don't exist in your DB table yet.
-    # Uncomment these ONLY after you add 'state' and 'zip' columns to Supabase.
+    # SAFETY: Commented out because they are missing from your DB screenshot.
+    # This prevents the "NoneType" crash when loading address book.
     # state = Column(String)
-    # zip = Column(String)
+    # zip_code = Column(String)
 
 class PromoCode(Base):
     __tablename__ = 'promo_codes'
@@ -220,7 +224,7 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Error fetching Letters table: {e}")
 
-    # 2. Try to get Drafts
+    # 2. Try to get Drafts (This was crashing before)
     try:
         with get_db_session() as session:
             heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
@@ -321,6 +325,9 @@ def update_user_credits(email, new_credit_count):
 
 def update_user_subscription_id(email, sub_id):
     """Links a Stripe Subscription ID to a user profile."""
+    # Temporarily disabled until schema migration
+    return False
+    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -330,9 +337,13 @@ def update_user_subscription_id(email, sub_id):
                 return True
             return False
     except Exception: return False
+    """
 
 def update_subscription_dates(email, next_billing_date):
     """Updates the subscription end date to track renewals."""
+    # Temporarily disabled until schema migration
+    return False
+    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -342,6 +353,7 @@ def update_subscription_dates(email, next_billing_date):
                 return True
             return False
     except Exception: return False
+    """
 
 def update_heirloom_settings(email, parent_name, parent_phone):
     try:
@@ -411,7 +423,7 @@ def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
                 tier=tier, 
                 price=price, 
                 status="Draft",
-                audio_ref=audio_ref
+                audio_ref=audio_ref # New field
             )
             session.add(draft)
             session.commit()
@@ -443,15 +455,17 @@ def update_draft_data(draft_id, **kwargs):
 def get_contacts(email):
     """
     Fetches contacts using case-insensitive email matching.
+    SAFE MODE: Returns empty list instead of crashing if tables mismatch.
     """
     try:
         with get_db_session() as session:
-            # Use ILIKE for case-insensitive matching
             contacts = session.query(Contact).filter(Contact.user_email.ilike(email)).all()
+            # CRITICAL FIX: Ensure we return a list, never None
+            if not contacts:
+                return []
             return [to_dict(c) for c in contacts]
     except Exception as e:
         logger.error(f"Get Contacts Error: {e}")
-        # Return empty list on failure, user sees empty box but app doesn't crash
         return []
 
 def save_contact(user_email, contact_data):
@@ -462,7 +476,7 @@ def save_contact(user_email, contact_data):
                 name=contact_data.get("name"),
                 street=contact_data.get("street"),
                 city=contact_data.get("city")
-                # Removed state/zip from save to match read logic safety
+                # removed state/zip to avoid crash
             )
             session.add(new_c)
             session.commit()
@@ -501,5 +515,6 @@ def record_stripe_fulfillment(session_id):
             return True
     except Exception as e:
         logger.error(f"Idempotency Check Error: {e}")
-        # If we can't verify, we assume it might be a duplicate to be safe
+        # If we can't verify, we assume it might be a duplicate to be safe, 
+        # or we return False to prevent double-spending.
         return False
