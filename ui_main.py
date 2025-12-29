@@ -163,22 +163,6 @@ def _handle_draft_creation(email, tier, price):
         st.session_state.current_draft_id = d_id
     return d_id
 
-# --- GLOBAL CALLBACKS ---
-def cb_select_tier(tier, price, user_email):
-    try:
-        st.query_params.clear()
-        st.session_state.locked_tier = tier
-        st.session_state.locked_price = price
-        # STRICTLY set mode to workspace
-        st.session_state.app_mode = "workspace"
-        
-        if user_email:
-            _handle_draft_creation(user_email, tier, price)
-            
-    except Exception as e:
-        print(f"Draft creation warning: {e}")
-        st.session_state.app_mode = "workspace"
-
 # --- PAGE RENDERERS ---
 
 def render_store_page():
@@ -231,14 +215,30 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # Use UNIQUE keys to avoid conflicts
+    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
     with b1:
-        st.button("Select Standard", key="btn_std_select", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
-    with b2:
-        st.button("Select Vintage", key="btn_vint_select", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
-    with b3:
-        st.button("Select Civic", key="btn_civic_select", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
+        if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
+            st.session_state.locked_tier = "Standard"
+            st.session_state.locked_price = 2.99
+            st.session_state.app_mode = "workspace"
+            _handle_draft_creation(u_email, "Standard", 2.99)
+            st.rerun()
 
+    with b2:
+        if st.button("Select Vintage", key="store_btn_vintage_final", use_container_width=True):
+            st.session_state.locked_tier = "Vintage"
+            st.session_state.locked_price = 5.99
+            st.session_state.app_mode = "workspace"
+            _handle_draft_creation(u_email, "Vintage", 5.99)
+            st.rerun()
+
+    with b3:
+        if st.button("Select Civic", key="store_btn_civic_final", use_container_width=True):
+            st.session_state.locked_tier = "Civic"
+            st.session_state.locked_price = 6.99
+            st.session_state.app_mode = "workspace"
+            _handle_draft_creation(u_email, "Civic", 6.99)
+            st.rerun()
 
 def render_campaign_uploader():
     st.markdown("### 📁 Upload Recipient List (CSV)")
@@ -586,22 +586,19 @@ def render_review_page():
 
 # --- ROUTER CONTROLLER ---
 def render_main():
-    if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     mode = st.session_state.app_mode
 
     # STRICT ROUTING - Prevents "heirloom" ghost routing
-    if mode == "splash":
-        if ui_splash: ui_splash.render_splash_page()
-    elif mode == "login":
-        if ui_login: ui_login.render_login_page()
-    elif mode == "store":
+    if mode == "store":
         render_store_page()
     elif mode == "workspace":
         render_workspace_page()
     elif mode == "review":
         render_review_page()
     else:
-        # Fallback for unknown modes handled by main.py
+        # Fallback: if mode is anything else (e.g. heirloom), do nothing here.
+        # This lets main.py handle the other modules.
         pass
 
 if __name__ == "__main__":
