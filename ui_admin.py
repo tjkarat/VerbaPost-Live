@@ -28,6 +28,8 @@ try: import ai_engine
 except ImportError: ai_engine = None
 try: import audit_engine
 except ImportError: audit_engine = None
+try: import payment_engine
+except ImportError: payment_engine = None
 
 # --- HEALTH CHECK HELPERS ---
 def check_connection(service_name, check_func):
@@ -319,9 +321,30 @@ def render_admin_page():
         else:
             st.info("No promo codes found.")
 
-    # --- TAB 5: USERS ---
+    # --- TAB 5: USERS & SUBSCRIPTION ---
     with tab_users:
         st.subheader("User Profiles")
+        
+        # --- SUBSCRIPTION MANAGER (NEW) ---
+        with st.expander("💳 Subscription Manager"):
+            st.info("Cancel an active family archive subscription.")
+            sub_email = st.text_input("Enter User Email")
+            
+            if st.button("❌ Cancel Subscription", type="primary"):
+                if not sub_email:
+                    st.error("Please enter an email.")
+                elif payment_engine:
+                    with st.spinner("Processing cancellation with Stripe..."):
+                        success, msg = payment_engine.cancel_subscription(sub_email)
+                        if success:
+                            st.success(f"✅ {msg}")
+                        else:
+                            st.error(f"Failed: {msg}")
+                else:
+                    st.error("Payment Engine unavailable.")
+        
+        st.divider()
+        
         users = database.get_all_users()
         if users:
             safe_users = []

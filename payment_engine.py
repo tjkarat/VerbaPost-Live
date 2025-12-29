@@ -184,3 +184,44 @@ def check_subscription_status(user_email):
     except Exception as e:
         logger.error(f"Subscription Check Error: {e}")
         return False
+
+def cancel_subscription(user_email):
+    """
+    Cancels a user's subscription immediately in Stripe.
+    Returns: (Success: bool, Message: str)
+    """
+    if not user_email or not stripe:
+        return False, "Stripe module not initialized."
+
+    api_key = get_api_key()
+    if not api_key: return False, "API Key Missing."
+    
+    stripe.api_key = api_key
+    
+    try:
+        # 1. Find Customer
+        customers = stripe.Customer.list(email=user_email, limit=1)
+        if not customers.data:
+            return False, "User not found in Stripe."
+        
+        customer_id = customers.data[0].id
+        
+        # 2. Find Active Subscription
+        subscriptions = stripe.Subscription.list(
+            customer=customer_id, 
+            status='active', 
+            limit=1
+        )
+        
+        if not subscriptions.data:
+            return False, "No active subscription found."
+            
+        sub_id = subscriptions.data[0].id
+        
+        # 3. Cancel Immediately
+        stripe.Subscription.delete(sub_id)
+        return True, f"Subscription {sub_id} has been cancelled."
+        
+    except Exception as e:
+        logger.error(f"Cancellation Error: {e}")
+        return False, str(e)
