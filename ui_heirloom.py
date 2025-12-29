@@ -119,24 +119,24 @@ def render_paywall():
     </style>
     """, unsafe_allow_html=True)
 
-    html_content = textwrap.dedent("""
-        <div class="paywall-container">
-            <div class="lock-icon">🔒</div>
-            <div class="paywall-title">The Family Archive</div>
-            <div class="paywall-sub">"Capture family memories and history for future generations."</div>
-            
-            <div class="price-box">
-                <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
-                <br><br>
-                <div class="feature-list">
-                    <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
-                    <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
-                    <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
-                    <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
-                </div>
-            </div>
+    # FIXED: Flattened HTML string to prevent Code Block rendering
+    html_content = """
+<div class="paywall-container">
+    <div class="lock-icon">🔒</div>
+    <div class="paywall-title">The Family Archive</div>
+    <div class="paywall-sub">"Capture family memories and history for future generations."</div>
+    <div class="price-box">
+        <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
+        <br><br>
+        <div class="feature-list">
+            <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
+            <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
+            <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
+            <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
         </div>
-    """)
+    </div>
+</div>
+"""
     
     st.markdown(html_content, unsafe_allow_html=True)
     
@@ -424,7 +424,7 @@ def render_dashboard():
                         # --- MANUAL QUEUE BUTTON ---
                         if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                # A. Create Address Snapshot (CRITICAL: So Admin console has data)
+                                # A. Create Address Snapshot
                                 snapshot_to = {
                                     "name": recipient_name, "street": recipient_street, 
                                     "city": recipient_city, "state": profile.get("address_state", ""), 
@@ -438,17 +438,16 @@ def render_dashboard():
                                 # B. Generate Fake Tracking
                                 ref_id = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                                 
-                                # C. Update Database (Credits, Status, AND ADDRESS SNAPSHOT)
+                                # C. Update Database
                                 new_credits = credits - 1
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
-                                    # We use kwargs to update the JSON columns
                                     database.update_draft_data(
                                         d_id, 
                                         status="Queued (Manual)", 
                                         tracking_number=ref_id,
-                                        to_addr=snapshot_to,   # <-- ADDED THIS
-                                        from_addr=snapshot_from # <-- ADDED THIS
+                                        to_addr=snapshot_to,
+                                        from_addr=snapshot_from
                                     )
                                 
                                 # D. Audit & Receipt
