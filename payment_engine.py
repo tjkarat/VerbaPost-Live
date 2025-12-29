@@ -1,114 +1,117 @@
 import streamlit as st
-import stripe
-import database
 import logging
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# --- INIT STRIPE ---
+# Try to import stripe safely
 try:
-    if "stripe" in st.secrets:
-        stripe.api_key = st.secrets["stripe"]["secret_key"]
-except Exception:
-    pass
+    import stripe
+except ImportError:
+    stripe = None
+    logger.error("Stripe module not found. Payments will be disabled.")
 
-def create_checkout_session(line_items, user_email, draft_id="N/A", mode="payment"):
+try: import secrets_manager
+except ImportError: secrets_manager = None
+
+def get_api_key():
+    """
+    Retrieves Stripe API Key with maximum robustness.
+    Checks: SecretsManager -> st.secrets[stripe][secret_key] -> st.secrets[stripe_secret_key]
+    """
+    key = None
+    
+    # 1. Try Secrets Manager (Env Vars / Cloud Run)
+    if secrets_manager:
+        key = secrets_manager.get_secret("stripe.secret_key")
+        if key: return key.strip()
+
+    # 2. Try Standard Streamlit Secrets [stripe] > secret_key
+    try:
+        if "stripe" in st.secrets and "secret_key" in st.secrets["stripe"]:
+            return st.secrets["stripe"]["secret_key"].strip()
+    except Exception: pass
+
+    # 3. Try Flat Key in Secrets (stripe_secret_key)
+    try:
+        if "stripe_secret_key" in st.secrets:
+            return st.secrets["stripe_secret_key"].strip()
+    except Exception: pass
+    
+    # 4. Try Environment Variable Fallback
+    import os
+    if os.environ.get("STRIPE_SECRET_KEY"):
+        return os.environ.get("STRIPE_SECRET_KEY").strip()
+
+    return None
+
+def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment"):
     """
     Creates a Stripe Checkout Session.
-    Supports both One-time Payment (mode='payment') and Subscription (mode='subscription').
     """
+    if not stripe:
+        st.error("⚠️ Payment System Offline (Module Missing)")
+        return None
+
+    api_key = get_api_key()
+    if not api_key:
+        st.error("⚠️ Payment Error: Stripe API Key not found. Please check secrets.toml")
+        return None
+
+    stripe.api_key = api_key
+    
+    # Base URL for redirects (Safe Lookup)
+    base_url = "https://verbapost.streamlit.app"
     try:
-        base_url = st.secrets["general"]["BASE_URL"]
-        success_url = f"{base_url}?session_id={{CHECKOUT_SESSION_ID}}"
-        cancel_url = f"{base_url}?cancel=true"
-        
-        # Handling for 'Guest' email flow to avoid Stripe crashes
-        customer_email_param = user_email
-        if user_email and "guest" in user_email.lower():
-            customer_email_param = None
-        
+        if "general" in st.secrets and "BASE_URL" in st.secrets["general"]:
+            base_url = st.secrets["general"]["BASE_URL"]
+    except: pass
+    
+    # Metadata for fulfillment
+    metadata = {
+        "user_email": user_email,
+        "draft_id": str(draft_id),
+        "service": "VerbaPost"
+    }
+
+    try:
+        # Build Session Params
         session_params = {
             "payment_method_types": ["card"],
             "line_items": line_items,
             "mode": mode,
-            "success_url": success_url,
-            "cancel_url": cancel_url,
-            "client_reference_id": str(draft_id),
-            "metadata": {
-                "user_email": user_email,
-                "draft_id": str(draft_id),
-                "service": "VerbaPost"
-            }
+            "success_url": f"{base_url}?session_id={{CHECKOUT_SESSION_ID}}",
+            "cancel_url": f"{base_url}",
+            "metadata": metadata,
+            "client_reference_id": str(draft_id)
         }
 
-        # Only add customer_email if it's a real email
-        if customer_email_param:
-            session_params["customer_email"] = customer_email_param
-
+        # Handle Guest vs Logged In
+        if user_email and "guest" not in user_email.lower():
+            session_params["customer_email"] = user_email
+        
+        # Create Session
         checkout_session = stripe.checkout.Session.create(**session_params)
         return checkout_session.url
-        
+
     except Exception as e:
-        logger.error(f"Stripe Error: {e}")
+        logger.error(f"Stripe Session Error: {e}")
+        st.error(f"Payment Error: {e}")
         return None
 
 def verify_session(session_id):
     """
-    Verifies the session status with Stripe.
+    Verifies a session ID with Stripe to ensure payment success.
     """
+    if not stripe or not session_id: return None
+    
+    api_key = get_api_key()
+    if not api_key: return None
+
+    stripe.api_key = api_key
+
     try:
         session = stripe.checkout.Session.retrieve(session_id)
         return session
     except Exception as e:
         logger.error(f"Stripe Verification Error: {e}")
         return None
-
-def check_subscription_status(user_email):
-    """
-    Lazy Sync: Checks if a subscription has renewed since the last login.
-    If so, resets credits to 4 and updates the sync date.
-    Returns True if a refill occurred.
-    """
-    try:
-        # 1. Get Profile
-        profile = database.get_user_profile(user_email)
-        sub_id = profile.get('stripe_subscription_id')
-        
-        if not sub_id:
-            return False
-            
-        # 2. Query Stripe
-        sub = stripe.Subscription.retrieve(sub_id)
-        if sub.status != 'active':
-            return False
-            
-        # 3. Check Dates
-        # Stripe returns unix timestamp
-        stripe_end_ts = sub.current_period_end
-        stripe_end_dt = datetime.fromtimestamp(stripe_end_ts)
-        
-        stored_end_dt = profile.get('subscription_end_date')
-        
-        # Logic: If we have no stored date, OR if the stored date is in the past compared to Stripe
-        # It means a renewal happened (or it's the first sync)
-        should_refill = False
-        
-        if not stored_end_dt:
-            should_refill = True
-        elif stored_end_dt < stripe_end_dt:
-            should_refill = True
-            
-        if should_refill:
-            logger.info(f"Subscription Renewal Detected for {user_email}. Refilling Credits.")
-            # Reset Credits to 4 (Heirloom plan default)
-            database.update_user_credits(user_email, 4)
-            # Update the tracking date
-            database.update_subscription_dates(user_email, stripe_end_dt)
-            return True
-            
-        return False
-
-    except Exception as e:
-        logger.error(f"Subscription Sync Error: {e}")
-        return False

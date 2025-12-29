@@ -72,18 +72,13 @@ def get_db_session():
 def to_dict(obj):
     """
     Converts SQLAlchemy models to dicts.
-    CRITICAL: Includes a PERMANENT polyfill to ensure 'address_line1' always exists
-    if 'street' is present. This prevents UI refactors from breaking addresses.
     """
     if not obj: return None
     try:
         data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
-        
-        # --- THE PERMANENT FIX ---
-        # If the database has 'street' but not 'address_line1', we auto-create it.
+        # PERMANENT FIX: Polyfill address_line1 if missing
         if 'street' in data and 'address_line1' not in data:
             data['address_line1'] = data['street']
-            
         return data
     except Exception:
         return {}
@@ -161,7 +156,7 @@ class Letter(Base):
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    # CRITICAL FIX: Ensure this matches the 'saved_contacts' table in Supabase
+    # CRITICAL: This restores your Address Book
     __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -189,15 +184,11 @@ class PaymentFulfillment(Base):
     status = Column(String, default="fulfilled")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 # ==========================================
 # 🛠️ FUNCTIONS
 # ==========================================
 
 def get_all_orders():
-    """
-    Fetches orders safely.
-    """
     combined = []
     try:
         with get_db_session() as session:
@@ -205,13 +196,11 @@ def get_all_orders():
                 legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
                 for o in legacy:
                     d = to_dict(o)
-                    if d and not d.get('user_email'): 
-                        d['user_email'] = f"ID: {d.get('user_id', '?')}"
+                    if d and not d.get('user_email'): d['user_email'] = f"ID: {d.get('user_id', '?')}"
                     if d:
                         d['source'] = 'Sent Letter'
                         combined.append(d)
-    except Exception as e:
-        logger.error(f"Error fetching Letters table: {e}")
+    except Exception as e: logger.error(f"Error fetching Letters: {e}")
 
     try:
         with get_db_session() as session:
@@ -220,16 +209,14 @@ def get_all_orders():
                 for h in heirloom:
                     d = to_dict(h)
                     if d:
-                        d['source'] = 'Draft/Heirloom'
+                        d['source'] = 'Draft'
                         d['recipient_name'] = "Pending..."
                         if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
                         combined.append(d)
-    except Exception as e:
-        logger.error(f"Error fetching Drafts table: {e}")
+    except Exception as e: logger.error(f"Error fetching Drafts: {e}")
 
     if combined:
-        try:
-            combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+        try: combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
         except: pass
         
     return combined[:100]
@@ -239,16 +226,8 @@ def get_all_users():
         with get_db_session() as session:
             if not session: return []
             users = session.query(UserProfile).all()
-            results = []
-            for u in users:
-                d = to_dict(u)
-                if d:
-                    d['credits_remaining'] = d.get('credits', 0)
-                    results.append(d)
-            return results
-    except Exception as e:
-        logger.error(f"Get Users Error: {e}")
-        return []
+            return [to_dict(u) for u in users if u]
+    except Exception as e: return []
 
 def get_all_promos():
     try:
@@ -256,9 +235,7 @@ def get_all_promos():
             if not session: return []
             promos = session.query(PromoCode).all()
             return [to_dict(p) for p in promos if p]
-    except Exception as e:
-        logger.error(f"Get Promos Error: {e}")
-        return []
+    except Exception as e: return []
 
 def save_audit_log(log_entry):
     try:
@@ -270,9 +247,7 @@ def save_audit_log(log_entry):
             session.add(log)
             session.commit()
             return True
-    except Exception as e:
-        logger.error(f"Audit Save Error: {e}")
-        return False
+    except Exception: return False
 
 def get_audit_logs(limit=100):
     try:
@@ -294,9 +269,7 @@ def get_user_profile(email):
                 session.add(profile)
                 session.commit()
             return to_dict(profile)
-    except Exception as e:
-        logger.error(f"Get Profile Error: {e}")
-        return {}
+    except Exception: return {}
 
 def create_user(email, full_name):
     try:
@@ -360,7 +333,7 @@ def check_call_limit(email):
                 hours_left = 24 - int(diff.total_seconds() / 3600)
                 return False, f"Please wait {hours_left} hours."
             return True, "OK"
-    except Exception: return True, "Error checking limit"
+    except Exception: return True, "Error"
 
 def update_last_call_timestamp(email):
     try:
@@ -399,9 +372,7 @@ def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
             session.add(draft)
             session.commit()
             return draft.id
-    except Exception as e:
-        logger.error(f"Save Draft Error: {e}")
-        return None
+    except Exception: return None
 
 def get_user_drafts(email):
     try:
@@ -426,12 +397,13 @@ def update_draft_data(draft_id, **kwargs):
     except Exception: return False
 
 def get_contacts(email):
+    # This retrieves the address book
     try:
         with get_db_session() as session:
             if not session: return []
             contacts = session.query(Contact).filter_by(user_email=email).all()
             return [to_dict(c) for c in contacts if c]
-    except Exception as e: 
+    except Exception as e:
         logger.error(f"Get Contacts Error: {e}")
         return []
 
@@ -463,20 +435,14 @@ def create_promo_code(code, amount):
     except Exception: return False
 
 def record_stripe_fulfillment(session_id):
-    if not session_id:
-        return False
-        
+    if not session_id: return False
     try:
         with get_db_session() as session:
             if not session: return True
             exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
-            if exists:
-                return False
-            
+            if exists: return False
             new_record = PaymentFulfillment(stripe_session_id=session_id)
             session.add(new_record)
             session.commit()
             return True
-    except Exception as e:
-        logger.error(f"Idempotency Check Error: {e}")
-        return False
+    except Exception: return False
