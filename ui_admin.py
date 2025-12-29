@@ -119,7 +119,6 @@ def run_system_health_checks():
 def render_admin_page():
     # --- AUTH CHECK ---
     admin_email = os.environ.get("ADMIN_EMAIL") or secrets_manager.get_secret("admin.email")
-    admin_pass = os.environ.get("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
     
     if not st.session_state.get("admin_authenticated"):
         st.markdown("## 🛡️ Admin Access")
@@ -127,7 +126,8 @@ def render_admin_page():
             email = st.text_input("Admin Email")
             pwd = st.text_input("Password", type="password")
             if st.form_submit_button("Unlock Console"):
-                if email.strip() == admin_email and pwd.strip() == admin_pass:
+                stored_pass = os.environ.get("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
+                if email.strip() == admin_email and pwd.strip() == stored_pass:
                     st.session_state.admin_authenticated = True
                     st.rerun()
                 else:
@@ -146,74 +146,50 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    # --- TABS INCLUDING NEW PRINT QUEUE ---
+    # --- TABS (RESTORED) ---
     tab_print, tab_orders, tab_recordings, tab_promos, tab_users, tab_logs, tab_health = st.tabs([
-        "🖨️ Manual Print", "📦 All Orders", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
+        "🖨️ Manual Print", "📦 Orders & Repair", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
     ])
 
-    # --- TAB 1: MANUAL PRINT QUEUE (CRITICAL FOR HEIRLOOM) ---
+    # --- TAB 1: MANUAL PRINT QUEUE ---
     with tab_print:
         st.subheader("🖨️ Manual Fulfillment Queue")
         st.info("Items here were submitted via 'Manual Mode'. Download PDF, Print, then Mark as Mailed.")
         
         if database:
             with database.get_db_session() as db:
-                # Direct Query for Queued Items
                 queued_items = db.query(database.LetterDraft).filter(
                     database.LetterDraft.status == "Queued (Manual)"
                 ).order_by(database.LetterDraft.created_at.desc()).all()
                 
                 if not queued_items:
-                    st.success("🎉 Print queue is empty! All manual orders have been cleared.")
+                    st.success("🎉 Print queue is empty!")
                 else:
                     st.write(f"**Pending items:** {len(queued_items)}")
                     for item in queued_items:
                         with st.expander(f"📄 {item.tier} | {item.created_at.strftime('%Y-%m-%d')} | {item.user_email}"):
                             c1, c2 = st.columns([2, 1])
-                            
-                            # A. GENERATE PDF
                             with c1:
-                                st.caption("Content Preview:")
-                                st.text(item.content[:150] + "...")
-                                
-                                # Parse Addresses
                                 try:
-                                    to_dict = ast.literal_eval(item.to_address_json) if item.to_address_json else {}
-                                    from_dict = ast.literal_eval(item.from_address_json) if item.from_address_json else {}
+                                    to_dict = ast.literal_eval(item.to_addr) if item.to_addr else {}
+                                    from_dict = ast.literal_eval(item.from_addr) if item.from_addr else {}
                                 except:
-                                    to_dict = {}
-                                    from_dict = {}
+                                    to_dict, from_dict = {}, {}
                                 
-                                if st.button(f"⬇️ Generate PDF for #{item.id[:6]}", key=f"pdf_{item.id}"):
+                                if st.button(f"⬇️ Generate PDF for #{item.id}", key=f"pdf_{item.id}"):
                                     if letter_format and address_standard:
                                         try:
-                                            # Create Address Objects
                                             std_to = address_standard.StandardAddress.from_dict(to_dict)
                                             std_from = address_standard.StandardAddress.from_dict(from_dict)
-                                            
-                                            # Draw PDF
-                                            pdf_bytes = letter_format.create_pdf(
-                                                item.content,
-                                                std_to,
-                                                std_from,
-                                                tier=item.tier
-                                            )
-                                            
-                                            # Download Button
+                                            pdf_bytes = letter_format.create_pdf(item.content, std_to, std_from, tier=item.tier)
                                             b64 = base64.b64encode(pdf_bytes).decode()
                                             href = f'<a href="data:application/pdf;base64,{b64}" download="VerbaPost_{item.id}.pdf">Click here to Download PDF</a>'
                                             st.markdown(href, unsafe_allow_html=True)
-                                            
-                                        except Exception as e:
-                                            st.error(f"PDF Gen Error: {e}")
-                                    else:
-                                        st.error("Missing Letter Format Module")
+                                        except Exception as e: st.error(f"PDF Gen Error: {e}")
 
-                            # B. MARK AS MAILED
                             with c2:
                                 st.markdown("<br>", unsafe_allow_html=True)
                                 manual_track = st.text_input("Tracking # (Optional)", key=f"trk_{item.id}")
-                                
                                 if st.button("✅ Mark as Mailed", key=f"done_{item.id}", type="primary"):
                                     item.status = "Sent (Manual)"
                                     if manual_track:
@@ -223,18 +199,13 @@ def render_admin_page():
                                     time.sleep(1)
                                     st.rerun()
 
-    # --- TAB 2: ALL ORDERS (REPAIR STATION) ---
+    # --- TAB 2: ORDERS & REPAIR ---
     with tab_orders:
-        st.subheader("Order Manager")
+        st.subheader("Order Manager & Repair Station")
         try:
-            # 1. Fetch from DB
             all_orders = database.get_all_orders()
-            
             if all_orders:
-                total_orders = len(all_orders)
-                st.metric("Total Order Count", total_orders)
-                
-                # 2. Render Data Table
+                # Render Data Table
                 data = []
                 for o in all_orders:
                     raw_date = o.get('created_at')
@@ -251,58 +222,55 @@ def render_admin_page():
                         "Price": price_str
                     })
                 
-                df_orders = pd.DataFrame(data)
-                st.dataframe(df_orders, use_container_width=True, height=400)
+                st.dataframe(pd.DataFrame(data), use_container_width=True, height=300)
                 
-                # 3. ACTION STATION (REPAIR)
+                # REPAIR STATION
                 st.divider()
-                st.markdown("### 🛠️ Repair & Force Dispatch")
-                st.info("Select a Standard order to fix addresses or force a re-send via PostGrid.")
+                st.markdown("### 🛠️ Repair & Retry")
+                st.info("Select an order to fix the address or content, then force it back into the queue.")
                 
-                c_sel, c_act = st.columns([3, 1])
-                with c_sel:
-                    order_opts = [f"{x['ID']} ({x['Status']})" for x in data]
-                    selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
+                order_opts = [f"{x['ID']} ({x['Status']})" for x in data]
+                selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
                 
                 if selected_order_str and selected_order_str != "Select...":
                     selected_uuid = selected_order_str.split(" ")[0]
                     
                     with database.get_db_session() as db:
                         record = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_uuid).first()
-                        if not record:
-                            record = db.query(database.Letter).filter(database.Letter.id == selected_uuid).first()
-                            
                         if record:
-                            st.markdown(f"**Processing Order:** `{selected_uuid}`")
+                            st.markdown(f"**Editing Order:** `{selected_uuid}`")
                             
-                            # Standard Workflow Repair
-                            st.markdown("#### Edit Recipient Data & Re-Dispatch")
-                            try: t_addr = ast.literal_eval(record.to_addr) if hasattr(record, 'to_addr') else {}
+                            try: t_addr = ast.literal_eval(record.to_addr) if hasattr(record, 'to_addr') and record.to_addr else {}
                             except: t_addr = {}
                             
                             c1, c2 = st.columns(2)
                             with c1:
                                 new_name = st.text_input("Recipient Name", value=t_addr.get('name', ''), key="rep_name")
-                                new_city = st.text_input("City", value=t_addr.get('city', ''), key="rep_city")
+                                new_street = st.text_input("Street", value=t_addr.get('address_line1', '') or t_addr.get('street', ''), key="rep_street")
+                                new_line2 = st.text_input("Line 2 (Apt/Suite)", value=t_addr.get('address_line2', ''), key="rep_line2")
                             with c2:
-                                new_street = st.text_input("Street", value=t_addr.get('address_line1', ''), key="rep_street")
-                                new_zip = st.text_input("Zip", value=t_addr.get('zip_code', ''), key="rep_zip")
+                                new_city = st.text_input("City", value=t_addr.get('city', ''), key="rep_city")
+                                new_state = st.text_input("State", value=t_addr.get('state', ''), key="rep_state")
+                                new_zip = st.text_input("Zip Code", value=t_addr.get('zip_code', '') or t_addr.get('zip', ''), key="rep_zip")
                             
                             new_content = st.text_area("Letter Body", value=record.content, height=150, key="rep_body")
                             
-                            if st.button("🚀 Update & Force Dispatch"):
-                                updated_to = {"name": new_name, "address_line1": new_street, "city": new_city, "state": t_addr.get('state', 'NA'), "zip": new_zip}
+                            if st.button("💾 Update & Retry Order", type="primary"):
+                                updated_to = {
+                                    "name": new_name, 
+                                    "address_line1": new_street, 
+                                    "address_line2": new_line2,
+                                    "city": new_city, 
+                                    "state": new_state, 
+                                    "zip_code": new_zip
+                                }
                                 record.to_addr = str(updated_to)
                                 record.content = new_content
+                                record.status = "Queued (Manual)" 
                                 db.commit()
-                                if mailer and letter_format:
-                                    try: f_addr = ast.literal_eval(record.from_addr)
-                                    except: f_addr = {"name": "VerbaPost"}
-                                    pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
-                                    res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_uuid}")
-                                    if res: 
-                                        record.status = "Sent"; record.tracking_number = res; db.commit()
-                                        st.success("Dispatched!"); st.rerun()
+                                st.success("Order Updated and moved to Manual Print Queue!")
+                                time.sleep(1)
+                                st.rerun()
         except Exception as e: st.error(f"Error fetching orders: {e}")
 
     # --- TAB 3: RECORDINGS ---

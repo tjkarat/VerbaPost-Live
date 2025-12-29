@@ -38,29 +38,21 @@ def get_profile_field(profile, field, default=""):
     return getattr(profile, field, default)
 
 def _ensure_profile_loaded():
-    """
-    Robust profile loader. Checks if the 'From' address is missing 
-    and re-fetches it from the database if needed.
-    """
     if st.session_state.get("authenticated"):
-        # Load if synced flag is missing OR if the actual data is empty
         needs_load = not st.session_state.get("profile_synced") or not st.session_state.get("from_name")
-        
         if needs_load:
             try:
                 email = st.session_state.get("user_email")
                 profile = database.get_user_profile(email)
                 if profile:
                     st.session_state.user_profile = profile
-                    # Auto-Populate Session State for Text Inputs
                     st.session_state.from_name = get_profile_field(profile, "full_name")
                     st.session_state.from_street = get_profile_field(profile, "address_line1")
                     st.session_state.from_city = get_profile_field(profile, "address_city")
                     st.session_state.from_state = get_profile_field(profile, "address_state")
                     st.session_state.from_zip = get_profile_field(profile, "address_zip")
-                    
                     st.session_state.profile_synced = True 
-                    st.rerun() # Refresh to show data
+                    st.rerun() 
             except Exception as e:
                 print(f"Profile Load Error: {e}")
 
@@ -110,47 +102,34 @@ def inject_custom_css(text_size=16):
 
 # --- HELPER FUNCTIONS ---
 def load_address_book():
-    """Fetches contacts from DB safely."""
     if not st.session_state.get("authenticated"):
         return {}
     try:
         user_email = st.session_state.get("user_email")
-        # Explicit strip to handle potential whitespace in session
         if user_email: user_email = user_email.strip()
         
-        # Database call using safe model
         contacts = database.get_contacts(user_email)
-        
-        # Safety: Ensure list
         if contacts is None: contacts = []
         
         result = {}
         for c in contacts:
-            if not c: continue # Skip empty records
-            
+            if not c: continue
             name = c.get('name', 'Unknown')
-            
-            # CRITICAL FIX: Safe String Conversion to prevent "NoneType" error
             street_raw = c.get('street')
             street_str = str(street_raw) if street_raw else ""
             street_preview = street_str[:10]
-            
             label = f"{name} ({street_preview}...)"
             result[label] = c
         return result
     except Exception as e:
-        # VISIBLE ERROR FOR DEBUGGING
         st.error(f"Address Book Load Error: {e}")
         return {}
 
 def _save_new_contact(contact_data):
-    """Smartly saves a contact only if it doesn't exist."""
     try:
         if not st.session_state.get("authenticated"): return
-        
         user_email = st.session_state.get("user_email")
         current_book = load_address_book()
-        
         is_new = True
         for label, existing in current_book.items():
             if not existing: continue
@@ -158,7 +137,6 @@ def _save_new_contact(contact_data):
                 existing.get('street') == contact_data.get('street')):
                 is_new = False
                 break
-        
         if is_new:
             if hasattr(database, "save_contact"):
                 database.save_contact(user_email, contact_data)
@@ -183,7 +161,6 @@ def _handle_draft_creation(email, tier, price):
 def render_store_page():
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
-    
     if not u_email:
         st.warning("⚠️ Session Expired. Please log in to continue.")
         if st.button("Go to Login"):
@@ -200,16 +177,12 @@ def render_store_page():
         """)
 
     st.markdown("## 📮 Choose Your Letter Service")
-    
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
-    
     if mode == "Bulk Campaign":
         render_campaign_uploader()
         return
 
-    # --- 3 COLUMN LAYOUT ---
     c1, c2, c3 = st.columns(3)
-    
     def html_card(title, qty_text, price, desc):
         return f"""
         <div class="price-card">
@@ -220,12 +193,9 @@ def render_store_page():
         </div>
         """
 
-    with c1:
-        st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
-    with c2:
-        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
-    with c3:
-        st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
+    with c1: st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
+    with c2: st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
+    with c3: st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
@@ -278,9 +248,7 @@ def render_campaign_uploader():
                 st.rerun()
 
 def render_workspace_page():
-    # 1. AUTO-POPULATE TRIGGER
     _ensure_profile_loaded()
-    
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
@@ -292,7 +260,6 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC (Explicitly Included)
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             
@@ -358,7 +325,6 @@ def render_workspace_page():
                 c_fs.text_input("Your State", key="from_state")
                 c_fz.text_input("Your Zip", key="from_zip")
             
-            # Add Smart Save Option
             save_to_book = False
             if current_tier != "Civic" and st.session_state.get("authenticated"):
                  st.caption("✅ New contacts will be automatically saved to your Address Book.")
@@ -382,14 +348,12 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # Update Draft
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
                         to_str = str(st.session_state.addr_to)
                         from_str = str(st.session_state.addr_from)
                         database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
 
-                    # Smart Address Book Save
                     if save_to_book:
                         _save_new_contact(st.session_state.addr_to)
 
@@ -412,7 +376,6 @@ def render_workspace_page():
                         st.session_state.addresses_saved_at = time.time()
                         st.success(f"✅ Addresses Saved (Verification Offline)")
         
-        # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
 
@@ -427,9 +390,7 @@ def render_workspace_page():
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
         
-        # --- NEW BUTTON LAYOUT ---
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
-        
         with col_save:
              if st.button("💾 Save Draft", use_container_width=True):
                  st.session_state.letter_body = new_text
@@ -457,7 +418,6 @@ def render_workspace_page():
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
 
-        # Auto-save Logic (Background)
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
@@ -505,10 +465,28 @@ def render_workspace_page():
             st.session_state.app_mode = "review"
             st.rerun()
 
+    # --- DEBUGGER ---
+    with st.expander("🕵️ Database Inspector (Debug)", expanded=False):
+        if st.button("Check Connectivity"):
+            try:
+                with database.get_db_session() as s:
+                    st.write(f"Connected to DB. Checking 'saved_contacts'...")
+                    from sqlalchemy import text
+                    result = s.execute(text("SELECT count(*) FROM saved_contacts"))
+                    count = result.scalar()
+                    st.write(f"Total Rows: {count}")
+                    
+                    res_rows = s.execute(text("SELECT * FROM saved_contacts LIMIT 3"))
+                    for row in res_rows:
+                        st.write(row)
+            except Exception as e:
+                st.error(f"Inspector Error: {e}")
+
 def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
+    # PDF PREVIEW LOGIC
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
@@ -520,7 +498,6 @@ def render_review_page():
                 std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                 
                 pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
@@ -531,34 +508,21 @@ def render_review_page():
     
     # --- PRICING LOGIC ---
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
-    
-    # Calculate Base Total
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
-    
-    # Ensure tier wasn't reset to standard if price mismatches
-    if tier == "Vintage" and total < 5.00:
-        total = 5.99 + (12.00 if is_cert else 0.0)
-    elif tier == "Santa" and total < 9.00:
-        total = 9.99 + (12.00 if is_cert else 0.0)
+    if tier == "Vintage" and total < 5.00: total = 5.99 + (12.00 if is_cert else 0.0)
+    elif tier == "Santa" and total < 9.00: total = 9.99 + (12.00 if is_cert else 0.0)
 
     discount = 0.0
-    
-    # --- PROMO CODE LOGIC ---
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
             raw_code = st.text_input("Enter Code", key="promo_input_field")
             code = raw_code.upper().strip() if raw_code else ""
-            
             if st.button("Apply Code"):
-                if not code:
-                    st.error("Please enter a code.")
+                if not code: st.error("Please enter a code.")
                 else:
                     result = promo_engine.validate_code(code)
-                    if isinstance(result, tuple) and len(result) == 2:
-                        valid, val = result
-                    else:
-                        valid, val = False, "Engine Error"
-
+                    if isinstance(result, tuple) and len(result) == 2: valid, val = result
+                    else: valid, val = False, "Engine Error"
                     if valid:
                         if val > 0:
                             st.session_state.applied_promo = code
@@ -566,8 +530,7 @@ def render_review_page():
                             st.success(f"Applied! ${val} off")
                             time.sleep(1)
                             st.rerun()
-                        else:
-                            st.warning("Code is valid but has $0.00 value. Please check with support.")
+                        else: st.warning("Code is valid but has $0.00 value. Please check with support.")
                     else: st.error(f"Invalid Code: {val}")
                     
     if st.session_state.get("applied_promo"):
@@ -578,6 +541,8 @@ def render_review_page():
     
     st.markdown(f"### Total: ${total:.2f}")
 
+    # --- CRITICAL FIX: SAVING CHECKOUT URL TO STATE ---
+    # This prevents the button from vanishing or reloading the page incorrectly.
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
         u_email = st.session_state.get("user_email")
         d_id = st.session_state.get("current_draft_id")
@@ -595,15 +560,19 @@ def render_review_page():
             user_email=u_email,
             draft_id=d_id
         )
-        if url: st.link_button("👉 Click to Pay", url)
+        if url:
+            st.session_state.pending_checkout_url = url
+            st.rerun() # Refresh to show the link button persistently
         else: st.error("Payment Gateway Error")
 
-# --- ROUTER CONTROLLER ---
+    # Persistent Pay Button
+    if st.session_state.get("pending_checkout_url"):
+        st.link_button("👉 Click Here to Pay Now", st.session_state.pending_checkout_url, type="primary", use_container_width=True)
+
 def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     mode = st.session_state.app_mode
 
-    # STRICT ROUTING - Prevents "heirloom" ghost routing
     if mode == "store":
         render_store_page()
     elif mode == "workspace":
@@ -611,8 +580,6 @@ def render_main():
     elif mode == "review":
         render_review_page()
     else:
-        # Fallback: if mode is anything else (e.g. heirloom), do nothing here.
-        # This lets main.py handle the other modules.
         pass
 
 if __name__ == "__main__":
