@@ -2,6 +2,7 @@ import streamlit as st
 import time
 import textwrap
 from datetime import datetime
+import uuid # Required for manual tracking IDs
 
 # --- MODULE IMPORTS ---
 try: import database
@@ -146,18 +147,15 @@ def render_paywall():
                 with st.spinner("Connecting to Secure Payment..."):
                     try:
                         st.session_state.pending_subscription = True
-                        
-                        # --- SUBSCRIPTION LOGIC ---
                         url = payment_engine.create_checkout_session(
                             line_items=[{
-                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", # RECURRING PRICE ID
+                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", 
                                 "quantity": 1,
                             }],
-                            mode="subscription", # CRITICAL: Enables Auto-Pay
+                            mode="subscription",
                             user_email=user_email,
                             draft_id="SUBSCRIPTION_INIT"
                         )
-                        
                         if url: 
                             st.link_button("👉 Proceed to Stripe Checkout", url, type="primary", use_container_width=True)
                         else: 
@@ -195,7 +193,6 @@ def render_paywall():
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard():
-    # --- CRITICAL: Initialize to prevent UnboundLocalError ---
     p_phone = None  
     credits = 0
     
@@ -208,20 +205,15 @@ def render_dashboard():
 
     user_email = st.session_state.get("user_email")
     
-    # Ensure profile is loaded
     if not st.session_state.get("profile_synced") and database:
         profile = database.get_user_profile(user_email)
         st.session_state.user_profile = profile or {}
         st.session_state.profile_synced = True
     
-    # Retrieve profile data
     profile = st.session_state.get("user_profile", {})
     credits = profile.get("credits", 0)
     p_phone = profile.get("parent_phone") 
     
-    # ---------------------------------------------------------
-    # 1. PAGE TITLE & HEADER
-    # ---------------------------------------------------------
     col_title, col_status = st.columns([3, 1])
     with col_title: 
         st.title("The Family Archive")
@@ -234,26 +226,22 @@ def render_dashboard():
         render_paywall()
         return
 
-    # --- TABS ---
     tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & Setup", "📞 Start Interview", "📥 Stories (Inbox)"])
 
-    # --- TAB A: SETTINGS & INSTRUCTIONS ---
+    # --- TAB A: SETTINGS ---
     with tab_settings:
         st.markdown("### ⚙️ Account Setup")
         st.info("ℹ️ **Important:** We need to know who to call (the interviewee) and where to mail the finished letters (you).")
 
         c_parent, c_user = st.columns(2)
-        
         with c_parent:
             st.markdown("#### Step 1: Who are we interviewing?")
             st.caption("We will call this person to record stories.")
             with st.form("settings_parent"):
                 curr_p_name = profile.get("parent_name", "")
                 curr_p_phone = profile.get("parent_phone", "")
-                
                 new_p_name = st.text_input("Their Name (e.g. Grandma)", value=curr_p_name)
                 new_p_phone = st.text_input("Their Phone Number", value=curr_p_phone, placeholder="e.g. 615-555-1234")
-                
                 if st.form_submit_button("Save Interviewee"):
                     if database:
                         success = database.update_heirloom_settings(user_email, new_p_name, new_p_phone)
@@ -308,15 +296,13 @@ def render_dashboard():
             st.warning("⚠️ Please complete **Step 1** in the Settings tab to add a phone number.")
             st.stop()
         
-        # --- NEW INBOUND CALL INSTRUCTIONS ---
         st.success(f"📞 **Pro Tip:** You (or {profile.get('parent_name', 'they')}) can also call **(615) 656-7667** anytime from **{p_phone}** to record a story on your own terms.")
         
-        # --- NEW PRE-CALL PREP INSTRUCTION ---
-        st.info("💡 **Pre-Call Tip:** Text them beforehand! *'The robot is going to ask about [Topic]. Just gather your thoughts!'* It makes the call feel like a chat, not a quiz.")
+        # --- NEW INSTRUCTION: GATHER THOUGHTS ---
+        st.info("💡 **Before you call:** Text or call them first! Tell them: *'Hey, the robot is going to ask about [Topic]. Just take a minute to gather your thoughts.'* This makes the recording much better.")
 
         st.divider()
 
-        # 1. TOPIC
         topic_options = [
             "Tell me about your childhood home.",
             "How did you meet your spouse?",
@@ -333,9 +319,7 @@ def render_dashboard():
 
         st.markdown("---")
         
-        # 2. ACTION
         col_now, col_later = st.columns(2)
-        
         with col_now:
             st.markdown("#### Option A: Call Immediately")
             st.caption("We will dial their number right now.")
@@ -391,7 +375,6 @@ def render_dashboard():
         
         st.divider()
 
-        # List Drafts
         if database:
             all_drafts = database.get_user_drafts(user_email)
             heirloom_drafts = [d for d in all_drafts if d.get('tier') == 'Heirloom']
@@ -409,7 +392,6 @@ def render_dashboard():
             
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
                 
-                # --- EDITING AREA ---
                 new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{d_id}")
                 
                 c_save, c_send = st.columns([1, 1])
@@ -420,22 +402,17 @@ def render_dashboard():
                 
                 st.divider()
 
-                # --- MAILING SECTION ---
                 if d_status == "Draft":
                     st.markdown("#### 📮 Mail this Story")
                     
-                    # 1. Retrieve Addresses
                     recipient_name = profile.get("full_name", "")
                     recipient_street = profile.get("address_line1", "")
                     recipient_city = profile.get("address_city", "")
-                    recipient_state = profile.get("address_state", "")
-                    recipient_zip = profile.get("address_zip", "")
                     
                     sender_name = profile.get("parent_name", "The Family Archive")
                     
-                    # 2. Validation / Flight Check
                     if not recipient_street or not recipient_city:
-                        st.warning("⚠️ **Missing Address:** Go to the 'Settings' tab and fill out 'Where should we mail letters?' before sending.")
+                        st.warning("⚠️ **Missing Address:** Go to the 'Settings' tab.")
                     else:
                         st.info(f"""
                         **Flight Check:**
@@ -444,38 +421,38 @@ def render_dashboard():
                         • **Cost:** 1 Credit (Balance: {credits})
                         """)
                         
-                        # 3. Send Action (MANUAL FULFILLMENT MODE)
+                        # --- MANUAL QUEUE BUTTON (NO POSTGRID) ---
                         if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                # --- MANUAL OVERRIDE (Replaces PostGrid for now) ---
-                                import uuid
+                                # 1. Generate Fake Tracking Number
                                 ref_id = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                                 
-                                # Standard Database Updates
+                                # 2. Update Database (Credits & Status)
                                 new_credits = credits - 1
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
                                     database.update_draft_data(d_id, status="Queued (Manual)", tracking_number=ref_id)
                                 
+                                # 3. Send Email Receipt
                                 _send_receipt(
                                     user_email,
                                     f"VerbaPost Sent: {d_date}",
-                                    f"<h3>Story Queued!</h3><p>Tracking: {ref_id}</p>"
+                                    f"<h3>Story Queued!</h3><p>Your letter is in the manual print queue.</p><p>ID: {ref_id}</p>"
                                 )
 
+                                # 4. Audit Log
                                 if audit_engine:
                                     audit_engine.log_event(user_email, "HEIRLOOM_SENT_MANUAL", metadata={"ref": ref_id})
                                 
+                                # 5. Update Local Session & Rerun
                                 st.session_state.user_profile['credits'] = new_credits
                                 st.balloons()
-                                st.success(f"✅ Order Received! Queued for printing. ID: {ref_id}")
+                                st.success(f"✅ Queued for Printing! ID: {ref_id}")
                                 time.sleep(2)
                                 st.rerun()
-                                # ----------------------------------------------------
                             else: st.error("Insufficient Credits. Please top up.")
                 else:
                     st.success(f"Sent! Tracking Number: {draft.get('tracking_number', 'N/A')}")
 
-    # FOOTER
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     st.markdown("<div style='text-align: center; color: #888; font-style: italic;'>VerbaPost helps families save voices, stories, and moments—before they’re gone.</div>", unsafe_allow_html=True)
