@@ -1,8 +1,6 @@
 import streamlit as st
 import time
 import textwrap
-import hashlib
-import os
 from datetime import datetime
 
 # --- MODULE IMPORTS ---
@@ -24,14 +22,9 @@ try: import promo_engine
 except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
-try: import heirloom_engine # NEW: For Audio/Vault Logic
-except ImportError: heirloom_engine = None
-try: import storage_engine # NEW: For Audio Playback
-except ImportError: storage_engine = None
 
 # --- HELPER: EMAIL SENDER ---
 def _send_receipt(user_email, subject, body_html):
-    """Sends simple alerts via Resend."""
     if email_engine:
         try:
             email_engine.send_email(
@@ -44,13 +37,12 @@ def _send_receipt(user_email, subject, body_html):
 
 # --- HELPER: PAYWALL RENDERER ---
 def render_paywall():
-    """Renders the Digital Vault Annual Pass paywall with integrated Promo entry."""
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
     
     .paywall-container {
-        max-width: 800px;
+        max-width: 700px;
         margin: 20px auto;
         background-color: #ffffff;
         border: 1px solid #e0e0e0;
@@ -72,14 +64,14 @@ def render_paywall():
     }
     .paywall-title {
         font-family: 'Playfair Display', serif;
-        font-size: 38px;
+        font-size: 36px;
         color: #1f2937;
         margin-bottom: 10px;
         font-weight: 700;
     }
     .paywall-sub {
-        color: #4b5563;
-        font-size: 20px;
+        color: #6b7280;
+        font-size: 18px;
         margin-bottom: 30px;
         line-height: 1.6;
         font-family: 'Playfair Display', serif;
@@ -94,13 +86,13 @@ def render_paywall():
     }
     .price-amount {
         font-family: 'Playfair Display', serif;
-        font-size: 64px;
-        color: #b91c1c; 
+        font-size: 52px;
+        color: #b91c1c; /* Deep Red */
         font-weight: 700;
     }
     .price-freq {
-        font-size: 18px;
-        color: #6b7280;
+        font-size: 16px;
+        color: #9ca3af;
         text-transform: uppercase;
         letter-spacing: 1px;
         font-weight: 600;
@@ -109,415 +101,400 @@ def render_paywall():
         text-align: left;
         display: inline-block;
         color: #374151;
-        font-size: 18px;
-        margin: 0 auto 30px auto;
+        font-size: 16px;
+        margin: 0 auto;
     }
     .feature-item {
-        margin-bottom: 15px;
+        margin-bottom: 12px;
         display: flex;
         align-items: center;
     }
     .check {
         color: #059669;
-        margin-right: 15px;
-        font-size: 20px;
-        font-weight: bold;
+        margin-right: 12px;
+        font-size: 18px;
     }
     </style>
     """, unsafe_allow_html=True)
 
-    # Main Card logic
     html_content = textwrap.dedent("""
         <div class="paywall-container">
             <div class="lock-icon">🔒</div>
-            <div class="paywall-title">The Family Archive Annual Pass</div>
-            <div class="paywall-sub">"The easiest way to record, transcribe, and preserve your family history."</div>
+            <div class="paywall-title">The Family Archive</div>
+            <div class="paywall-sub">"Capture family memories and history for future generations."</div>
             
             <div class="price-box">
-                <span class="price-amount">$190</span><span class="price-freq"> / Per Year</span>
-                <p style="color: #6b7280; font-size: 14px; margin-top: 10px;">Equivalent to just $15.83/month</p>
-            </div>
-
-            <div class="feature-list">
-                <div class="feature-item"><span class="check">✔</span> <b>48 Story Recording Sessions:</b> Capture a new memory every week.</div>
-                <div class="feature-item"><span class="check">✔</span> <b>Protected Vault:</b> Full access to edit, copy, and export your history.</div>
-                <div class="feature-item"><span class="check">✔</span> <b>48 Keepsake Letters:</b> Mailed on heavy cream paper.</div>
-                <div class="feature-item"><span class="check">✔</span> <b>Automated Interviews:</b> We call your loved ones for you.</div>
-                <div class="feature-item"><span class="check">✔</span> <b>AI Transcription:</b> Audio converted to text automatically.</div>
-                <div class="feature-item"><span class="check">✔</span> <b>Permanent Storage:</b> We hold the legacy so you don't have to.</div>
+                <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
+                <br><br>
+                <div class="feature-list">
+                    <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
+                    <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
+                    <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
+                    <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
+                </div>
             </div>
         </div>
-    """).strip()
-
-    st.html(html_content)
+    """)
     
-    # Action Buttons & Promo Entry (Now visibly associated with the card)
-    c_left, c_pay, c_promo, c_right = st.columns([0.5, 2, 2, 0.5])
+    st.markdown(html_content, unsafe_allow_html=True)
     
-    with c_pay:
-        if st.button("🔓 Unlock with Stripe", type="primary", use_container_width=True):
+    c_pad_left, c_main, c_pad_right = st.columns([1, 2, 1])
+    with c_main:
+        if st.button("🔓 Subscribe Now", type="primary", use_container_width=True):
             user_email = st.session_state.get("user_email")
             if payment_engine:
-                with st.spinner("Connecting to Secure Checkout..."):
+                with st.spinner("Connecting to Secure Payment..."):
                     try:
+                        st.session_state.pending_subscription = True
+                        
+                        # --- SUBSCRIPTION LOGIC ---
                         url = payment_engine.create_checkout_session(
                             line_items=[{
-                                "price_data": {
-                                    "currency": "usd",
-                                    "product_data": {"name": "VerbaPost Family Archive - Annual Pass"},
-                                    "unit_amount": 19000,
-                                },
+                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", # YOUR RECURRING PRICE ID
                                 "quantity": 1,
                             }],
+                            mode="subscription", # CRITICAL: Enables Auto-Pay
                             user_email=user_email,
                             draft_id="SUBSCRIPTION_INIT"
                         )
-                        if url: st.link_button("👉 Proceed to Checkout", url, type="primary", use_container_width=True)
-                        else: st.error("Link creation failed.")
+                        
+                        if url: 
+                            st.link_button("👉 Proceed to Stripe Checkout", url, type="primary", use_container_width=True)
+                        else: 
+                            st.error("Connection Error.")
                     except Exception as e: st.error(f"Error: {e}")
-    
-    with c_promo:
-        # Integrated promo logic
-        with st.container(border=True):
-            promo_input = st.text_input("Have an Access Code?", placeholder="Enter Code", label_visibility="collapsed")
-            if st.button("Redeem Code", use_container_width=True):
+            else: st.error("System Error: Payment Engine Missing")
+        
+        st.markdown("<div style='text-align: center; color: #9ca3af; font-size: 12px; margin-top: 10px;'>Secured by Stripe SSL</div>", unsafe_allow_html=True)
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("🎟️ Have an Access Code?", expanded=False):
+        c_code, c_btn = st.columns([3, 1])
+        with c_code:
+            code = st.text_input("Code", label_visibility="collapsed", placeholder="Enter Promo Code")
+        with c_btn:
+            if st.button("Apply"):
                 if promo_engine:
-                    valid, val = promo_engine.validate_code(promo_input)
-                    if valid:
+                    result = promo_engine.validate_code(code)
+                    is_valid = False
+                    if isinstance(result, tuple) and len(result) == 2: is_valid, _ = result
+                    elif isinstance(result, bool): is_valid = result
+                    
+                    if is_valid:
                         user_email = st.session_state.get("user_email")
                         if database:
-                            database.update_user_credits(user_email, 1) # Small trial
+                            database.update_user_credits(user_email, 4)
                             if "user_profile" in st.session_state:
-                                st.session_state.user_profile["credits"] = 1
-                        
-                        # AUDIT LOG
-                        if audit_engine:
-                            audit_engine.log_event(user_email, "PROMO_REDEEMED", metadata={"code": promo_input})
-
+                                st.session_state.user_profile["credits"] = 4
+                        _send_receipt(user_email, "Archive Unlocked", f"Welcome to the Family Archive. Code {code} applied.")
                         st.balloons()
-                        st.success("Access Granted!")
+                        st.success("Unlocked! Redirecting...")
                         time.sleep(1)
                         st.rerun()
-                    else: 
-                        st.error(f"Invalid: {val}")
+                    else: st.error("Invalid Code")
 
 # --- MAIN DASHBOARD RENDERER ---
 def render_dashboard():
-    # --- CRITICAL INITIALIZATION ---
+    # --- CRITICAL: Initialize to prevent UnboundLocalError ---
     p_phone = None  
     credits = 0
     
     if not st.session_state.get("authenticated"):
         st.warning("Please log in to access the archive.")
-        return ""
+        if st.button("Go to Login"):
+            st.session_state.app_mode = "login"
+            st.rerun()
+        return
 
     user_email = st.session_state.get("user_email")
     
-    # Ensure profile is synced
+    # Ensure profile is loaded
     if not st.session_state.get("profile_synced") and database:
         profile = database.get_user_profile(user_email)
         st.session_state.user_profile = profile or {}
         st.session_state.profile_synced = True
     
+    # Retrieve profile data
     profile = st.session_state.get("user_profile", {})
     credits = profile.get("credits", 0)
     p_phone = profile.get("parent_phone") 
     
     # ---------------------------------------------------------
-    # HEADER
+    # 1. PAGE TITLE & HEADER
     # ---------------------------------------------------------
     col_title, col_status = st.columns([3, 1])
     with col_title: 
-        st.title("📚 The Family Archive")
-        st.markdown("**Welcome to your private family library of voices and legacy stories.**")
+        st.title("The Family Archive")
+        st.markdown("**Preserve your loved one’s voice, stories, and memories—forever.**")
     
     with col_status: 
-        st.metric("Annual Letter Credits", credits)
+        st.metric("Credits Remaining", credits)
 
-    # --- THE GATE (Vault-First Protection) ---
     if credits <= 0:
         render_paywall()
-        return ""
+        return
 
     # --- TABS ---
     tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & Setup", "📞 Start Interview", "📥 Stories (Inbox)"])
 
-    # --- TAB A: SETTINGS ---
+    # --- TAB A: SETTINGS & INSTRUCTIONS ---
     with tab_settings:
-        st.markdown("### ⚙️ Account Configuration")
-        st.info("💡 **How it works:** We call the person in **Step 1** to record their stories. When you are ready to mail a keepsake, we send it to the address in **Step 2**.")
+        st.markdown("### ⚙️ Account Setup")
+        st.info("ℹ️ **Important:** We need to know who to call (the interviewee) and where to mail the finished letters (you).")
 
         c_parent, c_user = st.columns(2)
         
         with c_parent:
-            st.markdown("#### Step 1: Who are we calling?")
-            st.caption("This is the person whose stories you want to capture.")
+            st.markdown("#### Step 1: Who are we interviewing?")
+            st.caption("We will call this person to record stories.")
             with st.form("settings_parent"):
                 curr_p_name = profile.get("parent_name", "")
                 curr_p_phone = profile.get("parent_phone", "")
-                new_p_name = st.text_input("Interviewee Name", value=curr_p_name, placeholder="e.g. Grandma Betty")
-                new_p_phone = st.text_input("Their Phone Number", value=curr_p_phone, placeholder="e.g. 615-555-1212")
                 
-                st.markdown("---")
-                if st.form_submit_button("💾 Save Interviewee Details"):
+                new_p_name = st.text_input("Their Name (e.g. Grandma)", value=curr_p_name)
+                new_p_phone = st.text_input("Their Phone Number", value=curr_p_phone, placeholder="e.g. 615-555-1234")
+                
+                if st.form_submit_button("Save Interviewee"):
                     if database:
-                        if database.update_heirloom_settings(user_email, new_p_name, new_p_phone):
-                            st.session_state.user_profile.update({'parent_name': new_p_name, 'parent_phone': new_p_phone})
-                            
-                            # AUDIT LOG
-                            if audit_engine:
-                                audit_engine.log_event(user_email, "SETTINGS_UPDATE_PARENT", metadata={"name": new_p_name, "phone": new_p_phone})
-
-                            st.success("✅ Details Saved!")
+                        success = database.update_heirloom_settings(user_email, new_p_name, new_p_phone)
+                        if success:
+                            st.session_state.user_profile['parent_name'] = new_p_name
+                            st.session_state.user_profile['parent_phone'] = new_p_phone
+                            st.success("✅ Saved!")
                             time.sleep(1)
                             st.rerun()
+                        else: st.error("Database Error")
 
         with c_user:
-            st.markdown("#### Step 2: Where do we mail letters?")
-            st.caption("Finished keepsakes will be mailed to this address.")
+            st.markdown("#### Step 2: Where should we mail letters?")
+            st.caption("When you click 'Send', the physical letter goes here.")
             with st.form("settings_address"):
-                n_name = st.text_input("Recipient Name", value=profile.get("full_name", ""))
-                n_street = st.text_input("Street Address", value=profile.get("address_line1", ""))
-                n_city = st.text_input("City", value=profile.get("address_city", ""))
-                col_st, col_zp = st.columns(2)
-                n_state = col_st.text_input("State", value=profile.get("address_state", ""))
-                n_zip = col_zp.text_input("Zip Code", value=profile.get("address_zip", ""))
+                curr_name = profile.get("full_name", "")
+                curr_street = profile.get("address_line1", "")
+                curr_city = profile.get("address_city", "")
+                curr_state = profile.get("address_state", "")
+                curr_zip = profile.get("address_zip", "")
                 
-                st.markdown("---")
-                if st.form_submit_button("💾 Save Mailing Address"):
+                n_name = st.text_input("Your Name", value=curr_name)
+                n_street = st.text_input("Street Address", value=curr_street)
+                n_city = st.text_input("City", value=curr_city)
+                
+                col_st, col_zp = st.columns(2)
+                n_state = col_st.text_input("State", value=curr_state)
+                n_zip = col_zp.text_input("Zip Code", value=curr_zip)
+                
+                if st.form_submit_button("Save My Address"):
                     if database:
-                        if database.update_user_address(user_email, n_name, n_street, n_city, n_state, n_zip):
+                        success = database.update_user_address(
+                            user_email, n_name, n_street, n_city, n_state, n_zip
+                        )
+                        if success:
                             st.session_state.user_profile.update({
-                                "full_name": n_name, 
+                                "full_name": n_name,
                                 "address_line1": n_street,
                                 "address_city": n_city,
                                 "address_state": n_state,
                                 "address_zip": n_zip
                             })
-                            
-                            # AUDIT LOG
-                            if audit_engine:
-                                audit_engine.log_event(user_email, "SETTINGS_UPDATE_ADDRESS", metadata={"zip": n_zip})
-
                             st.success("✅ Address Updated!")
+                            st.rerun()
+                        else: st.error("Update Failed")
 
     # --- TAB B: INTERVIEWER ---
     with tab_int:
         st.markdown("### 🎙️ The Remote Interviewer")
         
         if not p_phone:
-            st.warning("⚠️ **Wait!** You must complete **Step 1** in the Settings tab before you can start an interview.")
+            st.warning("⚠️ Please complete **Step 1** in the Settings tab to add a phone number.")
             st.stop()
-
-        # VAULT CHOKE POINT: Limit recording sessions
-        if credits <= 0:
-            st.warning("🔒 **Recorder Locked:** You have reached your trial limit. Purchase an Annual Pass to ask more questions.")
-            st.stop()
-
-        st.markdown("""
-        <div style="background-color: #f0f7ff; border-left: 5px solid #007bff; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
-        <b>How to perform an interview:</b><br>
-        1. Select a topic question below.<br>
-        2. Click 'Call Now'. We will dial your loved one immediately.<br>
-        3. They will hear a greeting and the question. After the tone, they tell their story.<br>
-        4. Once they hang up, the recording is processed and appears in your Inbox.
-        </div>
-        """, unsafe_allow_html=True)
-
-        topic_options = [
-            "Tell me about your favorite childhood memory.",
-            "How did you meet your spouse?",
-            "What was your first house like?",
-            "What is the best advice you ever received?",
-            "Tell me about your favorite family holiday tradition.",
-            "Custom Question..."
-        ]
-        topic = st.selectbox("Select a Topic to Record", topic_options)
-        if topic == "Custom Question...":
-            topic = st.text_input("Type your own question here...")
-
-        # ACTIVE CALL LOCK Logic
-        call_lock = False
-        if "last_call_time" in st.session_state:
-            elapsed = time.time() - st.session_state.last_call_time
-            if elapsed < 300: # 5 Minute Lock
-                call_lock = True
-                st.warning(f"⏳ **Call in Progress:** Please wait {int((300 - elapsed)/60)} more minutes before starting a new interview.")
-
-        if st.button("📞 Start Call Now", type="primary", use_container_width=True, disabled=call_lock):
-            allowed, msg = database.check_call_limit(user_email) if database else (True, "")
-            if not allowed:
-                st.error(msg)
-            elif ai_engine:
-                with st.spinner(f"Dialing {p_phone}..."):
-                    sid, err = ai_engine.trigger_outbound_call(
-                        p_phone, 
-                        "+16156567667", 
-                        parent_name=profile.get("parent_name", "Mom"), 
-                        topic=topic
-                    )
-                    if sid:
-                        st.session_state.last_call_time = time.time()
-                        if database: database.update_last_call_timestamp(user_email)
-                        
-                        # AUDIT LOG
-                        if audit_engine:
-                            audit_engine.log_event(user_email, "INTERVIEW_STARTED", metadata={"sid": sid, "topic": topic})
-
-                        st.success(f"✅ Connection initiated! (SID: {sid})")
-                        st.info("Please wait for your loved one to finish speaking before checking the Inbox.")
-                        time.sleep(2)
-                        st.rerun()
-                    else: st.error(f"Call Error: {err}")
-
-    # --- TAB C: INBOX (Story Protection) ---
-    with tab_inbox:
-        # PROTECT FROM COPY-PASTE (CSS INJECTION)
-        st.markdown("""
-        <style>
-        .stTextArea textarea {
-            user-select: none; /* Block copying */
-            -webkit-user-select: none;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
-        st.markdown("### 📥 Captured Stories")
-        st.caption("New recordings are automatically transcribed and saved here.")
         
-        # --- NEW: INTEGRATED ARCHIVE ENGINE ---
-        if st.button("🔄 Check for New Recordings", use_container_width=True):
+        # --- NEW INBOUND CALL INSTRUCTIONS ---
+        st.success(f"📞 **Pro Tip:** You (or {profile.get('parent_name', 'they')}) can also call **(615) 656-7667** anytime from **{p_phone}** to record a story on your own terms.")
+        st.divider()
+
+        # 1. TOPIC
+        topic_options = [
+            "Tell me about your childhood home.",
+            "How did you meet your spouse?",
+            "What was your first job like?",
+            "What is your favorite family tradition?",
+            "What advice would you give your younger self?",
+            "Write your own question..."
+        ]
+        selected_topic = st.selectbox("1. Choose a Topic", topic_options)
+        
+        final_topic = selected_topic
+        if selected_topic == "Write your own question...":
+            final_topic = st.text_input("Type your question here", placeholder="e.g. Tell me about the day I was born.")
+
+        st.markdown("---")
+        
+        # 2. ACTION
+        col_now, col_later = st.columns(2)
+        
+        with col_now:
+            st.markdown("#### Option A: Call Immediately")
+            st.caption("We will dial their number right now.")
+            if st.button("📞 Call Now", type="primary", use_container_width=True):
+                allowed, msg = database.check_call_limit(user_email)
+                if not allowed:
+                    st.error(msg)
+                elif ai_engine:
+                    with st.spinner(f"Dialing {p_phone}..."):
+                        sid, err = ai_engine.trigger_outbound_call(
+                            p_phone, 
+                            "+16156567667",
+                            parent_name=profile.get("parent_name", "Mom"), 
+                            topic=final_topic
+                        )
+                        if sid:
+                            database.update_last_call_timestamp(user_email)
+                            st.success(f"Connecting... (SID: {sid})")
+                            st.info("Wait for them to answer and finish speaking. Then check the 'Stories' tab.")
+                        else: st.error(f"Call Failed: {err}")
+
+        with col_later:
+            st.markdown("#### Option B: Schedule for Later")
+            st.info("ℹ️ Choose a date/time. We will email **YOU** a reminder to trigger the call.")
+            
+            d = st.date_input("Date")
+            t = st.time_input("Time")
+            
+            if st.button("📅 Schedule Reminder", use_container_width=True):
+                combined_time = datetime.combine(d, t)
+                if database.schedule_call(user_email, p_phone, final_topic, combined_time):
+                    st.success(f"Scheduled! We'll remind you on {d} at {t}.")
+                else:
+                    st.error("Scheduling failed.")
+
+    # --- TAB C: INBOX ---
+    with tab_inbox:
+        st.markdown("### 📥 Your Story Inbox")
+        
+        if st.button("🔄 Check for New Recordings"):
             if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
-            elif heirloom_engine: 
-                # AUDIT LOG (SCAN START)
-                if audit_engine:
-                    audit_engine.log_event(user_email, "ARCHIVE_SCAN_INITIATED", metadata={"target": p_phone})
-
-                with st.spinner(f"Scanning calls from {p_phone} & Archiving..."):
-                    # Uses the new engine to download, upload to Vault, and transcribe
-                    transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
-                    
+            elif ai_engine:
+                with st.spinner(f"Scanning for calls from {p_phone}..."):
+                    transcript, err = ai_engine.fetch_and_transcribe_latest_call(p_phone)
                     if transcript:
-                        if database: 
-                            # Save with the new audio_ref column
-                            d_id = database.save_draft(
-                                user_email, 
-                                transcript, 
-                                "Heirloom", 
-                                0.0, 
-                                audio_ref=audio_path
-                            )
-                            # AUDIT LOG (SUCCESS)
-                            if audit_engine:
-                                audit_engine.log_event(user_email, "DRAFT_CREATED", metadata={"id": d_id, "source": "Heirloom"})
-
-                        st.success("✅ Story Archived & Transcribed!")
+                        if database: database.save_draft(user_email, transcript, "Heirloom", 0.0)
+                        st.success("✅ New Story Found!")
                         time.sleep(1)
                         st.rerun()
                     else: 
-                        msg = f"No new recordings found. ({err})" if err else "No new recordings found."
-                        st.warning(msg)
-
+                        st.warning(f"No new recordings found. ({err})")
+        
         st.divider()
 
-        all_drafts = database.get_user_drafts(user_email) if database else []
-        heirloom_drafts = [d for d in all_drafts if d.get('tier') == 'Heirloom']
+        # List Drafts
+        if database:
+            all_drafts = database.get_user_drafts(user_email)
+            heirloom_drafts = [d for d in all_drafts if d.get('tier') == 'Heirloom']
+        else: heirloom_drafts = []
 
         if not heirloom_drafts:
-            st.info("Your inbox is empty. Try starting an interview!")
+            st.markdown("<div style='text-align:center; color:#888;'>No stories yet. Try calling!</div>", unsafe_allow_html=True)
         
-        for d in heirloom_drafts:
-            d_id = d['id']
-            d_status = d.get('status', 'Draft')
-            status_color = "green" if d_status == "Draft" else "blue"
+        for draft in heirloom_drafts:
+            d_id = draft.get('id')
+            d_date = draft.get('created_at', 'Unknown Date')
+            d_status = draft.get('status', 'Draft')
+            d_content = draft.get('content', '')
+            status_icon = "🟢" if d_status == "Draft" else "✅ Sent"
             
-            with st.expander(f"📜 Story from {d.get('created_at')} ({d_status})", expanded=(d_status == "Draft")):
-                # VAULT PROTECTION: Block viewing/editing if credits exhausted
-                if credits <= 0:
-                    st.error("🔒 **Story Locked:** Upgrade to the Annual Pass to read the full transcript, edit details, or download copies.")
-                    st.caption(f"Snippet: {d.get('content', '')[:100]}...")
-                    continue
+            with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
                 
-                # --- NEW LAYOUT: TEXT FIRST (HERO) ---
-                st.markdown("**Transcript Editor**")
-                txt = st.text_area("Review and edit the transcription here.", value=d.get('content'), height=300, key=f"edit_{d_id}")
+                # --- EDITING AREA ---
+                new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{d_id}")
                 
-                # SAVE BUTTON
-                if st.button("💾 Save Changes", key=f"s_{d_id}"):
-                    if database:
-                        database.update_draft_data(d_id, content=txt)
-                        # AUDIT LOG
-                        if audit_engine:
-                            audit_engine.log_event(user_email, "DRAFT_SAVED", metadata={"id": d_id})
-                        st.toast("Saved!")
+                c_save, c_send = st.columns([1, 1])
+                with c_save:
+                    if st.button("💾 Save Changes", key=f"save_{d_id}", use_container_width=True):
+                        if database: database.update_draft_data(d_id, content=new_text)
+                        st.toast("Saved changes.")
+                
+                st.divider()
 
-                # --- AUDIO PLAYER (FIXED: NO NESTED EXPANDER) ---
-                d_audio = d.get('audio_ref')
-                if d_audio and storage_engine:
-                    # FIX: Replaced expander with Checkbox to prevent nesting errors
-                    if st.checkbox("🎧 Listen to Original Audio", key=f"audio_{d_id}"):
-                        url = storage_engine.get_signed_url(d_audio)
-                        if url:
-                            st.audio(url, format="audio/mp3")
-                        else:
-                            st.caption("Audio unavailable (Link Expired or Missing)")
-                
-                # MAILING LOGIC
+                # --- MAILING SECTION ---
                 if d_status == "Draft":
-                    st.markdown("---")
-                    st.markdown("#### 📮 The Flight Check")
+                    st.markdown("#### 📮 Mail this Story")
                     
-                    # Flight Check Logic
-                    r_name = profile.get("full_name", "")
-                    r_addr = profile.get("address_line1", "")
-                    s_name = profile.get("parent_name", "The Family Archive")
-
-                    if not r_addr:
-                        st.warning("⚠️ **Missing Address:** Please go to 'Settings' and add a mailing address before sending.")
+                    # 1. Retrieve Addresses
+                    recipient_name = profile.get("full_name", "")
+                    recipient_street = profile.get("address_line1", "")
+                    recipient_city = profile.get("address_city", "")
+                    recipient_state = profile.get("address_state", "")
+                    recipient_zip = profile.get("address_zip", "")
+                    
+                    sender_name = profile.get("parent_name", "The Family Archive")
+                    
+                    # 2. Validation / Flight Check
+                    if not recipient_street or not recipient_city:
+                        st.warning("⚠️ **Missing Address:** Go to the 'Settings' tab and fill out 'Where should we mail letters?' before sending.")
                     else:
-                        st.markdown(f"""
-                        <div style="background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 15px; border-radius: 8px;">
-                        <b>Ready to Mail:</b><br>
-                        • <b>Sender:</b> {s_name}<br>
-                        • <b>Destination:</b> {r_name}, {r_addr}<br>
-                        • <b>Service:</b> Vintage Keepsake Letter (Heavy Cream Paper)<br>
-                        • <b>Cost:</b> 1 Credit (Balance: {credits})
-                        </div>
-                        """, unsafe_allow_html=True)
+                        st.info(f"""
+                        **Flight Check:**
+                        • **From:** {sender_name}
+                        • **To:** {recipient_name}, {recipient_street}
+                        • **Cost:** 1 Credit (Balance: {credits})
+                        """)
                         
-                        if st.button("🚀 Send Keepsake Mail", key=f"send_{d_id}", type="primary"):
+                        # 3. Send Action
+                        if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                with st.spinner("Preparing Mailer..."):
-                                    # 1. Generate PDF first
-                                    to_addr = {"name": r_name, "address_line1": r_addr, "city": profile.get("address_city"), "state": profile.get("address_state"), "zip_code": profile.get("address_zip")}
-                                    from_addr = {"name": s_name, "address_line1": profile.get("address_line1", "The Family Archive")}
-                                    pdf_bytes = letter_format.create_pdf(txt, to_addr, from_addr, tier="Vintage") if letter_format else b""
+                                if address_standard:
+                                    std_to = address_standard.StandardAddress(
+                                        name=recipient_name, 
+                                        street=recipient_street, 
+                                        city=recipient_city,
+                                        state=recipient_state,
+                                        zip_code=recipient_zip
+                                    )
+                                    std_from = address_standard.StandardAddress(
+                                        name=sender_name, 
+                                        street="VerbaPost Archive Ctr", 
+                                        city="Nashville", 
+                                        state="TN", 
+                                        zip_code="37209"
+                                    )
+                                else:
+                                    st.error("Address Module Error")
+                                    st.stop()
 
-                                    # 2. Attempt mailing
-                                    tracking_id = mailer.send_letter(pdf_bytes, to_addr, from_addr, tier="Vintage") if mailer else None
+                                if mailer and letter_format:
+                                    try:
+                                        with st.spinner("Printing & Mailing..."):
+                                            pdf_bytes = letter_format.create_pdf(new_text, std_to, std_from, "Heirloom")
+                                            ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"Heirloom {d_date}")
+                                            
+                                            if ref_id:
+                                                new_credits = credits - 1
+                                                if database:
+                                                    database.update_user_credits(user_email, new_credits)
+                                                    database.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
+                                                
+                                                _send_receipt(
+                                                    user_email,
+                                                    f"VerbaPost Sent: {d_date}",
+                                                    f"<h3>Story Sent!</h3><p>Tracking: {ref_id}</p>"
+                                                )
 
-                                    # 3. Only deduct credits on SUCCESS
-                                    if tracking_id and database:
-                                        database.update_user_credits(user_email, credits - 1)
-                                        database.update_draft_data(d_id, status="Sent", tracking_number=tracking_id)
-                                        
-                                        # AUDIT LOG (CRITICAL)
-                                        if audit_engine:
-                                            audit_engine.log_event(user_email, "MAIL_SENT", metadata={"draft_id": d_id, "tracking": tracking_id})
-
-                                        st.success(f"✅ Dispatched! Ref: {tracking_id}")
-                                        st.balloons()
-                                        time.sleep(2)
-                                        st.rerun()
-                                    else:
-                                        st.error("❌ Mailing failed. Credits not deducted.")
-                            else:
-                                st.error("Insufficient Credits.")
+                                                if audit_engine:
+                                                    audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"ref": ref_id})
+                                                
+                                                st.session_state.user_profile['credits'] = new_credits
+                                                st.balloons()
+                                                st.success(f"✅ Mailed! Tracking ID: {ref_id}")
+                                                time.sleep(2)
+                                                st.rerun()
+                                            else: st.error("Mailing API Failed.")
+                                    except Exception as e: st.error(f"System Error: {e}")
+                                else: st.error("System modules missing.")
+                            else: st.error("Insufficient Credits. Please top up.")
                 else:
-                    st.success(f"This story was mailed on {d.get('created_at')}.")
+                    st.success(f"Sent! Tracking Number: {draft.get('tracking_number', 'N/A')}")
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.markdown("<div style='text-align: center; color: #9ca3af; font-size: 14px;'>Helping families preserve their history, one phone call at a time.</div>", unsafe_allow_html=True)
-    
-    return ""
+    # FOOTER
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; color: #888; font-style: italic;'>VerbaPost helps families save voices, stories, and moments—before they’re gone.</div>", unsafe_allow_html=True)
