@@ -103,6 +103,9 @@ class UserProfile(Base):
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
+    # --- SUBSCRIPTION FIELDS ---
+    stripe_subscription_id = Column(String, nullable=True)
+    subscription_end_date = Column(DateTime, nullable=True)
 
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
@@ -154,6 +157,9 @@ class Letter(Base):
     recipient_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
     user_email = Column(String, nullable=True) 
+    # Added minimal columns for Admin View compatibility
+    to_name = Column(String, nullable=True)
+    to_city = Column(String, nullable=True)
     
 class Contact(Base):
     # CRITICAL: This restores your Address Book
@@ -293,6 +299,30 @@ def update_user_credits(email, new_credit_count):
             return False
     except Exception: return False
 
+def update_user_subscription_id(email, sub_id):
+    try:
+        with get_db_session() as session:
+            if not session: return False
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.stripe_subscription_id = sub_id
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def update_subscription_state(email, end_date_dt):
+    try:
+        with get_db_session() as session:
+            if not session: return False
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.subscription_end_date = end_date_dt
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
 def update_heirloom_settings(email, parent_name, parent_phone):
     try:
         with get_db_session() as session:
@@ -390,7 +420,12 @@ def update_draft_data(draft_id, **kwargs):
             if draft:
                 for key, val in kwargs.items():
                     if hasattr(draft, key):
-                        setattr(draft, key, val)
+                        # Special handling for JSON fields
+                        if key in ['to_addr', 'from_addr'] and isinstance(val, dict):
+                            import ast
+                            setattr(draft, key, str(val))
+                        else:
+                            setattr(draft, key, val)
                 session.commit()
                 return True
             return False

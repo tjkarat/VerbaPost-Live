@@ -1,5 +1,6 @@
 import streamlit as st
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,9 @@ except ImportError:
 
 try: import secrets_manager
 except ImportError: secrets_manager = None
+
+try: import database
+except ImportError: database = None
 
 def get_api_key():
     """
@@ -120,8 +124,12 @@ def verify_session(session_id):
 
 def check_subscription_status(user_email):
     """
-    Checks if the user has an active subscription.
-    CRITICAL: This function prevents main.py from crashing.
+    Checks if the user has an active subscription AND refills credits if a new month has started.
+    Logic:
+    1. Check Stripe for active subs.
+    2. Get 'current_period_end' from Stripe.
+    3. Compare with 'subscription_end_date' in local DB.
+    4. If Stripe date is NEWER -> Refill to 4 credits & Update DB.
     """
     if not user_email or not stripe:
         return False
@@ -132,7 +140,7 @@ def check_subscription_status(user_email):
     stripe.api_key = api_key
     
     try:
-        # 1. Find Customer by Email
+        # 1. Find Customer
         customers = stripe.Customer.list(email=user_email, limit=1)
         if not customers.data:
             return False
@@ -146,7 +154,32 @@ def check_subscription_status(user_email):
             limit=1
         )
         
-        return len(subscriptions.data) > 0
+        if len(subscriptions.data) > 0:
+            sub = subscriptions.data[0]
+            stripe_end_ts = sub.current_period_end # Unix Timestamp
+            stripe_end_dt = datetime.fromtimestamp(stripe_end_ts)
+            
+            # 3. Check DB for Last Known Refill
+            if database:
+                profile = database.get_user_profile(user_email)
+                db_end_dt = profile.get("subscription_end_date")
+                
+                # 4. Refill Logic
+                should_refill = False
+                if not db_end_dt:
+                    should_refill = True
+                elif stripe_end_dt > db_end_dt:
+                    should_refill = True
+                
+                if should_refill:
+                    logger.info(f"Refilling credits for {user_email} (New Period: {stripe_end_dt})")
+                    database.update_user_credits(user_email, 4)
+                    database.update_subscription_state(user_email, stripe_end_dt)
+                    database.update_user_subscription_id(user_email, sub.id)
+            
+            return True
+            
+        return False
         
     except Exception as e:
         logger.error(f"Subscription Check Error: {e}")
