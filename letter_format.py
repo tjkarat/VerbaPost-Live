@@ -202,13 +202,16 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
              pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
         
         # 8. Footer (Sent via VerbaPost)
-        current_y = pdf.get_y()
-        space_left = PAGE_HEIGHT_MM - MARGIN_MM - current_y
+        # FIX: Force footer to bottom of page
         
-        if space_left < 20:
+        # Check if we are close to the bottom margin (e.g. within 20mm of margin)
+        # If so, add a new page so the footer doesn't overlap text
+        if pdf.get_y() > (PAGE_HEIGHT_MM - MARGIN_MM - 20):
             pdf.add_page()
             
-        pdf.ln(15)
+        # Move cursor to 25mm from bottom of page
+        pdf.set_y(-25)
+        
         pdf.set_font("Helvetica", size=8)
         pdf.set_text_color(150, 150, 150) # Light Grey
         

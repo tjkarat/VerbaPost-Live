@@ -624,7 +624,7 @@ def render_receipt_page():
         st.markdown("""
         **What happens next?**
         1. We print your letter on our premium equipment.
-        2. We apply the specific stationery (e.g. Wax Seal for Vintage).
+        2. We apply the specific stationery.
         3. We hand it to USPS within 24 hours.
         """)
         
