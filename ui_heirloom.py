@@ -1,8 +1,9 @@
 import streamlit as st
 import time
 import textwrap
+import json 
 from datetime import datetime
-import uuid # Required for manual tracking IDs
+import uuid 
 
 # --- MODULE IMPORTS ---
 try: import database
@@ -149,7 +150,7 @@ def render_paywall():
                         st.session_state.pending_subscription = True
                         url = payment_engine.create_checkout_session(
                             line_items=[{
-                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", 
+                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", # RECURRING PRICE ID
                                 "quantity": 1,
                             }],
                             mode="subscription",
@@ -298,8 +299,7 @@ def render_dashboard():
         
         st.success(f"📞 **Pro Tip:** You (or {profile.get('parent_name', 'they')}) can also call **(615) 656-7667** anytime from **{p_phone}** to record a story on your own terms.")
         
-        # --- NEW INSTRUCTION: GATHER THOUGHTS ---
-        st.info("💡 **Before you call:** Text or call them first! Tell them: *'Hey, the robot is going to ask about [Topic]. Just take a minute to gather your thoughts.'* This makes the recording much better.")
+        st.info("💡 **Pre-Call Tip:** Text them beforehand! *'The robot is going to ask about [Topic]. Just gather your thoughts!'* It makes the call feel like a chat, not a quiz.")
 
         st.divider()
 
@@ -405,10 +405,10 @@ def render_dashboard():
                 if d_status == "Draft":
                     st.markdown("#### 📮 Mail this Story")
                     
+                    # 1. Gather Data (Safety Check)
                     recipient_name = profile.get("full_name", "")
                     recipient_street = profile.get("address_line1", "")
                     recipient_city = profile.get("address_city", "")
-                    
                     sender_name = profile.get("parent_name", "The Family Archive")
                     
                     if not recipient_street or not recipient_city:
@@ -421,30 +421,46 @@ def render_dashboard():
                         • **Cost:** 1 Credit (Balance: {credits})
                         """)
                         
-                        # --- MANUAL QUEUE BUTTON (NO POSTGRID) ---
+                        # --- MANUAL QUEUE BUTTON ---
                         if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                # 1. Generate Fake Tracking Number
+                                # A. Create Address Snapshot (CRITICAL: So Admin console has data)
+                                snapshot_to = {
+                                    "name": recipient_name, "street": recipient_street, 
+                                    "city": recipient_city, "state": profile.get("address_state", ""), 
+                                    "zip": profile.get("address_zip", "")
+                                }
+                                snapshot_from = {
+                                    "name": sender_name, "street": "VerbaPost Archive Ctr", 
+                                    "city": "Nashville", "state": "TN", "zip": "37209"
+                                }
+
+                                # B. Generate Fake Tracking
                                 ref_id = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                                 
-                                # 2. Update Database (Credits & Status)
+                                # C. Update Database (Credits, Status, AND ADDRESS SNAPSHOT)
                                 new_credits = credits - 1
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
-                                    database.update_draft_data(d_id, status="Queued (Manual)", tracking_number=ref_id)
+                                    # We use kwargs to update the JSON columns
+                                    database.update_draft_data(
+                                        d_id, 
+                                        status="Queued (Manual)", 
+                                        tracking_number=ref_id,
+                                        to_addr=snapshot_to,   # <-- ADDED THIS
+                                        from_addr=snapshot_from # <-- ADDED THIS
+                                    )
                                 
-                                # 3. Send Email Receipt
+                                # D. Audit & Receipt
                                 _send_receipt(
                                     user_email,
                                     f"VerbaPost Sent: {d_date}",
                                     f"<h3>Story Queued!</h3><p>Your letter is in the manual print queue.</p><p>ID: {ref_id}</p>"
                                 )
-
-                                # 4. Audit Log
                                 if audit_engine:
                                     audit_engine.log_event(user_email, "HEIRLOOM_SENT_MANUAL", metadata={"ref": ref_id})
                                 
-                                # 5. Update Local Session & Rerun
+                                # E. Finish
                                 st.session_state.user_profile['credits'] = new_credits
                                 st.balloons()
                                 st.success(f"✅ Queued for Printing! ID: {ref_id}")
