@@ -115,7 +115,10 @@ def load_address_book():
         return {}
     try:
         user_email = st.session_state.get("user_email")
-        # Use the updated database function that handles case-insensitivity
+        if user_email:
+            user_email = user_email.strip()
+        
+        # Use the updated database function
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
@@ -125,7 +128,8 @@ def load_address_book():
             result[label] = c
         return result
     except Exception as e:
-        print(f"Address Book Error: {e}")
+        # VISIBLE ERROR FOR DEBUGGING
+        st.error(f"Address Book Load Error: {e}")
         return {}
 
 def _save_new_contact(contact_data):
@@ -144,14 +148,12 @@ def _save_new_contact(contact_data):
                 break
         
         if is_new:
-            if hasattr(database, "add_contact"):
-                database.add_contact(user_email, contact_data)
-            elif hasattr(database, "save_contact"):
+            if hasattr(database, "save_contact"):
                 database.save_contact(user_email, contact_data)
             return True
         return False
     except Exception as e:
-        print(f"Smart Save Error: {e}")
+        st.error(f"Save Contact Error: {e}")
         return False
 
 def _handle_draft_creation(email, tier, price):
@@ -216,7 +218,6 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
     with b1:
         if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
@@ -279,7 +280,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC (Explicitly Included)
+        # 2. ADDRESS BOOK LOGIC
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             
@@ -399,7 +400,7 @@ def render_workspace_page():
                         st.session_state.addresses_saved_at = time.time()
                         st.success(f"✅ Addresses Saved (Verification Offline)")
         
-        # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
+        # --- SAFE SUCCESS MESSAGE ---
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
 
@@ -414,7 +415,6 @@ def render_workspace_page():
         current_text = st.session_state.get("letter_body", "")
         new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
         
-        # --- NEW BUTTON LAYOUT ---
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
         
         with col_save:
@@ -444,7 +444,6 @@ def render_workspace_page():
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
 
-        # Auto-save Logic (Background)
         if new_text != current_text:
             st.session_state.letter_body = new_text
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
@@ -590,7 +589,6 @@ def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     mode = st.session_state.app_mode
 
-    # STRICT ROUTING - Prevents "heirloom" ghost routing
     if mode == "store":
         render_store_page()
     elif mode == "workspace":
@@ -598,8 +596,6 @@ def render_main():
     elif mode == "review":
         render_review_page()
     else:
-        # Fallback: if mode is anything else (e.g. heirloom), do nothing here.
-        # This lets main.py handle the other modules.
         pass
 
 if __name__ == "__main__":
