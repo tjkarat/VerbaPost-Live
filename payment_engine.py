@@ -60,11 +60,14 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
     stripe.api_key = api_key
     
     # Base URL for redirects (Safe Lookup)
+    # FIX: Use safe .get() to prevent 'st.secrets has no key "general"' error
     base_url = "https://verbapost.streamlit.app"
     try:
-        if "general" in st.secrets and "BASE_URL" in st.secrets["general"]:
-            base_url = st.secrets["general"]["BASE_URL"]
-    except: pass
+        general_config = st.secrets.get("general", {})
+        if "BASE_URL" in general_config:
+            base_url = general_config["BASE_URL"]
+    except Exception: 
+        pass # Keep default if fails
     
     # Metadata for fulfillment
     metadata = {

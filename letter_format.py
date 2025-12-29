@@ -71,34 +71,46 @@ def _sanitize_text(text):
     # Final fallback: encode to latin-1 and ignore/replace unmappable chars
     return text.encode('latin-1', 'replace').decode('latin-1')
 
-def _format_address_block(addr_dict):
+def _safe_get(obj, key, default=""):
     """
-    Formats a dictionary address into a standard multi-line string.
+    Helper to get value from either a dict or an object attribute.
+    Fixes the 'StandardAddress object has no attribute get' error.
     """
-    if not addr_dict:
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+def _format_address_block(addr_obj):
+    """
+    Formats an address object (Dict or StandardAddress) into a standard multi-line string.
+    """
+    if not addr_obj:
         return ""
         
     lines = []
     
     # Name
-    name = addr_dict.get('name', '').strip()
+    name = _safe_get(addr_obj, 'name', '').strip()
     if name:
         lines.append(name)
         
     # Street Address (Line 1)
-    street1 = addr_dict.get('address_line1', '').strip() or addr_dict.get('street', '').strip()
+    # Check both 'address_line1' and 'street' for compatibility
+    street1 = _safe_get(addr_obj, 'address_line1', '').strip() or _safe_get(addr_obj, 'street', '').strip()
     if street1:
         lines.append(street1)
         
     # Street Address (Line 2 - Optional)
-    street2 = addr_dict.get('address_line2', '').strip()
+    street2 = _safe_get(addr_obj, 'address_line2', '').strip()
     if street2:
         lines.append(street2)
         
     # City, State Zip
-    city = addr_dict.get('city', '').strip()
-    state = addr_dict.get('state', '').strip()
-    zip_code = addr_dict.get('zip_code', '').strip() or addr_dict.get('zip', '').strip()
+    city = _safe_get(addr_obj, 'city', '').strip()
+    state = _safe_get(addr_obj, 'state', '').strip()
+    
+    # Check both 'zip_code' and 'zip'
+    zip_code = _safe_get(addr_obj, 'zip_code', '').strip() or _safe_get(addr_obj, 'zip', '').strip()
     
     city_line = f"{city}, {state} {zip_code}".strip()
     if city_line != ",":
@@ -112,8 +124,8 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
     
     Args:
         body_text (str): The raw text content of the letter.
-        to_addr (dict): Recipient address details.
-        from_addr (dict): Sender address details.
+        to_addr (dict/obj): Recipient address details.
+        from_addr (dict/obj): Sender address details.
         tier (str): 'Standard', 'Vintage', or 'Civic'.
         signature_text (str): Optional signature override.
         

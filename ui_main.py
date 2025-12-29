@@ -115,7 +115,6 @@ def load_address_book():
         return {}
     try:
         user_email = st.session_state.get("user_email")
-        # Ensure database.get_contacts is called correctly
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
@@ -511,6 +510,7 @@ def render_review_page():
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
+                # Removed download button here to prevent premature downloading
             except Exception as e: st.error(f"PDF Error: {e}")
 
     st.divider()
