@@ -155,8 +155,8 @@ class Letter(Base):
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    # FIXED: Reverted to 'address_book' so you can see your historical data
-    __tablename__ = 'address_book'
+    # FIXED: Pointing to 'saved_contacts' based on your screenshot
+    __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
     name = Column(String)
@@ -436,7 +436,7 @@ def get_contacts(email):
     """
     try:
         with get_db_session() as session:
-            # Use ILIKE for case-insensitive matching so tjkarat@gmail finds Tjkarat@gmail
+            # Use ILIKE for case-insensitive matching
             contacts = session.query(Contact).filter(Contact.user_email.ilike(email)).all()
             return [to_dict(c) for c in contacts]
     except Exception as e:
@@ -491,5 +491,4 @@ def record_stripe_fulfillment(session_id):
             return True
     except Exception as e:
         logger.error(f"Idempotency Check Error: {e}")
-        # If we can't verify, we assume it might be a duplicate to be safe
         return False
