@@ -106,7 +106,7 @@ def _format_address_block(addr_dict):
         
     return "\n".join(lines)
 
-def create_pdf(body_text, to_addr, from_addr, tier="Standard"):
+def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""):
     """
     Generates the final PDF bytes for the letter.
     
@@ -115,6 +115,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard"):
         to_addr (dict): Recipient address details.
         from_addr (dict): Sender address details.
         tier (str): 'Standard', 'Vintage', or 'Civic'.
+        signature_text (str): Optional signature override.
         
     Returns:
         bytes: The raw PDF file content.
@@ -166,7 +167,6 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard"):
         pdf.ln(15) # Spacer before body (approx 3 lines)
         
         # 5. Render Letter Body
-        # --- FIX APPLIED: No automatic "Dear X" or "Sincerely" ---
         
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0) # Black text
@@ -181,9 +181,14 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard"):
         # Multi_cell handles word wrapping automatically within margins
         pdf.multi_cell(0, 6, safe_body)
         
+        # Optional Signature handling if passed
+        if signature_text:
+             pdf.ln(10)
+             # Basic signature simulation
+             pdf.set_font(font_family, 'I', 14) 
+             pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
+        
         # 6. Add "Sent via VerbaPost" Footer (Subtle)
-        # We place this at the absolute bottom of the generated content,
-        # or at the bottom of the page if there is space.
         
         current_y = pdf.get_y()
         space_left = PAGE_HEIGHT_MM - MARGIN_MM - current_y
@@ -204,9 +209,11 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard"):
         pdf.cell(0, 5, footer_text, align='C')
         
         # 7. Output
-        # FPDF returns a string in latin-1 mode, we encode to bytes
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-        return pdf_bytes
+        # CRITICAL FIX: Handle FPDF2 bytearray vs string output safely
+        raw_output = pdf.output(dest='S')
+        if isinstance(raw_output, str):
+            return raw_output.encode('latin-1')
+        return bytes(raw_output)
         
     except Exception as e:
         logger.error(f"PDF Generation Failed: {e}")
@@ -227,30 +234,10 @@ def _create_error_pdf(error_message):
         pdf.set_font("Courier", size=10)
         pdf.set_text_color(0, 0, 0)
         pdf.multi_cell(0, 5, f"Details:\n{error_message}")
-        return pdf.output(dest='S').encode('latin-1')
+        
+        # CRITICAL FIX: Safety Cast for Error PDF too
+        raw = pdf.output(dest='S')
+        if isinstance(raw, str): return raw.encode('latin-1')
+        return bytes(raw)
     except:
         return b""
-
-# --- TEST HARNESS ---
-if __name__ == "__main__":
-    # Simple test to verify generation locally
-    dummy_to = {
-        "name": "Jane Doe",
-        "address_line1": "123 Maple Ave",
-        "city": "Springfield",
-        "state": "IL",
-        "zip_code": "62704"
-    }
-    dummy_from = {
-        "name": "John Smith",
-        "address_line1": "456 Oak St",
-        "city": "Chicago",
-        "state": "IL",
-        "zip_code": "60614"
-    }
-    dummy_body = "This is a test letter.\nIt should render correctly without extra greetings."
-    
-    pdf_data = create_pdf(dummy_body, dummy_to, dummy_from, tier="Vintage")
-    with open("test_letter.pdf", "wb") as f:
-        f.write(pdf_data)
-    print("Test PDF generated: test_letter.pdf")
