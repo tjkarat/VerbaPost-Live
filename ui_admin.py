@@ -213,6 +213,7 @@ def render_admin_page():
                         "ID": str(o.get('id')), 
                         "Date": date_str,
                         "User": o.get('user_email'),
+                        "Tier": o.get('tier'),
                         "Status": o.get('status'),
                         "Price": price_str
                     })
