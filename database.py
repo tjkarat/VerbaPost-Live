@@ -155,7 +155,7 @@ class Letter(Base):
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    # FIXED: Pointing to 'saved_contacts' based on your screenshot
+    # FIXED: Table name is 'saved_contacts' based on image_387d02.jpg
     __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -436,7 +436,7 @@ def get_contacts(email):
     """
     try:
         with get_db_session() as session:
-            # Use ILIKE for case-insensitive matching
+            # Use ILIKE for case-insensitive matching so tjkarat@gmail finds Tjkarat@gmail
             contacts = session.query(Contact).filter(Contact.user_email.ilike(email)).all()
             return [to_dict(c) for c in contacts]
     except Exception as e:
