@@ -119,7 +119,6 @@ def load_address_book():
         result = {}
         for c in contacts:
             name = c.get('name', 'Unknown')
-            # Create a label like "Mom (123 Main St)"
             street = c.get('street', '')[:10]
             label = f"{name} ({street}...)"
             result[label] = c
@@ -136,8 +135,6 @@ def _save_new_contact(contact_data):
         user_email = st.session_state.get("user_email")
         current_book = load_address_book()
         
-        # Simple Deduplication: Check if Name + Street matches any existing key
-        # We reconstruct the label or check the values directly
         is_new = True
         for label, existing in current_book.items():
             if (existing.get('name') == contact_data.get('name') and 
@@ -146,7 +143,6 @@ def _save_new_contact(contact_data):
                 break
         
         if is_new:
-            # We assume database.add_contact exists or we use generic save
             if hasattr(database, "add_contact"):
                 database.add_contact(user_email, contact_data)
             elif hasattr(database, "save_contact"):
@@ -173,6 +169,7 @@ def cb_select_tier(tier, price, user_email):
         st.query_params.clear()
         st.session_state.locked_tier = tier
         st.session_state.locked_price = price
+        # STRICTLY set mode to workspace
         st.session_state.app_mode = "workspace"
         
         if user_email:
@@ -208,11 +205,10 @@ def render_store_page():
     mode = st.radio("Mode", ["Single Letter", "Bulk Campaign"], horizontal=True, label_visibility="collapsed")
     
     if mode == "Bulk Campaign":
-        st.info("📢 **Campaign Mode:** Upload a CSV to send letters to hundreds of people.")
         render_campaign_uploader()
         return
 
-    # --- 3 COLUMN LAYOUT (NO SANTA, NO LEGACY HERE) ---
+    # --- 3 COLUMN LAYOUT ---
     c1, c2, c3 = st.columns(3)
     
     def html_card(title, qty_text, price, desc):
@@ -235,12 +231,13 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
+    # Use UNIQUE keys to avoid conflicts
     with b1:
-        st.button("Select Standard", key="btn_std", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
+        st.button("Select Standard", key="btn_std_select", use_container_width=True, on_click=cb_select_tier, args=("Standard", 2.99, u_email))
     with b2:
-        st.button("Select Vintage", key="btn_vint", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
+        st.button("Select Vintage", key="btn_vint_select", use_container_width=True, on_click=cb_select_tier, args=("Vintage", 5.99, u_email))
     with b3:
-        st.button("Select Civic", key="btn_civic", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
+        st.button("Select Civic", key="btn_civic_select", use_container_width=True, on_click=cb_select_tier, args=("Civic", 6.99, u_email))
 
 
 def render_campaign_uploader():
@@ -281,7 +278,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC
+        # 2. ADDRESS BOOK LOGIC (Explicitly Included)
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             
@@ -379,10 +376,8 @@ def render_workspace_page():
                         database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
 
                     # Smart Address Book Save
-                    saved_msg = ""
                     if save_to_book:
-                        was_new = _save_new_contact(st.session_state.addr_to)
-                        if was_new: saved_msg = " + Saved to Address Book"
+                        _save_new_contact(st.session_state.addr_to)
 
                     if mailer:
                         with st.spinner("Validating with USPS/PostGrid..."):
@@ -398,13 +393,12 @@ def render_workspace_page():
                                 st.session_state.addr_to = t_data
                                 st.session_state.addr_from = f_data
                                 st.session_state.addresses_saved_at = time.time()
-                                st.success(f"✅ Addresses Verified & Saved!{saved_msg}")
+                                st.success(f"✅ Addresses Verified & Saved!")
                     else:
                         st.session_state.addresses_saved_at = time.time()
-                        st.success(f"✅ Addresses Saved (Verification Offline){saved_msg}")
+                        st.success(f"✅ Addresses Saved (Verification Offline)")
         
         # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
-        # Only show if timestamp exists and is recent
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
             st.success("✅ Your addresses are saved and ready!")
 
@@ -430,8 +424,6 @@ def render_workspace_page():
                      database.update_draft_data(d_id, content=new_text)
                      st.session_state.last_autosave = time.time()
                      st.toast("✅ Draft Saved Successfully")
-                 else:
-                     st.error("No draft ID found. Please refresh.")
 
         with col_polish:
             if st.button("✨ AI Polish (Professional)", use_container_width=True):
@@ -593,40 +585,24 @@ def render_review_page():
         else: st.error("Payment Gateway Error")
 
 # --- ROUTER CONTROLLER ---
-def render_application():
+def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
     mode = st.session_state.app_mode
 
+    # STRICT ROUTING - Prevents "heirloom" ghost routing
     if mode == "splash":
         if ui_splash: ui_splash.render_splash_page()
-        else: st.error("Splash missing")
     elif mode == "login":
         if ui_login: ui_login.render_login_page()
-        else: st.error("Login missing")
     elif mode == "store":
         render_store_page()
-    elif mode == "heirloom": 
-        if ui_heirloom: ui_heirloom.render_dashboard()
-        else: st.error("Heirloom Module Missing")
     elif mode == "workspace":
         render_workspace_page()
     elif mode == "review":
         render_review_page()
-    elif mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
-        else: st.error("Admin missing")
-    elif mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
-        else: st.error("Legal missing")
-    elif mode == "legacy":
-        if ui_legacy: ui_legacy.render_legacy_page()
-        else: st.error("Legacy missing")
     else:
-        st.session_state.app_mode = "splash"
-        st.rerun()
-
-def render_main():
-    render_application()
+        # Fallback for unknown modes handled by main.py
+        pass
 
 if __name__ == "__main__":
     render_main()
