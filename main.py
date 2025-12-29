@@ -116,7 +116,6 @@ def main():
     current_page = st.session_state.app_mode
     
     # --- ROUTE MAP ---
-    # Redirect Loop logic removed. Just route based on app_mode.
     route_map = {
         "login":     ("ui_login", "render_login_page"),
         "legal":     ("ui_legal", "render_legal_page"),
@@ -154,8 +153,10 @@ def render_sidebar(mode):
                 pay_eng = get_module("payment_engine")
                 user_email = st.session_state.get("user_email")
                 if pay_eng and user_email:
-                    if pay_eng.check_subscription_status(user_email):
-                        st.toast("🔄 Monthly Credits Refilled!")
+                    # Robust check with fallback
+                    if hasattr(pay_eng, 'check_subscription_status'):
+                        if pay_eng.check_subscription_status(user_email):
+                            st.toast("🔄 Monthly Credits Refilled!")
                     st.session_state.credits_synced = True
 
             # --- NAVIGATION BUTTONS ---
@@ -240,7 +241,9 @@ def handle_payment_return(session_id):
                         if hasattr(raw_obj, 'subscription'):
                             sub_id = raw_obj.subscription
                             db.update_user_subscription_id(user_email, sub_id)
-                            pay_eng.check_subscription_status(user_email)
+                            # Safe call for subscription status if method exists
+                            if hasattr(pay_eng, 'check_subscription_status'):
+                                pay_eng.check_subscription_status(user_email)
 
                     st.query_params.clear()
                     st.session_state.system_mode = "archive"
@@ -253,13 +256,12 @@ def handle_payment_return(session_id):
                     with db.get_db_session() as s:
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
                         if d:
-                            d.status = "Paid/Writing"
                             st.session_state.paid_tier = d.tier
                             st.session_state.current_draft_id = meta_id
-                            s.commit()
                             
+                            # CRITICAL FIX: Route to Receipt, not Workspace
                             st.session_state.system_mode = "utility"
-                            st.session_state.app_mode = "workspace"
+                            st.session_state.app_mode = "receipt"
                             st.query_params["mode"] = "utility"
                             st.rerun()
                             return

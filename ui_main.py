@@ -2,6 +2,7 @@ import streamlit as st
 import time
 import os
 import hashlib
+import uuid
 from datetime import datetime
 
 # --- CRITICAL IMPORTS ---
@@ -30,6 +31,8 @@ try: import promo_engine
 except ImportError: promo_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
+try: import email_engine
+except ImportError: email_engine = None
 
 # --- HELPER: SAFE PROFILE GETTER ---
 def get_profile_field(profile, field, default=""):
@@ -119,7 +122,7 @@ def load_address_book():
         result = {}
         for c in contacts:
             name = c.get('name', 'Unknown')
-            street = c.get('street', '')[:10]
+            street = str(c.get('street', ''))[:10]
             label = f"{name} ({street}...)"
             result[label] = c
         return result
@@ -160,6 +163,21 @@ def _handle_draft_creation(email, tier, price):
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
     return d_id
+
+def _send_admin_alert(subject, body):
+    """Sends notification to Admin"""
+    admin_email = None
+    if secrets_manager: 
+        admin_email = secrets_manager.get_secret("admin.email")
+    
+    # Fallback
+    if not admin_email and hasattr(st, "secrets") and "admin" in st.secrets:
+        admin_email = st.secrets["admin"]["email"]
+
+    if admin_email and email_engine:
+        try:
+            email_engine.send_email(to_email=admin_email, subject=subject, html_content=body)
+        except: pass
 
 # --- PAGE RENDERERS ---
 
@@ -242,7 +260,7 @@ def render_campaign_uploader():
     st.markdown("### 📁 Upload Recipient List (CSV)")
     st.markdown("**Format Required:** `name, street, city, state, zip`")
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
-    if uploaded_file:
+    if uploaded_file and bulk_engine:
         contacts = bulk_engine.parse_csv(uploaded_file)
         if not contacts:
             st.error("❌ Could not parse CSV. Please check the format.")
@@ -349,53 +367,52 @@ def render_workspace_page():
                  st.caption("✅ New contacts will be automatically saved to your Address Book.")
                  save_to_book = True
 
-            if current_tier != "Civic":
-                if st.form_submit_button("💾 Save Addresses"):
-                    st.session_state.addr_to = {
-                        "name": st.session_state.to_name_input, 
-                        "street": st.session_state.to_street_input, 
-                        "city": st.session_state.to_city_input, 
-                        "state": st.session_state.to_state_input, 
-                        "zip_code": st.session_state.to_zip_input
-                    }
-                    st.session_state.addr_from = {
-                        "name": st.session_state.from_name, 
-                        "street": st.session_state.from_street, 
-                        "city": st.session_state.from_city, 
-                        "state": st.session_state.from_state, 
-                        "zip_code": st.session_state.from_zip
-                    }
-                    st.session_state.signature_text = st.session_state.from_sig
-                    
-                    # Update Draft
-                    d_id = st.session_state.get("current_draft_id")
-                    if d_id and database:
-                        to_str = str(st.session_state.addr_to)
-                        from_str = str(st.session_state.addr_from)
-                        database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
+            if st.form_submit_button("💾 Save Addresses"):
+                st.session_state.addr_to = {
+                    "name": st.session_state.to_name_input, 
+                    "street": st.session_state.to_street_input, 
+                    "city": st.session_state.to_city_input, 
+                    "state": st.session_state.to_state_input, 
+                    "zip_code": st.session_state.to_zip_input
+                }
+                st.session_state.addr_from = {
+                    "name": st.session_state.from_name, 
+                    "street": st.session_state.from_street, 
+                    "city": st.session_state.from_city, 
+                    "state": st.session_state.from_state, 
+                    "zip_code": st.session_state.from_zip
+                }
+                st.session_state.signature_text = st.session_state.from_sig
+                
+                # Update Draft
+                d_id = st.session_state.get("current_draft_id")
+                if d_id and database:
+                    to_str = str(st.session_state.addr_to)
+                    from_str = str(st.session_state.addr_from)
+                    database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
 
-                    # Smart Address Book Save
-                    if save_to_book:
-                        _save_new_contact(st.session_state.addr_to)
+                # Smart Address Book Save
+                if save_to_book:
+                    _save_new_contact(st.session_state.addr_to)
 
-                    if mailer:
-                        with st.spinner("Validating with USPS/PostGrid..."):
-                            t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
-                            f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
-                            if not t_valid:
-                                err = t_data.get('error', 'Invalid Recipient Address')
-                                st.error(f"❌ Recipient Address Error: {err}")
-                            if not f_valid:
-                                err = f_data.get('error', 'Invalid Sender Address')
-                                st.error(f"❌ Sender Address Error: {err}")
-                            if t_valid and f_valid:
-                                st.session_state.addr_to = t_data
-                                st.session_state.addr_from = f_data
-                                st.session_state.addresses_saved_at = time.time()
-                                st.success(f"✅ Addresses Verified & Saved!")
-                    else:
-                        st.session_state.addresses_saved_at = time.time()
-                        st.success(f"✅ Addresses Saved (Verification Offline)")
+                if mailer:
+                    with st.spinner("Validating with USPS/PostGrid..."):
+                        t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
+                        f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
+                        if not t_valid:
+                            err = t_data.get('error', 'Invalid Recipient Address')
+                            st.error(f"❌ Recipient Address Error: {err}")
+                        if not f_valid:
+                            err = f_data.get('error', 'Invalid Sender Address')
+                            st.error(f"❌ Sender Address Error: {err}")
+                        if t_valid and f_valid:
+                            st.session_state.addr_to = t_data
+                            st.session_state.addr_from = f_data
+                            st.session_state.addresses_saved_at = time.time()
+                            st.success(f"✅ Addresses Verified & Saved!")
+                else:
+                    st.session_state.addresses_saved_at = time.time()
+                    st.success(f"✅ Addresses Saved (Verification Offline)")
         
         # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
         if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
@@ -516,7 +533,9 @@ def render_review_page():
     st.divider()
     
     # --- PRICING & PAYMENT ---
-    total = pricing_engine.calculate_total(tier) if pricing_engine else 2.99
+    # Enforce Correct Pricing (FIXED)
+    PRICES = {"Standard": 2.99, "Vintage": 5.99, "Civic": 6.99}
+    total = PRICES.get(tier, 2.99)
     
     # Promo Code Section
     if promo_engine:
@@ -577,6 +596,56 @@ def render_review_page():
             st.session_state.stripe_checkout_url = None
             st.rerun()
 
+def render_receipt_page():
+    st.markdown("## 🎉 Order Received!")
+    st.balloons()
+    
+    draft_id = st.session_state.get("current_draft_id")
+    
+    # 1. Update Status to MANUAL QUEUE so it appears in Admin Console
+    if draft_id and database:
+        # Create Manual Tracking ID
+        manual_tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
+        
+        # Determine Status based on Tier
+        tier = st.session_state.get("locked_tier", "Standard")
+        new_status = "Queued (Manual)"
+        
+        # Update Database
+        database.update_draft_data(
+            draft_id, 
+            status=new_status, 
+            tracking_number=manual_tracking
+        )
+        
+        st.success(f"Your {tier} Letter has been queued for production.")
+        st.info(f"Tracking Reference: {manual_tracking}")
+        
+        st.markdown("""
+        **What happens next?**
+        1. We print your letter on our premium equipment.
+        2. We apply the specific stationery (e.g. Wax Seal for Vintage).
+        3. We hand it to USPS within 24 hours.
+        """)
+        
+        # 2. Alert Admin
+        user_email = st.session_state.get("user_email", "Unknown")
+        alert_subject = f"💰 New Order: {tier} ($)"
+        alert_body = f"""
+        <h3>New Paid Order</h3>
+        <p><b>User:</b> {user_email}</p>
+        <p><b>Tier:</b> {tier}</p>
+        <p><b>ID:</b> {draft_id}</p>
+        <p><b>Status:</b> Queued for Manual Print</p>
+        <br>
+        <p><a href="https://verbapost.streamlit.app">Go to Admin Console</a></p>
+        """
+        _send_admin_alert(alert_subject, alert_body)
+    
+    if st.button("🏠 Return Home", type="primary"):
+        st.session_state.app_mode = "splash"
+        st.rerun()
+
 def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     mode = st.session_state.app_mode
@@ -584,6 +653,7 @@ def render_main():
     if mode == "store": render_store_page()
     elif mode == "workspace": render_workspace_page()
     elif mode == "review": render_review_page()
+    elif mode == "receipt": render_receipt_page()
     else: pass
 
 if __name__ == "__main__":
