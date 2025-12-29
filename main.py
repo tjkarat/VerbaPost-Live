@@ -89,10 +89,9 @@ def main():
             st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
             st.stop()
     except ImportError:
-        pass # Skip if validator missing
+        pass 
 
     # 2. DETERMINE SYSTEM MODE
-    # Default to whatever is in session, or fallback to URL, or default to archive
     if "system_mode" not in st.session_state:
         st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
     
@@ -116,22 +115,19 @@ def main():
     # 6. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
     
-    # --- CRITICAL FIX: MODE ALIGNMENT ---
-    # Instead of kicking the user out, we update the mode to match where they want to go.
-    utility_pages = ["main", "workspace", "receipt", "legacy"]
+    # --- SAFETY ALIGNMENT ---
+    # FIXED: Added "review" to utility_pages so it doesn't trigger a redirect
+    utility_pages = ["main", "workspace", "receipt", "legacy", "review"]
     archive_pages = ["heirloom"]
 
     if current_page in archive_pages and system_mode != "archive":
         st.session_state.system_mode = "archive"
-        # Update URL without full reload if supported, or just let session handle it
-        try: st.query_params["mode"] = "archive"
-        except: pass
+        st.query_params["mode"] = "archive"
         st.rerun()
         
     if current_page in utility_pages and system_mode != "utility":
         st.session_state.system_mode = "utility"
-        try: st.query_params["mode"] = "utility"
-        except: pass
+        st.query_params["mode"] = "utility"
         st.rerun()
 
     # Route Map
@@ -143,6 +139,10 @@ def main():
         "main":      ("ui_main", "render_store_page"),
         "workspace": ("ui_main", "render_workspace_page"),
         "receipt":   ("ui_main", "render_receipt_page"),
+        
+        # FIXED: Added the review page route
+        "review":    ("ui_main", "render_review_page"),
+        
         "legacy":    ("ui_legacy", "render_legacy_page"),
         "heirloom":  ("ui_heirloom", "render_dashboard"),
         "blog":      ("ui_blog", "render_blog_page")
@@ -154,6 +154,7 @@ def main():
         if mod and hasattr(mod, function_name):
             getattr(mod, function_name)()
         else:
+            # This 404 was catching "review" before the fix
             st.error(f"404: Route {current_page} not found.")
             st.session_state.app_mode = "splash"
             st.rerun()
@@ -175,25 +176,32 @@ def render_sidebar(mode):
                         st.toast("🔄 Monthly Credits Refilled!")
                     st.session_state.credits_synced = True
 
-            # Navigation Buttons
+            # --- NAVIGATION BUTTONS ---
             if mode == "utility":
                 if st.button("✉️ Letter Store", use_container_width=True):
                     st.session_state.app_mode = "main"; st.rerun()
+                
                 if st.button("🔄 Switch to Family Archive", use_container_width=True):
-                    st.session_state.app_mode = "heirloom"; st.rerun()
+                    st.session_state.system_mode = "archive"
+                    st.query_params["mode"] = "archive"
+                    st.session_state.app_mode = "heirloom"
+                    st.rerun()
                     
             elif mode == "archive":
                 if st.button("📚 Family Archive", use_container_width=True):
                     st.session_state.app_mode = "heirloom"; st.rerun()
+                
                 if st.button("🔄 Switch to Letter Store", use_container_width=True):
-                    st.session_state.app_mode = "main"; st.rerun()
+                    st.session_state.system_mode = "utility"
+                    st.query_params["mode"] = "utility"
+                    st.session_state.app_mode = "main"
+                    st.rerun()
 
         st.markdown("---")
 
         if not st.session_state.get("authenticated"):
             if st.button("🔐 Login / Sign Up", use_container_width=True):
                 st.session_state.app_mode = "login"
-                # Smart Redirect: Send them to the mode they are currently viewing
                 st.session_state.redirect_to = "heirloom" if mode == "archive" else "main"
                 st.rerun()
         else:
@@ -230,7 +238,6 @@ def handle_payment_return(session_id):
         try:
             raw_obj = pay_eng.verify_session(session_id)
             if hasattr(raw_obj, 'payment_status') and raw_obj.payment_status == 'paid':
-                # Recover email if not in session
                 user_email = st.session_state.get("user_email")
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
@@ -243,7 +250,7 @@ def handle_payment_return(session_id):
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
 
-                # CASE 1: ANNUAL PASS / MONTHLY SUB (Archive Mode)
+                # CASE 1: ANNUAL PASS / MONTHLY SUB
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
                     if db and user_email: 
@@ -251,7 +258,6 @@ def handle_payment_return(session_id):
                         if hasattr(raw_obj, 'subscription'):
                             sub_id = raw_obj.subscription
                             db.update_user_subscription_id(user_email, sub_id)
-                            # Initialize dates
                             pay_eng.check_subscription_status(user_email)
 
                     st.query_params.clear()
@@ -260,7 +266,7 @@ def handle_payment_return(session_id):
                     st.rerun()
                     return
 
-                # CASE 2: SINGLE LETTER (Utility Mode)
+                # CASE 2: SINGLE LETTER
                 if db and meta_id:
                     with db.get_db_session() as s:
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
@@ -276,7 +282,6 @@ def handle_payment_return(session_id):
                             st.rerun()
                             return
                 
-                # Default fallback
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
