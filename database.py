@@ -66,17 +66,18 @@ def get_db_session():
 def to_dict(obj):
     """
     Converts SQLAlchemy models to dicts.
-    CRITICAL: Includes polyfills for 'address_line1' and 'zip_code' to ensure 
-    UI compatibility regardless of underlying DB column names.
+    CRITICAL: Includes polyfills to ensure UI compatibility regardless 
+    of underlying DB column names.
     """
     if not obj: return None
     data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
     
     # --- POLYFILLS ---
+    # 1. Address Line 1 consistency
     if 'street' in data and 'address_line1' not in data:
         data['address_line1'] = data['street']
     
-    # If DB has 'zip', make sure UI can access it as 'zip_code'
+    # 2. Zip Code consistency (DB uses 'zip', UI expects 'zip_code')
     if 'zip' in data and 'zip_code' not in data:
         data['zip_code'] = data['zip']
         
@@ -102,6 +103,7 @@ class UserProfile(Base):
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
+    # --- NEW COLUMNS FOR SUBSCRIPTION LAZY SYNC ---
     stripe_subscription_id = Column(String, nullable=True)
     subscription_end_date = Column(DateTime, nullable=True)
 
@@ -157,7 +159,7 @@ class Letter(Base):
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    # FIXED: Table name is 'saved_contacts'
+    # FIXED: Explicitly pointing to 'saved_contacts' table
     __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -165,7 +167,7 @@ class Contact(Base):
     street = Column(String)
     city = Column(String)
     state = Column(String)
-    # FIXED: Changed 'zip_code' to 'zip' to match likely database schema
+    # FIXED: Renamed from 'zip_code' to 'zip' to match your schema
     zip = Column(String)
 
 class PromoCode(Base):
@@ -194,17 +196,26 @@ class PaymentFulfillment(Base):
 # --- ROBUST ADMIN FUNCTIONS ---
 
 def get_all_orders():
+    """
+    Fetches orders safely. If one table fails, it still returns the others.
+    """
     combined = []
+    
+    # 1. Try to get Finalized Letters
     try:
         with get_db_session() as session:
             legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
             for o in legacy:
                 d = to_dict(o)
-                if not d.get('user_email'): d['user_email'] = f"ID: {d.get('user_id', '?')}"
+                # Fallback for email if using user_id
+                if not d.get('user_email'): 
+                    d['user_email'] = f"ID: {d.get('user_id', '?')}"
                 d['source'] = 'Sent Letter'
                 combined.append(d)
-    except Exception as e: logger.error(f"Error fetching Letters: {e}")
+    except Exception as e:
+        logger.error(f"Error fetching Letters table: {e}")
 
+    # 2. Try to get Drafts
     try:
         with get_db_session() as session:
             heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
@@ -214,26 +225,39 @@ def get_all_orders():
                 d['recipient_name'] = "Pending..."
                 if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
                 combined.append(d)
-    except Exception as e: logger.error(f"Error fetching Drafts: {e}")
+    except Exception as e:
+        logger.error(f"Error fetching Drafts table: {e}")
 
+    # Sort if we have data
     if combined:
-        try: combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+        try:
+            combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
         except: pass
+        
     return combined[:100]
 
 def get_all_users():
     try:
         with get_db_session() as session:
             users = session.query(UserProfile).all()
-            return [to_dict(u) for u in users]
-    except Exception: return []
+            results = []
+            for u in users:
+                d = to_dict(u)
+                d['credits_remaining'] = d.get('credits', 0)
+                results.append(d)
+            return results
+    except Exception as e:
+        logger.error(f"Get Users Error: {e}")
+        return []
 
 def get_all_promos():
     try:
         with get_db_session() as session:
             promos = session.query(PromoCode).all()
             return [to_dict(p) for p in promos]
-    except Exception: return []
+    except Exception as e:
+        logger.error(f"Get Promos Error: {e}")
+        return []
 
 def save_audit_log(log_entry):
     try:
@@ -244,7 +268,9 @@ def save_audit_log(log_entry):
             session.add(log)
             session.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Audit Save Error: {e}")
+        return False
 
 def get_audit_logs(limit=100):
     try:
@@ -264,7 +290,9 @@ def get_user_profile(email):
                 session.add(profile)
                 session.commit()
             return to_dict(profile)
-    except Exception: return {}
+    except Exception as e:
+        logger.error(f"Get Profile Error: {e}")
+        return {}
 
 def create_user(email, full_name):
     try:
@@ -287,6 +315,7 @@ def update_user_credits(email, new_credit_count):
     except Exception: return False
 
 def update_user_subscription_id(email, sub_id):
+    """Links a Stripe Subscription ID to a user profile."""
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -298,6 +327,7 @@ def update_user_subscription_id(email, sub_id):
     except Exception: return False
 
 def update_subscription_dates(email, next_billing_date):
+    """Updates the subscription end date to track renewals."""
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -370,7 +400,14 @@ def schedule_call(email, parent_phone, topic, scheduled_dt):
 def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
     try:
         with get_db_session() as session:
-            draft = LetterDraft(user_email=email, content=content, tier=tier, price=price, status="Draft", audio_ref=audio_ref)
+            draft = LetterDraft(
+                user_email=email, 
+                content=content, 
+                tier=tier, 
+                price=price, 
+                status="Draft",
+                audio_ref=audio_ref
+            )
             session.add(draft)
             session.commit()
             return draft.id
@@ -401,35 +438,37 @@ def update_draft_data(draft_id, **kwargs):
 def get_contacts(email):
     """
     Fetches contacts using case-insensitive email matching.
-    Includes ERROR REPORTING to UI if failure occurs.
+    Includes explicit error logging to UI for debugging.
     """
     try:
         with get_db_session() as session:
+            # Use ILIKE for case-insensitive matching
             contacts = session.query(Contact).filter(Contact.user_email.ilike(email)).all()
             return [to_dict(c) for c in contacts]
     except Exception as e:
-        # LOG THIS SO THE USER SEES IT IN UI
-        error_msg = f"DB Connection Error in get_contacts: {e}"
-        logger.error(error_msg)
-        st.error(error_msg) 
+        logger.error(f"Get Contacts Error: {e}")
+        # IMPORTANT: Show this error in Streamlit if validation fails
+        st.error(f"Database Error loading contacts: {e}")
         return []
 
 def save_contact(user_email, contact_data):
     try:
         with get_db_session() as session:
-            # Note: Mapping dict keys to the 'zip' column name
             new_c = Contact(
                 user_email=user_email,
                 name=contact_data.get("name"),
                 street=contact_data.get("street"),
                 city=contact_data.get("city"),
                 state=contact_data.get("state"),
-                zip=contact_data.get("zip_code") # Map zip_code -> zip
+                # Mapping dict 'zip_code' -> DB 'zip'
+                zip=contact_data.get("zip_code")
             )
             session.add(new_c)
             session.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        st.error(f"Save Contact Error: {e}")
+        return False
 
 def create_promo_code(code, amount):
     try:
@@ -441,13 +480,28 @@ def create_promo_code(code, amount):
     except Exception: return False
 
 def record_stripe_fulfillment(session_id):
-    if not session_id: return False
+    """
+    Attempts to log a Stripe Session ID. 
+    Returns True if this is a NEW fulfillment.
+    Returns False if this session_id already exists (Idempotency Check).
+    """
+    if not session_id:
+        return False
+        
     try:
         with get_db_session() as session:
+            # Check existence first to avoid exception handling overhead if possible
             exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
-            if exists: return False
+            if exists:
+                return False
+            
+            # Record new fulfillment
             new_record = PaymentFulfillment(stripe_session_id=session_id)
             session.add(new_record)
             session.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Idempotency Check Error: {e}")
+        # If we can't verify, we assume it might be a duplicate to be safe, 
+        # or we return False to prevent double-spending.
+        return False
