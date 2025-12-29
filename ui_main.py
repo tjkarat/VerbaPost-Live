@@ -159,6 +159,10 @@ def _handle_draft_creation(email, tier, price):
 # --- PAGE RENDERERS ---
 
 def render_store_page():
+    # Clear old checkout URLs when starting fresh
+    if "pending_checkout_url" in st.session_state:
+        del st.session_state["pending_checkout_url"]
+
     inject_custom_css(16)
     u_email = st.session_state.get("user_email", "")
     if not u_email:
@@ -486,7 +490,6 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
-    # PDF PREVIEW LOGIC
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
@@ -506,7 +509,6 @@ def render_review_page():
 
     st.divider()
     
-    # --- PRICING LOGIC ---
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
     if tier == "Vintage" and total < 5.00: total = 5.99 + (12.00 if is_cert else 0.0)
@@ -542,14 +544,13 @@ def render_review_page():
     st.markdown(f"### Total: ${total:.2f}")
 
     # --- PERSISTENT PAYMENT BUTTON ---
-    # This prevents the button from vanishing or reloading the page incorrectly.
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
         u_email = st.session_state.get("user_email")
         d_id = st.session_state.get("current_draft_id")
         if d_id and database:
             database.update_draft_data(d_id, price=total, status="Pending Payment")
         
-        # Save URL to session so it persists after rerun
+        # SAVE URL & REFRESH TO SHOW LINK
         url = payment_engine.create_checkout_session(
             line_items=[{
                 "price_data": {
@@ -567,7 +568,7 @@ def render_review_page():
             st.rerun()
         else: st.error("Payment Gateway Error")
 
-    # If URL exists, show the actual link
+    # If URL exists in session, display link button (Persists across reloads)
     if st.session_state.get("pending_checkout_url"):
         st.link_button("👉 Click Here to Pay Now", st.session_state.pending_checkout_url, type="primary", use_container_width=True)
 

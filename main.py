@@ -89,7 +89,7 @@ def main():
             st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
             st.stop()
     except ImportError:
-        pass # Skip if validator missing
+        pass 
 
     # 2. DETERMINE SYSTEM MODE
     if "system_mode" not in st.session_state:
@@ -115,7 +115,8 @@ def main():
     # 6. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
     
-    # Route Map
+    # --- ROUTE MAP ---
+    # NOTE: I removed the "Safety Alignment" block that was causing your redirect loop.
     route_map = {
         "login":     ("ui_login", "render_login_page"),
         "legal":     ("ui_legal", "render_legal_page"),
@@ -124,10 +125,7 @@ def main():
         "main":      ("ui_main", "render_store_page"),
         "workspace": ("ui_main", "render_workspace_page"),
         "receipt":   ("ui_main", "render_receipt_page"),
-        
-        # FIXED: Explicitly added review page to prevent 404/Redirects
         "review":    ("ui_main", "render_review_page"),
-        
         "legacy":    ("ui_legacy", "render_legacy_page"),
         "heirloom":  ("ui_heirloom", "render_dashboard"),
         "blog":      ("ui_blog", "render_blog_page")
@@ -160,7 +158,7 @@ def render_sidebar(mode):
                         st.toast("🔄 Monthly Credits Refilled!")
                     st.session_state.credits_synced = True
 
-            # --- NAVIGATION BUTTONS (Explicit Mode Switching) ---
+            # --- NAVIGATION BUTTONS ---
             if mode == "utility":
                 if st.button("✉️ Letter Store", use_container_width=True):
                     st.session_state.app_mode = "main"; st.rerun()
@@ -211,8 +209,6 @@ def render_sidebar(mode):
 def handle_payment_return(session_id):
     """
     Handles Stripe Callback.
-    CRITICAL FIX: Detects if the purchase was for a Letter Draft and forces Utility Mode.
-    Also handles Subscription initialization by saving the sub_id.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
@@ -236,7 +232,7 @@ def handle_payment_return(session_id):
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
 
-                # CASE 1: ANNUAL PASS / MONTHLY SUB (Archive Mode)
+                # CASE 1: ANNUAL PASS / MONTHLY SUB
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
                     if db and user_email: 
@@ -247,12 +243,12 @@ def handle_payment_return(session_id):
                             pay_eng.check_subscription_status(user_email)
 
                     st.query_params.clear()
-                    st.session_state.system_mode = "archive" # Force Archive
+                    st.session_state.system_mode = "archive"
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
                     return
 
-                # CASE 2: SINGLE LETTER (Utility Mode)
+                # CASE 2: SINGLE LETTER
                 if db and meta_id:
                     with db.get_db_session() as s:
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
@@ -262,14 +258,12 @@ def handle_payment_return(session_id):
                             st.session_state.current_draft_id = meta_id
                             s.commit()
                             
-                            # FORCE UTILITY MODE
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "workspace"
-                            st.query_params["mode"] = "utility" # Update URL for consistency
+                            st.query_params["mode"] = "utility"
                             st.rerun()
                             return
                 
-                # Default fallback
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
