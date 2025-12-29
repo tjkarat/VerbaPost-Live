@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # --- 1. CONFIGURATION ---
 st.set_page_config(
     page_title="VerbaPost",
-    page_icon="📮",
+    page_icon="動",
     layout="centered",
     initial_sidebar_state="collapsed",
     menu_items={
@@ -159,26 +159,37 @@ def render_sidebar(mode):
         st.header("VerbaPost" if mode == "utility" else "The Archive")
         
         if st.session_state.get("authenticated"):
+            # --- LAZY CREDIT REFILL CHECK ---
+            # Triggers once per session to check for monthly renewals
+            if not st.session_state.get("credits_synced"):
+                pay_eng = get_module("payment_engine")
+                user_email = st.session_state.get("user_email")
+                if pay_eng and user_email:
+                    if pay_eng.check_subscription_status(user_email):
+                        st.toast("🔄 Monthly Credits Refilled!")
+                    st.session_state.credits_synced = True
+
             if mode == "utility":
-                if st.button("📮 Letter Store", use_container_width=True):
+                if st.button("動 Letter Store", use_container_width=True):
                     st.session_state.app_mode = "main"; st.rerun()
             elif mode == "archive":
-                if st.button("📚 Family Archive", use_container_width=True):
+                if st.button("答 Family Archive", use_container_width=True):
                     st.session_state.app_mode = "heirloom"; st.rerun()
 
         st.markdown("---")
 
         if not st.session_state.get("authenticated"):
-            if st.button("🔐 Login / Sign Up", use_container_width=True):
+            if st.button("柏 Login / Sign Up", use_container_width=True):
                 st.session_state.app_mode = "login"
                 st.session_state.redirect_to = "heirloom" if mode == "archive" else "main"
                 st.rerun()
         else:
             user_email = st.session_state.get("user_email")
             st.caption(f"Logged in as: {user_email}")
-            if st.button("🚪 Sign Out", use_container_width=True):
+            if st.button("坎 Sign Out", use_container_width=True):
                 st.session_state.authenticated = False
                 st.session_state.user_email = None
+                st.session_state.credits_synced = False # Reset sync flag
                 st.session_state.app_mode = "splash"
                 st.rerun()
             
@@ -188,13 +199,14 @@ def render_sidebar(mode):
             
             if user_email and admin_email and user_email.strip() == admin_email.strip():
                 st.divider()
-                if st.button("⚡ Admin Console", use_container_width=True):
+                if st.button("笞｡ Admin Console", use_container_width=True):
                     st.session_state.app_mode = "admin"; st.rerun()
 
 def handle_payment_return(session_id):
     """
     Handles Stripe Callback.
     CRITICAL FIX: Detects if the purchase was for a Letter Draft and forces Utility Mode.
+    Also handles Subscription initialization by saving the sub_id.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
@@ -218,10 +230,22 @@ def handle_payment_return(session_id):
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
 
-                # CASE 1: ANNUAL PASS (Archive Mode)
+                # CASE 1: ANNUAL PASS / MONTHLY SUB (Archive Mode)
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
-                    if db and user_email: db.update_user_credits(user_email, 48)
+                    # 48 credits for annual (placeholder logic) or just 4 for monthly init
+                    # For now, let's assume the standard Heirloom offer is 4 credits/month
+                    if db and user_email: 
+                        db.update_user_credits(user_email, 4)
+                        
+                        # SAVE SUBSCRIPTION ID FOR LAZY REFILL
+                        if hasattr(raw_obj, 'subscription'):
+                            sub_id = raw_obj.subscription
+                            db.update_user_subscription_id(user_email, sub_id)
+                            # Initialize the date
+                            if pay_eng:
+                                pay_eng.check_subscription_status(user_email)
+
                     st.query_params.clear()
                     st.session_state.system_mode = "archive" # Force Archive
                     st.session_state.app_mode = "heirloom"

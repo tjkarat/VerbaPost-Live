@@ -93,12 +93,15 @@ class UserProfile(Base):
     address_state = Column(String)
     address_zip = Column(String)
     country = Column(String, default="US")
-    timezone = Column(String, default="US/Central") # <--- NEW COLUMN
+    timezone = Column(String, default="US/Central") 
     parent_name = Column(String)
     parent_phone = Column(String)
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
+    # --- NEW COLUMNS FOR SUBSCRIPTION LAZY SYNC ---
+    stripe_subscription_id = Column(String, nullable=True)
+    subscription_end_date = Column(DateTime, nullable=True)
 
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
@@ -129,7 +132,6 @@ class LetterDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
-    # The new column that caused the confusion, now properly supported
     audio_ref = Column(Text)
 
 class ScheduledCall(Base):
@@ -143,19 +145,16 @@ class ScheduledCall(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Letter(Base):
-    # Matches your screenshot of the 'letters' table
     __tablename__ = 'letters'
     id = Column(Integer, primary_key=True, autoincrement=True) 
-    user_id = Column(Integer) # Based on your screenshot
+    user_id = Column(Integer) 
     content = Column(Text)
     status = Column(String) 
     recipient_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # Optional fields that might exist
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    # FIXED: Table name changed from 'address_book' to 'saved_contacts'
     __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -191,9 +190,6 @@ class PaymentFulfillment(Base):
 # --- ROBUST ADMIN FUNCTIONS ---
 
 def get_all_orders():
-    """
-    Fetches orders safely. If one table fails, it still returns the others.
-    """
     combined = []
     
     # 1. Try to get Finalized Letters
@@ -202,7 +198,6 @@ def get_all_orders():
             legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
             for o in legacy:
                 d = to_dict(o)
-                # Fallback for email if using user_id
                 if not d.get('user_email'): 
                     d['user_email'] = f"ID: {d.get('user_id', '?')}"
                 d['source'] = 'Sent Letter'
@@ -210,7 +205,7 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Error fetching Letters table: {e}")
 
-    # 2. Try to get Drafts (This was crashing before)
+    # 2. Try to get Drafts
     try:
         with get_db_session() as session:
             heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
@@ -223,7 +218,6 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Error fetching Drafts table: {e}")
 
-    # Sort if we have data
     if combined:
         try:
             combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
@@ -309,6 +303,30 @@ def update_user_credits(email, new_credit_count):
             return False
     except Exception: return False
 
+def update_user_subscription_id(email, sub_id):
+    """Links a Stripe Subscription ID to a user profile."""
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.stripe_subscription_id = sub_id
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def update_subscription_dates(email, next_billing_date):
+    """Updates the subscription end date to track renewals."""
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.subscription_end_date = next_billing_date
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
 def update_heirloom_settings(email, parent_name, parent_phone):
     try:
         with get_db_session() as session:
@@ -368,7 +386,6 @@ def schedule_call(email, parent_phone, topic, scheduled_dt):
 
 # --- STORE / DRAFTS ---
 
-# FIXED: Added audio_ref=None to signature to match ui_heirloom.py calls
 def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
     try:
         with get_db_session() as session:
@@ -378,7 +395,7 @@ def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
                 tier=tier, 
                 price=price, 
                 status="Draft",
-                audio_ref=audio_ref # New field
+                audio_ref=audio_ref
             )
             session.add(draft)
             session.commit()
@@ -450,18 +467,14 @@ def record_stripe_fulfillment(session_id):
         
     try:
         with get_db_session() as session:
-            # Check existence first to avoid exception handling overhead if possible
             exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
             if exists:
                 return False
             
-            # Record new fulfillment
             new_record = PaymentFulfillment(stripe_session_id=session_id)
             session.add(new_record)
             session.commit()
             return True
     except Exception as e:
         logger.error(f"Idempotency Check Error: {e}")
-        # If we can't verify, we assume it might be a duplicate to be safe, 
-        # or we return False to prevent double-spending.
         return False
