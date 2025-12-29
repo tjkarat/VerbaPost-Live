@@ -545,16 +545,18 @@ def render_review_page():
     
     st.markdown(f"### Total: ${total:.2f}")
 
-    # --- AUTO-READY PAYMENT LINK (FIX) ---
-    # Generates URL automatically on load if missing. No "Proceed" click required.
+    # --- AUTO-READY PAYMENT LINK (NUCLEAR FIX) ---
+    # We generate the link AUTOMATICALLY on load.
+    # The user clicks a direct link, avoiding any reload loops.
+    
     u_email = st.session_state.get("user_email")
     d_id = st.session_state.get("current_draft_id")
     
-    # Check if we already have a generated link for this exact draft & price
-    if "pending_checkout_url" not in st.session_state:
+    # Always try to generate the link so it's fresh
+    try:
         if d_id and database:
             database.update_draft_data(d_id, price=total, status="Pending Payment")
-        
+            
         url = payment_engine.create_checkout_session(
             line_items=[{
                 "price_data": {
@@ -568,14 +570,13 @@ def render_review_page():
             draft_id=d_id
         )
         if url:
-            st.session_state.pending_checkout_url = url
-            # No rerun needed, just display it below
+            # DIRECT LINK BUTTON (No st.rerun needed)
+            st.link_button("👉 Click Here to Pay Now (Secure Stripe)", url, type="primary", use_container_width=True)
         else:
-            st.error("⚠️ Connection to Payment Gateway Failed. Please refresh.")
-
-    # DISPLAY DIRECT LINK
-    if st.session_state.get("pending_checkout_url"):
-        st.link_button("👉 Click Here to Pay Now (Secure Stripe)", st.session_state.pending_checkout_url, type="primary", use_container_width=True)
+            st.error("⚠️ Unable to connect to Payment Gateway. Please try again later.")
+            
+    except Exception as e:
+        st.error(f"System Error: {e}")
 
 def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"

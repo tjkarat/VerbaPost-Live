@@ -142,7 +142,7 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    # --- TABS (RESTORED ALL) ---
+    # --- TABS ---
     tab_print, tab_orders, tab_recordings, tab_promos, tab_users, tab_logs, tab_health = st.tabs([
         "🖨️ Manual Print", "📦 Orders & Repair", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
     ])
@@ -213,14 +213,13 @@ def render_admin_page():
                         "ID": str(o.get('id')), 
                         "Date": date_str,
                         "User": o.get('user_email'),
-                        "Tier": o.get('tier'),
                         "Status": o.get('status'),
                         "Price": price_str
                     })
                 
                 st.dataframe(pd.DataFrame(data), use_container_width=True, height=300)
                 
-                # REPAIR STATION
+                # REPAIR STATION (FIXED)
                 st.divider()
                 st.markdown("### 🛠️ Repair & Retry")
                 st.info("Select an order to fix the address or content, then force it back into the queue.")
@@ -264,6 +263,7 @@ def render_admin_page():
                                 }
                                 record.to_addr = str(updated_to)
                                 record.content = new_content
+                                # Reset status to trigger manual queue or processing
                                 record.status = "Queued (Manual)" 
                                 db.commit()
                                 st.success("Order Updated and moved to Manual Print Queue!")
