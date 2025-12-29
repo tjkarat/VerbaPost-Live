@@ -150,7 +150,7 @@ def render_paywall():
                         # --- SUBSCRIPTION LOGIC ---
                         url = payment_engine.create_checkout_session(
                             line_items=[{
-                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", # YOUR RECURRING PRICE ID
+                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", # RECURRING PRICE ID
                                 "quantity": 1,
                             }],
                             mode="subscription", # CRITICAL: Enables Auto-Pay
@@ -310,6 +310,10 @@ def render_dashboard():
         
         # --- NEW INBOUND CALL INSTRUCTIONS ---
         st.success(f"📞 **Pro Tip:** You (or {profile.get('parent_name', 'they')}) can also call **(615) 656-7667** anytime from **{p_phone}** to record a story on your own terms.")
+        
+        # --- NEW PRE-CALL PREP INSTRUCTION ---
+        st.info("💡 **Pre-Call Tip:** Text them beforehand! *'The robot is going to ask about [Topic]. Just gather your thoughts!'* It makes the call feel like a chat, not a quiz.")
+
         st.divider()
 
         # 1. TOPIC
@@ -440,57 +444,34 @@ def render_dashboard():
                         • **Cost:** 1 Credit (Balance: {credits})
                         """)
                         
-                        # 3. Send Action
+                        # 3. Send Action (MANUAL FULFILLMENT MODE)
                         if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                if address_standard:
-                                    std_to = address_standard.StandardAddress(
-                                        name=recipient_name, 
-                                        street=recipient_street, 
-                                        city=recipient_city,
-                                        state=recipient_state,
-                                        zip_code=recipient_zip
-                                    )
-                                    std_from = address_standard.StandardAddress(
-                                        name=sender_name, 
-                                        street="VerbaPost Archive Ctr", 
-                                        city="Nashville", 
-                                        state="TN", 
-                                        zip_code="37209"
-                                    )
-                                else:
-                                    st.error("Address Module Error")
-                                    st.stop()
+                                # --- MANUAL OVERRIDE (Replaces PostGrid for now) ---
+                                import uuid
+                                ref_id = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
+                                
+                                # Standard Database Updates
+                                new_credits = credits - 1
+                                if database:
+                                    database.update_user_credits(user_email, new_credits)
+                                    database.update_draft_data(d_id, status="Queued (Manual)", tracking_number=ref_id)
+                                
+                                _send_receipt(
+                                    user_email,
+                                    f"VerbaPost Sent: {d_date}",
+                                    f"<h3>Story Queued!</h3><p>Tracking: {ref_id}</p>"
+                                )
 
-                                if mailer and letter_format:
-                                    try:
-                                        with st.spinner("Printing & Mailing..."):
-                                            pdf_bytes = letter_format.create_pdf(new_text, std_to, std_from, "Heirloom")
-                                            ref_id = mailer.send_letter(pdf_bytes, std_to, std_from, description=f"Heirloom {d_date}")
-                                            
-                                            if ref_id:
-                                                new_credits = credits - 1
-                                                if database:
-                                                    database.update_user_credits(user_email, new_credits)
-                                                    database.update_draft_data(d_id, status="Sent", tracking_number=ref_id)
-                                                
-                                                _send_receipt(
-                                                    user_email,
-                                                    f"VerbaPost Sent: {d_date}",
-                                                    f"<h3>Story Sent!</h3><p>Tracking: {ref_id}</p>"
-                                                )
-
-                                                if audit_engine:
-                                                    audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"ref": ref_id})
-                                                
-                                                st.session_state.user_profile['credits'] = new_credits
-                                                st.balloons()
-                                                st.success(f"✅ Mailed! Tracking ID: {ref_id}")
-                                                time.sleep(2)
-                                                st.rerun()
-                                            else: st.error("Mailing API Failed.")
-                                    except Exception as e: st.error(f"System Error: {e}")
-                                else: st.error("System modules missing.")
+                                if audit_engine:
+                                    audit_engine.log_event(user_email, "HEIRLOOM_SENT_MANUAL", metadata={"ref": ref_id})
+                                
+                                st.session_state.user_profile['credits'] = new_credits
+                                st.balloons()
+                                st.success(f"✅ Order Received! Queued for printing. ID: {ref_id}")
+                                time.sleep(2)
+                                st.rerun()
+                                # ----------------------------------------------------
                             else: st.error("Insufficient Credits. Please top up.")
                 else:
                     st.success(f"Sent! Tracking Number: {draft.get('tracking_number', 'N/A')}")
