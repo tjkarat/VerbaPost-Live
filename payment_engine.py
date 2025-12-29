@@ -60,7 +60,6 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
     stripe.api_key = api_key
     
     # Base URL for redirects (Safe Lookup)
-    # FIX: Use safe .get() to prevent 'st.secrets has no key "general"' error
     base_url = "https://verbapost.streamlit.app"
     try:
         general_config = st.secrets.get("general", {})
@@ -118,3 +117,37 @@ def verify_session(session_id):
     except Exception as e:
         logger.error(f"Stripe Verification Error: {e}")
         return None
+
+def check_subscription_status(user_email):
+    """
+    Checks if the user has an active subscription.
+    CRITICAL: This function prevents main.py from crashing.
+    """
+    if not user_email or not stripe:
+        return False
+
+    api_key = get_api_key()
+    if not api_key: return False
+    
+    stripe.api_key = api_key
+    
+    try:
+        # 1. Find Customer by Email
+        customers = stripe.Customer.list(email=user_email, limit=1)
+        if not customers.data:
+            return False
+        
+        customer_id = customers.data[0].id
+        
+        # 2. Check for Active Subscriptions
+        subscriptions = stripe.Subscription.list(
+            customer=customer_id, 
+            status='active',
+            limit=1
+        )
+        
+        return len(subscriptions.data) > 0
+        
+    except Exception as e:
+        logger.error(f"Subscription Check Error: {e}")
+        return False
