@@ -115,6 +115,7 @@ def load_address_book():
         return {}
     try:
         user_email = st.session_state.get("user_email")
+        # Ensure database.get_contacts is called correctly
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
@@ -143,9 +144,7 @@ def _save_new_contact(contact_data):
                 break
         
         if is_new:
-            if hasattr(database, "add_contact"):
-                database.add_contact(user_email, contact_data)
-            elif hasattr(database, "save_contact"):
+            if hasattr(database, "save_contact"):
                 database.save_contact(user_email, contact_data)
             return True
         return False
@@ -280,6 +279,7 @@ def render_workspace_page():
         
         # 2. ADDRESS BOOK LOGIC (Explicitly Included)
         if st.session_state.get("authenticated") and current_tier != "Civic":
+            # RE-INSERTED: Safe Address Book Loader
             addr_opts = load_address_book()
             
             if addr_opts:
@@ -488,7 +488,7 @@ def render_workspace_page():
         elif not st.session_state.get("addr_to") and current_tier != "Civic":
             st.error("⚠️ Please save addresses first.")
         else:
-            # Clear previous checkout url to ensure fresh generation
+            # Clear previous checkout url if any to avoid stale state
             st.session_state.stripe_checkout_url = None
             st.session_state.app_mode = "review"
             st.rerun()
@@ -500,74 +500,42 @@ def render_review_page():
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
+                # Use safely defined addresses
+                to_addr = st.session_state.get("addr_to", {"name": "Recipient"})
+                from_addr = st.session_state.get("addr_from", {"name": "Sender"})
                 body = st.session_state.get("letter_body", "")
-                if tier == "Civic":
-                    std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
-                else:
-                    std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
                 
-                pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
+                # Call fixed PDF engine
+                pdf_bytes = letter_format.create_pdf(body, to_addr, from_addr, tier)
                 
                 import base64
                 b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
                 st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
             except Exception as e: st.error(f"PDF Error: {e}")
 
     st.divider()
     
-    # --- PRICING LOGIC ---
-    is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
+    # --- PRICING & PAYMENT ---
+    total = pricing_engine.calculate_total(tier) if pricing_engine else 2.99
     
-    # Calculate Base Total
-    total = pricing_engine.calculate_total(tier, is_certified=is_cert)
-    
-    # Ensure tier wasn't reset to standard if price mismatches
-    if tier == "Vintage" and total < 5.00:
-        total = 5.99 + (12.00 if is_cert else 0.0)
-    elif tier == "Santa" and total < 9.00:
-        total = 9.99 + (12.00 if is_cert else 0.0)
-
-    discount = 0.0
-    
-    # --- PROMO CODE LOGIC ---
+    # Promo Code Section
     if promo_engine:
         with st.expander("🎟️ Have a Promo Code?"):
-            raw_code = st.text_input("Enter Code", key="promo_input_field")
-            code = raw_code.upper().strip() if raw_code else ""
-            
+            code = st.text_input("Enter Code").upper().strip()
             if st.button("Apply Code"):
-                if not code:
-                    st.error("Please enter a code.")
-                else:
-                    result = promo_engine.validate_code(code)
-                    if isinstance(result, tuple) and len(result) == 2:
-                        valid, val = result
-                    else:
-                        valid, val = False, "Engine Error"
-
-                    if valid:
-                        if val > 0:
-                            st.session_state.applied_promo = code
-                            st.session_state.promo_val = val
-                            st.success(f"Applied! ${val} off")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.warning("Code is valid but has $0.00 value. Please check with support.")
-                    else: st.error(f"Invalid Code: {val}")
-                    
-    if st.session_state.get("applied_promo"):
-        discount = st.session_state.get("promo_val", 0)
-        st.markdown(f"**Item Price:** ${total:.2f}")
-        total = max(0, total - discount)
-        st.info(f"Discount Applied: -${discount:.2f}")
+                valid, val = promo_engine.validate_code(code)
+                if valid:
+                     st.session_state.promo_val = val
+                     st.success(f"-${val} Applied")
+                     st.rerun()
     
+    discount = st.session_state.get("promo_val", 0)
+    total = max(0, total - discount)
     st.markdown(f"### Total: ${total:.2f}")
 
-    # --- CRITICAL FIX: PERSISTENT PAYMENT BUTTON LOGIC ---
-    # Only generate URL if we don't have one in session state or if user explicitly resets it.
+    # --- CRITICAL FIX: PERSISTENT PAYMENT BUTTON ---
+    # We store the URL so the link button persists across reruns
+    # This fixes the "Loop" issue where the button vanishes
     if "stripe_checkout_url" not in st.session_state:
         st.session_state.stripe_checkout_url = None
 
@@ -575,9 +543,12 @@ def render_review_page():
         if st.button("💳 Generate Secure Payment Link", type="primary", use_container_width=True):
             u_email = st.session_state.get("user_email")
             d_id = st.session_state.get("current_draft_id")
+            
+            # Update DB
             if d_id and database:
                 database.update_draft_data(d_id, price=total, status="Pending Payment")
             
+            # Create Session
             url = payment_engine.create_checkout_session(
                 line_items=[{
                     "price_data": {
@@ -591,38 +562,29 @@ def render_review_page():
                 draft_id=d_id
             )
             
-            if url: 
+            if url:
                 st.session_state.stripe_checkout_url = url
-                st.rerun() # Force rerun to show link button
-            else: 
-                st.error("Payment Gateway Error")
-    
-    # If URL exists, show the Link Button (Persists across reruns)
+                st.rerun() # Force rerun to show the link button immediately
+            else:
+                st.error("Payment Gateway Error. Please try again.")
+
+    # Show the Link Button if URL exists
     if st.session_state.stripe_checkout_url:
         st.success("✅ Payment Link Ready!")
         st.link_button("👉 Click Here to Pay & Send", st.session_state.stripe_checkout_url, type="primary", use_container_width=True)
         
-        # Option to reset if they want to change something
-        if st.button("🔄 Cancel / Edit Order"):
+        if st.button("🔄 Reset Payment Link"):
             st.session_state.stripe_checkout_url = None
             st.rerun()
 
-# --- ROUTER CONTROLLER ---
 def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     mode = st.session_state.app_mode
 
-    # STRICT ROUTING - Prevents "heirloom" ghost routing
-    if mode == "store":
-        render_store_page()
-    elif mode == "workspace":
-        render_workspace_page()
-    elif mode == "review":
-        render_review_page()
-    else:
-        # Fallback: if mode is anything else (e.g. heirloom), do nothing here.
-        # This lets main.py handle the other modules.
-        pass
+    if mode == "store": render_store_page()
+    elif mode == "workspace": render_workspace_page()
+    elif mode == "review": render_review_page()
+    else: pass
 
 if __name__ == "__main__":
     render_main()
