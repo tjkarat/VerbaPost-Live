@@ -490,6 +490,7 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
+    # PDF PREVIEW LOGIC
     if st.button("📄 Generate PDF Proof"):
         with st.spinner("Generating Proof..."):
             try:
@@ -509,6 +510,7 @@ def render_review_page():
 
     st.divider()
     
+    # --- PRICING LOGIC ---
     is_cert = st.checkbox("Add Certified Mail Tracking (+$12.00)")
     total = pricing_engine.calculate_total(tier, is_certified=is_cert)
     if tier == "Vintage" and total < 5.00: total = 5.99 + (12.00 if is_cert else 0.0)
@@ -544,13 +546,14 @@ def render_review_page():
     st.markdown(f"### Total: ${total:.2f}")
 
     # --- PERSISTENT PAYMENT BUTTON ---
+    # This prevents the button from vanishing or reloading the page incorrectly.
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
         u_email = st.session_state.get("user_email")
         d_id = st.session_state.get("current_draft_id")
         if d_id and database:
             database.update_draft_data(d_id, price=total, status="Pending Payment")
         
-        # SAVE URL & REFRESH TO SHOW LINK
+        # Save URL to session so it persists after rerun
         url = payment_engine.create_checkout_session(
             line_items=[{
                 "price_data": {

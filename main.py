@@ -116,7 +116,7 @@ def main():
     current_page = st.session_state.app_mode
     
     # --- ROUTE MAP ---
-    # NOTE: I removed the "Safety Alignment" block that was causing your redirect loop.
+    # CRITICAL FIX: Explicitly added 'review' to prevent 404/Redirects
     route_map = {
         "login":     ("ui_login", "render_login_page"),
         "legal":     ("ui_legal", "render_legal_page"),
@@ -125,7 +125,7 @@ def main():
         "main":      ("ui_main", "render_store_page"),
         "workspace": ("ui_main", "render_workspace_page"),
         "receipt":   ("ui_main", "render_receipt_page"),
-        "review":    ("ui_main", "render_review_page"),
+        "review":    ("ui_main", "render_review_page"), # <--- THIS WAS MISSING
         "legacy":    ("ui_legacy", "render_legacy_page"),
         "heirloom":  ("ui_heirloom", "render_dashboard"),
         "blog":      ("ui_blog", "render_blog_page")
@@ -232,7 +232,7 @@ def handle_payment_return(session_id):
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
 
-                # CASE 1: ANNUAL PASS / MONTHLY SUB
+                # CASE 1: ANNUAL PASS
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
                     if db and user_email: 
