@@ -115,6 +115,7 @@ def load_address_book():
         return {}
     try:
         user_email = st.session_state.get("user_email")
+        # Use the updated database function that handles case-insensitivity
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:

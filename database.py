@@ -155,7 +155,8 @@ class Letter(Base):
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    __tablename__ = 'saved_contacts'
+    # FIXED: Reverted to 'address_book' so you can see your historical data
+    __tablename__ = 'address_book'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
     name = Column(String)
@@ -190,6 +191,9 @@ class PaymentFulfillment(Base):
 # --- ROBUST ADMIN FUNCTIONS ---
 
 def get_all_orders():
+    """
+    Fetches orders safely. If one table fails, it still returns the others.
+    """
     combined = []
     
     # 1. Try to get Finalized Letters
@@ -198,6 +202,7 @@ def get_all_orders():
             legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
             for o in legacy:
                 d = to_dict(o)
+                # Fallback for email if using user_id
                 if not d.get('user_email'): 
                     d['user_email'] = f"ID: {d.get('user_id', '?')}"
                 d['source'] = 'Sent Letter'
@@ -218,6 +223,7 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Error fetching Drafts table: {e}")
 
+    # Sort if we have data
     if combined:
         try:
             combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
@@ -425,11 +431,17 @@ def update_draft_data(draft_id, **kwargs):
     except Exception: return False
 
 def get_contacts(email):
+    """
+    Fetches contacts using case-insensitive email matching to prevent missing data.
+    """
     try:
         with get_db_session() as session:
-            contacts = session.query(Contact).filter_by(user_email=email).all()
+            # Use ILIKE for case-insensitive matching so tjkarat@gmail finds Tjkarat@gmail
+            contacts = session.query(Contact).filter(Contact.user_email.ilike(email)).all()
             return [to_dict(c) for c in contacts]
-    except Exception: return []
+    except Exception as e:
+        logger.error(f"Get Contacts Error: {e}")
+        return []
 
 def save_contact(user_email, contact_data):
     try:
@@ -467,14 +479,17 @@ def record_stripe_fulfillment(session_id):
         
     try:
         with get_db_session() as session:
+            # Check existence first to avoid exception handling overhead if possible
             exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
             if exists:
                 return False
             
+            # Record new fulfillment
             new_record = PaymentFulfillment(stripe_session_id=session_id)
             session.add(new_record)
             session.commit()
             return True
     except Exception as e:
         logger.error(f"Idempotency Check Error: {e}")
+        # If we can't verify, we assume it might be a duplicate to be safe
         return False
