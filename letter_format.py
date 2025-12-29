@@ -27,9 +27,7 @@ class LetterPDF(FPDF):
         
     def header(self):
         """
-        Custom header logic. 
-        For 'Vintage' letters, we might add a subtle date stamp or mark.
-        For now, we keep it clean to maximize writing space.
+        Custom header logic.
         """
         pass
 
@@ -55,6 +53,9 @@ def _sanitize_text(text):
     if not text:
         return ""
     
+    # Ensure text is string
+    text = str(text)
+    
     replacements = {
         '\u2018': "'",  # Left single quote
         '\u2019': "'",  # Right single quote
@@ -76,8 +77,13 @@ def _safe_get(obj, key, default=""):
     Helper to get value from either a dict or an object attribute.
     Fixes the 'StandardAddress object has no attribute get' error.
     """
+    if not obj: return default
+    
+    # If it's a dictionary
     if isinstance(obj, dict):
         return obj.get(key, default)
+        
+    # If it's an object (like StandardAddress)
     return getattr(obj, key, default)
 
 def _format_address_block(addr_obj):
@@ -95,7 +101,6 @@ def _format_address_block(addr_obj):
         lines.append(name)
         
     # Street Address (Line 1)
-    # Check both 'address_line1' and 'street' for compatibility
     street1 = _safe_get(addr_obj, 'address_line1', '').strip() or _safe_get(addr_obj, 'street', '').strip()
     if street1:
         lines.append(street1)
@@ -108,8 +113,6 @@ def _format_address_block(addr_obj):
     # City, State Zip
     city = _safe_get(addr_obj, 'city', '').strip()
     state = _safe_get(addr_obj, 'state', '').strip()
-    
-    # Check both 'zip_code' and 'zip'
     zip_code = _safe_get(addr_obj, 'zip_code', '').strip() or _safe_get(addr_obj, 'zip', '').strip()
     
     city_line = f"{city}, {state} {zip_code}".strip()
@@ -121,43 +124,46 @@ def _format_address_block(addr_obj):
 def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""):
     """
     Generates the final PDF bytes for the letter.
-    
-    Args:
-        body_text (str): The raw text content of the letter.
-        to_addr (dict/obj): Recipient address details.
-        from_addr (dict/obj): Sender address details.
-        tier (str): 'Standard', 'Vintage', or 'Civic'.
-        signature_text (str): Optional signature override.
-        
-    Returns:
-        bytes: The raw PDF file content.
     """
     try:
         # 1. Initialize PDF
         pdf = LetterPDF(tier=tier)
-        pdf.add_page()
         
         # 2. Configure Fonts & Styling based on Tier
-        # Vintage = Courier (Typewriter style)
-        # Standard/Civic = Times New Roman (Formal)
-        
+        # Default Logic
         font_family = 'Times'
         header_font_family = 'Helvetica'
         
+        # Vintage Logic (Typewriter)
         if tier == "Vintage":
-            font_family = 'Courier'
-            header_font_family = 'Courier'
-        
-        # 3. Render Sender Address (Top Right)
-        # Standard business letter format places sender info at the top.
+            # Attempt to load custom font
+            has_custom_font = False
+            if os.path.exists("type_right.ttf"):
+                try:
+                    pdf.add_font('TypeRight', '', 'type_right.ttf')
+                    font_family = 'TypeRight'
+                    header_font_family = 'TypeRight'
+                    has_custom_font = True
+                except Exception as e:
+                    logger.warning(f"Could not load custom font: {e}")
+            
+            # Fallback to Courier (Standard Typewriter) if custom font fails
+            if not has_custom_font:
+                font_family = 'Courier'
+                header_font_family = 'Courier'
+
+        # 3. Add Page
+        pdf.add_page()
+
+        # 4. Render Sender Address (Top Right)
+        # We assume standard business layout (Top Right for sender)
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(80, 80, 80) # Dark Grey
         
         sender_block = _format_address_block(from_addr)
         sender_lines = sender_block.split('\n')
         
-        # Calculate width needed for right alignment
-        # We manually position the cursor for each line to align right
+        # Align Right logic
         for line in sender_lines:
             safe_line = _sanitize_text(line)
             w = pdf.get_string_width(safe_line) + 2
@@ -166,42 +172,36 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
             
         pdf.ln(10) # Spacer (approx 2 lines)
         
-        # 4. Render Recipient Address (Top Left)
+        # 5. Render Recipient Address (Top Left)
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(0, 0, 0) # Black
         
         recipient_block = _format_address_block(to_addr)
-        # Sanitize entire block
         safe_recipient_block = _sanitize_text(recipient_block)
         
         pdf.multi_cell(0, 5, safe_recipient_block, align='L')
         
-        pdf.ln(15) # Spacer before body (approx 3 lines)
+        pdf.ln(15) # Spacer before body
         
-        # 5. Render Letter Body
-        
+        # 6. Render Letter Body
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0) # Black text
         
         safe_body = _sanitize_text(body_text)
         
-        # Check if body is empty
         if not safe_body.strip():
             safe_body = "[No Content Provided]"
             
-        # Write the body text
-        # Multi_cell handles word wrapping automatically within margins
+        # Write Body
         pdf.multi_cell(0, 6, safe_body)
         
-        # Optional Signature handling if passed
+        # 7. Signature
         if signature_text:
              pdf.ln(10)
-             # Basic signature simulation
              pdf.set_font(font_family, 'I', 14) 
              pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
         
-        # 6. Add "Sent via VerbaPost" Footer (Subtle)
-        
+        # 8. Footer (Sent via VerbaPost)
         current_y = pdf.get_y()
         space_left = PAGE_HEIGHT_MM - MARGIN_MM - current_y
         
@@ -214,28 +214,30 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         
         footer_text = "Sent via VerbaPost.com"
         if tier == "Vintage":
-            footer_text = "Typewritten & Mailed by VerbaPost.com"
+            footer_text = "Dictated and Mailed by VerbaPost.com"
         elif tier == "Civic":
             footer_text = "Civic Action Letter via VerbaPost.com"
             
         pdf.cell(0, 5, footer_text, align='C')
         
-        # 7. Output
-        # CRITICAL FIX: Handle FPDF2 bytearray vs string output safely
+        # 9. Output (Byte Safety)
+        # FPDF2 output() can return str or bytearray depending on version/args
         raw_output = pdf.output(dest='S')
+        
+        # Ensure we return clean bytes
         if isinstance(raw_output, str):
             return raw_output.encode('latin-1')
-        return bytes(raw_output)
+        elif isinstance(raw_output, bytearray):
+            return bytes(raw_output)
+        return raw_output
         
     except Exception as e:
         logger.error(f"PDF Generation Failed: {e}")
-        # Return a simple error PDF so the system doesn't crash completely
         return _create_error_pdf(str(e))
 
 def _create_error_pdf(error_message):
     """
     Fallback function to generate a PDF containing the error message.
-    Useful for debugging production systems without exposing logs to users.
     """
     try:
         pdf = FPDF()
@@ -247,9 +249,9 @@ def _create_error_pdf(error_message):
         pdf.set_text_color(0, 0, 0)
         pdf.multi_cell(0, 5, f"Details:\n{error_message}")
         
-        # CRITICAL FIX: Safety Cast for Error PDF too
         raw = pdf.output(dest='S')
         if isinstance(raw, str): return raw.encode('latin-1')
-        return bytes(raw)
+        elif isinstance(raw, bytearray): return bytes(raw)
+        return raw
     except:
         return b""
