@@ -31,7 +31,6 @@ except ImportError: audit_engine = None
 
 # --- HEALTH CHECK HELPERS ---
 def check_connection(service_name, check_func):
-    """Generic wrapper for health checks."""
     try:
         check_func()
         return "✅ Online", "green"
@@ -42,9 +41,7 @@ def check_connection(service_name, check_func):
         return f"❌ Error: {msg[:100]}", "red"
 
 def run_system_health_checks():
-    """Runs connectivity tests for all external services."""
     results = []
-
     # 1. DATABASE
     def check_db():
         with database.get_db_session() as db:
@@ -85,7 +82,6 @@ def run_system_health_checks():
     def check_postgrid():
         k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
         if not k: raise Exception("Missing Key")
-        # Corrected endpoint to match mailer.py logic
         r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code} - {r.text}")
     status, color = check_connection("PostGrid (Fulfillment)", check_postgrid)
@@ -146,7 +142,7 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    # --- TABS (RESTORED) ---
+    # --- TABS (RESTORED ALL) ---
     tab_print, tab_orders, tab_recordings, tab_promos, tab_users, tab_logs, tab_health = st.tabs([
         "🖨️ Manual Print", "📦 Orders & Repair", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
     ])
@@ -217,7 +213,6 @@ def render_admin_page():
                         "ID": str(o.get('id')), 
                         "Date": date_str,
                         "User": o.get('user_email'),
-                        "Tier": o.get('tier'),
                         "Status": o.get('status'),
                         "Price": price_str
                     })
@@ -247,9 +242,11 @@ def render_admin_page():
                             with c1:
                                 new_name = st.text_input("Recipient Name", value=t_addr.get('name', ''), key="rep_name")
                                 new_street = st.text_input("Street", value=t_addr.get('address_line1', '') or t_addr.get('street', ''), key="rep_street")
+                                # Added Line 2 Support
                                 new_line2 = st.text_input("Line 2 (Apt/Suite)", value=t_addr.get('address_line2', ''), key="rep_line2")
                             with c2:
                                 new_city = st.text_input("City", value=t_addr.get('city', ''), key="rep_city")
+                                # Added State and Zip Support
                                 new_state = st.text_input("State", value=t_addr.get('state', ''), key="rep_state")
                                 new_zip = st.text_input("Zip Code", value=t_addr.get('zip_code', '') or t_addr.get('zip', ''), key="rep_zip")
                             

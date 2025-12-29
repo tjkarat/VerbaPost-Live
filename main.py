@@ -92,7 +92,6 @@ def main():
         pass # Skip if validator missing
 
     # 2. DETERMINE SYSTEM MODE
-    # Default to whatever is in session, or fallback to URL, or default to archive
     if "system_mode" not in st.session_state:
         st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
     
@@ -102,7 +101,7 @@ def main():
     analytics = get_module("analytics")
     if analytics: analytics.inject_ga()
 
-    # 3. Handle Stripe/Payment Returns (RUNS BEFORE ROUTING)
+    # 3. Handle Stripe/Payment Returns
     if "session_id" in st.query_params:
         handle_payment_return(st.query_params["session_id"])
 
@@ -153,7 +152,6 @@ def render_sidebar(mode):
         
         if st.session_state.get("authenticated"):
             # --- LAZY CREDIT REFILL CHECK ---
-            # Triggers once per session to check for monthly renewals
             if not st.session_state.get("credits_synced"):
                 pay_eng = get_module("payment_engine")
                 user_email = st.session_state.get("user_email")
@@ -167,7 +165,6 @@ def render_sidebar(mode):
                 if st.button("✉️ Letter Store", use_container_width=True):
                     st.session_state.app_mode = "main"; st.rerun()
                 
-                # FIX: Explicitly set mode to Archive to prevent redirect loop
                 if st.button("🔄 Switch to Family Archive", use_container_width=True):
                     st.session_state.system_mode = "archive"
                     st.query_params["mode"] = "archive"
@@ -178,7 +175,6 @@ def render_sidebar(mode):
                 if st.button("📚 Family Archive", use_container_width=True):
                     st.session_state.app_mode = "heirloom"; st.rerun()
                 
-                # FIX: Explicitly set mode to Utility to prevent redirect loop
                 if st.button("🔄 Switch to Letter Store", use_container_width=True):
                     st.session_state.system_mode = "utility"
                     st.query_params["mode"] = "utility"
@@ -190,7 +186,6 @@ def render_sidebar(mode):
         if not st.session_state.get("authenticated"):
             if st.button("🔐 Login / Sign Up", use_container_width=True):
                 st.session_state.app_mode = "login"
-                # Smart Redirect: Send them to the mode they are currently viewing
                 st.session_state.redirect_to = "heirloom" if mode == "archive" else "main"
                 st.rerun()
         else:
@@ -199,13 +194,14 @@ def render_sidebar(mode):
             if st.button("🚪 Sign Out", use_container_width=True):
                 st.session_state.authenticated = False
                 st.session_state.user_email = None
-                st.session_state.credits_synced = False # Reset sync flag
+                st.session_state.credits_synced = False
                 st.session_state.app_mode = "splash"
                 st.rerun()
             
             admin_email = None
             if secrets_manager: admin_email = secrets_manager.get_secret("admin.email")
-            if not admin_email and "admin" in st.secrets: admin_email = st.secrets["admin"]["email"]
+            if not admin_email and hasattr(st, "secrets") and "admin" in st.secrets: 
+                admin_email = st.secrets["admin"]["email"]
             
             if user_email and admin_email and user_email.strip() == admin_email.strip():
                 st.divider()
@@ -245,14 +241,10 @@ def handle_payment_return(session_id):
                 if is_annual:
                     if db and user_email: 
                         db.update_user_credits(user_email, 4)
-                        
-                        # SAVE SUBSCRIPTION ID FOR LAZY REFILL
                         if hasattr(raw_obj, 'subscription'):
                             sub_id = raw_obj.subscription
                             db.update_user_subscription_id(user_email, sub_id)
-                            # Initialize the date
-                            if pay_eng:
-                                pay_eng.check_subscription_status(user_email)
+                            pay_eng.check_subscription_status(user_email)
 
                     st.query_params.clear()
                     st.session_state.system_mode = "archive" # Force Archive
@@ -271,7 +263,6 @@ def handle_payment_return(session_id):
                             s.commit()
                             
                             # FORCE UTILITY MODE
-                            # This ensures we don't get kicked back to Heirloom
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "workspace"
                             st.query_params["mode"] = "utility" # Update URL for consistency
