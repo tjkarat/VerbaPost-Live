@@ -19,9 +19,10 @@ class LetterPDF(FPDF):
     Custom PDF class to handle headers, footers, and page logic
     for VerbaPost letters.
     """
-    def __init__(self, tier="Standard"):
+    def __init__(self, tier="Standard", footer_text="Sent via VerbaPost.com"):
         super().__init__(orientation='P', unit='mm', format='Letter')
         self.tier = tier
+        self.custom_footer_text = footer_text
         self.set_margins(MARGIN_MM, MARGIN_MM, MARGIN_MM)
         self.set_auto_page_break(auto=True, margin=MARGIN_MM)
         
@@ -33,17 +34,27 @@ class LetterPDF(FPDF):
 
     def footer(self):
         """
-        Adds page numbers if the letter exceeds one page.
+        Standard Footer: Always sticks to the bottom.
+        Includes Branding and Page Numbers (if multi-page).
         """
+        # Position at 2.0 cm from bottom
+        self.set_y(-20)
+        
+        # 1. Branding Text (Centered)
+        self.set_font("Helvetica", size=8)
+        self.set_text_color(150, 150, 150) # Light Grey
+        self.cell(0, 5, self.custom_footer_text, align='C', ln=1)
+        
+        # 2. Page Numbers (if more than 1 page)
+        # We check total pages alias usually, but page_no is safer for simple logic
         if self.page_no() > 1:
-            self.set_y(-15)
-            # Select font for footer
+            # Select font style for numbers
             if self.tier == "Vintage":
                 self.set_font('Courier', 'I', 8)
             else:
                 self.set_font('Times', 'I', 8)
             
-            self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+            self.cell(0, 5, f'Page {self.page_no()}', align='C')
 
 def _sanitize_text(text):
     """
@@ -126,10 +137,17 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
     Generates the final PDF bytes for the letter.
     """
     try:
-        # 1. Initialize PDF
-        pdf = LetterPDF(tier=tier)
+        # 1. Determine Footer Text BEFORE Init
+        footer_msg = "Sent via VerbaPost.com"
+        if tier == "Vintage" or tier == "Heirloom":
+            footer_msg = "Dictated and Mailed by VerbaPost.com"
+        elif tier == "Civic":
+            footer_msg = "Civic Action Letter via VerbaPost.com"
+
+        # 2. Initialize PDF with custom footer text
+        pdf = LetterPDF(tier=tier, footer_text=footer_msg)
         
-        # 2. Configure Fonts & Styling based on Tier
+        # 3. Configure Fonts & Styling based on Tier
         # Default Logic
         font_family = 'Times'
         header_font_family = 'Helvetica'
@@ -152,10 +170,10 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
                 font_family = 'Courier'
                 header_font_family = 'Courier'
 
-        # 3. Add Page
+        # 4. Add Page
         pdf.add_page()
 
-        # 4. Render Sender Address (Top Right)
+        # 5. Render Sender Address (Top Right)
         # We assume standard business layout (Top Right for sender)
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(80, 80, 80) # Dark Grey
@@ -172,7 +190,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
             
         pdf.ln(10) # Spacer (approx 2 lines)
         
-        # 5. Render Recipient Address (Top Left)
+        # 6. Render Recipient Address (Top Left)
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(0, 0, 0) # Black
         
@@ -183,7 +201,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         
         pdf.ln(15) # Spacer before body
         
-        # 6. Render Letter Body
+        # 7. Render Letter Body
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0) # Black text
         
@@ -195,33 +213,13 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         # Write Body
         pdf.multi_cell(0, 6, safe_body)
         
-        # 7. Signature
+        # 8. Signature
         if signature_text:
              pdf.ln(10)
              pdf.set_font(font_family, 'I', 14) 
              pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
         
-        # 8. Footer (Sent via VerbaPost)
-        # FIX: Force footer to bottom of page
-        
-        # Check if we are close to the bottom margin (e.g. within 20mm of margin)
-        # If so, add a new page so the footer doesn't overlap text
-        if pdf.get_y() > (PAGE_HEIGHT_MM - MARGIN_MM - 20):
-            pdf.add_page()
-            
-        # Move cursor to 25mm from bottom of page
-        pdf.set_y(-25)
-        
-        pdf.set_font("Helvetica", size=8)
-        pdf.set_text_color(150, 150, 150) # Light Grey
-        
-        footer_text = "Sent via VerbaPost.com"
-        if tier == "Vintage":
-            footer_text = "Dictated and Mailed by VerbaPost.com"
-        elif tier == "Civic":
-            footer_text = "Civic Action Letter via VerbaPost.com"
-            
-        pdf.cell(0, 5, footer_text, align='C')
+        # NOTE: Footer is now handled automatically by the class footer() method
         
         # 9. Output (Byte Safety)
         # FPDF2 output() can return str or bytearray depending on version/args
