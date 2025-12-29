@@ -119,7 +119,6 @@ def render_paywall():
     </style>
     """, unsafe_allow_html=True)
 
-    # FIXED: Flattened HTML string to prevent Code Block rendering
     html_content = """
 <div class="paywall-container">
     <div class="lock-icon">🔒</div>
@@ -343,15 +342,22 @@ def render_dashboard():
 
         with col_later:
             st.markdown("#### Option B: Schedule for Later")
-            st.info("ℹ️ Choose a date/time. We will email **YOU** a reminder to trigger the call.")
             
-            d = st.date_input("Date")
-            t = st.time_input("Time")
+            # --- IMPROVED INSTRUCTIONS ---
+            st.info("""
+            **How Scheduling Works:**
+            1. Pick a date & time below.
+            2. We save this to your account.
+            3. On that day, you will receive an **email reminder** to initiate the call manually.
+            """)
+            
+            d = st.date_input("Date", help="When do you want to do the interview?")
+            t = st.time_input("Time", help="Select a time")
             
             if st.button("📅 Schedule Reminder", use_container_width=True):
                 combined_time = datetime.combine(d, t)
                 if database.schedule_call(user_email, p_phone, final_topic, combined_time):
-                    st.success(f"Scheduled! We'll remind you on {d} at {t}.")
+                    st.success(f"✅ Saved! We've added this to your schedule for {d} at {t}.")
                 else:
                     st.error("Scheduling failed.")
 
@@ -424,7 +430,7 @@ def render_dashboard():
                         # --- MANUAL QUEUE BUTTON ---
                         if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                # A. Create Address Snapshot
+                                # A. Create Address Snapshot (CRITICAL: So Admin console has data)
                                 snapshot_to = {
                                     "name": recipient_name, "street": recipient_street, 
                                     "city": recipient_city, "state": profile.get("address_state", ""), 
@@ -438,16 +444,17 @@ def render_dashboard():
                                 # B. Generate Fake Tracking
                                 ref_id = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                                 
-                                # C. Update Database
+                                # C. Update Database (Credits, Status, AND ADDRESS SNAPSHOT)
                                 new_credits = credits - 1
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
+                                    # We use kwargs to update the JSON columns
                                     database.update_draft_data(
                                         d_id, 
                                         status="Queued (Manual)", 
                                         tracking_number=ref_id,
-                                        to_addr=snapshot_to,
-                                        from_addr=snapshot_from
+                                        to_addr=snapshot_to,   # <-- ADDED THIS
+                                        from_addr=snapshot_from # <-- ADDED THIS
                                     )
                                 
                                 # D. Audit & Receipt
