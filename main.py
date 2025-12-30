@@ -249,7 +249,7 @@ def handle_payment_return(session_id):
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
-    # --- IDEMPOTENCY CHECK (FIXED) ---
+    # --- IDEMPOTENCY CHECK ---
     # We capture the status but DO NOT return early.
     # This ensures routing logic still runs even on page refreshes.
     is_new_fulfillment = True
@@ -305,19 +305,36 @@ def handle_payment_return(session_id):
                     return
 
                 # CASE 2: SINGLE LETTER (Utility Mode)
-                if db and meta_id:
+                target_draft_id = None
+                
+                # A. Try Metadata ID first (Standard Path)
+                if meta_id:
+                     try: target_draft_id = int(meta_id)
+                     except: target_draft_id = meta_id
+                
+                # B. Smart Fallback: If metadata lost (Promo Code bug), find latest draft for user
+                if not target_draft_id and db and user_email:
                     with db.get_db_session() as s:
-                        # Robust casting
-                        try: target_id = int(meta_id)
-                        except: target_id = meta_id
-                        
-                        d = s.query(db.LetterDraft).filter(db.LetterDraft.id == target_id).first()
+                         # Look for drafts created recently that are in "Pending Payment" or "Draft"
+                         fallback = s.query(db.LetterDraft).filter(
+                             db.LetterDraft.user_email == user_email
+                         ).order_by(db.LetterDraft.created_at.desc()).first()
+                         if fallback:
+                             target_draft_id = fallback.id
+
+                # C. Final Processing
+                if db and target_draft_id:
+                    with db.get_db_session() as s:
+                        d = s.query(db.LetterDraft).filter(db.LetterDraft.id == target_draft_id).first()
                         if d:
                             # Update Status (Safe to repeat on refresh)
                             d.status = "Paid/Writing"
+                            
+                            # Restore Session State for Receipt Page
                             st.session_state.paid_tier = d.tier
                             st.session_state.locked_tier = d.tier 
-                            st.session_state.current_draft_id = target_id
+                            st.session_state.current_draft_id = target_draft_id
+                            
                             s.commit() 
                             
                             # Route to Receipt
@@ -327,7 +344,7 @@ def handle_payment_return(session_id):
                             st.rerun()
                             return
                 
-                # Default Fallback
+                # Default Fallback (Only if absolutely no draft found)
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
