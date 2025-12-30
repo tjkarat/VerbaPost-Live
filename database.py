@@ -42,7 +42,6 @@ def init_db():
     url = get_db_url()
     if not url: return None, None
     try:
-        # pool_pre_ping checks if connection is alive before using it
         _engine = create_engine(url, pool_pre_ping=True)
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
         return _engine, _SessionLocal
@@ -53,12 +52,7 @@ def init_db():
 @contextmanager
 def get_db_session():
     engine, Session = init_db()
-    if not Session: 
-        # Fallback to prevent crash if DB is unreachable
-        logger.error("Database unavailable.")
-        yield None
-        return
-
+    if not Session: raise ConnectionError("Database not initialized.")
     session = Session()
     try:
         yield session
@@ -72,16 +66,18 @@ def get_db_session():
 def to_dict(obj):
     """
     Converts SQLAlchemy models to dicts.
+    CRITICAL: Includes a PERMANENT polyfill to ensure 'address_line1' always exists
+    if 'street' is present. This prevents UI refactors from breaking addresses.
     """
     if not obj: return None
-    try:
-        data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
-        # PERMANENT FIX: Polyfill address_line1 if missing
-        if 'street' in data and 'address_line1' not in data:
-            data['address_line1'] = data['street']
-        return data
-    except Exception:
-        return {}
+    data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
+    
+    # --- THE PERMANENT FIX ---
+    # If the database has 'street' but not 'address_line1', we auto-create it.
+    if 'street' in data and 'address_line1' not in data:
+        data['address_line1'] = data['street']
+        
+    return data
 
 # ==========================================
 # 🏛️ MODELS
@@ -97,15 +93,12 @@ class UserProfile(Base):
     address_state = Column(String)
     address_zip = Column(String)
     country = Column(String, default="US")
-    timezone = Column(String, default="US/Central") 
+    timezone = Column(String, default="US/Central") # <--- NEW COLUMN
     parent_name = Column(String)
     parent_phone = Column(String)
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
-    # --- SUBSCRIPTION FIELDS ---
-    stripe_subscription_id = Column(String, nullable=True)
-    subscription_end_date = Column(DateTime, nullable=True)
 
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
@@ -136,6 +129,7 @@ class LetterDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
+    # The new column that caused the confusion, now properly supported
     audio_ref = Column(Text)
 
 class ScheduledCall(Base):
@@ -149,20 +143,19 @@ class ScheduledCall(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Letter(Base):
+    # Matches your screenshot of the 'letters' table
     __tablename__ = 'letters'
     id = Column(Integer, primary_key=True, autoincrement=True) 
-    user_id = Column(Integer) 
+    user_id = Column(Integer) # Based on your screenshot
     content = Column(Text)
     status = Column(String) 
     recipient_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Optional fields that might exist
     user_email = Column(String, nullable=True) 
-    # Added minimal columns for Admin View compatibility
-    to_name = Column(String, nullable=True)
-    to_city = Column(String, nullable=True)
     
 class Contact(Base):
-    # CRITICAL: This restores your Address Book
+    # FIXED: Table name changed from 'address_book' to 'saved_contacts'
     __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -190,39 +183,50 @@ class PaymentFulfillment(Base):
     status = Column(String, default="fulfilled")
     created_at = Column(DateTime, default=datetime.utcnow)
 
+
 # ==========================================
 # 🛠️ FUNCTIONS
 # ==========================================
 
+# --- ROBUST ADMIN FUNCTIONS ---
+
 def get_all_orders():
+    """
+    Fetches orders safely. If one table fails, it still returns the others.
+    """
     combined = []
+    
+    # 1. Try to get Finalized Letters
     try:
         with get_db_session() as session:
-            if session:
-                legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
-                for o in legacy:
-                    d = to_dict(o)
-                    if d and not d.get('user_email'): d['user_email'] = f"ID: {d.get('user_id', '?')}"
-                    if d:
-                        d['source'] = 'Sent Letter'
-                        combined.append(d)
-    except Exception as e: logger.error(f"Error fetching Letters: {e}")
+            legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
+            for o in legacy:
+                d = to_dict(o)
+                # Fallback for email if using user_id
+                if not d.get('user_email'): 
+                    d['user_email'] = f"ID: {d.get('user_id', '?')}"
+                d['source'] = 'Sent Letter'
+                combined.append(d)
+    except Exception as e:
+        logger.error(f"Error fetching Letters table: {e}")
 
+    # 2. Try to get Drafts (This was crashing before)
     try:
         with get_db_session() as session:
-            if session:
-                heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
-                for h in heirloom:
-                    d = to_dict(h)
-                    if d:
-                        d['source'] = 'Draft'
-                        d['recipient_name'] = "Pending..."
-                        if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
-                        combined.append(d)
-    except Exception as e: logger.error(f"Error fetching Drafts: {e}")
+            heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
+            for h in heirloom:
+                d = to_dict(h)
+                d['source'] = 'Draft/Heirloom'
+                d['recipient_name'] = "Pending..."
+                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
+                combined.append(d)
+    except Exception as e:
+        logger.error(f"Error fetching Drafts table: {e}")
 
+    # Sort if we have data
     if combined:
-        try: combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+        try:
+            combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
         except: pass
         
     return combined[:100]
@@ -230,37 +234,44 @@ def get_all_orders():
 def get_all_users():
     try:
         with get_db_session() as session:
-            if not session: return []
             users = session.query(UserProfile).all()
-            return [to_dict(u) for u in users if u]
-    except Exception as e: return []
+            results = []
+            for u in users:
+                d = to_dict(u)
+                d['credits_remaining'] = d.get('credits', 0)
+                results.append(d)
+            return results
+    except Exception as e:
+        logger.error(f"Get Users Error: {e}")
+        return []
 
 def get_all_promos():
     try:
         with get_db_session() as session:
-            if not session: return []
             promos = session.query(PromoCode).all()
-            return [to_dict(p) for p in promos if p]
-    except Exception as e: return []
+            return [to_dict(p) for p in promos]
+    except Exception as e:
+        logger.error(f"Get Promos Error: {e}")
+        return []
 
 def save_audit_log(log_entry):
     try:
         with get_db_session() as session:
-            if not session: return False
             valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
             filtered_entry = {k: v for k, v in log_entry.items() if k in valid_keys}
             log = AuditEvent(**filtered_entry)
             session.add(log)
             session.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Audit Save Error: {e}")
+        return False
 
 def get_audit_logs(limit=100):
     try:
         with get_db_session() as session:
-            if not session: return []
             logs = session.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(limit).all()
-            return [to_dict(l) for l in logs if l]
+            return [to_dict(l) for l in logs]
     except Exception: return []
 
 # --- USER & PROFILE ---
@@ -268,19 +279,19 @@ def get_audit_logs(limit=100):
 def get_user_profile(email):
     try:
         with get_db_session() as session:
-            if not session: return {}
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
                 profile = UserProfile(email=email, credits=0)
                 session.add(profile)
                 session.commit()
             return to_dict(profile)
-    except Exception: return {}
+    except Exception as e:
+        logger.error(f"Get Profile Error: {e}")
+        return {}
 
 def create_user(email, full_name):
     try:
         with get_db_session() as db:
-            if not db: return False
             user = UserProfile(email=email, full_name=full_name)
             db.add(user)
             db.commit()
@@ -290,7 +301,6 @@ def create_user(email, full_name):
 def update_user_credits(email, new_credit_count):
     try:
         with get_db_session() as session:
-            if not session: return False
             profile = session.query(UserProfile).filter_by(email=email).first()
             if profile:
                 profile.credits = new_credit_count
@@ -299,34 +309,9 @@ def update_user_credits(email, new_credit_count):
             return False
     except Exception: return False
 
-def update_user_subscription_id(email, sub_id):
-    try:
-        with get_db_session() as session:
-            if not session: return False
-            profile = session.query(UserProfile).filter_by(email=email).first()
-            if profile:
-                profile.stripe_subscription_id = sub_id
-                session.commit()
-                return True
-            return False
-    except Exception: return False
-
-def update_subscription_state(email, end_date_dt):
-    try:
-        with get_db_session() as session:
-            if not session: return False
-            profile = session.query(UserProfile).filter_by(email=email).first()
-            if profile:
-                profile.subscription_end_date = end_date_dt
-                session.commit()
-                return True
-            return False
-    except Exception: return False
-
 def update_heirloom_settings(email, parent_name, parent_phone):
     try:
         with get_db_session() as session:
-            if not session: return False
             profile = session.query(UserProfile).filter_by(email=email).first()
             if profile:
                 profile.parent_name = parent_name
@@ -339,7 +324,6 @@ def update_heirloom_settings(email, parent_name, parent_phone):
 def update_user_address(email, name, street, city, state, zip_code):
     try:
         with get_db_session() as session:
-            if not session: return False
             profile = session.query(UserProfile).filter_by(email=email).first()
             if profile:
                 profile.full_name = name
@@ -355,7 +339,6 @@ def update_user_address(email, name, street, city, state, zip_code):
 def check_call_limit(email):
     try:
         with get_db_session() as session:
-            if not session: return True, "DB Unavailable"
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile or not profile.last_call_date: return True, "OK"
             diff = datetime.utcnow() - profile.last_call_date
@@ -363,12 +346,11 @@ def check_call_limit(email):
                 hours_left = 24 - int(diff.total_seconds() / 3600)
                 return False, f"Please wait {hours_left} hours."
             return True, "OK"
-    except Exception: return True, "Error"
+    except Exception: return True, "Error checking limit"
 
 def update_last_call_timestamp(email):
     try:
         with get_db_session() as session:
-            if not session: return
             profile = session.query(UserProfile).filter_by(email=email).first()
             if profile:
                 profile.last_call_date = datetime.utcnow()
@@ -378,7 +360,6 @@ def update_last_call_timestamp(email):
 def schedule_call(email, parent_phone, topic, scheduled_dt):
     try:
         with get_db_session() as session:
-            if not session: return False
             call = ScheduledCall(user_email=email, parent_phone=parent_phone, topic=topic, scheduled_time=scheduled_dt)
             session.add(call)
             session.commit()
@@ -387,65 +368,55 @@ def schedule_call(email, parent_phone, topic, scheduled_dt):
 
 # --- STORE / DRAFTS ---
 
+# FIXED: Added audio_ref=None to signature to match ui_heirloom.py calls
 def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
     try:
         with get_db_session() as session:
-            if not session: return None
             draft = LetterDraft(
                 user_email=email, 
                 content=content, 
                 tier=tier, 
                 price=price, 
                 status="Draft",
-                audio_ref=audio_ref 
+                audio_ref=audio_ref # New field
             )
             session.add(draft)
             session.commit()
             return draft.id
-    except Exception: return None
+    except Exception as e:
+        logger.error(f"Save Draft Error: {e}")
+        return None
 
 def get_user_drafts(email):
     try:
         with get_db_session() as session:
-            if not session: return []
             drafts = session.query(LetterDraft).filter_by(user_email=email).order_by(LetterDraft.created_at.desc()).all()
-            return [to_dict(d) for d in drafts if d]
+            return [to_dict(d) for d in drafts]
     except Exception: return []
 
 def update_draft_data(draft_id, **kwargs):
     try:
         with get_db_session() as session:
-            if not session: return False
             draft = session.query(LetterDraft).filter_by(id=draft_id).first()
             if draft:
                 for key, val in kwargs.items():
                     if hasattr(draft, key):
-                        # Special handling for JSON fields
-                        if key in ['to_addr', 'from_addr'] and isinstance(val, dict):
-                            import ast
-                            setattr(draft, key, str(val))
-                        else:
-                            setattr(draft, key, val)
+                        setattr(draft, key, val)
                 session.commit()
                 return True
             return False
     except Exception: return False
 
 def get_contacts(email):
-    # This retrieves the address book
     try:
         with get_db_session() as session:
-            if not session: return []
             contacts = session.query(Contact).filter_by(user_email=email).all()
-            return [to_dict(c) for c in contacts if c]
-    except Exception as e:
-        logger.error(f"Get Contacts Error: {e}")
-        return []
+            return [to_dict(c) for c in contacts]
+    except Exception: return []
 
 def save_contact(user_email, contact_data):
     try:
         with get_db_session() as session:
-            if not session: return False
             new_c = Contact(
                 user_email=user_email,
                 name=contact_data.get("name"),
@@ -459,10 +430,23 @@ def save_contact(user_email, contact_data):
             return True
     except Exception: return False
 
+# --- NEW FUNCTION FOR ADDRESS BOOK MANAGEMENT ---
+def delete_contact(user_email, contact_id):
+    try:
+        with get_db_session() as session:
+            contact = session.query(Contact).filter_by(user_email=user_email, id=contact_id).first()
+            if contact:
+                session.delete(contact)
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Delete Contact Error: {e}")
+        return False
+
 def create_promo_code(code, amount):
     try:
         with get_db_session() as db:
-            if not db: return False
             p = PromoCode(code=code, discount_amount=amount, active=True, is_active=True)
             db.add(p)
             db.commit()
@@ -470,14 +454,43 @@ def create_promo_code(code, amount):
     except Exception: return False
 
 def record_stripe_fulfillment(session_id):
-    if not session_id: return False
+    """
+    Attempts to log a Stripe Session ID. 
+    Returns True if this is a NEW fulfillment.
+    Returns False if this session_id already exists (Idempotency Check).
+    """
+    if not session_id:
+        return False
+        
     try:
         with get_db_session() as session:
-            if not session: return True
+            # Check existence first to avoid exception handling overhead if possible
             exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
-            if exists: return False
+            if exists:
+                return False
+            
+            # Record new fulfillment
             new_record = PaymentFulfillment(stripe_session_id=session_id)
             session.add(new_record)
             session.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Idempotency Check Error: {e}")
+        # If we can't verify, we assume it might be a duplicate to be safe, 
+        # or we return False to prevent double-spending.
+        return False
+
+# --- NEW FUNCTION FOR READ-ONLY CHECK ---
+def is_fulfillment_recorded(session_id):
+    """
+    Read-only check for payment existence. 
+    Does not attempt to write or lock.
+    """
+    if not session_id: return False
+    try:
+        with get_db_session() as session:
+             exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
+             return exists is not None
+    except Exception as e:
+        logger.error(f"Read Fulfillment Error: {e}")
+        return True # Fail safe: Assume verified to prevent double processing in error state

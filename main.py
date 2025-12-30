@@ -245,16 +245,33 @@ def render_sidebar(mode):
 def handle_payment_return(session_id):
     """
     Handles Stripe Callback.
+    CRITICAL FIX: Checks idempotency FIRST to prevent race conditions.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
-    # --- IDEMPOTENCY CHECK ---
-    # We capture the status but DO NOT return early.
-    # This ensures routing logic still runs even on page refreshes.
+    # --- 1. IDEMPOTENCY CHECK FIRST (FIXED) ---
+    # We check if this session was already recorded. If so, we skip logic entirely.
+    if db and hasattr(db, "is_fulfillment_recorded"):
+        if db.is_fulfillment_recorded(session_id):
+             logger.info(f"Payment {session_id} already recorded. Skipping re-process.")
+             st.info("✅ Order already processed")
+             # Redirect based on mode to prevent confusion
+             if st.session_state.get("system_mode") == "utility":
+                 st.session_state.app_mode = "receipt"
+             else:
+                 st.session_state.app_mode = "heirloom"
+             st.query_params.clear()
+             return
+
+    # --- 2. RECORD FULFILLMENT (LOCK) ---
+    # Attempts to write the ID. If it fails (constraint error), another thread beat us.
     is_new_fulfillment = True
     if db and hasattr(db, "record_stripe_fulfillment"):
         is_new_fulfillment = db.record_stripe_fulfillment(session_id)
+        if not is_new_fulfillment:
+             # Double-check safety
+             return
 
     if pay_eng:
         user_email = st.session_state.get("user_email")
@@ -264,8 +281,8 @@ def handle_payment_return(session_id):
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
-                # --- AUDIT LOGGING (Only if new) ---
-                if is_new_fulfillment and db and hasattr(db, "save_audit_log"):
+                # --- AUDIT LOGGING ---
+                if db and hasattr(db, "save_audit_log"):
                     try:
                         db.save_audit_log({
                             "user_email": user_email or "Unknown",
@@ -288,13 +305,11 @@ def handle_payment_return(session_id):
                 # CASE 1: ANNUAL PASS / MONTHLY SUB
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
-                    # Only add credits if this is a fresh transaction
-                    if is_new_fulfillment and db and user_email: 
+                    if db and user_email: 
                         db.update_user_credits(user_email, 4)
                         if hasattr(raw_obj, 'subscription'):
                             sub_id = raw_obj.subscription
                             db.update_user_subscription_id(user_email, sub_id)
-                            # Safe call for subscription status if method exists
                             if hasattr(pay_eng, 'check_subscription_status'):
                                 pay_eng.check_subscription_status(user_email)
 
@@ -312,10 +327,9 @@ def handle_payment_return(session_id):
                      try: target_draft_id = int(meta_id)
                      except: target_draft_id = meta_id
                 
-                # B. Smart Fallback: If metadata lost (Promo Code bug), find latest draft for user
+                # B. Smart Fallback: If metadata lost (Promo Code bug), find latest draft
                 if not target_draft_id and db and user_email:
                     with db.get_db_session() as s:
-                         # Look for drafts created recently that are in "Pending Payment" or "Draft"
                          fallback = s.query(db.LetterDraft).filter(
                              db.LetterDraft.user_email == user_email
                          ).order_by(db.LetterDraft.created_at.desc()).first()
@@ -327,24 +341,21 @@ def handle_payment_return(session_id):
                     with db.get_db_session() as s:
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == target_draft_id).first()
                         if d:
-                            # Update Status (Safe to repeat on refresh)
                             d.status = "Paid/Writing"
                             
-                            # Restore Session State for Receipt Page
                             st.session_state.paid_tier = d.tier
                             st.session_state.locked_tier = d.tier 
                             st.session_state.current_draft_id = target_draft_id
                             
                             s.commit() 
                             
-                            # Route to Receipt
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "receipt"
                             st.query_params["mode"] = "utility"
                             st.rerun()
                             return
                 
-                # Default Fallback (Only if absolutely no draft found)
+                # Default Fallback
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
