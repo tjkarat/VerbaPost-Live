@@ -315,7 +315,8 @@ def render_workspace_page():
                 st.caption("ℹ️ No saved contacts found. Add friends in your Profile to see them here.")
         
         # --- NEW ADDRESS BOOK MANAGER ---
-        with st.expander("📇 Manage Address Book", expanded=False):
+        # FIXED: Replaced nested st.expander with st.checkbox to prevent StreamlitAPIException
+        if st.checkbox("📇 Manage Address Book"):
             if st.session_state.get("authenticated"):
                  contacts_raw = load_address_book()
                  if contacts_raw:
@@ -438,7 +439,7 @@ def render_workspace_page():
                         st.success(f"✅ Addresses Saved (Verification Offline)")
         
         # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
-        if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.addresses_saved_at < 10:
+        if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.get("addresses_saved_at", 0) < 10:
             st.success("✅ Your addresses are saved and ready!")
 
     st.divider()
