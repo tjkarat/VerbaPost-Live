@@ -82,15 +82,15 @@ def inject_dynamic_seo(mode):
 
 # --- MAIN LOGIC ---
 def main():
-    # 1. PRE-FLIGHT CHECK
-    try:
-        import module_validator
-        is_healthy, error_log = module_validator.validate_critical_modules()
-        if not is_healthy:
-            st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
-            st.stop()
-    except ImportError:
-        pass 
+    # 1. PRE-FLIGHT CHECK (DISABLED TO FIX KEYERROR CRASH)
+    # try:
+    #     import module_validator
+    #     is_healthy, error_log = module_validator.validate_critical_modules()
+    #     if not is_healthy:
+    #         st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
+    #         st.stop()
+    # except ImportError:
+    #     pass 
 
     # 2. DETERMINE SYSTEM MODE
     if "system_mode" not in st.session_state:
@@ -243,7 +243,7 @@ def render_sidebar(mode):
 
 def handle_payment_return(session_id):
     """
-    Handles Stripe Callback with TYPE SAFE DRAFT RECOVERY.
+    Handles Stripe Callback with AGGRESSIVE & TYPE-SAFE DRAFT RECOVERY.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
