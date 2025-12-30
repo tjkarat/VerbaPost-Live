@@ -315,7 +315,6 @@ def render_workspace_page():
                 st.caption("ℹ️ No saved contacts found. Add friends in your Profile to see them here.")
         
         # --- NEW ADDRESS BOOK MANAGER ---
-        # FIXED: Replaced nested st.expander with st.checkbox to prevent StreamlitAPIException
         if st.checkbox("📇 Manage Address Book"):
             if st.session_state.get("authenticated"):
                  contacts_raw = load_address_book()
@@ -542,7 +541,6 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
-    # REMOVED PDF BUTTON AS REQUESTED
     st.info("📄 Your letter is ready for production. Proceed to payment below to print and mail.")
 
     st.divider()
@@ -596,18 +594,45 @@ def render_review_page():
     
     st.markdown(f"### Total: ${total:.2f}")
 
+    u_email = st.session_state.get("user_email")
+    d_id = st.session_state.get("current_draft_id")
+
+    # --- HANDLING FREE ORDERS ($0.00) ---
+    if total <= 0:
+        st.success("🎉 This order is FREE via Promo Code!")
+        if st.button("✅ Complete Free Order", type="primary", use_container_width=True):
+            if d_id and database:
+                try:
+                    # 1. Mark as Paid directly
+                    database.update_draft_data(d_id, price=0.0, status="Paid/Writing")
+                    
+                    # 2. Log it
+                    if hasattr(database, "save_audit_log"):
+                        database.save_audit_log({
+                            "user_email": u_email,
+                            "event_type": "ORDER_COMPLETE_FREE",
+                            "description": "Order completed with 100% off promo",
+                            "details": f"Draft: {d_id}, Code: {st.session_state.get('applied_promo')}"
+                        })
+                    
+                    # 3. Move to Receipt
+                    st.session_state.paid_tier = tier
+                    st.session_state.app_mode = "receipt"
+                    st.rerun()
+                    
+                except Exception as e:
+                    logger.error(f"Free Order Error: {e}")
+                    st.error("Failed to process free order. Please try again.")
+        return
+
+    # --- STANDARD STRIPE FLOW (For paid orders) ---
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-        u_email = st.session_state.get("user_email")
-        d_id = st.session_state.get("current_draft_id")
-        
-        # --- CRITICAL: PERSIST STATE BEFORE REDIRECT ---
         if d_id and database:
             try:
                 database.update_draft_data(
                     d_id, 
                     price=total, 
-                    status="Pending Payment",
-                    # Optionally store checkout URL or token here if needed
+                    status="Pending Payment"
                 )
             except Exception as e:
                 logger.error(f"State Persistence Error: {e}")
@@ -626,7 +651,6 @@ def render_review_page():
         )
         if url: 
             st.link_button("👉 Click to Pay", url)
-            # Store URL in session state as backup
             st.session_state.stripe_checkout_url = url
         else: st.error("Payment Gateway Error")
 
