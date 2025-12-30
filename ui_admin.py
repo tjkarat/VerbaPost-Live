@@ -178,13 +178,14 @@ def render_admin_page():
                                 
                                 # Parse Addresses
                                 try:
-                                    to_dict = ast.literal_eval(item.to_address_json) if item.to_address_json else {}
-                                    from_dict = ast.literal_eval(item.from_address_json) if item.from_address_json else {}
+                                    # FIXED: Uses 'to_addr' (correct schema) not 'to_address_json'
+                                    to_dict = ast.literal_eval(item.to_addr) if item.to_addr else {}
+                                    from_dict = ast.literal_eval(item.from_addr) if item.from_addr else {}
                                 except:
                                     to_dict = {}
                                     from_dict = {}
                                 
-                                if st.button(f"⬇️ Generate PDF for #{item.id[:6]}", key=f"pdf_{item.id}"):
+                                if st.button(f"⬇️ Generate PDF for #{item.id}", key=f"pdf_{item.id}"):
                                     if letter_format and address_standard:
                                         try:
                                             # Create Address Objects
@@ -276,20 +277,28 @@ def render_admin_page():
                     selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
                 
                 if selected_order_str and selected_order_str != "Select...":
-                    selected_uuid = selected_order_str.split(" ")[0]
+                    selected_uuid_str = selected_order_str.split(" ")[0]
                     
+                    # Convert ID to int if digits, else leave as str (handles both schema types)
+                    try:
+                        selected_id = int(selected_uuid_str)
+                    except:
+                        selected_id = selected_uuid_str
+
                     with database.get_db_session() as db:
-                        record = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_uuid).first()
+                        record = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_id).first()
                         if not record:
-                            record = db.query(database.Letter).filter(database.Letter.id == selected_uuid).first()
+                            record = db.query(database.Letter).filter(database.Letter.id == selected_id).first()
                             
                         if record:
-                            st.markdown(f"**Processing Order:** `{selected_uuid}`")
+                            st.markdown(f"**Processing Order:** `{selected_id}`")
                             
                             # Standard Workflow Repair
                             st.markdown("#### Edit Recipient Data & Re-Dispatch")
-                            try: t_addr = ast.literal_eval(record.to_addr) if hasattr(record, 'to_addr') else {}
-                            except: t_addr = {}
+                            try: 
+                                t_addr = ast.literal_eval(record.to_addr) if hasattr(record, 'to_addr') and record.to_addr else {}
+                            except: 
+                                t_addr = {}
                             
                             c1, c2 = st.columns(2)
                             with c1:
@@ -310,7 +319,7 @@ def render_admin_page():
                                     try: f_addr = ast.literal_eval(record.from_addr)
                                     except: f_addr = {"name": "VerbaPost"}
                                     pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
-                                    res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_uuid}")
+                                    res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
                                     if res: 
                                         record.status = "Sent"; record.tracking_number = res; db.commit()
                                         st.success("Dispatched!"); st.rerun()

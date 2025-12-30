@@ -251,12 +251,10 @@ def handle_payment_return(session_id):
     pay_eng = get_module("payment_engine")
     
     # --- 1. IDEMPOTENCY CHECK FIRST (FIXED) ---
-    # We check if this session was already recorded. If so, we skip logic entirely.
     if db and hasattr(db, "is_fulfillment_recorded"):
         if db.is_fulfillment_recorded(session_id):
              logger.info(f"Payment {session_id} already recorded. Skipping re-process.")
              st.info("✅ Order already processed")
-             # Redirect based on mode to prevent confusion
              if st.session_state.get("system_mode") == "utility":
                  st.session_state.app_mode = "receipt"
              else:
@@ -265,19 +263,18 @@ def handle_payment_return(session_id):
              return
 
     # --- 2. RECORD FULFILLMENT (LOCK) ---
-    # Attempts to write the ID. If it fails (constraint error), another thread beat us.
     is_new_fulfillment = True
     if db and hasattr(db, "record_stripe_fulfillment"):
         is_new_fulfillment = db.record_stripe_fulfillment(session_id)
         if not is_new_fulfillment:
-             # Double-check safety
              return
 
     if pay_eng:
         user_email = st.session_state.get("user_email")
         try:
             raw_obj = pay_eng.verify_session(session_id)
-            if hasattr(raw_obj, 'payment_status') and raw_obj.payment_status == 'paid':
+            # Even if payment_status is 'unpaid' (for 100% off), we proceed if object exists
+            if raw_obj:
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
@@ -327,12 +324,21 @@ def handle_payment_return(session_id):
                      try: target_draft_id = int(meta_id)
                      except: target_draft_id = meta_id
                 
-                # B. Smart Fallback: If metadata lost (Promo Code bug), find latest draft
+                # B. ROBUST FALLBACK: If metadata lost (Promo Code bug), find latest Pending/Draft
                 if not target_draft_id and db and user_email:
                     with db.get_db_session() as s:
+                         # Prioritize 'Pending Payment' first
                          fallback = s.query(db.LetterDraft).filter(
-                             db.LetterDraft.user_email == user_email
+                             db.LetterDraft.user_email == user_email,
+                             db.LetterDraft.status == "Pending Payment"
                          ).order_by(db.LetterDraft.created_at.desc()).first()
+                         
+                         # If no pending found, verify checks for very recent draft
+                         if not fallback:
+                             fallback = s.query(db.LetterDraft).filter(
+                                 db.LetterDraft.user_email == user_email
+                             ).order_by(db.LetterDraft.created_at.desc()).first()
+                             
                          if fallback:
                              target_draft_id = fallback.id
 
@@ -351,11 +357,12 @@ def handle_payment_return(session_id):
                             
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "receipt"
-                            st.query_params["mode"] = "utility"
+                            st.query_params.clear()
                             st.rerun()
                             return
                 
-                # Default Fallback
+                # If we get here, we couldn't find the draft, but payment succeeded.
+                # Default to Archive dashboard to avoid crash
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()

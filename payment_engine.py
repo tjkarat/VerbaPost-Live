@@ -1,5 +1,7 @@
 import streamlit as st
+import stripe
 import logging
+import secrets_manager
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -10,9 +12,6 @@ try:
 except ImportError:
     stripe = None
     logger.error("Stripe module not found. Payments will be disabled.")
-
-try: import secrets_manager
-except ImportError: secrets_manager = None
 
 try: import database
 except ImportError: database = None
@@ -48,6 +47,28 @@ def get_api_key():
 
     return None
 
+def get_base_url():
+    """
+    Returns the application base URL.
+    Defaults to the production custom domain to prevent redirects to streamlit.app
+    """
+    url = None
+    # 1. Try Secrets
+    if hasattr(st, "secrets") and "general" in st.secrets:
+        url = st.secrets["general"].get("BASE_URL")
+    
+    # 2. Try Env Vars
+    if not url:
+        import os
+        url = os.environ.get("BASE_URL")
+        
+    # 3. Safe Default (Production)
+    if not url:
+        # CHANGED: Default to custom domain
+        url = "https://app.verbapost.com"
+        
+    return url.rstrip("/")
+
 def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment"):
     """
     Creates a Stripe Checkout Session.
@@ -62,17 +83,11 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
         return None
 
     stripe.api_key = api_key
+    base_url = get_base_url()
     
-    # Base URL for redirects (Safe Lookup)
-    base_url = "https://verbapost.streamlit.app"
-    try:
-        general_config = st.secrets.get("general", {})
-        if "BASE_URL" in general_config:
-            base_url = general_config["BASE_URL"]
-    except Exception: 
-        pass # Keep default if fails
-    
-    # Metadata for fulfillment
+    success_url = f"{base_url}?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{base_url}?nav=store"
+
     metadata = {
         "user_email": user_email,
         "draft_id": str(draft_id),
@@ -106,7 +121,7 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
 
 def verify_session(session_id):
     """
-    Verifies a session ID with Stripe to ensure payment success.
+    Retrieves session details from Stripe to verify payment.
     """
     if not stripe or not session_id: return None
     
@@ -125,11 +140,6 @@ def verify_session(session_id):
 def check_subscription_status(user_email):
     """
     Checks if the user has an active subscription AND refills credits if a new month has started.
-    Logic:
-    1. Check Stripe for active subs.
-    2. Get 'current_period_end' from Stripe.
-    3. Compare with 'subscription_end_date' in local DB.
-    4. If Stripe date is NEWER -> Refill to 4 credits & Update DB.
     """
     if not user_email or not stripe:
         return False

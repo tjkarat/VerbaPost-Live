@@ -542,23 +542,8 @@ def render_review_page():
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
-    if st.button("📄 Generate PDF Proof"):
-        with st.spinner("Generating Proof..."):
-            try:
-                body = st.session_state.get("letter_body", "")
-                if tier == "Civic":
-                    std_to = address_standard.StandardAddress(name="Representative", street="Washington DC", city="Washington", state="DC", zip_code="20515")
-                else:
-                    std_to = address_standard.StandardAddress.from_dict(st.session_state.get("addr_to", {}))
-                std_from = address_standard.StandardAddress.from_dict(st.session_state.get("addr_from", {}))
-                
-                pdf_bytes = letter_format.create_pdf(body, std_to, std_from, tier, signature_text=st.session_state.get("signature_text"))
-                
-                import base64
-                b64_pdf = base64.b64encode(pdf_bytes).decode('utf-8')
-                st.markdown(f'<embed src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf">', unsafe_allow_html=True)
-                st.download_button("⬇️ Download PDF", pdf_bytes, "letter_proof.pdf", "application/pdf")
-            except Exception as e: st.error(f"PDF Error: {e}")
+    # REMOVED PDF BUTTON AS REQUESTED
+    st.info("📄 Your letter is ready for production. Proceed to payment below to print and mail.")
 
     st.divider()
     

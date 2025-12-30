@@ -55,49 +55,10 @@ def render_login_page():
     # --- 2. STANDARD LOGIN/SIGNUP UI ---
     st.markdown("## 🔐 Access VerbaPost")
     
-    tab_login, tab_signup, tab_forgot = st.tabs(["Sign In", "New Account", "Forgot Password"])
+    # CHANGED: "New Account" is now first, making it the default tab
+    tab_signup, tab_login, tab_forgot = st.tabs(["New Account", "Sign In", "Forgot Password"])
 
-    # --- TAB A: SIGN IN ---
-    with tab_login:
-        with st.form("login_form"):
-            email = st.text_input("Email Address")
-            password = st.text_input("Password", type="password")
-            submit = st.form_submit_button("Sign In", type="primary")
-            
-            if submit:
-                if auth_engine:
-                    user, error = auth_engine.sign_in(email, password)
-                    if user:
-                        st.success(f"Welcome back, {email}!")
-                        st.session_state.authenticated = True
-                        st.session_state.user_email = email
-                        
-                        # --- AUDIT LOG (NEW) ---
-                        if hasattr(database, "save_audit_log"):
-                            try:
-                                database.save_audit_log({
-                                    "user_email": email,
-                                    "event_type": "USER_LOGIN",
-                                    "description": "Successful Login via Auth Engine"
-                                })
-                            except Exception: pass
-                        # -----------------------
-
-                        # --- ROUTING FIX ---
-                        target = st.session_state.get("redirect_to", "main")
-                        
-                        if target == "heirloom":
-                            st.session_state.app_mode = "heirloom"
-                            st.query_params["view"] = "heirloom"
-                        else:
-                            # FIXED: Map to 'main', not 'store' (which doesn't exist in main.py)
-                            st.session_state.app_mode = "main"
-                        
-                        st.rerun()
-                    else:
-                        st.error(f"Login failed: {error}")
-
-    # --- TAB B: SIGN UP ---
+    # --- TAB A: SIGN UP (Now Default) ---
     with tab_signup:
         st.markdown("""
         <div class="auth-explanation">
@@ -206,6 +167,45 @@ def render_login_page():
                                 st.rerun()
                             else:
                                 st.error(f"Signup failed: {error}")
+
+    # --- TAB B: SIGN IN ---
+    with tab_login:
+        with st.form("login_form"):
+            email = st.text_input("Email Address")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Sign In", type="primary")
+            
+            if submit:
+                if auth_engine:
+                    user, error = auth_engine.sign_in(email, password)
+                    if user:
+                        st.success(f"Welcome back, {email}!")
+                        st.session_state.authenticated = True
+                        st.session_state.user_email = email
+                        
+                        # --- AUDIT LOG ---
+                        if hasattr(database, "save_audit_log"):
+                            try:
+                                database.save_audit_log({
+                                    "user_email": email,
+                                    "event_type": "USER_LOGIN",
+                                    "description": "Successful Login via Auth Engine"
+                                })
+                            except Exception: pass
+                        # -----------------------
+
+                        # --- ROUTING FIX ---
+                        target = st.session_state.get("redirect_to", "main")
+                        
+                        if target == "heirloom":
+                            st.session_state.app_mode = "heirloom"
+                            st.query_params["view"] = "heirloom"
+                        else:
+                            st.session_state.app_mode = "main"
+                        
+                        st.rerun()
+                    else:
+                        st.error(f"Login failed: {error}")
 
     # --- TAB C: FORGOT PASSWORD ---
     with tab_forgot:

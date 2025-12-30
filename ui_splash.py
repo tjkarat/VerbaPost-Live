@@ -62,6 +62,6 @@ def render_splash_page():
          if st.button("⚖️ Legal / Terms", use_container_width=True, key="splash_foot_legal"):
             st.session_state.app_mode = "legal"; st.rerun()
 
-    st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px; margin-top: 20px;'>VerbaPost • Private • Secure • Forever</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; color: #ccc; font-size: 0.75rem; border-top: 1px solid #f0f0f0; padding-top: 20px; margin-top: 20px;'>VerbaPost • Private • Secure</div>", unsafe_allow_html=True)
     
     return ""
