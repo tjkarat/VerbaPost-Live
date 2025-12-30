@@ -243,7 +243,7 @@ def render_sidebar(mode):
 
 def handle_payment_return(session_id):
     """
-    Handles Stripe Callback with Type-Safe Draft Recovery.
+    Handles Stripe Callback with AGGRESSIVE & TYPE-SAFE DRAFT RECOVERY.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
@@ -252,7 +252,6 @@ def handle_payment_return(session_id):
     if db and hasattr(db, "is_fulfillment_recorded"):
         if db.is_fulfillment_recorded(session_id):
              logger.info(f"Payment {session_id} already recorded.")
-             # Assume success and show receipt if utility mode
              if st.session_state.get("system_mode") == "utility":
                  st.session_state.app_mode = "receipt"
              else:
@@ -313,8 +312,10 @@ def handle_payment_return(session_id):
 
                 # B. Single Letter (Utility)
                 target_draft_id = None
+                
+                # FIX: Force String Type for meta_id to prevent SQL Type Error
                 if meta_id:
-                     target_draft_id = str(meta_id) # FORCE STRING for DB Safety
+                     target_draft_id = str(meta_id)
                 
                 # --- AGGRESSIVE RECOVERY LOGIC (Fix for Promo Code 404s) ---
                 if not target_draft_id and db and user_email:
@@ -334,11 +335,11 @@ def handle_payment_return(session_id):
                              ).order_by(db.LetterDraft.created_at.desc()).first()
                              
                          if fallback:
-                             target_draft_id = str(fallback.id) # FORCE STRING
+                             target_draft_id = str(fallback.id) # FIX: Force String
 
                 if db and target_draft_id:
                     with db.get_db_session() as s:
-                        # FILTER WITH STRING ID to prevent "text = integer" error
+                        # FIX: Explicit string cast in query to match DB schema
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == str(target_draft_id)).first()
                         if d:
                             d.status = "Paid/Writing"
