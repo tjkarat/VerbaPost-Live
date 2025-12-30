@@ -83,12 +83,15 @@ def render_login_page():
                             except Exception: pass
                         # -----------------------
 
-                        target = st.session_state.get("redirect_to", "store")
+                        # --- ROUTING FIX ---
+                        target = st.session_state.get("redirect_to", "main")
+                        
                         if target == "heirloom":
                             st.session_state.app_mode = "heirloom"
                             st.query_params["view"] = "heirloom"
                         else:
-                            st.session_state.app_mode = "store"
+                            # FIXED: Map to 'main', not 'store' (which doesn't exist in main.py)
+                            st.session_state.app_mode = "main"
                         
                         st.rerun()
                     else:
@@ -191,12 +194,13 @@ def render_login_page():
                                 st.session_state.authenticated = True
                                 st.session_state.user_email = new_email
                                 
-                                target = st.session_state.get("redirect_to", "store")
+                                # --- ROUTING FIX ---
+                                target = st.session_state.get("redirect_to", "main")
                                 if target == "heirloom":
                                     st.session_state.app_mode = "heirloom"
                                     st.query_params["view"] = "heirloom"
                                 else:
-                                    st.session_state.app_mode = "store"
+                                    st.session_state.app_mode = "main"
 
                                 time.sleep(1)
                                 st.rerun()

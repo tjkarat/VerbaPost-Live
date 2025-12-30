@@ -49,7 +49,7 @@ def render_splash_page():
                 st.session_state.app_mode = "main" 
             else:
                 st.session_state.app_mode = "login"
-                st.session_state.redirect_to = "store" # Explicitly request store
+                st.session_state.redirect_to = "main" # Explicitly request store main view
             st.rerun()
 
     # --- FOOTER ---
