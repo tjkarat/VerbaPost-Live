@@ -277,13 +277,12 @@ def render_admin_page():
                     selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
                 
                 if selected_order_str and selected_order_str != "Select...":
+                    # Get the ID string from the dropdown
                     selected_uuid_str = selected_order_str.split(" ")[0]
                     
-                    # Convert ID to int if digits, else leave as str (handles both schema types)
-                    try:
-                        selected_id = int(selected_uuid_str)
-                    except:
-                        selected_id = selected_uuid_str
+                    # --- CRITICAL FIX: REMOVED INT CONVERSION ---
+                    # We force it to be a string to match DB schema
+                    selected_id = str(selected_uuid_str)
 
                     with database.get_db_session() as db:
                         record = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_id).first()
