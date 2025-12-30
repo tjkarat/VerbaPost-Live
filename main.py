@@ -105,7 +105,7 @@ def main():
     if "session_id" in st.query_params:
         handle_payment_return(st.query_params["session_id"])
 
-    # 4. Default Routing Logic (FIXED)
+    # 4. Default Routing Logic
     if "app_mode" not in st.session_state:
         # Check URL for navigation targets
         nav_target = st.query_params.get("nav")
@@ -125,7 +125,6 @@ def main():
              st.session_state.app_mode = "blog"
 
         # --- PROTECTED ROUTES (Auth Required) ---
-        # If not logged in, force them to Login page first
         elif nav_target == "heirloom":
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
@@ -244,41 +243,44 @@ def render_sidebar(mode):
 
 def handle_payment_return(session_id):
     """
-    Handles Stripe Callback.
-    CRITICAL FIX: Checks idempotency FIRST to prevent race conditions.
+    Handles Stripe Callback with Infinite Loop Protection.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
-    # --- 1. IDEMPOTENCY CHECK FIRST (FIXED) ---
+    # 1. IDEMPOTENCY CHECK
     if db and hasattr(db, "is_fulfillment_recorded"):
         if db.is_fulfillment_recorded(session_id):
-             logger.info(f"Payment {session_id} already recorded. Skipping re-process.")
+             logger.info(f"Payment {session_id} already recorded.")
              st.info("✅ Order already processed")
+             st.query_params.clear()
              if st.session_state.get("system_mode") == "utility":
                  st.session_state.app_mode = "receipt"
              else:
                  st.session_state.app_mode = "heirloom"
-             st.query_params.clear()
              return
 
-    # --- 2. RECORD FULFILLMENT (LOCK) ---
-    is_new_fulfillment = True
+    # 2. RECORD FULFILLMENT ATTEMPT
+    is_new = True
     if db and hasattr(db, "record_stripe_fulfillment"):
-        is_new_fulfillment = db.record_stripe_fulfillment(session_id)
-        if not is_new_fulfillment:
-             return
+        is_new = db.record_stripe_fulfillment(session_id)
+        if not is_new: return
 
     if pay_eng:
         user_email = st.session_state.get("user_email")
         try:
+            # 3. VERIFY SESSION
             raw_obj = pay_eng.verify_session(session_id)
-            # Even if payment_status is 'unpaid' (for 100% off), we proceed if object exists
+            
             if raw_obj:
+                # SUCCESS LOGIC
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
-                # --- AUDIT LOGGING ---
+                st.session_state.authenticated = True
+                st.session_state.user_email = user_email
+
+                # Audit Log
                 if db and hasattr(db, "save_audit_log"):
                     try:
                         db.save_audit_log({
@@ -288,86 +290,79 @@ def handle_payment_return(session_id):
                             "stripe_session_id": session_id,
                             "details": f"Ref: {getattr(raw_obj, 'client_reference_id', 'N/A')}"
                         })
-                    except Exception as e:
-                        logger.error(f"Audit Log Error: {e}")
-
-                st.session_state.authenticated = True
-                st.session_state.user_email = user_email
+                    except: pass
 
                 meta_id = None
                 ref_id = getattr(raw_obj, 'client_reference_id', '')
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
 
-                # CASE 1: ANNUAL PASS / MONTHLY SUB
-                is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
-                if is_annual:
+                # A. Subscription
+                if (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT"):
                     if db and user_email: 
                         db.update_user_credits(user_email, 4)
                         if hasattr(raw_obj, 'subscription'):
-                            sub_id = raw_obj.subscription
-                            db.update_user_subscription_id(user_email, sub_id)
+                            db.update_user_subscription_id(user_email, raw_obj.subscription)
                             if hasattr(pay_eng, 'check_subscription_status'):
                                 pay_eng.check_subscription_status(user_email)
-
                     st.query_params.clear()
                     st.session_state.system_mode = "archive"
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
                     return
 
-                # CASE 2: SINGLE LETTER (Utility Mode)
+                # B. Single Letter (Utility)
                 target_draft_id = None
-                
-                # A. Try Metadata ID first (Standard Path)
                 if meta_id:
                      try: target_draft_id = int(meta_id)
                      except: target_draft_id = meta_id
                 
-                # B. ROBUST FALLBACK: If metadata lost (Promo Code bug), find latest Pending/Draft
+                # Robust Fallback for Lost Metadata
                 if not target_draft_id and db and user_email:
                     with db.get_db_session() as s:
-                         # Prioritize 'Pending Payment' first
                          fallback = s.query(db.LetterDraft).filter(
                              db.LetterDraft.user_email == user_email,
                              db.LetterDraft.status == "Pending Payment"
                          ).order_by(db.LetterDraft.created_at.desc()).first()
-                         
-                         # If no pending found, verify checks for very recent draft
                          if not fallback:
                              fallback = s.query(db.LetterDraft).filter(
                                  db.LetterDraft.user_email == user_email
                              ).order_by(db.LetterDraft.created_at.desc()).first()
-                             
-                         if fallback:
-                             target_draft_id = fallback.id
+                         if fallback: target_draft_id = fallback.id
 
-                # C. Final Processing
                 if db and target_draft_id:
                     with db.get_db_session() as s:
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == target_draft_id).first()
                         if d:
                             d.status = "Paid/Writing"
-                            
                             st.session_state.paid_tier = d.tier
                             st.session_state.locked_tier = d.tier 
                             st.session_state.current_draft_id = target_draft_id
-                            
                             s.commit() 
-                            
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "receipt"
                             st.query_params.clear()
                             st.rerun()
                             return
                 
-                # If we get here, we couldn't find the draft, but payment succeeded.
-                # Default to Archive dashboard to avoid crash
+                # Fallback if draft not found but paid
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
+
+            else:
+                # FAILURE CASE (FIX FOR INFINITE LOOP)
+                logger.error(f"Stripe Session {session_id} not found (404).")
+                st.error("⚠️ Payment verification failed or session expired.")
+                st.query_params.clear() # CRITICAL: Remove ID to stop loop
+                time.sleep(2)
+                st.session_state.app_mode = "store"
+                st.rerun()
+
         except Exception as e:
-            logger.error(f"Payment Verification Error: {e}")
+            logger.error(f"Payment Verification Crash: {e}")
+            st.query_params.clear() # CRITICAL: Safety valve
+            st.rerun()
 
 if __name__ == "__main__":
     main()
