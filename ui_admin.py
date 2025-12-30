@@ -309,19 +309,42 @@ def render_admin_page():
                             
                             new_content = st.text_area("Letter Body", value=record.content, height=150, key="rep_body")
                             
-                            if st.button("🚀 Update & Force Dispatch"):
-                                updated_to = {"name": new_name, "address_line1": new_street, "city": new_city, "state": t_addr.get('state', 'NA'), "zip": new_zip}
-                                record.to_addr = str(updated_to)
-                                record.content = new_content
-                                db.commit()
-                                if mailer and letter_format:
-                                    try: f_addr = ast.literal_eval(record.from_addr)
-                                    except: f_addr = {"name": "VerbaPost"}
-                                    pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
-                                    res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
-                                    if res: 
-                                        record.status = "Sent"; record.tracking_number = res; db.commit()
-                                        st.success("Dispatched!"); st.rerun()
+                            # --- NEW BUTTON LAYOUT (MANUAL QUEUE SUPPORT) ---
+                            col_api, col_man, col_save = st.columns(3)
+                            
+                            updated_to = {"name": new_name, "address_line1": new_street, "city": new_city, "state": t_addr.get('state', 'NA'), "zip": new_zip}
+                            
+                            with col_api:
+                                if st.button("🚀 Force API Dispatch", use_container_width=True):
+                                    record.to_addr = str(updated_to)
+                                    record.content = new_content
+                                    db.commit()
+                                    if mailer and letter_format:
+                                        try: f_addr = ast.literal_eval(record.from_addr)
+                                        except: f_addr = {"name": "VerbaPost"}
+                                        pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
+                                        res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
+                                        if res: 
+                                            record.status = "Sent"; record.tracking_number = res; db.commit()
+                                            st.success("Dispatched!"); st.rerun()
+                            
+                            with col_man:
+                                if st.button("🖨️ Move to Manual Queue", use_container_width=True):
+                                    record.to_addr = str(updated_to)
+                                    record.content = new_content
+                                    record.status = "Queued (Manual)"
+                                    db.commit()
+                                    st.success("Moved to Manual Print Queue!")
+                                    time.sleep(1)
+                                    st.rerun()
+                                    
+                            with col_save:
+                                if st.button("💾 Save Changes Only", use_container_width=True):
+                                    record.to_addr = str(updated_to)
+                                    record.content = new_content
+                                    db.commit()
+                                    st.success("Data Updated")
+
         except Exception as e: st.error(f"Error fetching orders: {e}")
 
     # --- TAB 3: RECORDINGS ---
