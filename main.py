@@ -105,9 +105,33 @@ def main():
     if "session_id" in st.query_params:
         handle_payment_return(st.query_params["session_id"])
 
-    # 4. Default Routing Logic
+    # 4. Default Routing Logic (UPDATED with Deep Linking)
     if "app_mode" not in st.session_state:
-        st.session_state.app_mode = "splash"
+        # Check URL for navigation targets
+        nav_target = st.query_params.get("nav")
+        
+        if nav_target == "login":
+            st.session_state.app_mode = "login"
+            # If they are entering via "archive" mode, ensure they go to heirloom after login
+            if system_mode == "archive":
+                st.session_state.redirect_to = "heirloom"
+            else:
+                st.session_state.redirect_to = "main"
+
+        elif nav_target == "heirloom":
+            # If logged in, go straight there. If not, go to login with redirect.
+            if st.session_state.get("authenticated"):
+                st.session_state.app_mode = "heirloom"
+            else:
+                st.session_state.app_mode = "login"
+                st.session_state.redirect_to = "heirloom"
+
+        elif nav_target == "store":
+             st.session_state.app_mode = "main"
+
+        else:
+            # Fallback to Splash
+            st.session_state.app_mode = "splash"
 
     # 5. SIDEBAR NAVIGATION
     render_sidebar(system_mode)
