@@ -105,21 +105,28 @@ def main():
     if "session_id" in st.query_params:
         handle_payment_return(st.query_params["session_id"])
 
-    # 4. Default Routing Logic (UPDATED with Deep Linking)
+    # 4. Default Routing Logic (FIXED)
     if "app_mode" not in st.session_state:
         # Check URL for navigation targets
         nav_target = st.query_params.get("nav")
         
+        # --- PUBLIC ROUTES (No Auth Required) ---
         if nav_target == "login":
             st.session_state.app_mode = "login"
-            # If they are entering via "archive" mode, ensure they go to heirloom after login
             if system_mode == "archive":
                 st.session_state.redirect_to = "heirloom"
             else:
                 st.session_state.redirect_to = "main"
 
+        elif nav_target == "legal":
+             st.session_state.app_mode = "legal"
+             
+        elif nav_target == "blog":
+             st.session_state.app_mode = "blog"
+
+        # --- PROTECTED ROUTES (Auth Required) ---
+        # If not logged in, force them to Login page first
         elif nav_target == "heirloom":
-            # If logged in, go straight there. If not, go to login with redirect.
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
             else:
@@ -127,7 +134,11 @@ def main():
                 st.session_state.redirect_to = "heirloom"
 
         elif nav_target == "store":
-             st.session_state.app_mode = "main"
+            if st.session_state.get("authenticated"):
+                 st.session_state.app_mode = "main"
+            else:
+                st.session_state.app_mode = "login"
+                st.session_state.redirect_to = "main"
 
         else:
             # Fallback to Splash
