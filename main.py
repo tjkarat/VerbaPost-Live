@@ -251,15 +251,19 @@ def handle_payment_return(session_id):
                     st.rerun()
                     return
 
-                # CASE 2: SINGLE LETTER
+                # CASE 2: SINGLE LETTER (Utility Mode)
                 if db and meta_id:
                     with db.get_db_session() as s:
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
                         if d:
+                            # --- FIX: Update Status & Commit State ---
+                            d.status = "Paid/Writing"
                             st.session_state.paid_tier = d.tier
+                            st.session_state.locked_tier = d.tier # Restore tier for Receipt Logic
                             st.session_state.current_draft_id = meta_id
+                            s.commit() # Commit DB Changes
                             
-                            # CRITICAL FIX: Route to Receipt, not Workspace
+                            # Route to Receipt
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "receipt"
                             st.query_params["mode"] = "utility"
