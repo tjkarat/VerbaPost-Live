@@ -72,6 +72,17 @@ def render_login_page():
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
                         
+                        # --- AUDIT LOG (NEW) ---
+                        if hasattr(database, "save_audit_log"):
+                            try:
+                                database.save_audit_log({
+                                    "user_email": email,
+                                    "event_type": "USER_LOGIN",
+                                    "description": "Successful Login via Auth Engine"
+                                })
+                            except Exception: pass
+                        # -----------------------
+
                         target = st.session_state.get("redirect_to", "store")
                         if target == "heirloom":
                             st.session_state.app_mode = "heirloom"
@@ -165,6 +176,17 @@ def render_login_page():
                                             p.timezone = timezone
                                             db.commit()
                                 
+                                # --- AUDIT LOG (NEW) ---
+                                if hasattr(database, "save_audit_log"):
+                                    try:
+                                        database.save_audit_log({
+                                            "user_email": new_email,
+                                            "event_type": "USER_SIGNUP",
+                                            "description": "New Account Created & Address Verified"
+                                        })
+                                    except Exception: pass
+                                # -----------------------
+
                                 st.success("✅ Account created! Address Verified.")
                                 st.session_state.authenticated = True
                                 st.session_state.user_email = new_email

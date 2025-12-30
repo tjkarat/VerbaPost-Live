@@ -14,7 +14,7 @@ import openai
 from twilio.rest import Client as TwilioClient
 
 # --- DIRECT IMPORT ---
-import database
+import database 
 import secrets_manager
 
 # Import Engines
@@ -28,11 +28,10 @@ try: import ai_engine
 except ImportError: ai_engine = None
 try: import audit_engine
 except ImportError: audit_engine = None
-try: import payment_engine
-except ImportError: payment_engine = None
 
 # --- HEALTH CHECK HELPERS ---
 def check_connection(service_name, check_func):
+    """Generic wrapper for health checks."""
     try:
         check_func()
         return "✅ Online", "green"
@@ -43,7 +42,9 @@ def check_connection(service_name, check_func):
         return f"❌ Error: {msg[:100]}", "red"
 
 def run_system_health_checks():
+    """Runs connectivity tests for all external services."""
     results = []
+
     # 1. DATABASE
     def check_db():
         with database.get_db_session() as db:
@@ -84,6 +85,7 @@ def run_system_health_checks():
     def check_postgrid():
         k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
         if not k: raise Exception("Missing Key")
+        # Corrected endpoint to match mailer.py logic
         r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
         if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code} - {r.text}")
     status, color = check_connection("PostGrid (Fulfillment)", check_postgrid)
@@ -117,6 +119,7 @@ def run_system_health_checks():
 def render_admin_page():
     # --- AUTH CHECK ---
     admin_email = os.environ.get("ADMIN_EMAIL") or secrets_manager.get_secret("admin.email")
+    admin_pass = os.environ.get("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
     
     if not st.session_state.get("admin_authenticated"):
         st.markdown("## 🛡️ Admin Access")
@@ -124,8 +127,7 @@ def render_admin_page():
             email = st.text_input("Admin Email")
             pwd = st.text_input("Password", type="password")
             if st.form_submit_button("Unlock Console"):
-                stored_pass = os.environ.get("ADMIN_PASSWORD") or secrets_manager.get_secret("admin.password")
-                if email.strip() == admin_email and pwd.strip() == stored_pass:
+                if email.strip() == admin_email and pwd.strip() == admin_pass:
                     st.session_state.admin_authenticated = True
                     st.rerun()
                 else:
@@ -144,66 +146,106 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    # --- TABS ---
+    # --- TABS INCLUDING NEW PRINT QUEUE ---
     tab_print, tab_orders, tab_recordings, tab_promos, tab_users, tab_logs, tab_health = st.tabs([
-        "🖨️ Manual Print", "📦 Orders & Repair", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
+        "🖨️ Manual Print", "📦 All Orders", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
     ])
 
-    # --- TAB 1: MANUAL PRINT QUEUE ---
+    # --- TAB 1: MANUAL PRINT QUEUE (CRITICAL FOR HEIRLOOM) ---
     with tab_print:
         st.subheader("🖨️ Manual Fulfillment Queue")
         st.info("Items here were submitted via 'Manual Mode'. Download PDF, Print, then Mark as Mailed.")
         
         if database:
             with database.get_db_session() as db:
+                # Direct Query for Queued Items
                 queued_items = db.query(database.LetterDraft).filter(
                     database.LetterDraft.status == "Queued (Manual)"
                 ).order_by(database.LetterDraft.created_at.desc()).all()
                 
                 if not queued_items:
-                    st.success("🎉 Print queue is empty!")
+                    st.success("🎉 Print queue is empty! All manual orders have been cleared.")
                 else:
                     st.write(f"**Pending items:** {len(queued_items)}")
                     for item in queued_items:
                         with st.expander(f"📄 {item.tier} | {item.created_at.strftime('%Y-%m-%d')} | {item.user_email}"):
                             c1, c2 = st.columns([2, 1])
+                            
+                            # A. GENERATE PDF
                             with c1:
-                                try:
-                                    to_dict = ast.literal_eval(item.to_addr) if item.to_addr else {}
-                                    from_dict = ast.literal_eval(item.from_addr) if item.from_addr else {}
-                                except:
-                                    to_dict, from_dict = {}, {}
+                                st.caption("Content Preview:")
+                                st.text(item.content[:150] + "...")
                                 
-                                if st.button(f"⬇️ Generate PDF for #{item.id}", key=f"pdf_{item.id}"):
+                                # Parse Addresses
+                                try:
+                                    to_dict = ast.literal_eval(item.to_address_json) if item.to_address_json else {}
+                                    from_dict = ast.literal_eval(item.from_address_json) if item.from_address_json else {}
+                                except:
+                                    to_dict = {}
+                                    from_dict = {}
+                                
+                                if st.button(f"⬇️ Generate PDF for #{item.id[:6]}", key=f"pdf_{item.id}"):
                                     if letter_format and address_standard:
                                         try:
+                                            # Create Address Objects
                                             std_to = address_standard.StandardAddress.from_dict(to_dict)
                                             std_from = address_standard.StandardAddress.from_dict(from_dict)
-                                            pdf_bytes = letter_format.create_pdf(item.content, std_to, std_from, tier=item.tier)
+                                            
+                                            # Draw PDF
+                                            pdf_bytes = letter_format.create_pdf(
+                                                item.content,
+                                                std_to,
+                                                std_from,
+                                                tier=item.tier
+                                            )
+                                            
+                                            # Download Button
                                             b64 = base64.b64encode(pdf_bytes).decode()
                                             href = f'<a href="data:application/pdf;base64,{b64}" download="VerbaPost_{item.id}.pdf">Click here to Download PDF</a>'
                                             st.markdown(href, unsafe_allow_html=True)
-                                        except Exception as e: st.error(f"PDF Gen Error: {e}")
+                                            
+                                        except Exception as e:
+                                            st.error(f"PDF Gen Error: {e}")
+                                    else:
+                                        st.error("Missing Letter Format Module")
 
+                            # B. MARK AS MAILED
                             with c2:
                                 st.markdown("<br>", unsafe_allow_html=True)
                                 manual_track = st.text_input("Tracking # (Optional)", key=f"trk_{item.id}")
+                                
                                 if st.button("✅ Mark as Mailed", key=f"done_{item.id}", type="primary"):
                                     item.status = "Sent (Manual)"
                                     if manual_track:
                                         item.tracking_number = manual_track
+                                    
+                                    # --- AUDIT LOGGING ---
+                                    if hasattr(database, "save_audit_log"):
+                                        database.save_audit_log({
+                                            "user_email": "ADMIN",
+                                            "event_type": "ADMIN_FULFILLMENT",
+                                            "description": f"Manual send confirmed for Order #{item.id}",
+                                            "details": f"Tracking: {manual_track}"
+                                        })
+                                    # ---------------------
+
                                     db.commit()
                                     st.toast("Marked as Sent!")
                                     time.sleep(1)
                                     st.rerun()
 
-    # --- TAB 2: ORDERS & REPAIR ---
+    # --- TAB 2: ALL ORDERS (REPAIR STATION) ---
     with tab_orders:
-        st.subheader("Order Manager & Repair Station")
+        st.subheader("Order Manager")
         try:
+            # 1. Fetch from DB
             all_orders = database.get_all_orders()
+            
             if all_orders:
-                # Render Data Table
+                total_orders = len(all_orders)
+                st.metric("Total Order Count", total_orders)
+                
+                # 2. Render Data Table
                 data = []
                 for o in all_orders:
                     raw_date = o.get('created_at')
@@ -215,62 +257,63 @@ def render_admin_page():
                         "ID": str(o.get('id')), 
                         "Date": date_str,
                         "User": o.get('user_email'),
+                        "Tier": o.get('tier'),
                         "Status": o.get('status'),
                         "Price": price_str
                     })
                 
-                st.dataframe(pd.DataFrame(data), use_container_width=True, height=300)
+                df_orders = pd.DataFrame(data)
+                st.dataframe(df_orders, use_container_width=True, height=400)
                 
-                # REPAIR STATION (FIXED)
+                # 3. ACTION STATION (REPAIR)
                 st.divider()
-                st.markdown("### 🛠️ Repair & Retry")
-                st.info("Select an order to fix the address or content, then force it back into the queue.")
+                st.markdown("### 🛠️ Repair & Force Dispatch")
+                st.info("Select a Standard order to fix addresses or force a re-send via PostGrid.")
                 
-                order_opts = [f"{x['ID']} ({x['Status']})" for x in data]
-                selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
+                c_sel, c_act = st.columns([3, 1])
+                with c_sel:
+                    order_opts = [f"{x['ID']} ({x['Status']})" for x in data]
+                    selected_order_str = st.selectbox("Select Order to Fix", ["Select..."] + order_opts)
                 
                 if selected_order_str and selected_order_str != "Select...":
                     selected_uuid = selected_order_str.split(" ")[0]
                     
                     with database.get_db_session() as db:
                         record = db.query(database.LetterDraft).filter(database.LetterDraft.id == selected_uuid).first()
-                        if record:
-                            st.markdown(f"**Editing Order:** `{selected_uuid}`")
+                        if not record:
+                            record = db.query(database.Letter).filter(database.Letter.id == selected_uuid).first()
                             
-                            try: t_addr = ast.literal_eval(record.to_addr) if hasattr(record, 'to_addr') and record.to_addr else {}
+                        if record:
+                            st.markdown(f"**Processing Order:** `{selected_uuid}`")
+                            
+                            # Standard Workflow Repair
+                            st.markdown("#### Edit Recipient Data & Re-Dispatch")
+                            try: t_addr = ast.literal_eval(record.to_addr) if hasattr(record, 'to_addr') else {}
                             except: t_addr = {}
                             
                             c1, c2 = st.columns(2)
                             with c1:
                                 new_name = st.text_input("Recipient Name", value=t_addr.get('name', ''), key="rep_name")
-                                new_street = st.text_input("Street", value=t_addr.get('address_line1', '') or t_addr.get('street', ''), key="rep_street")
-                                # Added Line 2 Support
-                                new_line2 = st.text_input("Line 2 (Apt/Suite)", value=t_addr.get('address_line2', ''), key="rep_line2")
-                            with c2:
                                 new_city = st.text_input("City", value=t_addr.get('city', ''), key="rep_city")
-                                # Added State and Zip Support
-                                new_state = st.text_input("State", value=t_addr.get('state', ''), key="rep_state")
-                                new_zip = st.text_input("Zip Code", value=t_addr.get('zip_code', '') or t_addr.get('zip', ''), key="rep_zip")
+                            with c2:
+                                new_street = st.text_input("Street", value=t_addr.get('address_line1', ''), key="rep_street")
+                                new_zip = st.text_input("Zip", value=t_addr.get('zip_code', ''), key="rep_zip")
                             
                             new_content = st.text_area("Letter Body", value=record.content, height=150, key="rep_body")
                             
-                            if st.button("💾 Update & Retry Order", type="primary"):
-                                updated_to = {
-                                    "name": new_name, 
-                                    "address_line1": new_street, 
-                                    "address_line2": new_line2,
-                                    "city": new_city, 
-                                    "state": new_state, 
-                                    "zip_code": new_zip
-                                }
+                            if st.button("🚀 Update & Force Dispatch"):
+                                updated_to = {"name": new_name, "address_line1": new_street, "city": new_city, "state": t_addr.get('state', 'NA'), "zip": new_zip}
                                 record.to_addr = str(updated_to)
                                 record.content = new_content
-                                # Reset status to trigger manual queue or processing
-                                record.status = "Queued (Manual)" 
                                 db.commit()
-                                st.success("Order Updated and moved to Manual Print Queue!")
-                                time.sleep(1)
-                                st.rerun()
+                                if mailer and letter_format:
+                                    try: f_addr = ast.literal_eval(record.from_addr)
+                                    except: f_addr = {"name": "VerbaPost"}
+                                    pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
+                                    res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_uuid}")
+                                    if res: 
+                                        record.status = "Sent"; record.tracking_number = res; db.commit()
+                                        st.success("Dispatched!"); st.rerun()
         except Exception as e: st.error(f"Error fetching orders: {e}")
 
     # --- TAB 3: RECORDINGS ---
@@ -321,30 +364,9 @@ def render_admin_page():
         else:
             st.info("No promo codes found.")
 
-    # --- TAB 5: USERS & SUBSCRIPTION ---
+    # --- TAB 5: USERS ---
     with tab_users:
         st.subheader("User Profiles")
-        
-        # --- SUBSCRIPTION MANAGER (NEW) ---
-        with st.expander("💳 Subscription Manager"):
-            st.info("Cancel an active family archive subscription.")
-            sub_email = st.text_input("Enter User Email")
-            
-            if st.button("❌ Cancel Subscription", type="primary"):
-                if not sub_email:
-                    st.error("Please enter an email.")
-                elif payment_engine:
-                    with st.spinner("Processing cancellation with Stripe..."):
-                        success, msg = payment_engine.cancel_subscription(sub_email)
-                        if success:
-                            st.success(f"✅ {msg}")
-                        else:
-                            st.error(f"Failed: {msg}")
-                else:
-                    st.error("Payment Engine unavailable.")
-        
-        st.divider()
-        
         users = database.get_all_users()
         if users:
             safe_users = []
@@ -361,6 +383,7 @@ def render_admin_page():
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
+            # Using audit_engine ensures we look at the correct table
             logs = audit_engine.get_audit_logs(limit=100)
             if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
             else: st.info("No logs found.")

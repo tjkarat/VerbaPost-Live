@@ -260,6 +260,20 @@ def handle_payment_return(session_id):
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
+                # --- AUDIT LOGGING INSERT ---
+                if db and hasattr(db, "save_audit_log"):
+                    try:
+                        db.save_audit_log({
+                            "user_email": user_email or "Unknown",
+                            "event_type": "PAYMENT_SUCCESS",
+                            "description": "Stripe Payment Verified",
+                            "stripe_session_id": session_id,
+                            "details": f"Ref: {getattr(raw_obj, 'client_reference_id', 'N/A')}"
+                        })
+                    except Exception as e:
+                        logger.error(f"Audit Log Error: {e}")
+                # ----------------------------
+
                 st.session_state.authenticated = True
                 st.session_state.user_email = user_email
 
