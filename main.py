@@ -82,7 +82,7 @@ def inject_dynamic_seo(mode):
 
 # --- MAIN LOGIC ---
 def main():
-    # 1. PRE-FLIGHT CHECK (DISABLED TO FIX KEYERROR CRASH)
+    # 1. PRE-FLIGHT CHECK (DISABLED TO PREVENT RECURSIVE CRASHES)
     # try:
     #     import module_validator
     #     is_healthy, error_log = module_validator.validate_critical_modules()
@@ -243,7 +243,7 @@ def render_sidebar(mode):
 
 def handle_payment_return(session_id):
     """
-    Handles Stripe Callback with AGGRESSIVE & TYPE-SAFE DRAFT RECOVERY.
+    Handles Stripe Callback with AGGRESSIVE DRAFT RECOVERY.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
@@ -313,7 +313,7 @@ def handle_payment_return(session_id):
                 # B. Single Letter (Utility)
                 target_draft_id = None
                 if meta_id:
-                     target_draft_id = str(meta_id) # FIRST FORCE STRING
+                     target_draft_id = str(meta_id) # FORCE STRING TYPE TO PREVENT SQL ERROR
                 
                 # --- AGGRESSIVE RECOVERY LOGIC (Fix for Promo Code 404s) ---
                 if not target_draft_id and db and user_email:
@@ -333,11 +333,11 @@ def handle_payment_return(session_id):
                              ).order_by(db.LetterDraft.created_at.desc()).first()
                              
                          if fallback:
-                             target_draft_id = str(fallback.id) # FORCE STRING AGAIN
+                             target_draft_id = str(fallback.id) # FORCE STRING TYPE
 
                 if db and target_draft_id:
                     with db.get_db_session() as s:
-                        # FILTER WITH EXPLICIT STRING
+                        # FILTER WITH EXPLICIT STRING TO PREVENT 'text = integer' ERROR
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == str(target_draft_id)).first()
                         if d:
                             d.status = "Paid/Writing"
