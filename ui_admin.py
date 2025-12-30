@@ -316,17 +316,22 @@ def render_admin_page():
                             
                             with col_api:
                                 if st.button("🚀 Force API Dispatch", use_container_width=True):
-                                    record.to_addr = str(updated_to)
-                                    record.content = new_content
-                                    db.commit()
-                                    if mailer and letter_format:
-                                        try: f_addr = ast.literal_eval(record.from_addr)
-                                        except: f_addr = {"name": "VerbaPost"}
-                                        pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
-                                        res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
-                                        if res: 
-                                            record.status = "Sent"; record.tracking_number = res; db.commit()
-                                            st.success("Dispatched!"); st.rerun()
+                                    if len(new_zip) < 5 or not new_street:
+                                        st.error("Invalid Address. Check Zip and Street.")
+                                    else:
+                                        record.to_addr = str(updated_to)
+                                        record.content = new_content
+                                        db.commit()
+                                        if mailer and letter_format:
+                                            try: f_addr = ast.literal_eval(record.from_addr)
+                                            except: f_addr = {"name": "VerbaPost"}
+                                            pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
+                                            res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
+                                            if res: 
+                                                record.status = "Sent"; record.tracking_number = res; db.commit()
+                                                st.success("Dispatched!"); st.rerun()
+                                            else:
+                                                st.error("API Rejected Request (Check Logs)")
                             
                             with col_man:
                                 if st.button("🖨️ Move to Manual Queue", use_container_width=True):
