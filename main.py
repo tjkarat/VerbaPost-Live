@@ -249,8 +249,12 @@ def handle_payment_return(session_id):
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
+    # --- IDEMPOTENCY CHECK (FIXED) ---
+    # We capture the status but DO NOT return early.
+    # This ensures routing logic still runs even on page refreshes.
+    is_new_fulfillment = True
     if db and hasattr(db, "record_stripe_fulfillment"):
-        if not db.record_stripe_fulfillment(session_id): return 
+        is_new_fulfillment = db.record_stripe_fulfillment(session_id)
 
     if pay_eng:
         user_email = st.session_state.get("user_email")
@@ -260,8 +264,8 @@ def handle_payment_return(session_id):
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
                 
-                # --- AUDIT LOGGING INSERT ---
-                if db and hasattr(db, "save_audit_log"):
+                # --- AUDIT LOGGING (Only if new) ---
+                if is_new_fulfillment and db and hasattr(db, "save_audit_log"):
                     try:
                         db.save_audit_log({
                             "user_email": user_email or "Unknown",
@@ -272,7 +276,6 @@ def handle_payment_return(session_id):
                         })
                     except Exception as e:
                         logger.error(f"Audit Log Error: {e}")
-                # ----------------------------
 
                 st.session_state.authenticated = True
                 st.session_state.user_email = user_email
@@ -285,7 +288,8 @@ def handle_payment_return(session_id):
                 # CASE 1: ANNUAL PASS / MONTHLY SUB
                 is_annual = (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT")
                 if is_annual:
-                    if db and user_email: 
+                    # Only add credits if this is a fresh transaction
+                    if is_new_fulfillment and db and user_email: 
                         db.update_user_credits(user_email, 4)
                         if hasattr(raw_obj, 'subscription'):
                             sub_id = raw_obj.subscription
@@ -303,14 +307,18 @@ def handle_payment_return(session_id):
                 # CASE 2: SINGLE LETTER (Utility Mode)
                 if db and meta_id:
                     with db.get_db_session() as s:
-                        d = s.query(db.LetterDraft).filter(db.LetterDraft.id == meta_id).first()
+                        # Robust casting
+                        try: target_id = int(meta_id)
+                        except: target_id = meta_id
+                        
+                        d = s.query(db.LetterDraft).filter(db.LetterDraft.id == target_id).first()
                         if d:
-                            # --- FIX: Update Status & Commit State ---
+                            # Update Status (Safe to repeat on refresh)
                             d.status = "Paid/Writing"
                             st.session_state.paid_tier = d.tier
-                            st.session_state.locked_tier = d.tier # Restore tier for Receipt Logic
-                            st.session_state.current_draft_id = meta_id
-                            s.commit() # Commit DB Changes
+                            st.session_state.locked_tier = d.tier 
+                            st.session_state.current_draft_id = target_id
+                            s.commit() 
                             
                             # Route to Receipt
                             st.session_state.system_mode = "utility"
@@ -319,6 +327,7 @@ def handle_payment_return(session_id):
                             st.rerun()
                             return
                 
+                # Default Fallback
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
