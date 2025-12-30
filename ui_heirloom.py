@@ -220,9 +220,14 @@ def render_dashboard():
         st.markdown("**Preserve your loved one’s voice, stories, and memories—forever.**")
     
     with col_status: 
-        st.metric("Credits Remaining", credits)
+        st.metric(
+            label="Letter Credits",
+            value=credits,
+            help="Each credit = 1 mailed letter (worth $4.75). Your subscription includes 4 credits per month."
+        )
 
     if credits <= 0:
+        st.warning("⚠️ **Out of Credits** - Your subscription will refill on your next billing date.")
         render_paywall()
         return
 
