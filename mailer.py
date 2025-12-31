@@ -1,170 +1,194 @@
 import requests
-import secrets_manager
-import logging
 import json
 import os
+import streamlit as st
+import logging
 
-# Import the missing module safely
-try:
-    import address_standard
-except ImportError:
-    address_standard = None
-
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def _to_camel_case_payload(snake_payload):
+def get_api_key():
     """
-    Maps snake_case keys to PostGrid CamelCase.
-    SPLITS single 'name' field into 'firstName' and 'lastName' (Required by Contact API).
+    Retrieves the PostGrid API Key safely.
     """
-    full_name = snake_payload.get('name', '').strip()
+    key = None
+    # 1. Check Secrets
+    if hasattr(st, "secrets") and "postgrid" in st.secrets:
+        key = st.secrets["postgrid"].get("api_key")
     
-    # --- CRITICAL FIX: PostGrid 400 Error ---
-    # The validation payload from ui_login.py often has NO name.
-    # PostGrid rejects contacts without a name. We inject a placeholder
-    # so the API accepts the request and validates the address.
-    if not full_name:
-        full_name = "VerbaPost Resident"
+    # 2. Check Environment
+    if not key:
+        key = os.environ.get("POSTGRID_API_KEY")
+        
+    if key:
+        # Sanitize: Remove quotes or whitespace that might have been copied
+        return str(key).strip().replace("'", "").replace('"', "")
+    return None
+
+def _create_contact(contact_data):
+    """
+    Internal helper to create a contact in PostGrid and get an ID.
+    Now with DEBUG LOGGING.
+    """
+    api_key = get_api_key()
+    if not api_key:
+        logger.error("Mailer Error: Missing API Key")
+        return None
+
+    # --- DEBUG: PRINT THE EXACT DATA ---
+    logger.info(f"--------------------------------------------------")
+    logger.info(f"[DEBUG] Creating Contact for: {contact_data.get('name')}")
+    logger.info(f"[DEBUG] Raw Data: {contact_data}")
+    # -----------------------------------
+
+    # PostGrid requires CamelCase for keys (addressLine1, firstName)
+    # We must map our snake_case keys manually.
     
+    # Split Name if possible
+    full_name = str(contact_data.get('name', ''))
     first_name = full_name
     last_name = ""
-    
     if " " in full_name:
         parts = full_name.split(" ", 1)
         first_name = parts[0]
         last_name = parts[1]
 
-    # Ensure Country Code is strictly 2 chars (Fixes potential 400s)
-    country = snake_payload.get('country_code', 'US') or snake_payload.get('country', 'US')
-    if len(country) > 2:
-        country = country[:2]
-
-    return {
-        'firstName': first_name,
-        'lastName': last_name,
-        'addressLine1': snake_payload.get('address_line1', '') or snake_payload.get('street', ''),
-        'addressLine2': snake_payload.get('address_line2', '') or snake_payload.get('addressLine2', ''),
-        'city': snake_payload.get('address_city', '') or snake_payload.get('city', ''),
-        'provinceOrState': snake_payload.get('address_state', '') or snake_payload.get('state', ''),
-        'postalOrZip': snake_payload.get('address_zip', '') or snake_payload.get('zip', '') or snake_payload.get('zip_code', ''),
-        'countryCode': country
+    # Map Fields
+    payload = {
+        "firstName": first_name,
+        "lastName": last_name,
+        "addressLine1": str(contact_data.get('address_line1') or contact_data.get('street') or ""),
+        "addressLine2": str(contact_data.get('address_line2') or ""),
+        "city": str(contact_data.get('city') or ""),
+        "provinceOrState": str(contact_data.get('state') or ""),
+        "postalOrZip": str(contact_data.get('zip_code') or contact_data.get('zip') or ""),
+        "countryCode": "US"
     }
 
-def _to_verification_payload(camel_payload):
-    """
-    CRITICAL FIX: Remaps keys for the Verification API which uses 'line1' instead of 'addressLine1'.
-    """
-    return {
-        'line1': camel_payload.get('addressLine1'),
-        'line2': camel_payload.get('addressLine2'),
-        'city': camel_payload.get('city'),
-        'provinceOrState': camel_payload.get('provinceOrState'),
-        'postalOrZip': camel_payload.get('postalOrZip'),
-        'country': camel_payload.get('countryCode')
+    # --- DEBUG: PRINT THE API PAYLOAD ---
+    logger.info(f"[DEBUG] JSON Payload to PostGrid: {json.dumps(payload, indent=2)}")
+    # ------------------------------------
+
+    headers = {
+        "x-api-key": api_key,
+        "Content-Type": "application/json" # CRITICAL: Must be JSON
     }
 
-def _create_postgrid_contact(payload, api_key):
-    url = "https://api.postgrid.com/print-mail/v1/contacts"
-    clean_payload = _to_camel_case_payload(payload)
+    try:
+        # Use the /contacts endpoint
+        url = "https://api.postgrid.com/print-mail/v1/contacts"
+        
+        resp = requests.post(url, json=payload, headers=headers)
+        
+        # --- DEBUG: PRINT RESPONSE ---
+        logger.info(f"[DEBUG] PostGrid Response Code: {resp.status_code}")
+        logger.info(f"[DEBUG] PostGrid Response Body: {resp.text}")
+        logger.info(f"--------------------------------------------------")
+        # -----------------------------
+
+        if resp.status_code in [200, 201]:
+            return resp.json().get('id')
+        else:
+            logger.error(f"Contact Creation Failed: {resp.status_code} - {resp.text}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Contact Exception: {e}")
+        return None
+
+def validate_address(address_dict):
+    """
+    Validates an address using PostGrid's verification endpoint.
+    """
+    api_key = get_api_key()
+    if not api_key: return False, {"error": "Configuration Error"}
+
+    # Map to Verification format (standard 'line1', etc.)
+    payload = {
+        "address": {
+            "line1": str(address_dict.get('street') or address_dict.get('address_line1') or ""),
+            "city": str(address_dict.get('city') or ""),
+            "provinceOrState": str(address_dict.get('state') or ""),
+            "postalOrZip": str(address_dict.get('zip_code') or address_dict.get('zip') or ""),
+            "countryCode": "US"
+        }
+    }
+
+    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
     
     try:
-        r = requests.post(url, json=clean_payload, headers={"x-api-key": api_key})
-        if r.status_code in [200, 201]:
-            return r.json().get('id')
+        # Note: Verification endpoint is different
+        url = "https://api.postgrid.com/print-mail/v1/addver/verifications"
+        resp = requests.post(url, json=payload, headers=headers)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get('status') == 'verified':
+                # Return the cleaned, standardized address
+                verified_addr = data.get('data', {})
+                clean_data = {
+                    "street": verified_addr.get('line1'),
+                    "city": verified_addr.get('city'),
+                    "state": verified_addr.get('provinceOrState'),
+                    "zip_code": verified_addr.get('postalOrZip'),
+                    "name": address_dict.get('name')
+                }
+                return True, clean_data
+            else:
+                # Return the specific error from PostGrid
+                return False, {"error": f"Address Invalid: {data.get('summary', 'Unknown Issue')}"}
         else:
-            logger.error(f"Contact Creation Failed: {r.status_code}")
-            if os.environ.get("DEBUG") == "true": 
-                logger.error(f"PostGrid Error Details: {r.text}")
-            return None
-    except Exception as e:
-        logger.error(f"Contact Creation Exception: [Details Hidden]")
-        return None
-
-def validate_address(address_data):
-    """
-    Validates an address by attempting to create a Contact in the Print & Mail API.
-    This bypasses the need for a separate 'Address Verification' subscription.
-    """
-    api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
-    if not api_key:
-        return False, {"error": "API Key Missing"}
-
-    # 1. Prepare Payload
-    payload = {}
-    if hasattr(address_data, 'to_postgrid_payload'):
-        payload = address_data.to_postgrid_payload()
-    elif isinstance(address_data, dict):
-        if address_standard:
-            obj = address_standard.StandardAddress.from_dict(address_data)
-            payload = obj.to_postgrid_payload()
-        else:
-            payload = address_data 
+            return False, {"error": f"API Error {resp.status_code}"}
             
-    # 2. "Validation by Creation" Strategy
-    contact_id = _create_postgrid_contact(payload, api_key)
-    
-    if contact_id:
-        return True, _to_camel_case_payload(payload)
-    else:
-        return False, {"error": "Address rejected by PostGrid. Please check street, city, and zip."}
+    except Exception as e:
+        return False, {"error": str(e)}
 
-def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter", tier="Standard"):
-    api_key = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
-    if not api_key:
-        logger.error("PostGrid API Key missing.")
+def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
+    """
+    Sends a letter via PostGrid using the 2-step contact creation method.
+    """
+    api_key = get_api_key()
+    if not api_key: 
+        logger.error("Missing API Key")
         return None
 
-    # 1. Prepare Address Payloads
-    if address_standard:
-        if isinstance(to_addr, dict): to_addr = address_standard.StandardAddress.from_dict(to_addr)
-        if isinstance(from_addr, dict): from_addr = address_standard.StandardAddress.from_dict(from_addr)
-        to_payload = to_addr.to_postgrid_payload()
-        from_payload = from_addr.to_postgrid_payload()
-    else:
-        to_payload = to_addr if isinstance(to_addr, dict) else to_addr.__dict__
-        from_payload = from_addr if isinstance(from_addr, dict) else from_addr.__dict__
-
-    # 2. CREATE CONTACTS FIRST
-    to_id = _create_postgrid_contact(to_payload, api_key)
-    from_id = _create_postgrid_contact(from_payload, api_key)
+    # 1. Create Contacts First
+    to_id = _create_contact(to_addr)
+    from_id = _create_contact(from_addr)
 
     if not to_id or not from_id:
         logger.error("Failed to create contacts. Aborting.")
         return None
 
-    # 3. Determine Service Level
-    extra_service = None
-    express = False
-    if tier in ["Legacy", "Certified", "certified"]:
-        extra_service = "certified"
-    elif tier == "Priority":
-        express = True
-
-    # 4. Send Letter
-    url = "https://api.postgrid.com/print-mail/v1/letters"
-    
-    files = {'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')}
-    data = {
-        'to': to_id,
-        'from': from_id,
-        'description': description,
-        'color': True,
-        'doubleSided': True,
-        'express': express,
-        'addressPlacement': 'top_first_page',
-    }
-    if extra_service:
-        data['extraService'] = extra_service
-
+    # 2. Create Letter
     try:
-        r = requests.post(url, headers={"x-api-key": api_key}, data=data, files=files)
-        if r.status_code in [200, 201]:
-            return r.json().get('id')
+        url = "https://api.postgrid.com/print-mail/v1/letters"
+        
+        # We send data as multipart/form-data because we are uploading a file
+        files = {
+            'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')
+        }
+        
+        data = {
+            'to': to_id,
+            'from': from_id,
+            'description': description,
+            'color': 'true', # Force color for Vintage/Logos
+            'express': 'false',
+            'addressPlacement': 'top_first_page' # CRITICAL for window envelopes
+        }
+
+        resp = requests.post(url, headers={"x-api-key": api_key}, files=files, data=data)
+        
+        if resp.status_code in [200, 201]:
+            letter_id = resp.json().get('id')
+            logger.info(f"Letter Sent! ID: {letter_id}")
+            return letter_id
         else:
-            # FIXED: API Key leak protection
-            logger.error(f"PostGrid Fail: {r.status_code} - [Response Content Hidden]")
-            if os.environ.get("DEBUG") == "true": logger.debug(f"DEBUG: {r.text}")
+            logger.error(f"Letter Failed: {resp.status_code} - {resp.text}")
             return None
+
     except Exception as e:
-        logger.error(f"Mailing Exception: [Details Hidden]")
+        logger.error(f"Mailing Exception: {e}")
         return None
