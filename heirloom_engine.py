@@ -50,11 +50,16 @@ def process_latest_call(parent_phone, user_email):
             if call.status == 'completed':
                 recs = call.recordings.list()
                 if recs:
+    # Remove .json if present
                     uri = recs[0].uri.replace(".json", "")
+    
+    # Check if .mp3 is already there to prevent ".mp3.mp3"
+            if uri.endswith(".mp3"):
+                    target_url = f"https://api.twilio.com{uri}"
+                else:
                     target_url = f"https://api.twilio.com{uri}.mp3"
-                    break
-        
-        if not target_url: return None, None, "No recordings found."
+                break
+            if not target_url: return None, None, "No recordings found."
 
     except Exception as e: return None, None, f"Twilio Search Error: {e}"
 
