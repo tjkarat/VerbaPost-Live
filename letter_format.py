@@ -178,7 +178,6 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(80, 80, 80) # Dark Grey
         
-        # --- FIX: Ensure we use FROM address here ---
         sender_block = _format_address_block(from_addr)
         sender_lines = sender_block.split('\n')
         
@@ -203,8 +202,8 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.multi_cell(0, 5, safe_recipient_block, align='L')
         
         # 7. Render Letter Body (Safe Zone)
-        # --- FIX: Force body below the fold to prevent overlap ---
-        pdf.set_y(105) 
+        # --- FIX: Force body WAY below the fold to prevent overlap ---
+        pdf.set_y(115)  # Moved from 105 to 115mm
         
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0) # Black text
