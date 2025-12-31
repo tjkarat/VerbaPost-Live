@@ -33,7 +33,7 @@ def _create_contact(contact_data):
     """
     api_key = get_api_key()
     if not api_key:
-        logger.error("Mailer Error: Missing API Key")
+        print("[ERROR] Mailer: Missing API Key")
         return None
 
     # --- DEBUG START ---
@@ -49,7 +49,7 @@ def _create_contact(contact_data):
         first_name = parts[0]
         last_name = parts[1]
 
-    # Map Fields
+    # Map Fields - FORCE STRING to prevent NoneType errors
     payload = {
         "firstName": first_name,
         "lastName": last_name,
@@ -71,8 +71,13 @@ def _create_contact(contact_data):
     }
 
     try:
+        # CRITICAL: This is the ONLY endpoint we are allowed to use
         url = "https://api.postgrid.com/print-mail/v1/contacts"
+        
+        print(f"[DEBUG] POST {url}")
         resp = requests.post(url, json=payload, headers=headers)
+        
+        print(f"[DEBUG] Status: {resp.status_code}")
         
         if resp.status_code in [200, 201]:
             cid = resp.json().get('id')
@@ -80,11 +85,12 @@ def _create_contact(contact_data):
             return cid
         else:
             # Log the specific rejection reason (e.g., "Invalid Zip")
-            logger.error(f"Contact Creation Failed: {resp.status_code} - {resp.text}")
             print(f"[DEBUG] Contact Failed: {resp.text}")
+            logger.error(f"Contact Creation Failed: {resp.status_code} - {resp.text}")
             return None
 
     except Exception as e:
+        print(f"[DEBUG] Exception: {e}")
         logger.error(f"Contact Exception: {e}")
         return None
 
@@ -101,8 +107,8 @@ def validate_address(address_dict):
     
     if contact_id:
         # Success! The address is valid.
-        # We return the original address_dict because _create_contact doesn't return normalized data,
-        # but the ID proves it is safe to use.
+        # Note: We cannot standardize the address (CAPS, Zip+4) because
+        # we don't have access to the CASS data, but we know it's deliverable.
         return True, address_dict
     else:
         # Failure. PostGrid rejected it (likely Error 400 - Invalid Address).
@@ -117,12 +123,17 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
         logger.error("Missing API Key")
         return None
 
+    print("[MAILING] Starting Send Process...")
+
     # 1. Create Contacts First
     to_id = _create_contact(to_addr)
     from_id = _create_contact(from_addr)
 
-    if not to_id or not from_id:
-        logger.error("Failed to create contacts. Aborting.")
+    if not to_id:
+        print("[MAILING] Failed to create RECIPIENT contact")
+        return None
+    if not from_id:
+        print("[MAILING] Failed to create SENDER contact")
         return None
 
     # 2. Create Letter
@@ -142,16 +153,20 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
             'addressPlacement': 'top_first_page'
         }
 
+        print("[MAILING] Sending Letter Request...")
         resp = requests.post(url, headers={"x-api-key": api_key}, files=files, data=data)
         
         if resp.status_code in [200, 201]:
             letter_id = resp.json().get('id')
+            print(f"[MAILING] Success! Letter ID: {letter_id}")
             logger.info(f"Letter Sent! ID: {letter_id}")
             return letter_id
         else:
+            print(f"[MAILING] Failed: {resp.text}")
             logger.error(f"Letter Failed: {resp.status_code} - {resp.text}")
             return None
 
     except Exception as e:
+        print(f"[MAILING] Exception: {e}")
         logger.error(f"Mailing Exception: {e}")
         return None
