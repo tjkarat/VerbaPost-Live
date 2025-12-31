@@ -121,8 +121,8 @@ def load_address_book():
         contacts = database.get_contacts(user_email)
         result = {}
         for c in contacts:
-            name = c.get('name', 'Unknown')
-            street = str(c.get('street', ''))[:10]
+            name = str(c.get('name') or "Unknown")
+            street = str(c.get('street') or "")[:10]
             label = f"{name} ({street}...)"
             result[label] = c
         return result
@@ -250,9 +250,7 @@ def render_store_page():
     with b3:
         if st.button("Select Civic", key="store_btn_civic_final", use_container_width=True):
             st.session_state.locked_tier = "Civic"
-            st.session_state.locked_price = 6.99
-            st.session_state.app_mode = "workspace"
-            _handle_draft_creation(u_email, "Civic", 6.99)
+            st.session_state.locked_price = 6.99; st.session_state.app_mode = "workspace"; _handle_draft_creation(u_email, "Civic", 6.99)
             st.rerun()
 
 def render_campaign_uploader():
@@ -304,11 +302,12 @@ def render_workspace_page():
                     selected_contact_label = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
                     if selected_contact_label != "Select..." and selected_contact_label != st.session_state.get("last_loaded_contact"):
                         data = addr_opts[selected_contact_label]
-                        st.session_state.to_name_input = data.get('name', '')
-                        st.session_state.to_street_input = data.get('street', '')
-                        st.session_state.to_city_input = data.get('city', '')
-                        st.session_state.to_state_input = data.get('state', '')
-                        st.session_state.to_zip_input = data.get('zip_code', '') 
+                        # FIX: FORCE STRING CONVERSION TO PREVENT NoneType CRASH IN POSTGRID
+                        st.session_state.to_name_input = str(data.get('name') or "")
+                        st.session_state.to_street_input = str(data.get('street') or "")
+                        st.session_state.to_city_input = str(data.get('city') or "")
+                        st.session_state.to_state_input = str(data.get('state') or "")
+                        st.session_state.to_zip_input = str(data.get('zip_code') or "")
                         st.session_state.last_loaded_contact = selected_contact_label
                         st.rerun()
             else:
@@ -630,7 +629,7 @@ def render_review_page():
                                         "details": f"Draft: {d_id}, Track: {tracking}"
                                     })
                                 
-                                # 4. RECORD PROMO USAGE (FIXED)
+                                # 4. RECORD PROMO USAGE
                                 promo_code = st.session_state.get('applied_promo')
                                 if promo_code:
                                     database.record_promo_usage(promo_code, u_email)
@@ -653,7 +652,7 @@ def render_review_page():
             try: database.update_draft_data(d_id, price=total, status="Pending Payment")
             except Exception as e: logger.error(f"State Persistence Error: {e}")
         
-        # FIXED: Pass promo_code to Stripe Metadata
+        # Pass promo_code to Stripe Metadata
         promo_code = st.session_state.get('applied_promo')
         
         url = payment_engine.create_checkout_session(
