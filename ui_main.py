@@ -603,39 +603,50 @@ def render_review_page():
         if st.button("✅ Complete Free Order", type="primary", use_container_width=True):
             if d_id and database:
                 try:
-                    # 1. Mark as Paid directly
-                    database.update_draft_data(d_id, price=0.0, status="Paid/Writing")
-                    
-                    # 2. Log it
-                    if hasattr(database, "save_audit_log"):
-                        database.save_audit_log({
-                            "user_email": u_email,
-                            "event_type": "ORDER_COMPLETE_FREE",
-                            "description": "Order completed with 100% off promo",
-                            "details": f"Draft: {d_id}, Code: {st.session_state.get('applied_promo')}"
-                        })
-                    
-                    # 3. Move to Receipt
-                    st.session_state.paid_tier = tier
-                    st.session_state.app_mode = "receipt"
-                    st.rerun()
-                    
+                    # 1. GENERATE PDF & MAIL
+                    with st.spinner("Printing & Mailing..."):
+                        if letter_format and mailer:
+                            # Safely fetch addresses from session state
+                            t_addr = st.session_state.get('addr_to', {})
+                            f_addr = st.session_state.get('addr_from', {})
+                            body = st.session_state.get('letter_body', '')
+                            
+                            # Create PDF
+                            pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
+                            
+                            # Send to PostGrid
+                            tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
+                            
+                            if tracking:
+                                # 2. UPDATE DB
+                                database.update_draft_data(d_id, price=0.0, status="Sent", tracking_number=tracking)
+                                
+                                # 3. LOG
+                                if hasattr(database, "save_audit_log"):
+                                    database.save_audit_log({
+                                        "user_email": u_email,
+                                        "event_type": "ORDER_COMPLETE_FREE",
+                                        "description": "Sent to PostGrid via Promo",
+                                        "details": f"Draft: {d_id}, Track: {tracking}"
+                                    })
+                                
+                                # 4. SUCCESS
+                                st.session_state.app_mode = "receipt"
+                                st.rerun()
+                            else:
+                                st.error("Mailing Failed. PostGrid rejected the address.")
+                        else:
+                            st.error("System Error: Mailer Engine offline.")
                 except Exception as e:
                     logger.error(f"Free Order Error: {e}")
-                    st.error("Failed to process free order. Please try again.")
+                    st.error("Failed to process order. Please try again.")
         return
 
-    # --- STANDARD STRIPE FLOW (For paid orders) ---
+    # --- PAID ORDERS ---
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
         if d_id and database:
-            try:
-                database.update_draft_data(
-                    d_id, 
-                    price=total, 
-                    status="Pending Payment"
-                )
-            except Exception as e:
-                logger.error(f"State Persistence Error: {e}")
+            try: database.update_draft_data(d_id, price=total, status="Pending Payment")
+            except Exception as e: logger.error(f"State Persistence Error: {e}")
         
         url = payment_engine.create_checkout_session(
             line_items=[{
@@ -654,22 +665,24 @@ def render_review_page():
             st.session_state.stripe_checkout_url = url
         else: st.error("Payment Gateway Error")
 
-# --- ROUTER CONTROLLER ---
+def render_receipt_page():
+    st.balloons()
+    st.markdown("## 📮 Letter Sent!")
+    st.success("Your letter has been successfully dispatched to the post office.")
+    st.info("You will receive a confirmation email shortly.")
+    
+    if st.button("⬅️ Back to Store", use_container_width=True):
+        st.session_state.app_mode = "store"
+        st.rerun()
+
 def render_main():
     if "app_mode" not in st.session_state: st.session_state.app_mode = "store"
     mode = st.session_state.app_mode
-
-    # STRICT ROUTING - Prevents "heirloom" ghost routing
-    if mode == "store":
-        render_store_page()
-    elif mode == "workspace":
-        render_workspace_page()
-    elif mode == "review":
-        render_review_page()
-    else:
-        # Fallback: if mode is anything else (e.g. heirloom), do nothing here.
-        # This lets main.py handle the other modules.
-        pass
+    if mode == "store": render_store_page()
+    elif mode == "workspace": render_workspace_page()
+    elif mode == "review": render_review_page()
+    elif mode == "receipt": render_receipt_page()
+    else: pass
 
 if __name__ == "__main__":
     render_main()
