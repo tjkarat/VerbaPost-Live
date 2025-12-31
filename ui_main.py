@@ -223,7 +223,7 @@ def render_store_page():
     with c1:
         st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
     with c2:
-        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
+        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Actual Stamp"), unsafe_allow_html=True)
     with c3:
         st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
 
