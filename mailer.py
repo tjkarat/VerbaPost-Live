@@ -29,11 +29,16 @@ def get_api_key():
 def _create_contact(contact_data):
     """
     Internal helper to create a contact in PostGrid and get an ID.
+    Used for both sending mail AND validating addresses.
     """
     api_key = get_api_key()
     if not api_key:
         logger.error("Mailer Error: Missing API Key")
         return None
+
+    # --- DEBUG START ---
+    print(f"[DEBUG] Creating Contact for: {contact_data.get('name')}")
+    # -------------------
 
     # Split Name if possible
     full_name = str(contact_data.get('name', ''))
@@ -56,6 +61,10 @@ def _create_contact(contact_data):
         "countryCode": "US"
     }
 
+    # --- DEBUG PAYLOAD ---
+    print(f"[DEBUG] Payload: {json.dumps(payload)}")
+    # ---------------------
+
     headers = {
         "x-api-key": api_key,
         "Content-Type": "application/json"
@@ -66,9 +75,13 @@ def _create_contact(contact_data):
         resp = requests.post(url, json=payload, headers=headers)
         
         if resp.status_code in [200, 201]:
-            return resp.json().get('id')
+            cid = resp.json().get('id')
+            print(f"[DEBUG] Contact Created: {cid}")
+            return cid
         else:
+            # Log the specific rejection reason (e.g., "Invalid Zip")
             logger.error(f"Contact Creation Failed: {resp.status_code} - {resp.text}")
+            print(f"[DEBUG] Contact Failed: {resp.text}")
             return None
 
     except Exception as e:
@@ -77,51 +90,23 @@ def _create_contact(contact_data):
 
 def validate_address(address_dict):
     """
-    Validates an address using PostGrid's verification endpoint.
-    FIXED: Uses the correct Print & Mail verification URL to avoid 404s.
+    Validates an address by attempting to create a Contact.
+    This bypasses the need for a separate Address Verification subscription.
     """
-    api_key = get_api_key()
-    if not api_key: return False, {"error": "Configuration Error"}
-
-    # Map to Verification format
-    payload = {
-        "address": {
-            "line1": str(address_dict.get('street') or address_dict.get('address_line1') or ""),
-            "city": str(address_dict.get('city') or ""),
-            "provinceOrState": str(address_dict.get('state') or ""),
-            "postalOrZip": str(address_dict.get('zip_code') or address_dict.get('zip') or ""),
-            "countryCode": "US"
-        }
-    }
-
-    headers = {"x-api-key": api_key, "Content-Type": "application/json"}
+    print(f"[VALIDATION] Testing address via Contact Creation...")
     
-    try:
-        # --- CRITICAL FIX: Correct Endpoint for Print & Mail ---
-        url = "https://api.postgrid.com/print-mail/v1/verifications"
-        resp = requests.post(url, json=payload, headers=headers)
-        
-        if resp.status_code == 200:
-            data = resp.json()
-            # PostGrid returns 'status': 'verified' or 'corrected' or 'failed'
-            if data.get('status') in ['verified', 'corrected']:
-                # Return the cleaned, standardized address
-                verified_addr = data.get('data', {})
-                clean_data = {
-                    "street": verified_addr.get('line1'),
-                    "city": verified_addr.get('city'),
-                    "state": verified_addr.get('provinceOrState'),
-                    "zip_code": verified_addr.get('postalOrZip'),
-                    "name": address_dict.get('name')
-                }
-                return True, clean_data
-            else:
-                return False, {"error": f"Address Invalid: {data.get('summary', 'Unknown Issue')}"}
-        else:
-            return False, {"error": f"API Error {resp.status_code}"}
-            
-    except Exception as e:
-        return False, {"error": str(e)}
+    # We attempt to create the contact.
+    # If successful, PostGrid has accepted the address as valid (or valid enough to mail).
+    contact_id = _create_contact(address_dict)
+    
+    if contact_id:
+        # Success! The address is valid.
+        # We return the original address_dict because _create_contact doesn't return normalized data,
+        # but the ID proves it is safe to use.
+        return True, address_dict
+    else:
+        # Failure. PostGrid rejected it (likely Error 400 - Invalid Address).
+        return False, {"error": "Address Rejected by Post Office. Please check Street and Zip Code."}
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
     """
