@@ -379,9 +379,65 @@ def render_admin_page():
                     else: st.success("✅ No recordings on server.")
             else: st.error("AI Engine update required.")
 
+        # --- DATA TABLE ---
         if st.session_state.get("active_recordings"):
             df_recs = pd.DataFrame(st.session_state.active_recordings)
             st.dataframe(df_recs[['Type', 'Date', 'From', 'Duration', 'SID']], use_container_width=True)
+
+            st.divider()
+            
+            # --- REVIEW & DELETE STATION ---
+            st.markdown("### 🎧 Review & Action")
+            st.info("Select a recording to listen to audio or delete from Twilio servers.")
+
+            # Create selector list
+            rec_options = {f"{r['Date']} | {r['From']} | {r['SID']}": r for r in st.session_state.active_recordings}
+            sel_rec_label = st.selectbox("Select Recording", ["Select..."] + list(rec_options.keys()))
+            
+            if sel_rec_label != "Select...":
+                selected_rec = rec_options[sel_rec_label]
+                sel_sid = selected_rec['SID']
+                
+                c_audio, c_del = st.columns([2, 1])
+                
+                with c_audio:
+                    if st.button("▶️ Load Audio", key=f"load_{sel_sid}"):
+                        sid = secrets_manager.get_secret("twilio.account_sid")
+                        token = secrets_manager.get_secret("twilio.auth_token")
+                        if sid and token:
+                            try:
+                                # Fetch MP3 via Authenticated Request (prevents 403 Forbidden)
+                                uri = selected_rec.get('URL', '').replace(".json", "")
+                                mp3_url = f"https://api.twilio.com{uri}.mp3"
+                                r = requests.get(mp3_url, auth=(sid, token))
+                                if r.status_code == 200:
+                                    st.audio(r.content, format="audio/mp3")
+                                else:
+                                    st.error(f"Fetch Error: {r.status_code}")
+                            except Exception as e:
+                                st.error(f"Audio Error: {e}")
+                        else:
+                            st.error("Twilio Credentials Missing")
+
+                with c_del:
+                    if st.button("🗑️ Permanently Delete", key=f"del_{sel_sid}", type="primary"):
+                        sid = secrets_manager.get_secret("twilio.account_sid")
+                        token = secrets_manager.get_secret("twilio.auth_token")
+                        if sid and token:
+                            try:
+                                client = TwilioClient(sid, token)
+                                client.recordings(sel_sid).delete()
+                                st.success(f"Deleted {sel_sid}")
+                                
+                                # Remove from local state to update UI
+                                st.session_state.active_recordings = [r for r in st.session_state.active_recordings if r['SID'] != sel_sid]
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Delete Failed: {e}")
+                        else:
+                            st.error("Twilio Credentials Missing")
+
 
     # --- TAB 4: PROMOS ---
     with tab_promos:
