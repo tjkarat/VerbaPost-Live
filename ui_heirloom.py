@@ -223,7 +223,8 @@ def render_dashboard():
         st.metric(
             label="Letter Credits",
             value=credits,
-            help="Each credit = 1 mailed letter (worth $4.75). Your subscription includes 4 credits per month."
+            # UPDATE: Price changed from $4.75 to $5.99
+            help="Each credit = 1 mailed letter (worth $5.99). Your subscription includes 4 credits per month."
         )
 
     if credits <= 0:
