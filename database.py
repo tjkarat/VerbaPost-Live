@@ -7,6 +7,10 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
+# --- NEW IMPORT ---
+try: import secrets_manager
+except ImportError: secrets_manager = None
+
 # --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 Base = declarative_base()
@@ -16,21 +20,33 @@ _engine = None
 _SessionLocal = None
 
 def get_db_url():
+    """
+    Refactored to use secrets_manager for consistent lookup
+    across Dev (Streamlit Cloud) and Prod (Google Cloud Run).
+    """
+    if not secrets_manager:
+        logger.error("Secrets Manager module missing")
+        return None
+
     try:
-        env_url = os.environ.get("DATABASE_URL")
-        if env_url: return env_url
-        if hasattr(st, "secrets"):
-            if "DATABASE_URL" in st.secrets:
-                return st.secrets["DATABASE_URL"]
-            if "supabase" in st.secrets:
-                sb_url = st.secrets["supabase"]["url"]
-                # Handle password encoding safely
-                raw_pass = st.secrets["supabase"].get("db_password", st.secrets["supabase"]["key"])
-                encoded_pass = urllib.parse.quote_plus(raw_pass)
-                
-                clean_host = sb_url.replace("https://", "").replace("/", "")
-                # Force port 5432 (Session Mode) to avoid 1043 errors
-                return f"postgresql://postgres:{encoded_pass}@{clean_host}:5432/postgres"
+        # 1. Try standard connection string first (Prod/Env Var)
+        url = secrets_manager.get_secret("DATABASE_URL")
+        if url: return url
+
+        # 2. Try Supabase specific keys (QA/Streamlit Secrets)
+        # We construct the Postgres URL manually if the full URL isn't found
+        sb_url = secrets_manager.get_secret("supabase.url")
+        sb_key = secrets_manager.get_secret("supabase.key")
+        sb_pass = secrets_manager.get_secret("supabase.db_password") or sb_key
+
+        if sb_url and sb_pass:
+            # Handle password encoding safely
+            encoded_pass = urllib.parse.quote_plus(sb_pass)
+            clean_host = sb_url.replace("https://", "").replace("/", "")
+            
+            # Force port 5432 (Session Mode) to avoid 1043 errors
+            return f"postgresql://postgres:{encoded_pass}@{clean_host}:5432/postgres"
+            
         return None
     except Exception as e:
         logger.error(f"Failed to find DB URL: {e}")
@@ -99,8 +115,6 @@ class UserProfile(Base):
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
-
-    # --- NEW COLUMNS FOR SUBSCRIPTIONS (ADDED v4.0) ---
     stripe_customer_id = Column(String, nullable=True)
     stripe_subscription_id = Column(String, nullable=True)
     subscription_end_date = Column(DateTime, nullable=True)
@@ -147,19 +161,16 @@ class ScheduledCall(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Letter(Base):
-    # Matches your screenshot of the 'letters' table
     __tablename__ = 'letters'
     id = Column(Integer, primary_key=True, autoincrement=True) 
-    user_id = Column(Integer) # Based on your screenshot
+    user_id = Column(Integer)
     content = Column(Text)
     status = Column(String) 
     recipient_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    # Optional fields that might exist
     user_email = Column(String, nullable=True) 
     
 class Contact(Base):
-    # FIXED: Table name changed from 'address_book' to 'saved_contacts'
     __tablename__ = 'saved_contacts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -187,15 +198,11 @@ class PaymentFulfillment(Base):
     status = Column(String, default="fulfilled")
     created_at = Column(DateTime, default=datetime.utcnow)
 
-
 # ==========================================
 # 🛠️ FUNCTIONS
 # ==========================================
 
-# --- SUBSCRIPTION HELPERS (ADDED v4.0) ---
-
 def update_subscription_state(email, end_date):
-    """Updates the local cache of when the subscription ends."""
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -209,7 +216,6 @@ def update_subscription_state(email, end_date):
         return False
 
 def update_user_subscription_id(email, sub_id):
-    """Updates the Stripe Subscription ID for the user."""
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -222,21 +228,13 @@ def update_user_subscription_id(email, sub_id):
         logger.error(f"Update Sub ID Error: {e}")
         return False
 
-# --- ROBUST ADMIN FUNCTIONS ---
-
 def get_all_orders():
-    """
-    Fetches orders safely. If one table fails, it still returns the others.
-    """
     combined = []
-    
-    # 1. Try to get Finalized Letters
     try:
         with get_db_session() as session:
             legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
             for o in legacy:
                 d = to_dict(o)
-                # Fallback for email if using user_id
                 if not d.get('user_email'): 
                     d['user_email'] = f"ID: {d.get('user_id', '?')}"
                 d['source'] = 'Sent Letter'
@@ -244,7 +242,6 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Error fetching Letters table: {e}")
 
-    # 2. Try to get Drafts (This was crashing before)
     try:
         with get_db_session() as session:
             heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
@@ -257,10 +254,8 @@ def get_all_orders():
     except Exception as e:
         logger.error(f"Error fetching Drafts table: {e}")
 
-    # Sort if we have data
     if combined:
-        try:
-            combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+        try: combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
         except: pass
         
     return combined[:100]
@@ -308,8 +303,6 @@ def get_audit_logs(limit=100):
             return [to_dict(l) for l in logs]
     except Exception: return []
 
-# --- USER & PROFILE ---
-
 def get_user_profile(email):
     try:
         with get_db_session() as session:
@@ -353,12 +346,10 @@ def update_heirloom_settings(email, parent_name, parent_phone):
                 session.commit()
                 return True
             else:
-                # --- ADDED LOGGING HERE ---
                 print(f"❌ DEBUG: Profile row missing for {email}")
                 return False
     except Exception as e:
-    # This puts the exact error message in a red box on your browser
-        st.error(f"❌ DETAILED ERROR: {e}") 
+        st.error(f"❌ DATABASE ERROR: {e}") # Explicitly show error on UI
         return False
 
 def update_user_address(email, name, street, city, state, zip_code):
@@ -374,12 +365,10 @@ def update_user_address(email, name, street, city, state, zip_code):
                 session.commit()
                 return True
             else:
-                # --- ADDED LOGGING HERE ---
                 print(f"❌ DEBUG: Address update failed. No profile for {email}")
                 return False
     except Exception as e:
-    # This puts the exact error message in a red box on your browser
-        st.error(f"❌ DETAILED ERROR: {e}") 
+        st.error(f"❌ DATABASE ERROR (Address): {e}") # Explicitly show error on UI
         return False
 
 def check_call_limit(email):
@@ -412,9 +401,6 @@ def schedule_call(email, parent_phone, topic, scheduled_dt):
             return True
     except Exception: return False
 
-# --- STORE / DRAFTS ---
-
-# FIXED: Added audio_ref=None to signature to match ui_heirloom.py calls
 def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
     try:
         with get_db_session() as session:
@@ -424,7 +410,7 @@ def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
                 tier=tier, 
                 price=price, 
                 status="Draft",
-                audio_ref=audio_ref # New field
+                audio_ref=audio_ref
             )
             session.add(draft)
             session.commit()
@@ -443,14 +429,11 @@ def get_user_drafts(email):
 def update_draft_data(draft_id, **kwargs):
     try:
         with get_db_session() as session:
-            # First try ID as integer (if DB is integer)
             draft = None
             try:
                 d_int = int(draft_id)
                 draft = session.query(LetterDraft).filter_by(id=d_int).first()
             except: pass
-            
-            # If fail, try as string (if DB is text/uuid)
             if not draft:
                 draft = session.query(LetterDraft).filter_by(id=str(draft_id)).first()
 
@@ -486,7 +469,6 @@ def save_contact(user_email, contact_data):
             return True
     except Exception: return False
 
-# --- NEW FUNCTION FOR ADDRESS BOOK MANAGEMENT ---
 def delete_contact(user_email, contact_id):
     try:
         with get_db_session() as session:
@@ -510,38 +492,20 @@ def create_promo_code(code, amount):
     except Exception: return False
 
 def record_stripe_fulfillment(session_id):
-    """
-    Attempts to log a Stripe Session ID. 
-    Returns True if this is a NEW fulfillment.
-    Returns False if this session_id already exists (Idempotency Check).
-    """
-    if not session_id:
-        return False
-        
+    if not session_id: return False
     try:
         with get_db_session() as session:
-            # Check existence first to avoid exception handling overhead if possible
             exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
-            if exists:
-                return False
-            
-            # Record new fulfillment
+            if exists: return False
             new_record = PaymentFulfillment(stripe_session_id=session_id)
             session.add(new_record)
             session.commit()
             return True
     except Exception as e:
         logger.error(f"Idempotency Check Error: {e}")
-        # If we can't verify, we assume it might be a duplicate to be safe, 
-        # or we return False to prevent double-spending.
         return False
 
-# --- NEW FUNCTION FOR READ-ONLY CHECK ---
 def is_fulfillment_recorded(session_id):
-    """
-    Read-only check for payment existence. 
-    Does not attempt to write or lock.
-    """
     if not session_id: return False
     try:
         with get_db_session() as session:
@@ -549,28 +513,20 @@ def is_fulfillment_recorded(session_id):
              return exists is not None
     except Exception as e:
         logger.error(f"Read Fulfillment Error: {e}")
-        return True # Fail safe: Assume verified to prevent double processing in error state
+        return True
 
 def record_promo_usage(code, user_email):
-    """
-    Increments usage counter for a promo code and logs it.
-    """
     if not code: return False
     try:
         with get_db_session() as session:
-            # 1. Update PromoCode Table
             promo = session.query(PromoCode).filter_by(code=code).first()
             if promo:
-                # Handle both 'current_uses' and 'uses' depending on schema
                 if hasattr(promo, 'current_uses'):
                     promo.current_uses = (promo.current_uses or 0) + 1
                 if hasattr(promo, 'uses'):
                     promo.uses = (promo.uses or 0) + 1
-            
-            # 2. Add to PromoLog Table
             log = PromoLog(code=code, user_email=user_email, used_at=datetime.utcnow())
             session.add(log)
-            
             session.commit()
             return True
     except Exception as e:
