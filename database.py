@@ -397,7 +397,17 @@ def get_user_drafts(email):
 def update_draft_data(draft_id, **kwargs):
     try:
         with get_db_session() as session:
-            draft = session.query(LetterDraft).filter_by(id=draft_id).first()
+            # First try ID as integer (if DB is integer)
+            draft = None
+            try:
+                d_int = int(draft_id)
+                draft = session.query(LetterDraft).filter_by(id=d_int).first()
+            except: pass
+            
+            # If fail, try as string (if DB is text/uuid)
+            if not draft:
+                draft = session.query(LetterDraft).filter_by(id=str(draft_id)).first()
+
             if draft:
                 for key, val in kwargs.items():
                     if hasattr(draft, key):
@@ -494,3 +504,29 @@ def is_fulfillment_recorded(session_id):
     except Exception as e:
         logger.error(f"Read Fulfillment Error: {e}")
         return True # Fail safe: Assume verified to prevent double processing in error state
+
+def record_promo_usage(code, user_email):
+    """
+    Increments usage counter for a promo code and logs it.
+    """
+    if not code: return False
+    try:
+        with get_db_session() as session:
+            # 1. Update PromoCode Table
+            promo = session.query(PromoCode).filter_by(code=code).first()
+            if promo:
+                # Handle both 'current_uses' and 'uses' depending on schema
+                if hasattr(promo, 'current_uses'):
+                    promo.current_uses = (promo.current_uses or 0) + 1
+                if hasattr(promo, 'uses'):
+                    promo.uses = (promo.uses or 0) + 1
+            
+            # 2. Add to PromoLog Table
+            log = PromoLog(code=code, user_email=user_email, used_at=datetime.utcnow())
+            session.add(log)
+            
+            session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Record Promo Usage Error: {e}")
+        return False

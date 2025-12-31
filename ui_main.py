@@ -630,7 +630,12 @@ def render_review_page():
                                         "details": f"Draft: {d_id}, Track: {tracking}"
                                     })
                                 
-                                # 4. SUCCESS
+                                # 4. RECORD PROMO USAGE (FIXED)
+                                promo_code = st.session_state.get('applied_promo')
+                                if promo_code:
+                                    database.record_promo_usage(promo_code, u_email)
+
+                                # 5. SUCCESS
                                 st.session_state.app_mode = "receipt"
                                 st.rerun()
                             else:
@@ -648,6 +653,9 @@ def render_review_page():
             try: database.update_draft_data(d_id, price=total, status="Pending Payment")
             except Exception as e: logger.error(f"State Persistence Error: {e}")
         
+        # FIXED: Pass promo_code to Stripe Metadata
+        promo_code = st.session_state.get('applied_promo')
+        
         url = payment_engine.create_checkout_session(
             line_items=[{
                 "price_data": {
@@ -658,7 +666,8 @@ def render_review_page():
                 "quantity": 1,
             }],
             user_email=u_email,
-            draft_id=d_id
+            draft_id=d_id,
+            promo_code=promo_code # <-- ADDED
         )
         if url: 
             st.link_button("👉 Click to Pay", url)

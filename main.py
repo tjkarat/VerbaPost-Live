@@ -292,9 +292,12 @@ def handle_payment_return(session_id):
                     except: pass
 
                 meta_id = None
+                promo_code = None
+                
                 ref_id = getattr(raw_obj, 'client_reference_id', '')
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
+                    promo_code = raw_obj.metadata.get('promo_code', '') # Extract Promo
 
                 # A. Subscription
                 if (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT"):
@@ -304,6 +307,11 @@ def handle_payment_return(session_id):
                             db.update_user_subscription_id(user_email, raw_obj.subscription)
                             if hasattr(pay_eng, 'check_subscription_status'):
                                 pay_eng.check_subscription_status(user_email)
+                    
+                    # Log Promo Usage for Subscriptions if applicable
+                    if promo_code and db:
+                        db.record_promo_usage(promo_code, user_email)
+
                     st.query_params.clear()
                     st.session_state.system_mode = "archive"
                     st.session_state.app_mode = "heirloom"
@@ -345,6 +353,11 @@ def handle_payment_return(session_id):
                             st.session_state.locked_tier = d.tier 
                             st.session_state.current_draft_id = str(target_draft_id)
                             s.commit() 
+                            
+                            # RECORD PROMO USAGE FOR SINGLE LETTERS
+                            if promo_code:
+                                db.record_promo_usage(promo_code, user_email)
+
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "receipt"
                             st.query_params.clear()

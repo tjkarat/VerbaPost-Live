@@ -69,7 +69,7 @@ def get_base_url():
         
     return url.rstrip("/")
 
-def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment"):
+def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None):
     """
     Creates a Stripe Checkout Session.
     """
@@ -93,6 +93,10 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
         "draft_id": str(draft_id),
         "service": "VerbaPost"
     }
+    
+    # Add Promo Code to Metadata if present
+    if promo_code:
+        metadata["promo_code"] = str(promo_code)
 
     try:
         # Build Session Params
