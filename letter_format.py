@@ -178,6 +178,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(80, 80, 80) # Dark Grey
         
+        # --- FIX: Ensure we use FROM address here ---
         sender_block = _format_address_block(from_addr)
         sender_lines = sender_block.split('\n')
         
