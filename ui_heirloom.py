@@ -10,6 +10,8 @@ try: import database
 except ImportError: database = None
 try: import ai_engine
 except ImportError: ai_engine = None
+try: import heirloom_engine  # <--- NEW IMPORT
+except ImportError: heirloom_engine = None
 try: import mailer
 except ImportError: mailer = None
 try: import letter_format
@@ -374,16 +376,21 @@ def render_dashboard():
         if st.button("🔄 Check for New Recordings"):
             if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
-            elif ai_engine:
+            elif heirloom_engine:
                 with st.spinner(f"Scanning for calls from {p_phone}..."):
-                    transcript, err = ai_engine.fetch_and_transcribe_latest_call(p_phone)
+                    # UPDATED: Now uses heirloom_engine to handle extension logic safely
+                    transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
                     if transcript:
-                        if database: database.save_draft(user_email, transcript, "Heirloom", 0.0)
+                        # UPDATED: Now saves audio_ref to the database
+                        if database: 
+                            database.save_draft(user_email, transcript, "Heirloom", 0.0, audio_ref=audio_path)
                         st.success("✅ New Story Found!")
                         time.sleep(1)
                         st.rerun()
                     else: 
                         st.warning(f"No new recordings found. ({err})")
+            else:
+                st.error("Heirloom Engine not loaded.")
         
         st.divider()
 
@@ -455,12 +462,13 @@ def render_dashboard():
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
                                     # We use kwargs to update the JSON columns
+                                    # UPDATED: Converted dicts to strings to prevent SQL Errors
                                     database.update_draft_data(
                                         d_id, 
                                         status="Queued (Manual)", 
                                         tracking_number=ref_id,
-                                        to_addr=snapshot_to,   # <-- ADDED THIS
-                                        from_addr=snapshot_from # <-- ADDED THIS
+                                        to_addr=str(snapshot_to),    # <-- SAFE STRING CAST
+                                        from_addr=str(snapshot_from) # <-- SAFE STRING CAST
                                     )
                                 
                                 # D. Audit & Receipt
