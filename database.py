@@ -93,12 +93,17 @@ class UserProfile(Base):
     address_state = Column(String)
     address_zip = Column(String)
     country = Column(String, default="US")
-    timezone = Column(String, default="US/Central") # <--- NEW COLUMN
+    timezone = Column(String, default="US/Central") 
     parent_name = Column(String)
     parent_phone = Column(String)
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
+
+    # --- NEW COLUMNS FOR SUBSCRIPTIONS (ADDED v4.0) ---
+    stripe_customer_id = Column(String, nullable=True)
+    stripe_subscription_id = Column(String, nullable=True)
+    subscription_end_date = Column(DateTime, nullable=True)
 
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
@@ -129,7 +134,6 @@ class LetterDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
-    # The new column that caused the confusion, now properly supported
     audio_ref = Column(Text)
 
 class ScheduledCall(Base):
@@ -187,6 +191,36 @@ class PaymentFulfillment(Base):
 # ==========================================
 # 🛠️ FUNCTIONS
 # ==========================================
+
+# --- SUBSCRIPTION HELPERS (ADDED v4.0) ---
+
+def update_subscription_state(email, end_date):
+    """Updates the local cache of when the subscription ends."""
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.subscription_end_date = end_date
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Sub Date Error: {e}")
+        return False
+
+def update_user_subscription_id(email, sub_id):
+    """Updates the Stripe Subscription ID for the user."""
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.stripe_subscription_id = sub_id
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Sub ID Error: {e}")
+        return False
 
 # --- ROBUST ADMIN FUNCTIONS ---
 
