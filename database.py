@@ -357,8 +357,8 @@ def update_heirloom_settings(email, parent_name, parent_phone):
                 print(f"❌ DEBUG: Profile row missing for {email}")
                 return False
     except Exception as e:
-        # --- ADDED LOGGING HERE ---
-        print(f"❌ DATABASE ERROR: {e}")
+    # This puts the exact error message in a red box on your browser
+        st.error(f"❌ DETAILED ERROR: {e}") 
         return False
 
 def update_user_address(email, name, street, city, state, zip_code):
@@ -378,8 +378,8 @@ def update_user_address(email, name, street, city, state, zip_code):
                 print(f"❌ DEBUG: Address update failed. No profile for {email}")
                 return False
     except Exception as e:
-        # --- ADDED LOGGING HERE ---
-        print(f"❌ DATABASE ERROR (Address): {e}")
+    # This puts the exact error message in a red box on your browser
+        st.error(f"❌ DETAILED ERROR: {e}") 
         return False
 
 def check_call_limit(email):
