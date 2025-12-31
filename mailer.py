@@ -29,22 +29,12 @@ def get_api_key():
 def _create_contact(contact_data):
     """
     Internal helper to create a contact in PostGrid and get an ID.
-    Now with DEBUG LOGGING.
     """
     api_key = get_api_key()
     if not api_key:
         logger.error("Mailer Error: Missing API Key")
         return None
 
-    # --- DEBUG: PRINT THE EXACT DATA ---
-    logger.info(f"--------------------------------------------------")
-    logger.info(f"[DEBUG] Creating Contact for: {contact_data.get('name')}")
-    logger.info(f"[DEBUG] Raw Data: {contact_data}")
-    # -----------------------------------
-
-    # PostGrid requires CamelCase for keys (addressLine1, firstName)
-    # We must map our snake_case keys manually.
-    
     # Split Name if possible
     full_name = str(contact_data.get('name', ''))
     first_name = full_name
@@ -66,27 +56,15 @@ def _create_contact(contact_data):
         "countryCode": "US"
     }
 
-    # --- DEBUG: PRINT THE API PAYLOAD ---
-    logger.info(f"[DEBUG] JSON Payload to PostGrid: {json.dumps(payload, indent=2)}")
-    # ------------------------------------
-
     headers = {
         "x-api-key": api_key,
-        "Content-Type": "application/json" # CRITICAL: Must be JSON
+        "Content-Type": "application/json"
     }
 
     try:
-        # Use the /contacts endpoint
         url = "https://api.postgrid.com/print-mail/v1/contacts"
-        
         resp = requests.post(url, json=payload, headers=headers)
         
-        # --- DEBUG: PRINT RESPONSE ---
-        logger.info(f"[DEBUG] PostGrid Response Code: {resp.status_code}")
-        logger.info(f"[DEBUG] PostGrid Response Body: {resp.text}")
-        logger.info(f"--------------------------------------------------")
-        # -----------------------------
-
         if resp.status_code in [200, 201]:
             return resp.json().get('id')
         else:
@@ -100,11 +78,12 @@ def _create_contact(contact_data):
 def validate_address(address_dict):
     """
     Validates an address using PostGrid's verification endpoint.
+    FIXED: Uses the correct Print & Mail verification URL to avoid 404s.
     """
     api_key = get_api_key()
     if not api_key: return False, {"error": "Configuration Error"}
 
-    # Map to Verification format (standard 'line1', etc.)
+    # Map to Verification format
     payload = {
         "address": {
             "line1": str(address_dict.get('street') or address_dict.get('address_line1') or ""),
@@ -118,13 +97,14 @@ def validate_address(address_dict):
     headers = {"x-api-key": api_key, "Content-Type": "application/json"}
     
     try:
-        # Note: Verification endpoint is different
-        url = "https://api.postgrid.com/print-mail/v1/addver/verifications"
+        # --- CRITICAL FIX: Correct Endpoint for Print & Mail ---
+        url = "https://api.postgrid.com/print-mail/v1/verifications"
         resp = requests.post(url, json=payload, headers=headers)
         
         if resp.status_code == 200:
             data = resp.json()
-            if data.get('status') == 'verified':
+            # PostGrid returns 'status': 'verified' or 'corrected' or 'failed'
+            if data.get('status') in ['verified', 'corrected']:
                 # Return the cleaned, standardized address
                 verified_addr = data.get('data', {})
                 clean_data = {
@@ -136,7 +116,6 @@ def validate_address(address_dict):
                 }
                 return True, clean_data
             else:
-                # Return the specific error from PostGrid
                 return False, {"error": f"Address Invalid: {data.get('summary', 'Unknown Issue')}"}
         else:
             return False, {"error": f"API Error {resp.status_code}"}
@@ -146,7 +125,7 @@ def validate_address(address_dict):
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
     """
-    Sends a letter via PostGrid using the 2-step contact creation method.
+    Sends a letter via PostGrid.
     """
     api_key = get_api_key()
     if not api_key: 
@@ -165,7 +144,6 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
     try:
         url = "https://api.postgrid.com/print-mail/v1/letters"
         
-        # We send data as multipart/form-data because we are uploading a file
         files = {
             'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')
         }
@@ -174,9 +152,9 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
             'to': to_id,
             'from': from_id,
             'description': description,
-            'color': 'true', # Force color for Vintage/Logos
+            'color': 'true', 
             'express': 'false',
-            'addressPlacement': 'top_first_page' # CRITICAL for window envelopes
+            'addressPlacement': 'top_first_page'
         }
 
         resp = requests.post(url, headers={"x-api-key": api_key}, files=files, data=data)
