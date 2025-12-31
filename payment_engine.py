@@ -64,7 +64,7 @@ def get_base_url():
         
     # 3. Safe Default (Production)
     if not url:
-        # CHANGED: Default to custom domain
+        # CHANGED: Default to custom domain to fix session loss
         url = "https://app.verbapost.com"
         
     return url.rstrip("/")

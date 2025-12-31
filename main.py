@@ -243,7 +243,7 @@ def render_sidebar(mode):
 
 def handle_payment_return(session_id):
     """
-    Handles Stripe Callback with AGGRESSIVE DRAFT RECOVERY.
+    Handles Stripe Callback with TYPE SAFE DRAFT RECOVERY.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
@@ -313,7 +313,7 @@ def handle_payment_return(session_id):
                 # B. Single Letter (Utility)
                 target_draft_id = None
                 if meta_id:
-                     target_draft_id = str(meta_id) # FORCE STRING TYPE TO PREVENT SQL ERROR
+                     target_draft_id = str(meta_id) # FIRST FORCE STRING
                 
                 # --- AGGRESSIVE RECOVERY LOGIC (Fix for Promo Code 404s) ---
                 if not target_draft_id and db and user_email:
@@ -333,11 +333,11 @@ def handle_payment_return(session_id):
                              ).order_by(db.LetterDraft.created_at.desc()).first()
                              
                          if fallback:
-                             target_draft_id = str(fallback.id) # FORCE STRING TYPE
+                             target_draft_id = str(fallback.id) # FORCE STRING AGAIN
 
                 if db and target_draft_id:
                     with db.get_db_session() as s:
-                        # FILTER WITH EXPLICIT STRING TO PREVENT 'text = integer' ERROR
+                        # FILTER WITH EXPLICIT STRING
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == str(target_draft_id)).first()
                         if d:
                             d.status = "Paid/Writing"
