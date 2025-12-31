@@ -33,6 +33,8 @@ try: import promo_engine
 except ImportError: promo_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
+try: import email_engine
+except ImportError: email_engine = None
 
 # --- HELPER: SAFE PROFILE GETTER ---
 def get_profile_field(profile, field, default=""):
@@ -223,7 +225,7 @@ def render_store_page():
     with c1:
         st.markdown(html_card("Standard", "ONE LETTER", "2.99", "Premium paper. Standard #10 Envelope."), unsafe_allow_html=True)
     with c2:
-        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Actual Stamp"), unsafe_allow_html=True)
+        st.markdown(html_card("Vintage", "ONE LETTER", "5.99", "Heavy cream paper. Wax seal effect."), unsafe_allow_html=True)
     with c3:
         st.markdown(html_card("Civic", "3 LETTERS", "6.99", "Write to Congress. We find reps automatically."), unsafe_allow_html=True)
 
@@ -634,7 +636,23 @@ def render_review_page():
                                 if promo_code:
                                     database.record_promo_usage(promo_code, u_email)
 
-                                # 5. SUCCESS
+                                # 5. SEND RECEIPT EMAIL (ADDED)
+                                if email_engine:
+                                    try:
+                                        email_engine.send_email(
+                                            to_email=u_email,
+                                            subject=f"VerbaPost Receipt: Order #{d_id}",
+                                            html_content=f"""
+                                            <h3>Letter Sent Successfully!</h3>
+                                            <p>Your letter has been dispatched to the post office (Free via Promo).</p>
+                                            <p><b>Tracking ID:</b> {tracking}</p>
+                                            <p>Thank you for using VerbaPost.</p>
+                                            """
+                                        )
+                                    except Exception as ex:
+                                        logger.error(f"Free Order Receipt Failed: {ex}")
+
+                                # 6. SUCCESS
                                 st.session_state.app_mode = "receipt"
                                 st.rerun()
                             else:
@@ -666,7 +684,7 @@ def render_review_page():
             }],
             user_email=u_email,
             draft_id=d_id,
-            promo_code=promo_code # <-- ADDED
+            promo_code=promo_code 
         )
         if url: 
             st.link_button("👉 Click to Pay", url)

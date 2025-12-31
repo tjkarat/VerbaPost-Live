@@ -2,6 +2,7 @@ import streamlit as st
 import time
 import os
 import logging
+import ast
 from datetime import datetime, timedelta
 
 # --- LOGGING SETUP ---
@@ -61,6 +62,12 @@ def get_module(module_name):
 
 try: import secrets_manager
 except Exception: secrets_manager = None
+try: import mailer
+except ImportError: mailer = None
+try: import letter_format
+except ImportError: letter_format = None
+try: import email_engine
+except ImportError: email_engine = None
 
 # --- SEO INJECTOR ---
 def inject_dynamic_seo(mode):
@@ -243,7 +250,7 @@ def render_sidebar(mode):
 
 def handle_payment_return(session_id):
     """
-    Handles Stripe Callback with TYPE SAFE DRAFT RECOVERY.
+    Handles Stripe Callback with TYPE SAFE DRAFT RECOVERY & FULFILLMENT.
     """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
@@ -308,9 +315,20 @@ def handle_payment_return(session_id):
                             if hasattr(pay_eng, 'check_subscription_status'):
                                 pay_eng.check_subscription_status(user_email)
                     
-                    # Log Promo Usage for Subscriptions if applicable
+                    # Log Promo Usage for Subscriptions
                     if promo_code and db:
                         db.record_promo_usage(promo_code, user_email)
+
+                    # Send Welcome Email
+                    if email_engine:
+                        try:
+                            email_engine.send_email(
+                                to_email=user_email,
+                                subject="Welcome to VerbaPost Archive",
+                                html_content="<h3>Subscription Active!</h3><p>Your 4 credits have been added.</p>"
+                            )
+                        except Exception as e:
+                            logger.error(f"Welcome Email Failed: {e}")
 
                     st.query_params.clear()
                     st.session_state.system_mode = "archive"
@@ -352,6 +370,50 @@ def handle_payment_return(session_id):
                             st.session_state.paid_tier = d.tier
                             st.session_state.locked_tier = d.tier 
                             st.session_state.current_draft_id = str(target_draft_id)
+                            
+                            # --- FULFILLMENT: GENERATE & MAIL (Previously Missing) ---
+                            tracking_num = None
+                            if mailer and letter_format:
+                                try:
+                                    # Parse stored JSON strings
+                                    to_addr = ast.literal_eval(d.to_addr) if d.to_addr else {}
+                                    from_addr = ast.literal_eval(d.from_addr) if d.from_addr else {}
+                                    
+                                    # Create PDF
+                                    pdf_bytes = letter_format.create_pdf(d.content, to_addr, from_addr, tier=d.tier)
+                                    
+                                    # Send to PostGrid
+                                    tracking_num = mailer.send_letter(
+                                        pdf_bytes, to_addr, from_addr, 
+                                        description=f"Paid Order {target_draft_id}"
+                                    )
+                                    
+                                    if tracking_num:
+                                        d.status = "Sent"
+                                        d.tracking_number = tracking_num
+                                        
+                                        # --- SEND RECEIPT EMAIL ---
+                                        if email_engine:
+                                            try:
+                                                email_engine.send_email(
+                                                    to_email=user_email,
+                                                    subject=f"VerbaPost Receipt: Order #{target_draft_id}",
+                                                    html_content=f"""
+                                                    <h3>Letter Sent Successfully!</h3>
+                                                    <p>Your letter has been dispatched to the post office.</p>
+                                                    <p><b>Tracking ID:</b> {tracking_num}</p>
+                                                    <p>Thank you for using VerbaPost.</p>
+                                                    """
+                                                )
+                                            except Exception as ex:
+                                                logger.error(f"Receipt Email Failed: {ex}")
+                                        # --------------------------
+                                    else:
+                                        logger.error("Mailing Failed during fulfillment.")
+                                        
+                                except Exception as fulfillment_err:
+                                    logger.error(f"Fulfillment Error: {fulfillment_err}")
+
                             s.commit() 
                             
                             # RECORD PROMO USAGE FOR SINGLE LETTERS
