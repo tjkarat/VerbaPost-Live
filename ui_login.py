@@ -110,63 +110,62 @@ def render_login_page():
                         is_valid = True 
 
                     if not is_valid:
-                        # --- FIX: SAFEGUARD AGAINST ATTRIBUTE ERROR ---
+                        # --- CRITICAL FIX: SOFT WARNING INSTEAD OF HARD STOP ---
                         error_msg = "Unknown Error"
                         if isinstance(details, dict):
                             error_msg = details.get('error', 'Unknown Error')
                         elif isinstance(details, str):
                             error_msg = details
-                        elif details is None:
-                            error_msg = "Address validation service unavailable."
                         
-                        st.error(f"❌ Invalid Address: {error_msg}")
-                        st.warning("Please double-check your street, city, and zip.")
-                    else:
-                        # 2. Create User
-                        if auth_engine:
-                            user, error = auth_engine.sign_up(new_email, new_pass, data={"full_name": full_name})
-                            if user:
-                                if database:
-                                    database.create_user(new_email, full_name)
-                                    # Update Profile with Validated Address & Timezone
-                                    with database.get_db_session() as db:
-                                        p = db.query(database.UserProfile).filter(database.UserProfile.email == new_email).first()
-                                        if p:
-                                            p.address_line1 = addr
-                                            p.address_city = city
-                                            p.address_state = state
-                                            p.address_zip = zip_code
-                                            p.country = country
-                                            p.timezone = timezone
-                                            db.commit()
-                                
-                                # --- AUDIT LOG (NEW) ---
-                                if hasattr(database, "save_audit_log"):
-                                    try:
-                                        database.save_audit_log({
-                                            "user_email": new_email,
-                                            "event_type": "USER_SIGNUP",
-                                            "description": "New Account Created & Address Verified"
-                                        })
-                                    except Exception: pass
-                                # -----------------------
+                        st.warning(f"⚠️ Address Note: USPS could not verify this exact location ({error_msg}).")
+                        st.caption("We will create your account, but please double-check your address in settings later to ensure delivery.")
+                        # We do NOT return/stop here. We proceed to create the user.
+                    
+                    # 2. Create User (Runs regardless of validation success)
+                    if auth_engine:
+                        user, error = auth_engine.sign_up(new_email, new_pass, data={"full_name": full_name})
+                        if user:
+                            if database:
+                                database.create_user(new_email, full_name)
+                                # Update Profile with Validated Address & Timezone
+                                with database.get_db_session() as db:
+                                    p = db.query(database.UserProfile).filter(database.UserProfile.email == new_email).first()
+                                    if p:
+                                        p.address_line1 = addr
+                                        p.address_city = city
+                                        p.address_state = state
+                                        p.address_zip = zip_code
+                                        p.country = country
+                                        p.timezone = timezone
+                                        db.commit()
+                            
+                            # --- AUDIT LOG (NEW) ---
+                            if hasattr(database, "save_audit_log"):
+                                try:
+                                    database.save_audit_log({
+                                        "user_email": new_email,
+                                        "event_type": "USER_SIGNUP",
+                                        "description": "New Account Created (Address Status: " + ("Verified" if is_valid else "Unverified") + ")"
+                                    })
+                                except Exception: pass
+                            # -----------------------
 
-                                st.success("✅ Account created! Address Verified.")
-                                st.session_state.authenticated = True
-                                st.session_state.user_email = new_email
-                                
-                                # --- ROUTING FIX ---
-                                target = st.session_state.get("redirect_to", "main")
-                                if target == "heirloom":
-                                    st.session_state.app_mode = "heirloom"
-                                    st.query_params["view"] = "heirloom"
-                                else:
-                                    st.session_state.app_mode = "main"
-
-                                time.sleep(1)
-                                st.rerun()
+                            st.success("✅ Account created!")
+                            st.session_state.authenticated = True
+                            st.session_state.user_email = new_email
+                            
+                            # --- ROUTING FIX ---
+                            target = st.session_state.get("redirect_to", "main")
+                            if target == "heirloom":
+                                st.session_state.app_mode = "heirloom"
+                                st.query_params["view"] = "heirloom"
                             else:
-                                st.error(f"Signup failed: {error}")
+                                st.session_state.app_mode = "main"
+
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error(f"Signup failed: {error}")
 
     # --- TAB B: SIGN IN ---
     with tab_login:
