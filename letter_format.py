@@ -178,6 +178,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(80, 80, 80) # Dark Grey
         
+        # --- FIX: Ensure we use FROM address here ---
         sender_block = _format_address_block(from_addr)
         sender_lines = sender_block.split('\n')
         
@@ -191,6 +192,8 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.ln(10) # Spacer (approx 2 lines)
         
         # 6. Render Recipient Address (Top Left)
+        # CRITICAL: Position for #10 Window Envelope
+        pdf.set_y(45) # Force Y position to 45mm from top
         pdf.set_font(header_font_family, size=10)
         pdf.set_text_color(0, 0, 0) # Black
         
@@ -199,9 +202,10 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         
         pdf.multi_cell(0, 5, safe_recipient_block, align='L')
         
-        pdf.ln(15) # Spacer before body
+        # 7. Render Letter Body (Safe Zone)
+        # --- FIX: Force body below the fold to prevent overlap ---
+        pdf.set_y(105) 
         
-        # 7. Render Letter Body
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0) # Black text
         
