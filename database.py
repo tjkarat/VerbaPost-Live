@@ -352,8 +352,14 @@ def update_heirloom_settings(email, parent_name, parent_phone):
                 profile.parent_phone = parent_phone
                 session.commit()
                 return True
-            return False
-    except Exception: return False
+            else:
+                # --- ADDED LOGGING HERE ---
+                print(f"❌ DEBUG: Profile row missing for {email}")
+                return False
+    except Exception as e:
+        # --- ADDED LOGGING HERE ---
+        print(f"❌ DATABASE ERROR: {e}")
+        return False
 
 def update_user_address(email, name, street, city, state, zip_code):
     try:
@@ -367,8 +373,14 @@ def update_user_address(email, name, street, city, state, zip_code):
                 profile.address_zip = zip_code
                 session.commit()
                 return True
-            return False
-    except Exception: return False
+            else:
+                # --- ADDED LOGGING HERE ---
+                print(f"❌ DEBUG: Address update failed. No profile for {email}")
+                return False
+    except Exception as e:
+        # --- ADDED LOGGING HERE ---
+        print(f"❌ DATABASE ERROR (Address): {e}")
+        return False
 
 def check_call_limit(email):
     try:

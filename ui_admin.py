@@ -406,9 +406,13 @@ def render_admin_page():
                         token = secrets_manager.get_secret("twilio.auth_token")
                         if sid and token:
                             try:
-                                # Fetch MP3 via Authenticated Request (prevents 403 Forbidden)
+                                # FIX: Handle cases where Twilio returns a relative URI vs full URL
                                 uri = selected_rec.get('URL', '').replace(".json", "")
-                                mp3_url = f"https://api.twilio.com{uri}.mp3"
+                                if uri.startswith("http"):
+                                    mp3_url = f"{uri}.mp3"
+                                else:
+                                    mp3_url = f"https://api.twilio.com{uri}.mp3"
+                                
                                 r = requests.get(mp3_url, auth=(sid, token))
                                 if r.status_code == 200:
                                     st.audio(r.content, format="audio/mp3")
