@@ -5,6 +5,7 @@ import json
 import os
 import requests
 import ast
+import logging # --- FIX 1: Import logging ---
 from datetime import datetime
 import base64
 
@@ -12,6 +13,11 @@ import base64
 import stripe
 import openai
 from twilio.rest import Client as TwilioClient
+
+# --- FIX 2: SILENCE CONSOLE SPAM ---
+# This stops Twilio/Urllib3 from flooding your logs with "INFO" messages
+logging.getLogger("twilio").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 # --- DIRECT IMPORT ---
 import database 
@@ -401,13 +407,16 @@ def render_admin_page():
                 c_audio, c_del = st.columns([2, 1])
                 
                 with c_audio:
+                    # --- FIX 3: SAFE URL HANDLING ---
                     if st.button("▶️ Load Audio", key=f"load_{sel_sid}"):
                         sid = secrets_manager.get_secret("twilio.account_sid")
                         token = secrets_manager.get_secret("twilio.auth_token")
                         if sid and token:
                             try:
                                 # FIX: Handle cases where Twilio returns a relative URI vs full URL
-                                uri = selected_rec.get('URL', '').replace(".json", "")
+                                uri = selected_rec.get('URL', '').replace(".json", "").strip()
+                                
+                                # Only prepend domain if it's missing
                                 if uri.startswith("http"):
                                     mp3_url = f"{uri}.mp3"
                                 else:
@@ -417,7 +426,7 @@ def render_admin_page():
                                 if r.status_code == 200:
                                     st.audio(r.content, format="audio/mp3")
                                 else:
-                                    st.error(f"Fetch Error: {r.status_code}")
+                                    st.error(f"Fetch Error: {r.status_code} (URL: {mp3_url})")
                             except Exception as e:
                                 st.error(f"Audio Error: {e}")
                         else:
