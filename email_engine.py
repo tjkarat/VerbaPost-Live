@@ -48,7 +48,7 @@ def send_email(to_email, subject, html_content):
     }
     
     payload = {
-        "from": "VerbaPost <onboarding@resend.dev>", # Update this once you verify your domain
+        "from": "VerbaPost <support@verbapost.com>", # Update this once you verify your domain
         "to": [to_email],
         "subject": subject,
         "html": html_content
