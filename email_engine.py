@@ -26,21 +26,51 @@ def get_api_key():
     
     return None
 
-def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None):
+# --- NEW: GENERIC SEND FUNCTION (REQUIRED BY MAIN.PY) ---
+def send_email(to_email, subject, html_content):
     """
-    Sends a transaction receipt using direct HTTP requests (No SDK required).
+    Generic wrapper to match the signature expected by main.py and ui_main.py.
     """
     api_key = get_api_key()
     
     if not api_key:
-        logger.error("❌ Email Failed: API Key missing in environment or secrets.")
+        logger.error("❌ Email Failed: API Key missing.")
         return False
 
     if not to_email or "@" not in to_email:
-        logger.warning(f"⚠️ Invalid email address: {to_email}")
+        logger.warning(f"⚠️ Invalid email: {to_email}")
         return False
 
-    # --- EMAIL CONTENT ---
+    url = "https://api.resend.com/emails"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "from": "VerbaPost <onboarding@resend.dev>", # Update this once you verify your domain
+        "to": [to_email],
+        "subject": subject,
+        "html": html_content
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        if response.status_code in [200, 201, 202]:
+            logger.info(f"✅ Email Sent to {to_email}")
+            return True
+        else:
+            logger.error(f"❌ Resend API Error {response.status_code}: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Email Exception: {e}")
+        return False
+
+# --- BACKWARD COMPATIBILITY (OPTIONAL) ---
+def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None):
+    """
+    Constructs the HTML and calls the generic send_email function.
+    """
     subject = f"VerbaPost: {tier} Letter Dispatched"
     
     track_block = ""
@@ -53,7 +83,7 @@ def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None)
     else:
         track_block = f"<p>Order ID: {order_id}</p>"
 
-    html_content = f"""
+    html = f"""
     <div style="font-family:sans-serif; color:#333; max-width:600px; margin:0 auto;">
         <h2 style="color:#d93025;">Letter Sent! 📮</h2>
         <p>Your <strong>{tier}</strong> letter has been securely generated and is entering the mail stream.</p>
@@ -63,32 +93,5 @@ def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None)
         <p style="color:#999; font-size:12px;">Thank you for using VerbaPost.</p>
     </div>
     """
-
-    # --- DIRECT API CALL ---
-    url = "https://api.resend.com/emails"
     
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "from": "VerbaPost <onboarding@resend.dev>",
-        "to": [to_email],
-        "subject": subject,
-        "html": html_content
-    }
-
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=10)
-        
-        if response.status_code in [200, 201, 202]:
-            logger.info(f"✅ Email Sent to {to_email}. ID: {response.json().get('id')}")
-            return True
-        else:
-            logger.error(f"❌ Resend API Error {response.status_code}: {response.text}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"❌ Email Exception: {e}")
-        return False
+    return send_email(to_email, subject, html)
