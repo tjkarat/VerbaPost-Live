@@ -158,7 +158,7 @@ def render_login_page():
                             target = st.session_state.get("redirect_to", "main")
                             if target == "heirloom":
                                 st.session_state.app_mode = "heirloom"
-                                st.query_params["view"] = "heirloom"
+                                st.query_params["nav"] = "heirloom" # FIX: Changed from "view" to "nav" to match main.py router
                             else:
                                 st.session_state.app_mode = "main"
 
@@ -198,7 +198,7 @@ def render_login_page():
                         
                         if target == "heirloom":
                             st.session_state.app_mode = "heirloom"
-                            st.query_params["view"] = "heirloom"
+                            st.query_params["nav"] = "heirloom" # FIX: Changed from "view" to "nav" to match main.py router
                         else:
                             st.session_state.app_mode = "main"
                         
