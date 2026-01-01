@@ -155,13 +155,13 @@ def render_login_page():
                             st.session_state.user_email = new_email
                             
                             # --- ROUTING FIX ---
-                            target = st.session_state.get("redirect_to", "main")
-                            if target == "heirloom":
-                                st.session_state.app_mode = "heirloom"
-                                st.query_params["nav"] = "heirloom" # FIX: Changed from "view" to "nav" to match main.py router
-                            else:
-                                st.session_state.app_mode = "main"
-
+                            # Logic: If redirect_to is set, use it. Otherwise default to 'heirloom'.
+                            target = st.session_state.get("redirect_to", "heirloom")
+                            
+                            st.session_state.app_mode = target
+                            # Explicitly set the nav parameter to ensure router catches it
+                            st.query_params["nav"] = target
+                            
                             time.sleep(1)
                             st.rerun()
                         else:
@@ -194,13 +194,15 @@ def render_login_page():
                         # -----------------------
 
                         # --- ROUTING FIX ---
-                        target = st.session_state.get("redirect_to", "main")
+                        target = st.session_state.get("redirect_to", "heirloom")
                         
-                        if target == "heirloom":
-                            st.session_state.app_mode = "heirloom"
-                            st.query_params["nav"] = "heirloom" # FIX: Changed from "view" to "nav" to match main.py router
-                        else:
-                            st.session_state.app_mode = "main"
+                        # Fallback: If we lost state, check if we are in 'utility' mode via query params
+                        if st.query_params.get("mode") == "utility":
+                            target = "main"
+
+                        st.session_state.app_mode = target
+                        # Explicitly set the nav parameter to ensure router catches it
+                        st.query_params["nav"] = target
                         
                         st.rerun()
                     else:

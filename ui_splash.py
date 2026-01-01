@@ -28,9 +28,11 @@ def render_splash_page():
     # --- PRIMARY CTA (Heirloom) ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        if st.button("📚 Start Your Family Archive", type="primary", use_container_width=True):
+        # ADDED KEY: Ensures the session state update happens before the rerun
+        if st.button("📚 Start Your Family Archive", type="primary", use_container_width=True, key="splash_btn_heirloom"):
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
+                st.query_params["nav"] = "heirloom"
             else:
                 st.session_state.app_mode = "login"
                 st.session_state.redirect_to = "heirloom"
@@ -41,15 +43,15 @@ def render_splash_page():
     
     col_sec1, col_sec2, col_sec3 = st.columns([1, 1, 1])
     with col_sec2:
-        if st.button("📮 Go to Letter Store", use_container_width=True):
-            # FORCE Utility Mode
+        # ADDED KEY: Ensures utility mode is set correctly
+        if st.button("📮 Go to Letter Store", use_container_width=True, key="splash_btn_store"):
             st.query_params["mode"] = "utility"
             
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "main" 
             else:
                 st.session_state.app_mode = "login"
-                st.session_state.redirect_to = "main" # Explicitly request store main view
+                st.session_state.redirect_to = "main"
             st.rerun()
 
     # --- FOOTER ---
