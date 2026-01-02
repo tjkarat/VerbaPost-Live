@@ -3,6 +3,7 @@ import time
 import os
 import logging
 import ast
+import uuid # --- ADDED FOR MANUAL TRACKING ID ---
 from datetime import datetime, timedelta
 
 # --- LOGGING SETUP ---
@@ -371,9 +372,30 @@ def handle_payment_return(session_id):
                             st.session_state.locked_tier = d.tier 
                             st.session_state.current_draft_id = str(target_draft_id)
                             
-                            # --- FULFILLMENT: GENERATE & MAIL (Previously Missing) ---
+                            # --- FULFILLMENT LOGIC ---
                             tracking_num = None
-                            if mailer and letter_format:
+                            
+                            # --- FIX: ROUTE VINTAGE TO MANUAL QUEUE ---
+                            if d.tier == "Vintage":
+                                # MANUAL QUEUE
+                                tracking_num = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
+                                d.status = "Queued (Manual)"
+                                d.tracking_number = tracking_num
+                                logger.info(f"Paid Vintage Order {target_draft_id} sent to Manual Queue")
+                                
+                                # Send "Queued" Receipt
+                                if email_engine:
+                                    try:
+                                        email_engine.send_email(
+                                            to_email=user_email,
+                                            subject=f"VerbaPost Receipt: Order #{target_draft_id}",
+                                            html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking_num}</p>"
+                                        )
+                                    except Exception as ex:
+                                        logger.error(f"Queued Receipt Failed: {ex}")
+                            
+                            # --- STANDARD POSTGRID API ---
+                            elif mailer and letter_format:
                                 try:
                                     # Parse stored JSON strings
                                     to_addr = ast.literal_eval(d.to_addr) if d.to_addr else {}
@@ -392,7 +414,7 @@ def handle_payment_return(session_id):
                                         d.status = "Sent"
                                         d.tracking_number = tracking_num
                                         
-                                        # --- SEND RECEIPT EMAIL ---
+                                        # Send "Sent" Receipt
                                         if email_engine:
                                             try:
                                                 email_engine.send_email(
@@ -407,7 +429,6 @@ def handle_payment_return(session_id):
                                                 )
                                             except Exception as ex:
                                                 logger.error(f"Receipt Email Failed: {ex}")
-                                        # --------------------------
                                     else:
                                         logger.error("Mailing Failed during fulfillment.")
                                         

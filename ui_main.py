@@ -3,6 +3,7 @@ import time
 import os
 import hashlib
 import logging
+import uuid # --- ADDED UUID FOR MANUAL TRACKING ---
 from datetime import datetime
 
 # --- CRITICAL IMPORTS ---
@@ -605,60 +606,73 @@ def render_review_page():
             if d_id and database:
                 try:
                     # 1. GENERATE PDF & MAIL
-                    with st.spinner("Printing & Mailing..."):
-                        if letter_format and mailer:
-                            # Safely fetch addresses from session state
-                            t_addr = st.session_state.get('addr_to', {})
-                            f_addr = st.session_state.get('addr_from', {})
-                            body = st.session_state.get('letter_body', '')
+                    with st.spinner("Processing..."):
+                        # --- CRITICAL FIX: ROUTE VINTAGE TO MANUAL QUEUE ---
+                        tracking = None
+                        status_msg = ""
+                        
+                        if tier == "Vintage":
+                            # MANUAL QUEUE
+                            tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
+                            status_msg = "Queued (Manual)"
+                            logger.info(f"Vintage Free Order {d_id} sent to Manual Queue")
                             
-                            # Create PDF
-                            pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
-                            
-                            # Send to PostGrid
-                            tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
-                            
-                            if tracking:
-                                # 2. UPDATE DB
-                                database.update_draft_data(d_id, price=0.0, status="Sent", tracking_number=tracking)
-                                
-                                # 3. LOG
-                                if hasattr(database, "save_audit_log"):
-                                    database.save_audit_log({
-                                        "user_email": u_email,
-                                        "event_type": "ORDER_COMPLETE_FREE",
-                                        "description": "Sent to PostGrid via Promo",
-                                        "details": f"Draft: {d_id}, Track: {tracking}"
-                                    })
-                                
-                                # 4. RECORD PROMO USAGE
-                                promo_code = st.session_state.get('applied_promo')
-                                if promo_code:
-                                    database.record_promo_usage(promo_code, u_email)
-
-                                # 5. SEND RECEIPT EMAIL (ADDED)
-                                if email_engine:
-                                    try:
-                                        email_engine.send_email(
-                                            to_email=u_email,
-                                            subject=f"VerbaPost Receipt: Order #{d_id}",
-                                            html_content=f"""
-                                            <h3>Letter Sent Successfully!</h3>
-                                            <p>Your letter has been dispatched to the post office (Free via Promo).</p>
-                                            <p><b>Tracking ID:</b> {tracking}</p>
-                                            <p>Thank you for using VerbaPost.</p>
-                                            """
-                                        )
-                                    except Exception as ex:
-                                        logger.error(f"Free Order Receipt Failed: {ex}")
-
-                                # 6. SUCCESS
-                                st.session_state.app_mode = "receipt"
-                                st.rerun()
-                            else:
-                                st.error("Mailing Failed. PostGrid rejected the address.")
+                            # Send "Queued" Email
+                            if email_engine:
+                                email_engine.send_email(
+                                    to_email=u_email,
+                                    subject=f"VerbaPost Receipt: Order #{d_id}",
+                                    html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking}</p>"
+                                )
                         else:
-                            st.error("System Error: Mailer Engine offline.")
+                            # STANDARD POSTGRID API
+                            if letter_format and mailer:
+                                t_addr = st.session_state.get('addr_to', {})
+                                f_addr = st.session_state.get('addr_from', {})
+                                body = st.session_state.get('letter_body', '')
+                                pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
+                                tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
+                                status_msg = "Sent"
+
+                        if tracking:
+                            # 2. UPDATE DB
+                            database.update_draft_data(d_id, price=0.0, status=status_msg, tracking_number=tracking)
+                            
+                            # 3. LOG
+                            if hasattr(database, "save_audit_log"):
+                                database.save_audit_log({
+                                    "user_email": u_email,
+                                    "event_type": "ORDER_COMPLETE_FREE",
+                                    "description": f"Sent via Promo ({status_msg})",
+                                    "details": f"Track: {tracking}"
+                                })
+                            
+                            # 4. RECORD PROMO USAGE
+                            promo_code = st.session_state.get('applied_promo')
+                            if promo_code:
+                                database.record_promo_usage(promo_code, u_email)
+
+                            # 5. SEND RECEIPT EMAIL (ADDED)
+                            if email_engine and tier != "Vintage": # Vintage handled above
+                                try:
+                                    email_engine.send_email(
+                                        to_email=u_email,
+                                        subject=f"VerbaPost Receipt: Order #{d_id}",
+                                        html_content=f"""
+                                        <h3>Letter Sent Successfully!</h3>
+                                        <p>Your letter has been dispatched to the post office (Free via Promo).</p>
+                                        <p><b>Tracking ID:</b> {tracking}</p>
+                                        <p>Thank you for using VerbaPost.</p>
+                                        """
+                                    )
+                                except Exception as ex:
+                                    logger.error(f"Free Order Receipt Failed: {ex}")
+
+                            # 6. SUCCESS
+                            st.session_state.app_mode = "receipt"
+                            st.rerun()
+                        else:
+                            st.error("Mailing Failed. PostGrid rejected the address.")
                 except Exception as e:
                     logger.error(f"Free Order Error: {e}")
                     st.error("Failed to process order. Please try again.")
