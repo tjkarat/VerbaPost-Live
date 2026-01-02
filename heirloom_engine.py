@@ -2,7 +2,12 @@ import logging
 import requests
 import io
 import streamlit as st
+import os
 from twilio.rest import Client
+
+# --- ROBUST SECRETS IMPORT ---
+try: import secrets_manager
+except ImportError: secrets_manager = None
 
 # --- IMPORTS ---
 try: import ai_engine
@@ -13,13 +18,38 @@ except ImportError: storage_engine = None
 logger = logging.getLogger(__name__)
 
 def _get_twilio_client():
-    """Duplicated helper to avoid modifying ai_engine.py"""
-    try:
-        sid = st.secrets["twilio"]["account_sid"]
-        token = st.secrets["twilio"]["auth_token"]
-        return Client(sid, token)
-    except Exception:
-        return None
+    """
+    Robust Client Loader.
+    Checks Secrets Manager first (Prod/GCP), then st.secrets (Local/QA).
+    """
+    sid = None
+    token = None
+
+    # 1. Try Secrets Manager (Production/GCP Priority)
+    if secrets_manager:
+        sid = secrets_manager.get_secret("twilio.account_sid")
+        token = secrets_manager.get_secret("twilio.auth_token")
+
+    # 2. Fallback: Direct Streamlit Secrets (QA/Local)
+    if not sid and hasattr(st, "secrets") and "twilio" in st.secrets:
+        try:
+            sid = st.secrets["twilio"]["account_sid"]
+            token = st.secrets["twilio"]["auth_token"]
+        except KeyError: pass
+
+    # 3. Last Resort: Raw Environment Variables
+    if not sid:
+        sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        token = os.environ.get("TWILIO_AUTH_TOKEN")
+
+    if sid and token:
+        try:
+            return Client(sid, token)
+        except Exception as e:
+            logger.error(f"Twilio Client Init Error: {e}")
+            return None
+            
+    return None
 
 def process_latest_call(parent_phone, user_email):
     """
@@ -30,7 +60,7 @@ def process_latest_call(parent_phone, user_email):
     Returns: (transcript_text, storage_path, error_message)
     """
     client = _get_twilio_client()
-    if not client: return None, None, "Twilio Config Missing"
+    if not client: return None, None, "Twilio Config Missing (Check Secrets)"
     
     # 1. FIND CALL
     try:
@@ -50,14 +80,9 @@ def process_latest_call(parent_phone, user_email):
             if call.status == 'completed':
                 recs = call.recordings.list()
                 if recs:
-                    # Remove .json if present
                     uri = recs[0].uri.replace(".json", "")
-    
-                    # Check if .mp3 is already there to prevent ".mp3.mp3"
-                    if uri.endswith(".mp3"):
-                        target_url = f"https://api.twilio.com{uri}"
-                    else:
-                        target_url = f"https://api.twilio.com{uri}.mp3"
+                    # Construct valid MP3 URL
+                    target_url = f"https://api.twilio.com{uri}.mp3"
                     break
         
         if not target_url: return None, None, "No recordings found."

@@ -17,15 +17,23 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
 def get_openai_client():
-    """Retreives OpenAI Client using Secrets Manager logic."""
+    """Retreives OpenAI Client using Secrets Manager with Env Var Fallback."""
     api_key = None
     
+    # 1. Try Secrets Manager
     if secrets_manager:
         api_key = secrets_manager.get_secret("openai.api_key")
     
-    if not api_key and "openai" in st.secrets:
-        api_key = st.secrets["openai"]["api_key"]
+    # 2. Try Streamlit Secrets
+    if not api_key and hasattr(st, "secrets") and "openai" in st.secrets:
+        try:
+            api_key = st.secrets["openai"]["api_key"]
+        except KeyError: pass
         
+    # 3. Try Environment Variable (Critical Fallback)
+    if not api_key:
+        api_key = os.environ.get("OPENAI_API_KEY")
+
     if not api_key:
         logger.error("OpenAI API Key missing.")
         return None
@@ -121,17 +129,26 @@ def enhance_transcription_for_seniors(text):
 # --- PHASE 3: TWILIO INTEGRATION ---
 
 def _get_twilio_client():
-    """Helper to get authenticated Twilio client."""
+    """Helper to get authenticated Twilio client with Env Var Fallback."""
     account_sid = None
     auth_token = None
 
+    # 1. Try Secrets Manager
     if secrets_manager:
         account_sid = secrets_manager.get_secret("twilio.account_sid")
         auth_token = secrets_manager.get_secret("twilio.auth_token")
     
-    if not account_sid and "twilio" in st.secrets:
-        account_sid = st.secrets["twilio"]["account_sid"]
-        auth_token = st.secrets["twilio"]["auth_token"]
+    # 2. Try Streamlit Secrets
+    if not account_sid and hasattr(st, "secrets") and "twilio" in st.secrets:
+        try:
+            account_sid = st.secrets["twilio"]["account_sid"]
+            auth_token = st.secrets["twilio"]["auth_token"]
+        except KeyError: pass
+
+    # 3. Try Environment Variables (Critical Fallback)
+    if not account_sid:
+        account_sid = os.environ.get("TWILIO_ACCOUNT_SID")
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN")
 
     if not account_sid or not auth_token:
         return None
