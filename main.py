@@ -151,11 +151,24 @@ def main():
         else:
             # Fallback to Splash
             st.session_state.app_mode = "splash"
+            
+    # 5. LAZY SUBSCRIPTION CHECK (Refills credits on login)
+    if st.session_state.get("authenticated") and not st.session_state.get("credits_synced"):
+        pay_eng = get_module("payment_engine")
+        user_email = st.session_state.get("user_email")
+        if pay_eng and user_email:
+            try:
+                # Calls Stripe and syncs local DB
+                if pay_eng.check_subscription_status(user_email):
+                    st.toast("🔄 Monthly Credits Refilled!")
+            except Exception as e:
+                logger.error(f"Lazy Sync Error: {e}")
+        st.session_state.credits_synced = True
 
-    # 5. SIDEBAR NAVIGATION
+    # 6. SIDEBAR NAVIGATION
     render_sidebar(system_mode)
 
-    # 6. EXECUTE CONTROLLER
+    # 7. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
     
     # --- ROUTE MAP ---
@@ -191,16 +204,6 @@ def render_sidebar(mode):
         st.header("VerbaPost" if mode == "utility" else "The Archive")
         
         if st.session_state.get("authenticated"):
-            # --- LAZY CREDIT REFILL CHECK ---
-            if not st.session_state.get("credits_synced"):
-                pay_eng = get_module("payment_engine")
-                user_email = st.session_state.get("user_email")
-                if pay_eng and user_email:
-                    if hasattr(pay_eng, 'check_subscription_status'):
-                        if pay_eng.check_subscription_status(user_email):
-                            st.toast("🔄 Monthly Credits Refilled!")
-                    st.session_state.credits_synced = True
-
             # --- NAVIGATION BUTTONS ---
             if mode == "utility":
                 if st.button("✉️ Letter Store", use_container_width=True):
@@ -310,12 +313,22 @@ def handle_payment_return(session_id):
                 # A. Subscription
                 if (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT"):
                     if db and user_email: 
+                        # REFILLED via update_subscription_state internally if we were strictly using payment_engine logic
+                        # But for safety here we do explicit updates
                         db.update_user_credits(user_email, 4)
                         if hasattr(raw_obj, 'subscription'):
-                            db.update_user_subscription_id(user_email, raw_obj.subscription)
-                            if hasattr(pay_eng, 'check_subscription_status'):
-                                pay_eng.check_subscription_status(user_email)
-                    
+                            # Use new function to sync subscription state immediately
+                            sub_id = raw_obj.subscription
+                            # Note: To get end date we'd need to query subscription object again, 
+                            # but check_subscription_status will catch it on next login anyway.
+                            # Just storing ID is good for now.
+                            try:
+                                # Quick update for ID
+                                with db.get_db_session() as s:
+                                    p = s.query(db.UserProfile).filter_by(email=user_email).first()
+                                    if p: p.stripe_subscription_id = sub_id
+                            except: pass
+
                     # Log Promo Usage for Subscriptions
                     if promo_code and db:
                         db.record_promo_usage(promo_code, user_email)

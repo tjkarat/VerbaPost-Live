@@ -115,6 +115,8 @@ class UserProfile(Base):
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
+    
+    # --- SUBSCRIPTION COLUMNS ---
     stripe_customer_id = Column(String, nullable=True)
     stripe_subscription_id = Column(String, nullable=True)
     subscription_end_date = Column(DateTime, nullable=True)
@@ -202,31 +204,32 @@ class PaymentFulfillment(Base):
 # 🛠️ FUNCTIONS
 # ==========================================
 
-def update_subscription_state(email, end_date):
-    try:
-        with get_db_session() as session:
-            profile = session.query(UserProfile).filter_by(email=email).first()
-            if profile:
-                profile.subscription_end_date = end_date
-                session.commit()
-                return True
-            return False
-    except Exception as e:
-        logger.error(f"Update Sub Date Error: {e}")
-        return False
-
-def update_user_subscription_id(email, sub_id):
+def update_subscription_state(email, sub_id, customer_id, period_end_dt, refill_credits=False):
+    """
+    Consolidated function to update all subscription details at once.
+    Optionally refills credits if a new period is detected.
+    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
             if profile:
                 profile.stripe_subscription_id = sub_id
+                profile.stripe_customer_id = customer_id
+                profile.subscription_end_date = period_end_dt
+                
+                if refill_credits:
+                    profile.credits = 4
+                    logger.info(f"Credits refilled for {email}")
+                
                 session.commit()
                 return True
             return False
     except Exception as e:
-        logger.error(f"Update Sub ID Error: {e}")
+        logger.error(f"Update Subscription State Error: {e}")
         return False
+
+# Backward compatibility alias if needed
+update_user_subscription_id = lambda e, s: update_subscription_state(e, s, None, None)
 
 def get_all_orders():
     combined = []

@@ -13,8 +13,7 @@ except ImportError:
     stripe = None
     logger.error("Stripe module not found. Payments will be disabled.")
 
-# NOTE: Database import removed from here to prevent circular dependency crash.
-# It is now imported lazily inside the functions that need it.
+# Database imported lazily to prevent circular refs
 
 def get_api_key():
     """
@@ -144,6 +143,7 @@ def verify_session(session_id):
 def check_subscription_status(user_email):
     """
     Checks if the user has an active subscription AND refills credits if a new month has started.
+    This is the "Lazy Check" called on login.
     """
     if not user_email or not stripe:
         return False
@@ -179,22 +179,27 @@ def check_subscription_status(user_email):
             stripe_end_dt = datetime.fromtimestamp(stripe_end_ts)
             
             # 3. Check DB for Last Known Refill
-            if database:
-                profile = database.get_user_profile(user_email)
-                db_end_dt = profile.get("subscription_end_date")
-                
-                # 4. Refill Logic
-                should_refill = False
-                if not db_end_dt:
-                    should_refill = True
-                elif stripe_end_dt > db_end_dt:
-                    should_refill = True
-                
-                if should_refill:
-                    logger.info(f"Refilling credits for {user_email} (New Period: {stripe_end_dt})")
-                    database.update_user_credits(user_email, 4)
-                    database.update_subscription_state(user_email, stripe_end_dt)
-                    database.update_user_subscription_id(user_email, sub.id)
+            profile = database.get_user_profile(user_email)
+            db_end_dt = profile.get("subscription_end_date")
+            
+            # 4. Logic: Refill if DB is null OR if Stripe Period > DB Period
+            should_refill = False
+            if not db_end_dt:
+                should_refill = True
+            elif stripe_end_dt > db_end_dt:
+                should_refill = True
+            
+            # 5. Update Database (Atomic)
+            # Only update if the period has changed OR if we need to refill
+            if should_refill or db_end_dt != stripe_end_dt:
+                database.update_subscription_state(
+                    email=user_email,
+                    sub_id=sub.id,
+                    customer_id=customer_id,
+                    period_end_dt=stripe_end_dt,
+                    refill_credits=should_refill
+                )
+                return should_refill
             
             return True
             
