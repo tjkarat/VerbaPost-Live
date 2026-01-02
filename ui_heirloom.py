@@ -462,13 +462,13 @@ def render_dashboard():
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
                                     # We use kwargs to update the JSON columns
-                                    # UPDATED: Converted dicts to strings to prevent SQL Errors
+                                    # --- FIX: MAP TO CORRECT COLUMNS & FORCE STRING ---
                                     database.update_draft_data(
                                         d_id, 
                                         status="Queued (Manual)", 
                                         tracking_number=ref_id,
-                                        to_addr=str(snapshot_to),    # <-- SAFE STRING CAST
-                                        from_addr=str(snapshot_from) # <-- SAFE STRING CAST
+                                        recipient_data=str(snapshot_to),  # <-- FIXED
+                                        sender_data=str(snapshot_from)    # <-- FIXED
                                     )
                                 
                                 # D. Audit & Receipt

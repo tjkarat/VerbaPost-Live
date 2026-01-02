@@ -84,20 +84,26 @@ def _save_legacy_draft():
         s_data = st.session_state.get("legacy_sender", {})
         r_data = st.session_state.get("legacy_recipient", {})
         
+        # --- FIX: Convert to String for DB ---
+        s_str = str(s_data) if s_data else ""
+        r_str = str(r_data) if r_data else ""
+        
         if d_id:
+            # FIX: Use correct column names (recipient_data, sender_data)
             database.update_draft_data(
                 d_id, 
                 content=content, 
                 tier="Legacy", 
                 price=15.99,
-                to_addr=r_data,
-                from_addr=s_data
+                recipient_data=r_str,
+                sender_data=s_str
             )
             st.toast("Draft & Addresses Saved!", icon="💾")
         else:
             d_id = database.save_draft(user_email, content, "Legacy", 15.99)
             if s_data or r_data:
-                database.update_draft_data(d_id, to_addr=r_data, from_addr=s_data)
+                # FIX: Update new draft with addresses
+                database.update_draft_data(d_id, recipient_data=r_str, sender_data=s_str)
             
             st.session_state.current_legacy_draft_id = d_id
             st.toast("New Draft Created!", icon="✨")
