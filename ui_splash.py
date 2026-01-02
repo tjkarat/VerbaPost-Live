@@ -28,8 +28,11 @@ def render_splash_page():
     # --- PRIMARY CTA (Heirloom) ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # ADDED KEY: Ensures the session state update happens before the rerun
         if st.button("📚 Start Your Family Archive", type="primary", use_container_width=True, key="splash_btn_heirloom"):
+            # Explicitly set system mode for Archive
+            st.session_state.system_mode = "archive"
+            st.query_params["mode"] = "archive"
+            
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "heirloom"
                 st.query_params["nav"] = "heirloom"
@@ -43,8 +46,9 @@ def render_splash_page():
     
     col_sec1, col_sec2, col_sec3 = st.columns([1, 1, 1])
     with col_sec2:
-        # ADDED KEY: Ensures utility mode is set correctly
         if st.button("📮 Go to Letter Store", use_container_width=True, key="splash_btn_store"):
+            # --- FIX: EXPLICITLY UPDATE SYSTEM MODE ---
+            st.session_state.system_mode = "utility"
             st.query_params["mode"] = "utility"
             
             if st.session_state.get("authenticated"):

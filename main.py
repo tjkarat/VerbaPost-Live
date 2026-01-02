@@ -207,7 +207,10 @@ def render_sidebar(mode):
             # --- NAVIGATION BUTTONS ---
             if mode == "utility":
                 if st.button("✉️ Letter Store", use_container_width=True):
-                    st.session_state.app_mode = "main"; st.rerun()
+                    # SAFETY: Ensure mode is sticky
+                    st.session_state.system_mode = "utility" # <--- FIXED HERE
+                    st.session_state.app_mode = "main"
+                    st.rerun()
                 
                 if st.button("🔄 Switch to Family Archive", use_container_width=True):
                     st.session_state.system_mode = "archive"
