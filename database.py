@@ -2,8 +2,9 @@ import os
 import streamlit as st
 import logging
 import urllib.parse
-from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, BigInteger, func
+from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, BigInteger, Date, func
 from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.dialects.postgresql import JSONB  # <--- NEW IMPORT FOR JSON COLUMNS
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
@@ -152,15 +153,18 @@ class LetterDraft(Base):
     from_addr = Column(Text)
     audio_ref = Column(Text)
 
-class ScheduledCall(Base):
-    __tablename__ = 'scheduled_calls'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_email = Column(String)
-    parent_phone = Column(String)
-    topic = Column(String)
-    scheduled_time = Column(DateTime)
-    status = Column(String, default="Pending")
-    created_at = Column(DateTime, default=datetime.utcnow)
+# --- NEW MODEL: SCHEDULED EVENTS ---
+class ScheduledEvent(Base):
+    __tablename__ = 'scheduled_events'
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    user_email = Column(String, nullable=False)
+    recipient_json = Column(JSONB, nullable=False) # Maps to jsonb
+    event_date = Column(Date, nullable=False)      # Maps to date
+    event_type = Column(String)
+    recurrence = Column(String)
+    status = Column(String, default="Active")
+    audio_url = Column(String)
+    ai_prompt = Column(String)
 
 class Letter(Base):
     __tablename__ = 'letters'
@@ -396,13 +400,34 @@ def update_last_call_timestamp(email):
     except: pass
 
 def schedule_call(email, parent_phone, topic, scheduled_dt):
+    """
+    UPDATED: Maps legacy UI inputs to the new 'scheduled_events' table schema.
+    """
     try:
+        # Construct JSON for the new 'recipient_json' column
+        recipient_data = {
+            "phone": parent_phone,
+            "name": "Heirloom Contact", # Defaulting since UI doesn't pass name here yet
+            "email": email
+        }
+        
         with get_db_session() as session:
-            call = ScheduledCall(user_email=email, parent_phone=parent_phone, topic=topic, scheduled_time=scheduled_dt)
-            session.add(call)
+            new_event = ScheduledEvent(
+                user_email=email,
+                recipient_json=recipient_data,
+                event_date=scheduled_dt, # SQLAlchemy will extract date if passed datetime
+                event_type="Interview Reminder",
+                ai_prompt=topic,
+                status="Active"
+            )
+            session.add(new_event)
             session.commit()
             return True
-    except Exception: return False
+            
+    except Exception as e:
+        # EXPLICIT ERROR LOGGING (Fixes silent failure)
+        print(f"❌ SCHEDULING ERROR: {e}") 
+        return False
 
 def save_draft(email, content, tier="Standard", price=0.0, audio_ref=None):
     try:
