@@ -162,11 +162,19 @@ def _save_new_contact(contact_data):
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
     success = False
+    
+    # Try to update first if ID exists
     if d_id:
-        success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+        try:
+            success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
+        except:
+            success = False
+            
+    # If no ID or update failed, create NEW record
     if not success or not d_id:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
+        
     return d_id
 
 # --- PAGE RENDERERS ---
@@ -233,28 +241,39 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
+    # --- DIRECT ACTION BUTTONS (FIX: Explicit Creation) ---
     with b1:
         if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
             st.session_state.locked_price = 2.99
-            st.session_state.app_mode = "workspace"
-            _handle_draft_creation(u_email, "Standard", 2.99)
-            st.rerun()
+            # Force creation NOW
+            new_id = _handle_draft_creation(u_email, "Standard", 2.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Error: Could not create draft.")
 
     with b2:
         if st.button("Select Vintage", key="store_btn_vintage_final", use_container_width=True):
             st.session_state.locked_tier = "Vintage"
             st.session_state.locked_price = 5.99
-            st.session_state.app_mode = "workspace"
-            _handle_draft_creation(u_email, "Vintage", 5.99)
-            st.rerun()
+            # Force creation NOW
+            new_id = _handle_draft_creation(u_email, "Vintage", 5.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Error: Could not create draft.")
 
     with b3:
         if st.button("Select Civic", key="store_btn_civic_final", use_container_width=True):
             st.session_state.locked_tier = "Civic"
-            st.session_state.locked_price = 6.99; st.session_state.app_mode = "workspace"; _handle_draft_creation(u_email, "Civic", 6.99)
-            st.rerun()
+            st.session_state.locked_price = 6.99
+            # Force creation NOW
+            new_id = _handle_draft_creation(u_email, "Civic", 6.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Error: Could not create draft.")
 
 def render_campaign_uploader():
     st.markdown("### 📁 Upload Recipient List (CSV)")
@@ -283,6 +302,23 @@ def render_workspace_page():
     # 1. AUTO-POPULATE TRIGGER
     _ensure_profile_loaded()
     user_email = st.session_state.get("user_email")
+    
+    # --- CRITICAL FIX: DRAFT GUARANTEE ---
+    # If for some reason we land here without a draft ID, create one immediately.
+    # This prevents "Save" buttons from firing into the void.
+    if not st.session_state.get("current_draft_id"):
+        default_tier = st.session_state.get("locked_tier", "Standard")
+        default_price = 2.99 if default_tier == "Standard" else 5.99
+        if database:
+            try:
+                rescue_id = database.save_draft(user_email, "", default_tier, default_price)
+                st.session_state.current_draft_id = rescue_id
+                st.rerun() # Refresh to bind the page to this ID
+            except Exception as e:
+                logger.error(f"Draft Rescue Failed: {e}")
+                st.error("Session Error: Please return to store and select a letter type.")
+                return
+    # ----------------------------------------
     
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
@@ -416,7 +452,6 @@ def render_workspace_page():
                         from_str = str(st.session_state.addr_from)
                         
                         # --- FIX: MAP TO CORRECT DB COLUMNS ---
-                        # Your DB has recipient_data/sender_data, NOT to_addr/from_addr
                         database.update_draft_data(d_id, recipient_data=to_str, sender_data=from_str)
 
                     # Smart Address Book Save
@@ -452,7 +487,6 @@ def render_workspace_page():
     st.info("🎙️ **Voice Instructions:** Click the small microphone icon below. Speak for up to 5 minutes. Click the square 'Stop' button when finished.")
     
     # --- INIT CONTENT VAR ---
-    # We must establish the content variable BEFORE the tabs so both tabs share it
     content_to_save = st.session_state.get("letter_body", "")
     
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
@@ -470,10 +504,8 @@ def render_workspace_page():
             key="live_content_input" 
         )
         
-        # UPDATE THE MASTER VARIABLE
         content_to_save = new_text 
         
-        # --- NEW BUTTON LAYOUT ---
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
         
         with col_save:
@@ -552,7 +584,6 @@ def render_workspace_page():
     
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
         # --- CRITICAL FIX: FORCE DB SAVE USING THE LIVE VARIABLE ---
-        # We use content_to_save (which has the latest typed text from the key)
         if content_to_save:
              st.session_state.letter_body = content_to_save 
              d_id = st.session_state.get("current_draft_id")
