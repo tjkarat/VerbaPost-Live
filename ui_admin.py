@@ -181,14 +181,17 @@ def render_admin_page():
                                 st.caption("Content Preview:")
                                 st.text(item.content[:150] + "...")
                                 
-                                # Parse Addresses
+                                # Parse Addresses safely
+                                to_dict = {}
+                                from_dict = {}
                                 try:
-                                    # FIXED: Uses 'to_addr' (correct schema) not 'to_address_json'
-                                    to_dict = ast.literal_eval(item.to_addr) if item.to_addr else {}
-                                    from_dict = ast.literal_eval(item.from_addr) if item.from_addr else {}
-                                except:
-                                    to_dict = {}
-                                    from_dict = {}
+                                    if item.to_addr:
+                                        try: to_dict = ast.literal_eval(item.to_addr)
+                                        except: to_dict = json.loads(item.to_addr.replace("'", '"'))
+                                    if item.from_addr:
+                                        try: from_dict = ast.literal_eval(item.from_addr)
+                                        except: from_dict = json.loads(item.from_addr.replace("'", '"'))
+                                except: pass
                                 
                                 if st.button(f"⬇️ Generate PDF for #{item.id}", key=f"pdf_{item.id}"):
                                     if letter_format and address_standard:
@@ -284,9 +287,6 @@ def render_admin_page():
                 if selected_order_str and selected_order_str != "Select...":
                     # Get the ID string from the dropdown
                     selected_uuid_str = selected_order_str.split(" ")[0]
-                    
-                    # --- CRITICAL FIX: REMOVED INT CONVERSION ---
-                    # We force it to be a string to match DB schema
                     selected_id = str(selected_uuid_str)
 
                     with database.get_db_session() as db:
@@ -297,24 +297,30 @@ def render_admin_page():
                         if record:
                             st.markdown(f"**Processing Order:** `{selected_id}`")
                             
+                            # --- ROBUST ADDRESS PARSING ---
+                            t_addr = {}
+                            if hasattr(record, 'to_addr') and record.to_addr:
+                                try:
+                                    t_addr = ast.literal_eval(record.to_addr)
+                                except:
+                                    # Fallback for double-quoted JSON strings
+                                    try: t_addr = json.loads(record.to_addr)
+                                    except: pass # t_addr stays empty
+                            
                             # Standard Workflow Repair
                             st.markdown("#### Edit Recipient Data & Re-Dispatch")
-                            try: 
-                                t_addr = ast.literal_eval(record.to_addr) if hasattr(record, 'to_addr') and record.to_addr else {}
-                            except: 
-                                t_addr = {}
                             
                             c1, c2 = st.columns(2)
                             with c1:
                                 new_name = st.text_input("Recipient Name", value=t_addr.get('name', ''), key="rep_name")
                                 new_city = st.text_input("City", value=t_addr.get('city', ''), key="rep_city")
                             with c2:
-                                new_street = st.text_input("Street", value=t_addr.get('address_line1', ''), key="rep_street")
-                                new_zip = st.text_input("Zip", value=t_addr.get('zip_code', ''), key="rep_zip")
+                                new_street = st.text_input("Street", value=t_addr.get('address_line1', '') or t_addr.get('street', ''), key="rep_street")
+                                new_zip = st.text_input("Zip", value=t_addr.get('zip_code', '') or t_addr.get('zip', ''), key="rep_zip")
                             
                             new_content = st.text_area("Letter Body", value=record.content, height=150, key="rep_body")
                             
-                            # --- NEW BUTTON LAYOUT (MANUAL QUEUE SUPPORT) ---
+                            # --- BUTTONS ---
                             col_api, col_man, col_save = st.columns(3)
                             
                             updated_to = {"name": new_name, "address_line1": new_street, "city": new_city, "state": t_addr.get('state', 'NA'), "zip": new_zip}
@@ -406,7 +412,7 @@ def render_admin_page():
                 c_audio, c_del = st.columns([2, 1])
                 
                 with c_audio:
-                    # --- FIX 3: SAFE URL HANDLING (Corrected Logic) ---
+                    # --- FIX: SAFE URL HANDLING ---
                     if st.button("▶️ Load Audio", key=f"load_{sel_sid}"):
                         sid = secrets_manager.get_secret("twilio.account_sid")
                         token = secrets_manager.get_secret("twilio.auth_token")
@@ -414,12 +420,8 @@ def render_admin_page():
                             try:
                                 # FIX: Check if .mp3 extension already exists
                                 uri = selected_rec.get('URL', '').replace(".json", "").strip()
-                                
-                                # 1. Ensure Domain
                                 if not uri.startswith("http"):
                                     uri = f"https://api.twilio.com{uri}"
-                                
-                                # 2. Ensure Single Extension
                                 if not uri.endswith(".mp3"):
                                     mp3_url = f"{uri}.mp3"
                                 else:
@@ -444,8 +446,6 @@ def render_admin_page():
                                 client = TwilioClient(sid, token)
                                 client.recordings(sel_sid).delete()
                                 st.success(f"Deleted {sel_sid}")
-                                
-                                # Remove from local state to update UI
                                 st.session_state.active_recordings = [r for r in st.session_state.active_recordings if r['SID'] != sel_sid]
                                 time.sleep(1)
                                 st.rerun()
@@ -491,7 +491,6 @@ def render_admin_page():
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
-            # Using audit_engine ensures we look at the correct table
             logs = audit_engine.get_audit_logs(limit=100)
             if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
             else: st.info("No logs found.")
