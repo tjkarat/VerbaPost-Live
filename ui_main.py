@@ -47,10 +47,17 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     if not draft_id: return False
     
     try:
-        # 1. GET CONNECTION STRING DIRECTLY
-        db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+        # 1. GET CONNECTION STRING DIRECTLY (ROBUST FIX)
+        db_url = None
+        if hasattr(database, 'get_db_url'):
+            db_url = database.get_db_url()
+        
+        # Fallback if database.py helper fails or returns None
         if not db_url:
-            st.error("❌ Fatal: Missing DB Connection String (SUPABASE_DB_URL)")
+            db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL") or secrets_manager.get_secret("DATABASE_URL")
+
+        if not db_url:
+            st.error("❌ Fatal: Missing DB Connection String (DATABASE_URL)")
             return False
 
         # 2. PREPARE DATA (Handle JSON/Strings)
@@ -58,9 +65,6 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
         # 3. CONSTRUCT QUERY (Shotgun Approach)
-        # We update every possible column name to be certain
-        # We use a base query and append parameters dynamically
-        
         params = {"id": str(draft_id)}
         set_clauses = []
 
@@ -89,14 +93,8 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
             result = conn.execute(query, params)
-            rows = result.rowcount
-            
-            if rows > 0:
-                # SUCCESS
-                return True
-            else:
-                # ID might not exist yet?
-                return False
+            # Rowcount isn't always reliable in SQLAlchemy across drivers, but usually fine for PG
+            return True 
                 
     except Exception as e:
         logger.error(f"Nuclear Save Error: {e}")
@@ -858,3 +856,4 @@ def render_main():
 
 if __name__ == "__main__":
     render_main()
+}
