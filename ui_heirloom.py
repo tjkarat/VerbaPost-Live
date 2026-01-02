@@ -1,7 +1,8 @@
 import streamlit as st
 import time
 import textwrap
-import json 
+import json
+import os  # <--- FIXED: Added missing import
 from datetime import datetime
 import uuid 
 from sqlalchemy import text, create_engine # --- NUCLEAR FIX IMPORTS ---
@@ -39,8 +40,16 @@ def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, 
     if not draft_id: return False
     
     try:
+        # Now safe to use os.environ because 'os' is imported
         db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
-        if not db_url: return False
+        
+        # Fallback for standard DATABASE_URL if specific one is missing
+        if not db_url:
+            db_url = secrets_manager.get_secret("DATABASE_URL") or os.environ.get("DATABASE_URL")
+
+        if not db_url: 
+            st.error("❌ Database URL not found in Secrets or Environment.")
+            return False
 
         # Serialize
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
