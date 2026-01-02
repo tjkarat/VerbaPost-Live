@@ -540,6 +540,20 @@ def render_workspace_page():
             st.rerun()
 
 def render_review_page():
+    # --- CRITICAL FIX: FORCE SYNC WITH DB ---
+    u_email = st.session_state.get("user_email")
+    d_id = st.session_state.get("current_draft_id")
+    
+    if d_id and database:
+        # Load draft to ensure tier is correct
+        try:
+            with database.get_db_session() as s:
+                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == d_id).first()
+                if d and d.tier:
+                    st.session_state.locked_tier = d.tier
+        except Exception as e:
+            logger.error(f"Tier Sync Error: {e}")
+
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
@@ -596,9 +610,6 @@ def render_review_page():
     
     st.markdown(f"### Total: ${total:.2f}")
 
-    u_email = st.session_state.get("user_email")
-    d_id = st.session_state.get("current_draft_id")
-
     # --- HANDLING FREE ORDERS ($0.00) ---
     if total <= 0:
         st.success("🎉 This order is FREE via Promo Code!")
@@ -611,7 +622,10 @@ def render_review_page():
                         tracking = None
                         status_msg = ""
                         
-                        if tier == "Vintage":
+                        # FORCE STRING CHECK
+                        current_tier_str = str(tier).strip()
+                        
+                        if current_tier_str == "Vintage":
                             # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
@@ -653,7 +667,7 @@ def render_review_page():
                                 database.record_promo_usage(promo_code, u_email)
 
                             # 5. SEND RECEIPT EMAIL (ADDED)
-                            if email_engine and tier != "Vintage": # Vintage handled above
+                            if email_engine and current_tier_str != "Vintage": # Vintage handled above
                                 try:
                                     email_engine.send_email(
                                         to_email=u_email,
