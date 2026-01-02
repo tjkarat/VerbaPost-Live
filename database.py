@@ -4,11 +4,11 @@ import logging
 import urllib.parse
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, BigInteger, Date, func
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.dialects.postgresql import JSONB  # <--- NEW IMPORT FOR JSON COLUMNS
+from sqlalchemy.dialects.postgresql import JSONB
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
-# --- NEW IMPORT ---
+# --- IMPORT SECRETS ---
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
@@ -35,17 +35,13 @@ def get_db_url():
         if url: return url
 
         # 2. Try Supabase specific keys (QA/Streamlit Secrets)
-        # We construct the Postgres URL manually if the full URL isn't found
         sb_url = secrets_manager.get_secret("supabase.url")
         sb_key = secrets_manager.get_secret("supabase.key")
         sb_pass = secrets_manager.get_secret("supabase.db_password") or sb_key
 
         if sb_url and sb_pass:
-            # Handle password encoding safely
             encoded_pass = urllib.parse.quote_plus(sb_pass)
             clean_host = sb_url.replace("https://", "").replace("/", "")
-            
-            # Force port 5432 (Session Mode) to avoid 1043 errors
             return f"postgresql://postgres:{encoded_pass}@{clean_host}:5432/postgres"
             
         return None
@@ -81,18 +77,16 @@ def get_db_session():
         session.close()
 
 def to_dict(obj):
-    """
-    Converts SQLAlchemy models to dicts.
-    CRITICAL: Includes a PERMANENT polyfill to ensure 'address_line1' always exists
-    if 'street' is present. This prevents UI refactors from breaking addresses.
-    """
     if not obj: return None
     data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
     
-    # --- THE PERMANENT FIX ---
-    # If the database has 'street' but not 'address_line1', we auto-create it.
+    # Auto-fill address_line1 if street exists
     if 'street' in data and 'address_line1' not in data:
         data['address_line1'] = data['street']
+    
+    # Auto-fill zip_code if zip exists
+    if 'zip' in data and 'zip_code' not in data:
+        data['zip_code'] = data['zip']
         
     return data
 
@@ -116,8 +110,6 @@ class UserProfile(Base):
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_call_date = Column(DateTime, nullable=True)
-    
-    # --- SUBSCRIPTION COLUMNS ---
     stripe_customer_id = Column(String, nullable=True)
     stripe_subscription_id = Column(String, nullable=True)
     subscription_end_date = Column(DateTime, nullable=True)
@@ -153,13 +145,12 @@ class LetterDraft(Base):
     from_addr = Column(Text)
     audio_ref = Column(Text)
 
-# --- NEW MODEL: SCHEDULED EVENTS ---
 class ScheduledEvent(Base):
     __tablename__ = 'scheduled_events'
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     user_email = Column(String, nullable=False)
-    recipient_json = Column(JSONB, nullable=False) # Maps to jsonb
-    event_date = Column(Date, nullable=False)      # Maps to date
+    recipient_json = Column(JSONB, nullable=False) 
+    event_date = Column(Date, nullable=False)      
     event_type = Column(String)
     recurrence = Column(String)
     status = Column(String, default="Active")
@@ -182,9 +173,13 @@ class Contact(Base):
     user_email = Column(String)
     name = Column(String)
     street = Column(String)
+    street2 = Column(String, nullable=True)
     city = Column(String)
     state = Column(String)
     zip_code = Column(String)
+    country = Column(String, default="US")
+    zip = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class PromoCode(Base):
     __tablename__ = 'promo_codes'
@@ -209,10 +204,6 @@ class PaymentFulfillment(Base):
 # ==========================================
 
 def update_subscription_state(email, sub_id, customer_id, period_end_dt, refill_credits=False):
-    """
-    Consolidated function to update all subscription details at once.
-    Optionally refills credits if a new period is detected.
-    """
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -220,11 +211,9 @@ def update_subscription_state(email, sub_id, customer_id, period_end_dt, refill_
                 profile.stripe_subscription_id = sub_id
                 profile.stripe_customer_id = customer_id
                 profile.subscription_end_date = period_end_dt
-                
                 if refill_credits:
                     profile.credits = 4
                     logger.info(f"Credits refilled for {email}")
-                
                 session.commit()
                 return True
             return False
@@ -232,7 +221,7 @@ def update_subscription_state(email, sub_id, customer_id, period_end_dt, refill_
         logger.error(f"Update Subscription State Error: {e}")
         return False
 
-# Backward compatibility alias if needed
+# Backward compatibility alias
 update_user_subscription_id = lambda e, s: update_subscription_state(e, s, None, None)
 
 def get_all_orders():
@@ -242,8 +231,7 @@ def get_all_orders():
             legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
             for o in legacy:
                 d = to_dict(o)
-                if not d.get('user_email'): 
-                    d['user_email'] = f"ID: {d.get('user_id', '?')}"
+                if not d.get('user_email'): d['user_email'] = f"ID: {d.get('user_id', '?')}"
                 d['source'] = 'Sent Letter'
                 combined.append(d)
     except Exception as e:
@@ -308,7 +296,9 @@ def get_audit_logs(limit=100):
         with get_db_session() as session:
             logs = session.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(limit).all()
             return [to_dict(l) for l in logs]
-    except Exception: return []
+    except Exception as e:
+        logger.error(f"Audit Log Fetch Error: {e}")
+        return []
 
 def get_user_profile(email):
     try:
@@ -330,7 +320,9 @@ def create_user(email, full_name):
             db.add(user)
             db.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Create User Error: {e}")
+        return False
 
 def update_user_credits(email, new_credit_count):
     try:
@@ -353,10 +345,9 @@ def update_heirloom_settings(email, parent_name, parent_phone):
                 session.commit()
                 return True
             else:
-                print(f"❌ DEBUG: Profile row missing for {email}")
                 return False
     except Exception as e:
-        st.error(f"❌ DATABASE ERROR: {e}") # Explicitly show error on UI
+        st.error(f"❌ DATABASE ERROR: {e}") 
         return False
 
 def update_user_address(email, name, street, city, state, zip_code):
@@ -372,10 +363,9 @@ def update_user_address(email, name, street, city, state, zip_code):
                 session.commit()
                 return True
             else:
-                print(f"❌ DEBUG: Address update failed. No profile for {email}")
                 return False
     except Exception as e:
-        st.error(f"❌ DATABASE ERROR (Address): {e}") # Explicitly show error on UI
+        st.error(f"❌ DATABASE ERROR (Address): {e}") 
         return False
 
 def check_call_limit(email):
@@ -400,22 +390,13 @@ def update_last_call_timestamp(email):
     except: pass
 
 def schedule_call(email, parent_phone, topic, scheduled_dt):
-    """
-    UPDATED: Maps legacy UI inputs to the new 'scheduled_events' table schema.
-    """
     try:
-        # Construct JSON for the new 'recipient_json' column
-        recipient_data = {
-            "phone": parent_phone,
-            "name": "Heirloom Contact", # Defaulting since UI doesn't pass name here yet
-            "email": email
-        }
-        
+        recipient_data = {"phone": parent_phone, "name": "Heirloom Contact", "email": email}
         with get_db_session() as session:
             new_event = ScheduledEvent(
                 user_email=email,
                 recipient_json=recipient_data,
-                event_date=scheduled_dt, # SQLAlchemy will extract date if passed datetime
+                event_date=scheduled_dt, 
                 event_type="Interview Reminder",
                 ai_prompt=topic,
                 status="Active"
@@ -423,9 +404,7 @@ def schedule_call(email, parent_phone, topic, scheduled_dt):
             session.add(new_event)
             session.commit()
             return True
-            
     except Exception as e:
-        # EXPLICIT ERROR LOGGING (Fixes silent failure)
         print(f"❌ SCHEDULING ERROR: {e}") 
         return False
 
@@ -487,15 +466,21 @@ def save_contact(user_email, contact_data):
             new_c = Contact(
                 user_email=user_email,
                 name=contact_data.get("name"),
-                street=contact_data.get("street"),
+                street=contact_data.get("street") or contact_data.get("address_line1"),
+                street2=contact_data.get("street2") or contact_data.get("address_line2"),
                 city=contact_data.get("city"),
                 state=contact_data.get("state"),
-                zip_code=contact_data.get("zip_code")
+                zip_code=contact_data.get("zip_code") or contact_data.get("zip"),
+                zip=contact_data.get("zip") or contact_data.get("zip_code"),
+                country=contact_data.get("country", "US"),
+                created_at=datetime.utcnow()
             )
             session.add(new_c)
             session.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Save Contact Error: {e}")
+        return False
 
 def delete_contact(user_email, contact_id):
     try:
