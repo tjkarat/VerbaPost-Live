@@ -5,6 +5,7 @@ import hashlib
 import logging
 import uuid # --- ADDED UUID FOR MANUAL TRACKING ---
 from datetime import datetime
+import json # --- ADDED FOR SAFE SERIALIZATION ---
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -162,19 +163,11 @@ def _save_new_contact(contact_data):
 def _handle_draft_creation(email, tier, price):
     d_id = st.session_state.get("current_draft_id")
     success = False
-    
-    # Try to update first if ID exists
     if d_id:
-        try:
-            success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
-        except:
-            success = False
-            
-    # If no ID or update failed, create NEW record
+        success = database.update_draft_data(d_id, status="Draft", tier=tier, price=price)
     if not success or not d_id:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
-        
     return d_id
 
 # --- PAGE RENDERERS ---
@@ -241,39 +234,28 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # --- DIRECT ACTION BUTTONS (FIX: Explicit Creation) ---
+    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
     with b1:
         if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
             st.session_state.locked_price = 2.99
-            # Force creation NOW
-            new_id = _handle_draft_creation(u_email, "Standard", 2.99)
-            if new_id:
-                st.session_state.app_mode = "workspace"
-                st.rerun()
-            else: st.error("Database Error: Could not create draft.")
+            st.session_state.app_mode = "workspace"
+            _handle_draft_creation(u_email, "Standard", 2.99)
+            st.rerun()
 
     with b2:
         if st.button("Select Vintage", key="store_btn_vintage_final", use_container_width=True):
             st.session_state.locked_tier = "Vintage"
             st.session_state.locked_price = 5.99
-            # Force creation NOW
-            new_id = _handle_draft_creation(u_email, "Vintage", 5.99)
-            if new_id:
-                st.session_state.app_mode = "workspace"
-                st.rerun()
-            else: st.error("Database Error: Could not create draft.")
+            st.session_state.app_mode = "workspace"
+            _handle_draft_creation(u_email, "Vintage", 5.99)
+            st.rerun()
 
     with b3:
         if st.button("Select Civic", key="store_btn_civic_final", use_container_width=True):
             st.session_state.locked_tier = "Civic"
-            st.session_state.locked_price = 6.99
-            # Force creation NOW
-            new_id = _handle_draft_creation(u_email, "Civic", 6.99)
-            if new_id:
-                st.session_state.app_mode = "workspace"
-                st.rerun()
-            else: st.error("Database Error: Could not create draft.")
+            st.session_state.locked_price = 6.99; st.session_state.app_mode = "workspace"; _handle_draft_creation(u_email, "Civic", 6.99)
+            st.rerun()
 
 def render_campaign_uploader():
     st.markdown("### 📁 Upload Recipient List (CSV)")
@@ -448,11 +430,20 @@ def render_workspace_page():
                     # Update Draft
                     d_id = st.session_state.get("current_draft_id")
                     if d_id and database:
+                        # --- CRITICAL FIX: SHOTGUN SAVE ---
+                        # Write to ALL possible columns to bypass schema mismatch
                         to_str = str(st.session_state.addr_to)
                         from_str = str(st.session_state.addr_from)
                         
-                        # --- FIX: MAP TO CORRECT DB COLUMNS ---
-                        database.update_draft_data(d_id, recipient_data=to_str, sender_data=from_str)
+                        database.update_draft_data(
+                            d_id, 
+                            to_addr=to_str, # Old
+                            from_addr=from_str, # Old
+                            recipient_data=to_str, # New
+                            sender_data=from_str, # New
+                            recipient_json=to_str, # Safe Fallback
+                            sender_json=from_str   # Safe Fallback
+                        )
 
                     # Smart Address Book Save
                     if save_to_book:

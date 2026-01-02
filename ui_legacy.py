@@ -19,7 +19,7 @@ try: import ai_engine
 except ImportError: ai_engine = None
 try: import mailer
 except ImportError: mailer = None
-try: import audit_engine # FIX: Added Audit Engine
+try: import audit_engine 
 except ImportError: audit_engine = None
 
 # --- HELPER: SAFE PROFILE ACCESS ---
@@ -80,11 +80,11 @@ def _save_legacy_draft():
         d_id = st.session_state.get("current_legacy_draft_id")
         content = st.session_state.legacy_text
         
-        # FIX: Capture addresses from session state
+        # Capture addresses from session state
         s_data = st.session_state.get("legacy_sender", {})
         r_data = st.session_state.get("legacy_recipient", {})
         
-        # --- FIX: Convert to String for DB ---
+        # Convert to String for DB
         s_str = str(s_data) if s_data else ""
         r_str = str(r_data) if r_data else ""
         
@@ -95,20 +95,19 @@ def _save_legacy_draft():
                 content=content, 
                 tier="Legacy", 
                 price=15.99,
-                recipient_data=r_str,
-                sender_data=s_str
+                recipient_data=r_str,  # <-- FIXED
+                sender_data=s_str      # <-- FIXED
             )
             st.toast("Draft & Addresses Saved!", icon="💾")
         else:
+            # Fallback if ID was lost (should be rare with Draft Guarantee)
             d_id = database.save_draft(user_email, content, "Legacy", 15.99)
             if s_data or r_data:
-                # FIX: Update new draft with addresses
                 database.update_draft_data(d_id, recipient_data=r_str, sender_data=s_str)
             
             st.session_state.current_legacy_draft_id = d_id
             st.toast("New Draft Created!", icon="✨")
             
-            # FIX: Audit Log
             if audit_engine:
                 audit_engine.log_event(user_email, "LEGACY_DRAFT_INIT", d_id)
 
@@ -121,7 +120,6 @@ def render_success_view():
     track_num = st.session_state.get("tracking_number", "Processing...")
     email = st.session_state.get("user_email", "your email")
     
-    # FIX: Audit Log Confirmation
     if audit_engine and st.session_state.get("current_legacy_draft_id"):
         audit_engine.log_event(email, "LEGACY_SUCCESS_VIEW", st.session_state.get("current_legacy_draft_id"))
 
@@ -147,7 +145,22 @@ def render_success_view():
 def render_legacy_page():
     initialize_legacy_state()
     inject_legacy_accessibility_css()
+    
     if st.session_state.get("paid_success"): render_success_view(); return
+
+    # --- FIX: DRAFT GUARANTEE ---
+    # Immediately ensure a DB row exists so we have somewhere to save data
+    if not st.session_state.get("current_legacy_draft_id") and database:
+        try:
+            u_email = st.session_state.get("user_email", "guest")
+            new_id = database.save_draft(u_email, "", "Legacy", 15.99)
+            st.session_state.current_legacy_draft_id = new_id
+            # Rerun to lock this ID in
+            st.rerun()
+        except Exception as e:
+            st.error(f"Database Initialization Failed: {e}")
+            return
+    # ----------------------------
 
     c_head, c_save = st.columns([3, 1])
     c_head.markdown("## 🕊️ Legacy Workspace")
@@ -263,7 +276,8 @@ def render_legacy_page():
     st.markdown('<div class="instruction-box"><b>INSTRUCTIONS:</b> Click <b>RECORD VOICE</b> to speak, or <b>TYPE MANUALLY</b> to write.</div>', unsafe_allow_html=True)
     t_type, t_rec = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
     with t_type:
-        txt = st.text_area("Body", value=st.session_state.get("legacy_text", ""), height=600)
+        # FIX: Capture input into session state key to persist it
+        txt = st.text_area("Body", value=st.session_state.get("legacy_text", ""), height=600, key="legacy_content_input")
         if txt: st.session_state.legacy_text = txt
     with t_rec:
         st.markdown("1. Click Mic  2. Speak  3. Auto-transcribe")
