@@ -447,25 +447,35 @@ def render_workspace_page():
 
     st.markdown("## ✍️ Step 3: Write Your Letter")
     st.info("🎙️ **Voice Instructions:** Click the small microphone icon below. Speak for up to 5 minutes. Click the square 'Stop' button when finished.")
+    
+    # --- INIT CONTENT VAR ---
+    # We must establish the content variable BEFORE the tabs so both tabs share it
+    content_to_save = st.session_state.get("letter_body", "")
+    
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
 
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
-        current_text = st.session_state.get("letter_body", "")
-        new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
+        
+        # WE CAPTURE THE WIDGET VALUE HERE
+        new_text = st.text_area("Letter Body", value=content_to_save, height=400, label_visibility="collapsed", placeholder="Dear...")
+        
+        # UPDATE THE MASTER VARIABLE
+        content_to_save = new_text 
         
         # --- NEW BUTTON LAYOUT ---
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
         
         with col_save:
              if st.button("💾 Save Draft", use_container_width=True):
-                 st.session_state.letter_body = new_text
+                 st.session_state.letter_body = content_to_save
                  d_id = st.session_state.get("current_draft_id")
                  if d_id and database:
                      try:
-                         database.update_draft_data(d_id, content=new_text)
+                         # USE THE CAPTURED VARIABLE, NOT SESSION STATE
+                         database.update_draft_data(d_id, content=content_to_save)
                          st.session_state.last_autosave = time.time()
-                         st.toast("✅ Draft Saved Successfully")
+                         st.toast(f"✅ Saved to Draft #{d_id}")
                      except Exception as e:
                          logger.error(f"Save Draft Failed: {e}")
                          st.error("Failed to save draft. Please try again.")
@@ -489,13 +499,13 @@ def render_workspace_page():
                     st.rerun()
 
         # Auto-save Logic (Background)
-        if new_text != current_text:
-            st.session_state.letter_body = new_text
+        if content_to_save != st.session_state.get("letter_body", ""):
+            st.session_state.letter_body = content_to_save
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
                 d_id = st.session_state.get("current_draft_id")
                 if d_id:
                     try:
-                        database.update_draft_data(d_id, content=new_text)
+                        database.update_draft_data(d_id, content=content_to_save)
                         st.session_state.last_autosave = time.time()
                         st.caption("💾 Auto-saved")
                     except Exception as e:
@@ -531,7 +541,19 @@ def render_workspace_page():
     st.divider()
     
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-        if not st.session_state.get("letter_body"):
+        # --- CRITICAL FIX: FORCE DB SAVE USING THE LIVE VARIABLE ---
+        # We use content_to_save (which has the latest typed text)
+        if content_to_save:
+             st.session_state.letter_body = content_to_save # Sync state just in case
+             d_id = st.session_state.get("current_draft_id")
+             if d_id and database:
+                 try:
+                     database.update_draft_data(d_id, content=content_to_save)
+                 except Exception as e:
+                     logger.error(f"Forced DB Save Error: {e}")
+        # -----------------------------------------------------------
+
+        if not content_to_save:
             st.error("⚠️ Letter is empty!")
         elif not st.session_state.get("addr_to") and current_tier != "Civic":
             st.error("⚠️ Please save addresses first.")
