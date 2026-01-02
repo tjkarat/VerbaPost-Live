@@ -6,7 +6,7 @@ import logging
 import uuid # --- ADDED UUID FOR MANUAL TRACKING ---
 from datetime import datetime
 import json
-from sqlalchemy import text # --- ADDED FOR RAW SQL FIX ---
+from sqlalchemy import text # --- CRITICAL IMPORT FOR RAW SQL ---
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -283,28 +283,39 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
+    # --- DIRECT ACTION BUTTONS (FIX: Explicit Creation) ---
     with b1:
         if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
             st.session_state.locked_price = 2.99
-            st.session_state.app_mode = "workspace"
-            _handle_draft_creation(u_email, "Standard", 2.99)
-            st.rerun()
+            # Force creation NOW
+            new_id = _handle_draft_creation(u_email, "Standard", 2.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Error: Could not create draft.")
 
     with b2:
         if st.button("Select Vintage", key="store_btn_vintage_final", use_container_width=True):
             st.session_state.locked_tier = "Vintage"
             st.session_state.locked_price = 5.99
-            st.session_state.app_mode = "workspace"
-            _handle_draft_creation(u_email, "Vintage", 5.99)
-            st.rerun()
+            # Force creation NOW
+            new_id = _handle_draft_creation(u_email, "Vintage", 5.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Error: Could not create draft.")
 
     with b3:
         if st.button("Select Civic", key="store_btn_civic_final", use_container_width=True):
             st.session_state.locked_tier = "Civic"
-            st.session_state.locked_price = 6.99; st.session_state.app_mode = "workspace"; _handle_draft_creation(u_email, "Civic", 6.99)
-            st.rerun()
+            st.session_state.locked_price = 6.99
+            # Force creation NOW
+            new_id = _handle_draft_creation(u_email, "Civic", 6.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Error: Could not create draft.")
 
 def render_campaign_uploader():
     st.markdown("### 📁 Upload Recipient List (CSV)")
@@ -334,13 +345,33 @@ def render_workspace_page():
     _ensure_profile_loaded()
     user_email = st.session_state.get("user_email")
     
+    # --- CRITICAL FIX: DRAFT GUARANTEE ---
+    # If for some reason we land here without a draft ID, create one immediately.
+    # This prevents "Save" buttons from firing into the void.
+    if not st.session_state.get("current_draft_id"):
+        default_tier = st.session_state.get("locked_tier", "Standard")
+        default_price = 2.99 if default_tier == "Standard" else 5.99
+        if database:
+            try:
+                rescue_id = database.save_draft(user_email, "", default_tier, default_price)
+                st.session_state.current_draft_id = rescue_id
+                st.rerun() # Refresh to bind the page to this ID
+            except Exception as e:
+                logger.error(f"Draft Rescue Failed: {e}")
+                st.error("Session Error: Please return to store and select a letter type.")
+                return
+    # ----------------------------------------
+    
+    d_id = st.session_state.current_draft_id
+    tier = st.session_state.get('locked_tier', 'Draft')
+    
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
     inject_custom_css(text_size)
 
-    current_tier = st.session_state.get('locked_tier', 'Draft')
-    st.markdown(f"## 📝 Workspace: {current_tier}")
+    st.markdown(f"## 📝 Workspace: {tier}")
+    st.caption(f"Draft ID: {d_id}")
 
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
@@ -459,13 +490,12 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # Update Draft using RAW SQL FIX
-                    d_id = st.session_state.get("current_draft_id")
-                    
-                    if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
-                        st.success("✅ Addresses Saved to Database!")
+                    # --- FORCE SAVE VIA RAW SQL ---
+                    if _force_save_to_db(d_id, content=None, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
+                        st.success("✅ Addresses Secured in Database!")
+                        _save_new_contact(st.session_state.addr_to)
                     else:
-                        st.error("❌ Failed to save addresses to DB.")
+                        st.error("❌ Database Write Failed. Check Admin Console.")
 
                     # Smart Address Book Save
                     if save_to_book:
@@ -500,28 +530,38 @@ def render_workspace_page():
     st.info("🎙️ **Voice Instructions:** Click the small microphone icon below. Speak for up to 5 minutes. Click the square 'Stop' button when finished.")
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
 
+    # --- INIT CONTENT VAR ---
+    content_to_save = st.session_state.get("letter_body", "")
+
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
-        current_text = st.session_state.get("letter_body", "")
-        # NO KEY HERE to prevent state loss
-        new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
+        
+        # WE CAPTURE THE WIDGET VALUE HERE
+        # NO KEY to avoid conflicts, just value capture
+        new_text = st.text_area(
+            "Letter Body", 
+            value=content_to_save, 
+            height=400, 
+            label_visibility="collapsed", 
+            placeholder="Dear..."
+        )
         
         # Capture into state immediately
-        if new_text != current_text:
+        if new_text != content_to_save:
             st.session_state.letter_body = new_text
+            content_to_save = new_text
         
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
         
         with col_save:
              if st.button("💾 Save Draft", use_container_width=True):
-                 st.session_state.letter_body = new_text
-                 d_id = st.session_state.get("current_draft_id")
+                 st.session_state.letter_body = content_to_save
                  
                  # --- FORCE SAVE VIA RAW SQL ---
-                 if _force_save_to_db(d_id, content=new_text):
+                 if _force_save_to_db(d_id, content=content_to_save):
                      st.session_state.last_autosave = time.time()
                      st.toast("✅ Draft Saved Successfully")
-                     st.success(f"✅ DEBUG: Force Saved {len(new_text)} chars to Draft #{d_id}")
+                     st.success(f"✅ DEBUG: Raw SQL wrote {len(content_to_save)} chars to Row {d_id}")
                  else:
                      st.error("Save failed. Check database connection.")
 
@@ -579,12 +619,25 @@ def render_workspace_page():
             st.error("⚠️ Please save addresses first.")
         else:
             # --- FORCE SAVE BEFORE NAVIGATING ---
-            d_id = st.session_state.get("current_draft_id")
             _force_save_to_db(d_id, content=st.session_state.get("letter_body"))
             st.session_state.app_mode = "review"
             st.rerun()
 
 def render_review_page():
+    # --- CRITICAL FIX: FORCE SYNC WITH DB ---
+    u_email = st.session_state.get("user_email")
+    d_id = st.session_state.get("current_draft_id")
+    
+    if d_id and database:
+        # Load draft to ensure tier is correct
+        try:
+            with database.get_db_session() as s:
+                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == d_id).first()
+                if d and d.tier:
+                    st.session_state.locked_tier = d.tier
+        except Exception as e:
+            logger.error(f"Tier Sync Error: {e}")
+
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
@@ -641,9 +694,6 @@ def render_review_page():
     
     st.markdown(f"### Total: ${total:.2f}")
 
-    u_email = st.session_state.get("user_email")
-    d_id = st.session_state.get("current_draft_id")
-
     # --- HANDLING FREE ORDERS ($0.00) ---
     if total <= 0:
         st.success("🎉 This order is FREE via Promo Code!")
@@ -656,7 +706,10 @@ def render_review_page():
                         tracking = None
                         status_msg = ""
                         
-                        if tier == "Vintage":
+                        # FORCE STRING CHECK
+                        current_tier_str = str(tier).strip()
+                        
+                        if current_tier_str == "Vintage":
                             # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
@@ -681,6 +734,8 @@ def render_review_page():
 
                         if tracking:
                             # 2. UPDATE DB
+                            # We use shotgun save logic via force update just in case status needs new column too
+                            _force_save_to_db(d_id)
                             database.update_draft_data(d_id, price=0.0, status=status_msg, tracking_number=tracking)
                             
                             # 3. LOG
@@ -698,7 +753,7 @@ def render_review_page():
                                 database.record_promo_usage(promo_code, u_email)
 
                             # 5. SEND RECEIPT EMAIL (ADDED)
-                            if email_engine and tier != "Vintage": # Vintage handled above
+                            if email_engine and current_tier_str != "Vintage": # Vintage handled above
                                 try:
                                     email_engine.send_email(
                                         to_email=u_email,
