@@ -5,7 +5,7 @@ import json
 import os
 import requests
 import ast
-import logging # --- FIX 1: Import logging ---
+import logging 
 from datetime import datetime
 import base64
 
@@ -14,8 +14,7 @@ import stripe
 import openai
 from twilio.rest import Client as TwilioClient
 
-# --- FIX 2: SILENCE CONSOLE SPAM ---
-# This stops Twilio/Urllib3 from flooding your logs with "INFO" messages
+# --- SILENCE CONSOLE SPAM ---
 logging.getLogger("twilio").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
@@ -407,20 +406,24 @@ def render_admin_page():
                 c_audio, c_del = st.columns([2, 1])
                 
                 with c_audio:
-                    # --- FIX 3: SAFE URL HANDLING ---
+                    # --- FIX 3: SAFE URL HANDLING (Corrected Logic) ---
                     if st.button("▶️ Load Audio", key=f"load_{sel_sid}"):
                         sid = secrets_manager.get_secret("twilio.account_sid")
                         token = secrets_manager.get_secret("twilio.auth_token")
                         if sid and token:
                             try:
-                                # FIX: Handle cases where Twilio returns a relative URI vs full URL
+                                # FIX: Check if .mp3 extension already exists
                                 uri = selected_rec.get('URL', '').replace(".json", "").strip()
                                 
-                                # Only prepend domain if it's missing
-                                if uri.startswith("http"):
+                                # 1. Ensure Domain
+                                if not uri.startswith("http"):
+                                    uri = f"https://api.twilio.com{uri}"
+                                
+                                # 2. Ensure Single Extension
+                                if not uri.endswith(".mp3"):
                                     mp3_url = f"{uri}.mp3"
                                 else:
-                                    mp3_url = f"https://api.twilio.com{uri}.mp3"
+                                    mp3_url = uri
                                 
                                 r = requests.get(mp3_url, auth=(sid, token))
                                 if r.status_code == 200:
