@@ -4,13 +4,16 @@ import textwrap
 import json 
 from datetime import datetime
 import uuid 
+from sqlalchemy import text, create_engine # --- NUCLEAR FIX IMPORTS ---
 
 # --- MODULE IMPORTS ---
 try: import database
 except ImportError: database = None
+try: import secrets_manager
+except ImportError: secrets_manager = None
 try: import ai_engine
 except ImportError: ai_engine = None
-try: import heirloom_engine  # <--- NEW IMPORT
+try: import heirloom_engine
 except ImportError: heirloom_engine = None
 try: import mailer
 except ImportError: mailer = None
@@ -26,6 +29,53 @@ try: import promo_engine
 except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
+
+# --- HELPER: NUCLEAR DATABASE UPDATE (Heirloom Specific) ---
+def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, tracking=None):
+    """
+    Direct SQL injection to force save Heirloom status and addresses.
+    Writes to ALL address columns to ensure data persists.
+    """
+    if not draft_id: return False
+    
+    try:
+        db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+        if not db_url: return False
+
+        # Serialize
+        to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
+        from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
+        
+        # Shotgun Query: Updates Status, Tracking, and Addresses (Old & New Cols)
+        query = text("""
+            UPDATE letter_drafts
+            SET 
+                status = :s,
+                tracking_number = :t,
+                recipient_data = :rd,
+                sender_data = :sd,
+                to_addr = :rd,
+                from_addr = :sd
+            WHERE id = :id
+        """)
+        
+        params = {
+            "s": status,
+            "t": tracking,
+            "rd": to_json,
+            "sd": from_json,
+            "id": str(draft_id)
+        }
+
+        # Execute with fresh engine
+        temp_engine = create_engine(db_url, echo=False)
+        with temp_engine.begin() as conn:
+            conn.execute(query, params)
+            return True
+
+    except Exception as e:
+        st.error(f"❌ DB Update Failed: {e}")
+        return False
 
 # --- HELPER: EMAIL SENDER ---
 def _send_receipt(user_email, subject, body_html):
@@ -461,15 +511,13 @@ def render_dashboard():
                                 new_credits = credits - 1
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
-                                    # We use kwargs to update the JSON columns
-                                    # --- FIX: MAP TO CORRECT COLUMNS & FORCE STRING ---
-                                    database.update_draft_data(
-                                        d_id, 
-                                        status="Queued (Manual)", 
-                                        tracking_number=ref_id,
-                                        recipient_data=str(snapshot_to),  # <-- FIXED
-                                        sender_data=str(snapshot_from)    # <-- FIXED
-                                    )
+                                    
+                                    # --- NUCLEAR UPDATE ---
+                                    # We use the raw connection helper here to ensure data writes
+                                    if _force_heirloom_update(d_id, snapshot_to, snapshot_from, "Queued (Manual)", ref_id):
+                                        st.success("Data secured in DB.")
+                                    else:
+                                        st.error("DB Write Failed.")
                                 
                                 # D. Audit & Receipt
                                 _send_receipt(

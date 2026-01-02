@@ -5,6 +5,7 @@ import os
 import json
 import base64
 import hashlib
+from sqlalchemy import text, create_engine # --- NUCLEAR FIX IMPORTS ---
 
 # --- ROBUST IMPORTS ---
 try: import database
@@ -21,6 +22,55 @@ try: import mailer
 except ImportError: mailer = None
 try: import audit_engine 
 except ImportError: audit_engine = None
+
+# --- HELPER: NUCLEAR DATABASE SAVE (Legacy Specific) ---
+def _force_legacy_save(draft_id, content=None, to_data=None, from_data=None):
+    """
+    Direct SQL injection to force save Legacy drafts. 
+    Writes to ALL address columns to ensure data persists.
+    """
+    if not draft_id: return False
+    
+    try:
+        db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+        if not db_url:
+            st.error("❌ DB Error: Missing Connection String")
+            return False
+
+        # Serialize
+        to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
+        from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
+        
+        # Shotgun Query: Updates Legacy Tier, Price, Content, and Addresses (Old & New Cols)
+        query = text("""
+            UPDATE letter_drafts
+            SET 
+                content = :c,
+                tier = 'Legacy',
+                price = 15.99,
+                recipient_data = :rd,
+                sender_data = :sd,
+                to_addr = :rd,
+                from_addr = :sd
+            WHERE id = :id
+        """)
+        
+        params = {
+            "c": content if content else "",
+            "rd": to_json,
+            "sd": from_json,
+            "id": str(draft_id)
+        }
+
+        # Execute with fresh engine
+        temp_engine = create_engine(db_url, echo=False)
+        with temp_engine.begin() as conn:
+            conn.execute(query, params)
+            return True
+
+    except Exception as e:
+        st.error(f"❌ Save Failed: {e}")
+        return False
 
 # --- HELPER: SAFE PROFILE ACCESS ---
 def safe_get_profile_field(profile, field, default=""):
@@ -72,44 +122,32 @@ def load_address_book():
 
 def _save_legacy_draft():
     """
-    Saves Content AND Addresses to DB.
+    Wrapper that calls the Nuclear Option.
     """
     if not database: st.error("Database connection missing."); return
     user_email = st.session_state.get("user_email", "guest")
     try:
         d_id = st.session_state.get("current_legacy_draft_id")
-        content = st.session_state.legacy_text
         
-        # Capture addresses from session state
+        # 1. Create if missing (Standard Method OK for Insert)
+        if not d_id:
+            d_id = database.save_draft(user_email, "", "Legacy", 15.99)
+            st.session_state.current_legacy_draft_id = d_id
+            if audit_engine:
+                audit_engine.log_event(user_email, "LEGACY_DRAFT_INIT", d_id)
+
+        # 2. Prepare Data
+        content = st.session_state.legacy_text
         s_data = st.session_state.get("legacy_sender", {})
         r_data = st.session_state.get("legacy_recipient", {})
         
-        # Convert to String for DB
-        s_str = str(s_data) if s_data else ""
-        r_str = str(r_data) if r_data else ""
-        
-        if d_id:
-            # FIX: Use correct column names (recipient_data, sender_data)
-            database.update_draft_data(
-                d_id, 
-                content=content, 
-                tier="Legacy", 
-                price=15.99,
-                recipient_data=r_str,  # <-- FIXED
-                sender_data=s_str      # <-- FIXED
-            )
+        # 3. FORCE SAVE (Nuclear)
+        if _force_legacy_save(d_id, content, r_data, s_data):
             st.toast("Draft & Addresses Saved!", icon="💾")
+            # Optional debug
+            # st.success(f"✅ DEBUG: Saved to Row {d_id}")
         else:
-            # Fallback if ID was lost (should be rare with Draft Guarantee)
-            d_id = database.save_draft(user_email, content, "Legacy", 15.99)
-            if s_data or r_data:
-                database.update_draft_data(d_id, recipient_data=r_str, sender_data=s_str)
-            
-            st.session_state.current_legacy_draft_id = d_id
-            st.toast("New Draft Created!", icon="✨")
-            
-            if audit_engine:
-                audit_engine.log_event(user_email, "LEGACY_DRAFT_INIT", d_id)
+            st.error("Save Failed.")
 
     except Exception as e: st.error(f"Save failed: {e}")
 
@@ -148,19 +186,16 @@ def render_legacy_page():
     
     if st.session_state.get("paid_success"): render_success_view(); return
 
-    # --- FIX: DRAFT GUARANTEE ---
-    # Immediately ensure a DB row exists so we have somewhere to save data
+    # --- DRAFT GUARANTEE ---
     if not st.session_state.get("current_legacy_draft_id") and database:
         try:
             u_email = st.session_state.get("user_email", "guest")
             new_id = database.save_draft(u_email, "", "Legacy", 15.99)
             st.session_state.current_legacy_draft_id = new_id
-            # Rerun to lock this ID in
             st.rerun()
         except Exception as e:
             st.error(f"Database Initialization Failed: {e}")
             return
-    # ----------------------------
 
     c_head, c_save = st.columns([3, 1])
     c_head.markdown("## 🕊️ Legacy Workspace")
@@ -243,10 +278,13 @@ def render_legacy_page():
                         st.session_state.legacy_sender = s_data
                         st.session_state.legacy_recipient = r_data
                         st.session_state.legacy_signature = sig
+                        
+                        # NUCLEAR SAVE
+                        _save_legacy_draft()
+                        
+                        # Also save to contact book
                         if database and st.session_state.get("authenticated"):
                             database.save_contact(st.session_state.user_email, st.session_state.legacy_recipient)
-                        
-                        _save_legacy_draft()
                         
                         st.success("✅ Addresses Verified & Saved!")
                         time.sleep(1)
@@ -276,7 +314,6 @@ def render_legacy_page():
     st.markdown('<div class="instruction-box"><b>INSTRUCTIONS:</b> Click <b>RECORD VOICE</b> to speak, or <b>TYPE MANUALLY</b> to write.</div>', unsafe_allow_html=True)
     t_type, t_rec = st.tabs(["⌨️ TYPE MANUALLY", "🎙️ RECORD VOICE"])
     with t_type:
-        # FIX: Capture input into session state key to persist it
         txt = st.text_area("Body", value=st.session_state.get("legacy_text", ""), height=600, key="legacy_content_input")
         if txt: st.session_state.legacy_text = txt
     with t_rec:
@@ -351,7 +388,7 @@ def render_legacy_page():
             if not st.session_state.get("user_email") and not guest_email: 
                 st.error("⚠️ Please enter an email address.")
             elif payment_engine:
-                _save_legacy_draft()
+                _save_legacy_draft() # One last nuclear save
                 st.session_state.last_mode = "legacy"
                 
                 # FIX: SYNC VARIABLES WITH MAIN ROUTER

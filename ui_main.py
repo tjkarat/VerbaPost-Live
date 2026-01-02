@@ -50,8 +50,6 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         # 1. GET CONNECTION STRING DIRECTLY
         db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
         if not db_url:
-            # Fallback: Try to get it from the database module if exposed, or construct it
-            # This is critical. If secrets_manager fails, we can't connect.
             st.error("❌ Fatal: Missing DB Connection String (SUPABASE_DB_URL)")
             return False
 
