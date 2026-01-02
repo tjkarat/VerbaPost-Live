@@ -414,7 +414,10 @@ def render_workspace_page():
                     if d_id and database:
                         to_str = str(st.session_state.addr_to)
                         from_str = str(st.session_state.addr_from)
-                        database.update_draft_data(d_id, to_addr=to_str, from_addr=from_str)
+                        
+                        # --- FIX: MAP TO CORRECT DB COLUMNS ---
+                        # Your DB has recipient_data/sender_data, NOT to_addr/from_addr
+                        database.update_draft_data(d_id, recipient_data=to_str, sender_data=from_str)
 
                     # Smart Address Book Save
                     if save_to_book:
@@ -457,8 +460,15 @@ def render_workspace_page():
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
         
-        # WE CAPTURE THE WIDGET VALUE HERE
-        new_text = st.text_area("Letter Body", value=content_to_save, height=400, label_visibility="collapsed", placeholder="Dear...")
+        # --- FIX: ADDED KEY TO TEXT AREA TO PERSIST STATE ---
+        new_text = st.text_area(
+            "Letter Body", 
+            value=content_to_save, 
+            height=400, 
+            label_visibility="collapsed", 
+            placeholder="Dear...",
+            key="live_content_input" 
+        )
         
         # UPDATE THE MASTER VARIABLE
         content_to_save = new_text 
@@ -542,9 +552,9 @@ def render_workspace_page():
     
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
         # --- CRITICAL FIX: FORCE DB SAVE USING THE LIVE VARIABLE ---
-        # We use content_to_save (which has the latest typed text)
+        # We use content_to_save (which has the latest typed text from the key)
         if content_to_save:
-             st.session_state.letter_body = content_to_save # Sync state just in case
+             st.session_state.letter_body = content_to_save 
              d_id = st.session_state.get("current_draft_id")
              if d_id and database:
                  try:
