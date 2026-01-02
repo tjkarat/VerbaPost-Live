@@ -5,7 +5,8 @@ import hashlib
 import logging
 import uuid # --- ADDED UUID FOR MANUAL TRACKING ---
 from datetime import datetime
-import json # --- ADDED FOR SAFE SERIALIZATION ---
+import json
+from sqlalchemy import text # --- ADDED FOR RAW SQL FIX ---
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -38,74 +39,52 @@ except ImportError: secrets_manager = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: DIRECT DATABASE OVERRIDE (THE FIX) ---
+# --- HELPER: DIRECT DATABASE OVERRIDE (RAW SQL) ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
-    Bypasses standard helpers to force-write data directly to the SQL session.
-    This fixes the 'Empty Row' issue by ensuring a COMMIT happens.
-    It uses the 'Shotgun Approach' to write to ALL possible column names.
+    Uses RAW SQL to bypass SQLAlchemy ORM model definitions.
+    This guarantees data is written even if the Python class is outdated.
     """
-    if not draft_id:
-        return False
+    if not draft_id: return False
         
     try:
-        # CONVERT DICTS TO JSON STRINGS SAFELY
-        to_json = None
-        from_json = None
+        # 1. PREPARE DATA
+        to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
+        from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        if to_data:
-            if isinstance(to_data, dict): to_json = json.dumps(to_data)
-            else: to_json = str(to_data)
-            
-        if from_data:
-            if isinstance(from_data, dict): from_json = json.dumps(from_data)
-            else: from_json = str(from_data)
+        # 2. CONSTRUCT RAW QUERY
+        # We update ALL potential columns to be safe (Shotgun Approach)
+        query_str = """
+            UPDATE letter_drafts
+            SET 
+                recipient_data = :rd,
+                sender_data = :sd,
+                to_addr = :rd,
+                from_addr = :sd
+        """
+        
+        params = {
+            "rd": to_json,
+            "sd": from_json,
+            "id": str(draft_id)
+        }
 
-        # OPEN DIRECT SESSION
-        with database.get_db_session() as session:
-            # FIND ROW
-            # Cast ID to string to be safe against Integer/UUID mismatches
-            draft = session.query(database.LetterDraft).filter(database.LetterDraft.id == str(draft_id)).first()
+        # Only update content if provided (to avoid wiping it with NULL)
+        if content is not None:
+            query_str += ", content = :c "
+            params["c"] = content
             
-            if draft:
-                # 1. UPDATE CONTENT
-                if content is not None:
-                    draft.content = content
-                
-                # 2. UPDATE RECIPIENT (Shotgun: Try all columns)
-                if to_json is not None:
-                    # New Schema
-                    if hasattr(draft, 'recipient_data'): 
-                        draft.recipient_data = to_json
-                    # Old Schema
-                    if hasattr(draft, 'to_addr'): 
-                        draft.to_addr = to_json
-                    # Backup Schema
-                    if hasattr(draft, 'recipient_json'):
-                        draft.recipient_json = to_json
-                    
-                # 3. UPDATE SENDER (Shotgun: Try all columns)
-                if from_json is not None:
-                    # New Schema
-                    if hasattr(draft, 'sender_data'): 
-                        draft.sender_data = from_json
-                    # Old Schema
-                    if hasattr(draft, 'from_addr'): 
-                        draft.from_addr = from_json
-                    # Backup Schema
-                    if hasattr(draft, 'sender_json'):
-                        draft.sender_json = from_json
-                
-                # FORCE COMMIT
-                session.commit()
-                return True
-            else:
-                st.error(f"❌ DB Error: Draft {draft_id} not found in table.")
-                return False
+        query_str += " WHERE id = :id"
+        
+        # 3. EXECUTE
+        with database.get_db_session() as session:
+            session.execute(text(query_str), params)
+            session.commit()
+            return True
                 
     except Exception as e:
-        # st.error(f"❌ FORCE SAVE FAILED: {e}") # Uncomment for debug
-        logger.error(f"Force Save Error: {e}")
+        logger.error(f"Raw SQL Error: {e}")
+        # st.error(f"Save Error: {e}") # Uncomment to see error on screen
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -304,35 +283,27 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # --- DIRECT ACTION BUTTONS (FIX: Explicit Creation) ---
+    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
     with b1:
         if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
             st.session_state.locked_price = 2.99
-            # Force creation NOW
-            new_id = database.save_draft(u_email, "", "Standard", 2.99)
-            st.session_state.current_draft_id = new_id
             st.session_state.app_mode = "workspace"
+            _handle_draft_creation(u_email, "Standard", 2.99)
             st.rerun()
 
     with b2:
         if st.button("Select Vintage", key="store_btn_vintage_final", use_container_width=True):
             st.session_state.locked_tier = "Vintage"
             st.session_state.locked_price = 5.99
-            # Force creation NOW
-            new_id = database.save_draft(u_email, "", "Vintage", 5.99)
-            st.session_state.current_draft_id = new_id
             st.session_state.app_mode = "workspace"
+            _handle_draft_creation(u_email, "Vintage", 5.99)
             st.rerun()
 
     with b3:
         if st.button("Select Civic", key="store_btn_civic_final", use_container_width=True):
             st.session_state.locked_tier = "Civic"
-            st.session_state.locked_price = 6.99
-            # Force creation NOW
-            new_id = database.save_draft(u_email, "", "Civic", 6.99)
-            st.session_state.current_draft_id = new_id
-            st.session_state.app_mode = "workspace"
+            st.session_state.locked_price = 6.99; st.session_state.app_mode = "workspace"; _handle_draft_creation(u_email, "Civic", 6.99)
             st.rerun()
 
 def render_campaign_uploader():
@@ -363,32 +334,13 @@ def render_workspace_page():
     _ensure_profile_loaded()
     user_email = st.session_state.get("user_email")
     
-    # --- CRITICAL FIX: DRAFT GUARANTEE ---
-    # If for some reason we land here without a draft ID, create one immediately.
-    # This prevents "Save" buttons from firing into the void.
-    if not st.session_state.get("current_draft_id"):
-        default_tier = st.session_state.get("locked_tier", "Standard")
-        default_price = 2.99 if default_tier == "Standard" else 5.99
-        if database:
-            try:
-                rescue_id = database.save_draft(user_email, "", default_tier, default_price)
-                st.session_state.current_draft_id = rescue_id
-                st.rerun() # Refresh to bind the page to this ID
-            except Exception as e:
-                logger.error(f"Draft Rescue Failed: {e}")
-                st.error("Session Error: Please return to store and select a letter type.")
-                return
-    # ----------------------------------------
-    
-    d_id = st.session_state.current_draft_id
-    
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
     inject_custom_css(text_size)
 
     current_tier = st.session_state.get('locked_tier', 'Draft')
-    st.markdown(f"## 📝 Workspace: {current_tier} (Draft #{d_id})")
+    st.markdown(f"## 📝 Workspace: {current_tier}")
 
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
@@ -507,12 +459,13 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # --- CRITICAL FIX: FORCE SAVE TO DB VIA SHOTGUN APPROACH ---
-                    if d_id:
-                        if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
-                            st.success("✅ Address Data Committed to Database!")
-                        else:
-                            st.error("❌ Failed to commit address data.")
+                    # Update Draft using RAW SQL FIX
+                    d_id = st.session_state.get("current_draft_id")
+                    
+                    if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
+                        st.success("✅ Addresses Saved to Database!")
+                    else:
+                        st.error("❌ Failed to save addresses to DB.")
 
                     # Smart Address Book Save
                     if save_to_book:
@@ -545,43 +498,32 @@ def render_workspace_page():
 
     st.markdown("## ✍️ Step 3: Write Your Letter")
     st.info("🎙️ **Voice Instructions:** Click the small microphone icon below. Speak for up to 5 minutes. Click the square 'Stop' button when finished.")
-    
-    # --- INIT CONTENT VAR ---
-    # We must establish the content variable BEFORE the tabs so both tabs share it
-    content_to_save = st.session_state.get("letter_body", "")
-    
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
 
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
+        current_text = st.session_state.get("letter_body", "")
+        # NO KEY HERE to prevent state loss
+        new_text = st.text_area("Letter Body", value=current_text, height=400, label_visibility="collapsed", placeholder="Dear...")
         
-        # WE CAPTURE THE WIDGET VALUE HERE
-        # NO KEY to avoid conflicts, just value capture
-        new_text = st.text_area(
-            "Letter Body", 
-            value=content_to_save, 
-            height=400, 
-            label_visibility="collapsed", 
-            placeholder="Dear..."
-        )
+        # Capture into state immediately
+        if new_text != current_text:
+            st.session_state.letter_body = new_text
         
-        # UPDATE THE MASTER VARIABLE
-        content_to_save = new_text 
-        
-        # --- NEW BUTTON LAYOUT ---
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
         
         with col_save:
              if st.button("💾 Save Draft", use_container_width=True):
-                 st.session_state.letter_body = content_to_save
+                 st.session_state.letter_body = new_text
                  d_id = st.session_state.get("current_draft_id")
-                 if d_id and database:
-                     if _force_save_to_db(d_id, content=content_to_save):
-                         st.session_state.last_autosave = time.time()
-                         st.toast(f"✅ Saved to Draft #{d_id}")
-                         st.success(f"✅ DEBUG: Force Saved '{content_to_save[:10]}...' to DB Row {d_id}")
-                     else:
-                         st.error("Failed to save draft. Please try again.")
+                 
+                 # --- FORCE SAVE VIA RAW SQL ---
+                 if _force_save_to_db(d_id, content=new_text):
+                     st.session_state.last_autosave = time.time()
+                     st.toast("✅ Draft Saved Successfully")
+                     st.success(f"✅ DEBUG: Force Saved {len(new_text)} chars to Draft #{d_id}")
+                 else:
+                     st.error("Save failed. Check database connection.")
 
         with col_polish:
             if st.button("✨ AI Polish (Professional)", use_container_width=True):
@@ -600,14 +542,6 @@ def render_workspace_page():
                 if st.button("↩️ Undo Last Change", use_container_width=True):
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
-
-        # Auto-save Logic (Background)
-        if content_to_save != st.session_state.get("letter_body", ""):
-            st.session_state.letter_body = content_to_save
-            # We don't auto-save to DB every keystroke to prevent lag, only on button or interval
-            if time.time() - st.session_state.get("last_autosave", 0) > 3:
-                _force_save_to_db(d_id, content=content_to_save)
-                st.session_state.last_autosave = time.time()
 
     with tab_rec:
         st.markdown("### 🎙️ Voice Mode")
@@ -639,36 +573,18 @@ def render_workspace_page():
     st.divider()
     
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-        # --- CRITICAL FIX: FORCE DB SAVE BEFORE NAVIGATING ---
-        if content_to_save:
-             st.session_state.letter_body = content_to_save
-             _force_save_to_db(d_id, content=content_to_save)
-        # -----------------------------------------------------
-
-        if not content_to_save:
+        if not st.session_state.get("letter_body"):
             st.error("⚠️ Letter is empty!")
         elif not st.session_state.get("addr_to") and current_tier != "Civic":
             st.error("⚠️ Please save addresses first.")
         else:
+            # --- FORCE SAVE BEFORE NAVIGATING ---
+            d_id = st.session_state.get("current_draft_id")
+            _force_save_to_db(d_id, content=st.session_state.get("letter_body"))
             st.session_state.app_mode = "review"
             st.rerun()
 
 def render_review_page():
-    # --- CRITICAL FIX: FORCE SYNC WITH DB ---
-    u_email = st.session_state.get("user_email")
-    d_id = st.session_state.get("current_draft_id")
-    
-    # RELOAD FROM DB
-    if d_id and database:
-        # Load draft to ensure tier is correct
-        try:
-            with database.get_db_session() as s:
-                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == str(d_id)).first()
-                if d and d.tier:
-                    st.session_state.locked_tier = d.tier
-        except Exception as e:
-            logger.error(f"Tier Sync Error: {e}")
-
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
     
@@ -725,6 +641,9 @@ def render_review_page():
     
     st.markdown(f"### Total: ${total:.2f}")
 
+    u_email = st.session_state.get("user_email")
+    d_id = st.session_state.get("current_draft_id")
+
     # --- HANDLING FREE ORDERS ($0.00) ---
     if total <= 0:
         st.success("🎉 This order is FREE via Promo Code!")
@@ -737,10 +656,7 @@ def render_review_page():
                         tracking = None
                         status_msg = ""
                         
-                        # FORCE STRING CHECK
-                        current_tier_str = str(tier).strip()
-                        
-                        if current_tier_str == "Vintage":
+                        if tier == "Vintage":
                             # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
@@ -764,9 +680,7 @@ def render_review_page():
                                 status_msg = "Sent"
 
                         if tracking:
-                            # 2. UPDATE DB VIA FORCE SAVE TO ENSURE STATUS STICKS
-                            # We use shotgun columns for status just in case (though status is usually standard)
-                            _force_save_to_db(d_id) # Ensure data is fresh
+                            # 2. UPDATE DB
                             database.update_draft_data(d_id, price=0.0, status=status_msg, tracking_number=tracking)
                             
                             # 3. LOG
@@ -784,7 +698,7 @@ def render_review_page():
                                 database.record_promo_usage(promo_code, u_email)
 
                             # 5. SEND RECEIPT EMAIL (ADDED)
-                            if email_engine and current_tier_str != "Vintage": # Vintage handled above
+                            if email_engine and tier != "Vintage": # Vintage handled above
                                 try:
                                     email_engine.send_email(
                                         to_email=u_email,
