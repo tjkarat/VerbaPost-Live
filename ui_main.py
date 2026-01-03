@@ -3,14 +3,15 @@ import time
 import os
 import hashlib
 import logging
-import uuid # --- ADDED UUID FOR MANUAL TRACKING ---
+import uuid 
 from datetime import datetime
 import json
-from sqlalchemy import text, create_engine # --- NUCLEAR FIX IMPORTS ---
+import ast
+from sqlalchemy import text 
 
 # --- CRITICAL IMPORTS ---
 import database 
-import secrets_manager # Needed for direct DB access
+import secrets_manager 
 
 logger = logging.getLogger(__name__)
 
@@ -38,67 +39,52 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: NUCLEAR DATABASE SAVE (Direct Connection) ---
+# --- HELPER: NUCLEAR DATABASE SAVE (Session Based Fix) ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
-    NUCLEAR OPTION: Creates a fresh, raw connection to the DB to force the update.
-    Bypasses all ORM sessions, caching, and model definitions.
+    NUCLEAR OPTION (FIXED): Uses the centralized database session to force updates.
+    This fixes the 'Missing DB Connection String' error by reusing the working pool.
     """
     if not draft_id: return False
     
     try:
-        # 1. GET CONNECTION STRING DIRECTLY (ROBUST FIX)
-        db_url = None
-        if hasattr(database, 'get_db_url'):
-            db_url = database.get_db_url()
-        
-        # Fallback if database.py helper fails or returns None
-        if not db_url:
-            db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL") or secrets_manager.get_secret("DATABASE_URL")
-
-        if not db_url:
-            st.error("❌ Fatal: Missing DB Connection String (DATABASE_URL)")
-            return False
-
-        # 2. PREPARE DATA (Handle JSON/Strings)
+        # 1. PREPARE DATA
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 3. CONSTRUCT QUERY (Shotgun Approach)
-        params = {"id": str(draft_id)}
-        set_clauses = []
-
-        if to_json:
-            set_clauses.append("recipient_data = :rd")
-            set_clauses.append("to_addr = :rd") # Legacy backup
-            params["rd"] = to_json
+        # 2. USE EXISTING SESSION (No new engine needed)
+        with database.get_db_session() as session:
             
-        if from_json:
-            set_clauses.append("sender_data = :sd")
-            set_clauses.append("from_addr = :sd") # Legacy backup
-            params["sd"] = from_json
+            # 3. CONSTRUCT DYNAMIC UPDATE
+            # We use raw SQL for speed and to bypass ORM caching issues
+            clauses = []
+            params = {"id": int(draft_id)} if str(draft_id).isdigit() else {"id": str(draft_id)}
+
+            if to_json:
+                clauses.append("recipient_data = :rd")
+                clauses.append("to_addr = :rd") # Legacy sync
+                params["rd"] = to_json
             
-        if content is not None:
-            set_clauses.append("content = :c")
-            params["c"] = content
+            if from_json:
+                clauses.append("sender_data = :sd")
+                clauses.append("from_addr = :sd") # Legacy sync
+                params["sd"] = from_json
+            
+            if content is not None:
+                clauses.append("content = :c")
+                params["c"] = content
 
-        if not set_clauses:
-            return True # Nothing to update
+            if not clauses:
+                return True # Nothing to update
 
-        query_str = f"UPDATE letter_drafts SET {', '.join(set_clauses)} WHERE id = :id"
-        query = text(query_str)
-
-        # 4. EXECUTE WITH FRESH ENGINE (Auto-Commit)
-        # We create a temporary engine just for this one write
-        temp_engine = create_engine(db_url, echo=False)
-        with temp_engine.begin() as conn:
-            result = conn.execute(query, params)
-            # Rowcount isn't always reliable in SQLAlchemy across drivers, but usually fine for PG
-            return True 
+            # 4. EXECUTE
+            query = text(f"UPDATE letter_drafts SET {', '.join(clauses)} WHERE id = :id")
+            session.execute(query, params)
+            session.commit()
+            return True
                 
     except Exception as e:
         logger.error(f"Nuclear Save Error: {e}")
-        # st.error(f"DB Error: {e}") # Uncomment for debugging on screen
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -305,7 +291,7 @@ def render_store_page():
     st.markdown("<br>", unsafe_allow_html=True) 
     b1, b2, b3 = st.columns(3)
     
-    # --- DIRECT ACTION BUTTONS (FIX FOR ROUTING BUG) ---
+    # --- DIRECT ACTION BUTTONS ---
     with b1:
         if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
@@ -502,7 +488,7 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # Update Draft - NUCLEAR FIX
+                    # Update Draft - NUCLEAR FIX (SESSION BASED)
                     if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
                         st.success("✅ Addresses Saved to Database!")
                         _save_new_contact(st.session_state.addr_to)
@@ -545,8 +531,6 @@ def render_workspace_page():
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
         
-        # WE CAPTURE THE WIDGET VALUE HERE
-        # No KEY to avoid conflicts, just value capture
         new_text = st.text_area(
             "Letter Body", 
             value=content_to_save, 
@@ -559,18 +543,15 @@ def render_workspace_page():
         if new_text != st.session_state.get("letter_body", ""):
             st.session_state.letter_body = new_text
         
-        # --- NEW BUTTON LAYOUT ---
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
         
         with col_save:
              if st.button("💾 Save Draft", use_container_width=True):
                  st.session_state.letter_body = content_to_save
                  d_id = st.session_state.get("current_draft_id")
-                 # NUCLEAR FIX
                  if _force_save_to_db(d_id, content=content_to_save):
                      st.session_state.last_autosave = time.time()
                      st.toast(f"✅ Saved to Draft #{d_id}")
-                     st.success(f"✅ DEBUG: Force Saved {len(content_to_save)} chars to Draft #{d_id}")
                  else:
                      st.error("Save failed.")
 
@@ -592,8 +573,6 @@ def render_workspace_page():
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
 
-        # Auto-save Logic (Background)
-        # Using nuclear save sparingly for autosave to prevent connection spam
         if content_to_save != st.session_state.get("last_saved_content", ""):
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
                 _force_save_to_db(d_id, content=content_to_save)
@@ -633,7 +612,6 @@ def render_workspace_page():
         if content_to_save:
              st.session_state.letter_body = content_to_save 
              d_id = st.session_state.get("current_draft_id")
-             # NUCLEAR FIX BEFORE NAVIGATING
              _force_save_to_db(d_id, content=content_to_save)
 
         if not content_to_save:
@@ -757,13 +735,10 @@ def render_review_page():
                             # 2. UPDATE DB
                             # Use Nuclear Update for Status too just in case
                             try:
-                                db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
-                                temp_engine = create_engine(db_url, echo=False)
-                                with temp_engine.begin() as conn:
-                                    conn.execute(
-                                        text("UPDATE letter_drafts SET status=:s, price=:p, tracking_number=:t WHERE id=:id"),
-                                        {"s": status_msg, "p": 0.0, "t": tracking, "id": str(d_id)}
-                                    )
+                                with database.get_db_session() as session:
+                                    query = text("UPDATE letter_drafts SET status=:s, price=:p, tracking_number=:t WHERE id=:id")
+                                    session.execute(query, {"s": status_msg, "p": 0.0, "t": tracking, "id": int(d_id)})
+                                    session.commit()
                             except:
                                 # Fallback
                                 database.update_draft_data(d_id, price=0.0, status=status_msg, tracking_number=tracking)
@@ -856,4 +831,3 @@ def render_main():
 
 if __name__ == "__main__":
     render_main()
-}

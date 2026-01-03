@@ -29,7 +29,7 @@ def render_splash_page():
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
         if st.button("📚 Start Your Family Archive", type="primary", use_container_width=True, key="splash_btn_heirloom"):
-            # Explicitly set system mode for Archive
+            # FIX: Explicitly set mode
             st.session_state.system_mode = "archive"
             st.query_params["mode"] = "archive"
             
@@ -47,7 +47,7 @@ def render_splash_page():
     col_sec1, col_sec2, col_sec3 = st.columns([1, 1, 1])
     with col_sec2:
         if st.button("📮 Go to Letter Store", use_container_width=True, key="splash_btn_store"):
-            # --- FIX: EXPLICITLY UPDATE SYSTEM MODE ---
+            # FIX: Explicitly set mode
             st.session_state.system_mode = "utility"
             st.query_params["mode"] = "utility"
             
