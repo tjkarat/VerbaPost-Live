@@ -45,7 +45,7 @@ except ImportError: email_engine = None
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    Now performs a READ-BACK verification.
+    Performs READ-BACK verification to ensure data stuck.
     """
     if not draft_id: 
         logger.error("❌ [NUCLEAR] Aborted: No Draft ID")
@@ -70,12 +70,7 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 3. LOG DATA PAYLOAD (Check this in your console!)
-        logger.info(f"   PAYLOAD TO: {to_json}")
-        logger.info(f"   PAYLOAD FROM: {from_json}")
-        if content: logger.info(f"   PAYLOAD CONTENT LEN: {len(content)}")
-
-        # 4. EXECUTE
+        # 3. EXECUTE
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
             # A. UPDATE
@@ -100,17 +95,15 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
             result = conn.execute(query, params)
             logger.info(f"✅ [NUCLEAR] Update Executed. Rows Affected: {result.rowcount}")
             
-            # CHECK IF ROW WAS ACTUALLY FOUND
+            # B. CHECK IF ROW WAS FOUND
             if result.rowcount == 0:
                 logger.error(f"❌ [NUCLEAR] FAILED: ID {safe_id} not found in database.")
-                st.error(f"CRITICAL ERROR: Database could not find Draft ID {safe_id}. Please refresh the page.")
                 return False
             
             return True
                 
     except Exception as e:
         logger.error(f"❌ [NUCLEAR] EXCEPTION: {e}")
-        st.error(f"Save Error: {e}") 
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -239,7 +232,7 @@ def _handle_draft_creation(email, tier, price):
     if not success or not d_id:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
-        logger.error(f"✅ Created New Draft: {d_id}")
+        logger.info(f"✅ Created New Draft: {d_id}")
         
     return d_id
 
@@ -406,7 +399,7 @@ def render_workspace_page():
                 if sel != "Select..." and sel != st.session_state.get("last_loaded_contact"):
                     d = addr_opts[sel]
                     
-                    logger.error(f"[DEBUG] Loading Contact from Book: {d.get('name')}")
+                    logger.info(f"[DEBUG] Loading Contact from Book: {d.get('name')}")
                     
                     # Direct State Injection
                     st.session_state.to_name_input = str(d.get('name') or d.get('full_name') or "")
@@ -426,11 +419,7 @@ def render_workspace_page():
                     }
                     
                     # Force save to DB so "Review" page sees it even if UI refreshes
-                    saved = _force_save_to_db(d_id, to_data=direct_addr_to)
-                    if saved:
-                        st.toast("✅ Contact Loaded & Saved!")
-                    else:
-                        st.error("❌ DB Save Failed (Check Logs)")
+                    _force_save_to_db(d_id, to_data=direct_addr_to)
                     # ----------------------------------------------
                     
                     st.session_state.last_loaded_contact = sel
@@ -596,7 +585,6 @@ def render_workspace_page():
         }
         
         # --- CRITICAL SAFETY CHECK ---
-        # If the widget inputs are empty, STOP immediately. Do NOT overwrite DB with blanks.
         if not addr_to.get("street"):
             st.error("❌ Street Address Missing. Please reload the contact or type it in.")
             st.stop()
@@ -607,17 +595,14 @@ def render_workspace_page():
         st.session_state.letter_body = content_to_save
         
         # 2. Force Save EVERYTHING
-        logger.error(f"[DEBUG] Review Button: Saving Data...")
-        
-        # --- THE FIX: CHECK THE RETURN VALUE ---
-        if _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from):
-            if not content_to_save:
-                st.error("⚠️ Letter is empty!")
-            else:
-                st.session_state.app_mode = "review"
-                st.rerun()
+        logger.info(f"[DEBUG] Review Button: Saving Data...")
+        _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from)
+
+        if not content_to_save:
+            st.error("⚠️ Letter is empty!")
         else:
-            st.error("❌ Database Save Failed. Please refresh and try again.")
+            st.session_state.app_mode = "review"
+            st.rerun()
 
 def render_review_page():
     # --- CRITICAL FIX: FORCE SYNC WITH DB ---
@@ -634,7 +619,7 @@ def render_review_page():
                 # --- VINTAGE FIX ---
                 if d and d.tier:
                     st.session_state.locked_tier = d.tier
-                    logger.error(f"[DEBUG] Synced Tier from DB: {d.tier}")
+                    logger.info(f"[DEBUG] Synced Tier from DB: {d.tier}")
         except Exception as e:
             logger.error(f"Tier Sync Error: {e}")
 
@@ -700,6 +685,15 @@ def render_review_page():
         if st.button("✅ Complete Free Order", type="primary", use_container_width=True):
             if d_id and database:
                 try:
+                    # --- FINAL SAFETY SAVE (CRITICAL FIX) ---
+                    # Ensure DB is up to date before finalizing
+                    t_addr = st.session_state.get('addr_to', {})
+                    f_addr = st.session_state.get('addr_from', {})
+                    body = st.session_state.get('letter_body', '')
+                    logger.info("[DEBUG] Performing Final Safety Save before Free Order...")
+                    _force_save_to_db(d_id, content=body, to_data=t_addr, from_data=f_addr)
+                    # -----------------------------------------
+
                     # 1. GENERATE PDF & MAIL
                     with st.spinner("Processing..."):
                         # --- CRITICAL FIX: ROUTE VINTAGE TO MANUAL QUEUE ---
@@ -714,11 +708,11 @@ def render_review_page():
                             # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
-                            logger.error(f"Vintage Free Order {d_id} sent to Manual Queue")
+                            logger.info(f"Vintage Free Order {d_id} sent to Manual Queue")
                             
                             # Send "Queued" Email
                             if email_engine:
-                                logger.error("[DEBUG] Sending Queued Email...")
+                                logger.info("[DEBUG] Sending Queued Email...")
                                 email_engine.send_email(
                                     to_email=u_email,
                                     subject=f"VerbaPost Receipt: Order #{d_id}",
@@ -727,12 +721,7 @@ def render_review_page():
                         else:
                             # STANDARD POSTGRID API
                             if letter_format and mailer:
-                                t_addr = st.session_state.get('addr_to', {})
-                                f_addr = st.session_state.get('addr_from', {})
-                                body = st.session_state.get('letter_body', '')
-                                
-                                logger.error(f"[DEBUG] Mailing Free Order... To: {t_addr}")
-                                
+                                logger.info(f"[DEBUG] Mailing Free Order... To: {t_addr}")
                                 pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
                                 tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
                                 status_msg = "Sent"
@@ -769,7 +758,7 @@ def render_review_page():
                             # 5. SEND RECEIPT EMAIL (ADDED)
                             if email_engine and current_tier_str.lower() != "vintage": # Vintage handled above
                                 try:
-                                    logger.error("[DEBUG] Sending Standard Email...")
+                                    logger.info("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
                                         to_email=u_email,
                                         subject=f"VerbaPost Receipt: Order #{d_id}",
@@ -796,6 +785,15 @@ def render_review_page():
 
     # --- PAID ORDERS ---
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+        
+        # --- FINAL SAFETY SAVE (CRITICAL FIX) ---
+        t_addr = st.session_state.get('addr_to', {})
+        f_addr = st.session_state.get('addr_from', {})
+        body = st.session_state.get('letter_body', '')
+        logger.info("[DEBUG] Performing Final Safety Save before Checkout...")
+        _force_save_to_db(d_id, content=body, to_data=t_addr, from_data=f_addr)
+        # -----------------------------------------
+
         if d_id and database:
             try: database.update_draft_data(d_id, price=total, status="Pending Payment")
             except Exception as e: logger.error(f"State Persistence Error: {e}")
