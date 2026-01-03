@@ -45,7 +45,7 @@ except ImportError: email_engine = None
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    Performs READ-BACK verification to ensure data stuck.
+    Now performs a READ-BACK verification.
     """
     if not draft_id: 
         logger.error("❌ [NUCLEAR] Aborted: No Draft ID")
@@ -70,7 +70,12 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 3. EXECUTE
+        # 3. LOG DATA PAYLOAD (Check this in your console!)
+        logger.info(f"   PAYLOAD TO: {to_json}")
+        logger.info(f"   PAYLOAD FROM: {from_json}")
+        if content: logger.info(f"   PAYLOAD CONTENT LEN: {len(content)}")
+
+        # 4. EXECUTE
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
             # A. UPDATE
@@ -98,7 +103,15 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
             # B. CHECK IF ROW WAS FOUND
             if result.rowcount == 0:
                 logger.error(f"❌ [NUCLEAR] FAILED: ID {safe_id} not found in database.")
+                # Don't show confusing error to user if it's a silent background save
                 return False
+            
+            # C. VERIFY READ-BACK
+            verify_q = text("SELECT recipient_data, content FROM letter_drafts WHERE id = :id")
+            row = conn.execute(verify_q, {"id": safe_id}).first()
+            if row:
+                logger.info(f"🔍 [VERIFY] DB Value for Recipient: {row[0]}")
+                logger.info(f"🔍 [VERIFY] DB Value for Content Len: {len(row[1]) if row[1] else 0}")
             
             return True
                 
