@@ -1,10 +1,7 @@
 import streamlit as st
 import time
 import os
-import hashlib
 import logging
-import uuid 
-from datetime import datetime
 import json
 import ast
 from sqlalchemy import text, create_engine
@@ -12,10 +9,6 @@ from sqlalchemy import text, create_engine
 # --- CRITICAL IMPORTS ---
 import database 
 import secrets_manager 
-
-# --- CONFIGURE LOGGER ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("VerbaPost_UI")
 
 # --- ENGINE IMPORTS ---
 try: import ai_engine
@@ -26,8 +19,6 @@ try: import mailer
 except ImportError: mailer = None
 try: import letter_format
 except ImportError: letter_format = None
-try: import address_standard
-except ImportError: address_standard = None
 try: import pricing_engine
 except ImportError: pricing_engine = None
 try: import bulk_engine
@@ -41,44 +32,60 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: NUCLEAR DATABASE SAVE ---
+# --- HELPER: NUCLEAR DATABASE SAVE (DEBUG VERSION) ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    Now performs a READ-BACK verification.
+    Uses PRINT for guaranteed visibility in logs.
     """
+    print(f"\n[DEBUG] --------------------------------------------------")
+    print(f"[DEBUG] STARTING SAVE. Draft ID: {draft_id} (Type: {type(draft_id)})")
+
     if not draft_id: 
-        logger.error("❌ [NUCLEAR] Aborted: No Draft ID")
+        print(f"[DEBUG] ❌ ABORT: No Draft ID provided.")
         return False
     
-    # FORCE STRING ID
-    safe_id = str(draft_id)
-    
-    logger.info(f"--- STARTING NUCLEAR SAVE FOR ID: {safe_id} ---")
+    # 1. HANDLE ID TYPE (Based on your screenshots showing Integers 522, 523)
+    safe_id = draft_id
+    try:
+        safe_id = int(draft_id)
+        print(f"[DEBUG] Converted ID to Integer: {safe_id}")
+    except:
+        print(f"[DEBUG] Could not convert to Int, keeping as String: {safe_id}")
     
     try:
-        # 1. GET URL DIRECTLY
+        # 2. GET URL
         db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
         if not db_url:
              db_url = secrets_manager.get_secret("DATABASE_URL") or os.environ.get("DATABASE_URL")
         
         if not db_url:
-            st.error("Database URL missing.")
+            print("[DEBUG] ❌ CRITICAL: No Database URL found.")
             return False
 
-        # 2. PREPARE DATA
-        to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
-        from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
+        # 3. SERIALIZE DATA
+        # Ensure we are not saving "None" strings
+        to_json = json.dumps(to_data) if to_data else None
+        from_json = json.dumps(from_data) if from_data else None
         
-        # 3. LOG DATA PAYLOAD (Check this in your console!)
-        logger.info(f"   PAYLOAD TO: {to_json}")
-        logger.info(f"   PAYLOAD FROM: {from_json}")
-        if content: logger.info(f"   PAYLOAD CONTENT LEN: {len(content)}")
+        print(f"[DEBUG] Data Payload:")
+        print(f"[DEBUG] -- To: {to_json}")
+        print(f"[DEBUG] -- Content Len: {len(content) if content else 0}")
 
         # 4. EXECUTE
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
-            # A. UPDATE
+            # A. CHECK EXISTENCE
+            check_q = text("SELECT count(*) FROM letter_drafts WHERE id = :id")
+            count = conn.execute(check_q, {"id": safe_id}).scalar()
+            print(f"[DEBUG] Database Rows Found for ID {safe_id}: {count}")
+            
+            if count == 0:
+                print(f"[DEBUG] ❌ ERROR: ID {safe_id} does not exist in the DB. Update impossible.")
+                return False
+
+            # B. UPDATE (Targeting columns seen in your screenshot)
+            # We map to BOTH the new json columns and the old text columns to be safe
             query = text("""
                 UPDATE letter_drafts 
                 SET 
@@ -98,25 +105,12 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
             }
             
             result = conn.execute(query, params)
-            logger.info(f"✅ [NUCLEAR] Update Executed. Rows Affected: {result.rowcount}")
-            
-            # B. CHECK IF ROW WAS FOUND
-            if result.rowcount == 0:
-                logger.error(f"❌ [NUCLEAR] FAILED: ID {safe_id} not found in database.")
-                # Don't show confusing error to user if it's a silent background save
-                return False
-            
-            # C. VERIFY READ-BACK
-            verify_q = text("SELECT recipient_data, content FROM letter_drafts WHERE id = :id")
-            row = conn.execute(verify_q, {"id": safe_id}).first()
-            if row:
-                logger.info(f"🔍 [VERIFY] DB Value for Recipient: {row[0]}")
-                logger.info(f"🔍 [VERIFY] DB Value for Content Len: {len(row[1]) if row[1] else 0}")
-            
+            print(f"[DEBUG] ✅ UPDATE EXECUTED. Rows Modified: {result.rowcount}")
+            print(f"[DEBUG] --------------------------------------------------\n")
             return True
                 
     except Exception as e:
-        logger.error(f"❌ [NUCLEAR] EXCEPTION: {e}")
+        print(f"[DEBUG] ❌ EXCEPTION DURING SAVE: {e}")
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -142,7 +136,7 @@ def _ensure_profile_loaded():
                     st.session_state.profile_synced = True 
                     st.rerun()
             except Exception as e:
-                logger.error(f"Profile Load Error: {e}")
+                print(f"Profile Load Error: {e}")
 
 # --- CSS INJECTOR ---
 def inject_custom_css(text_size=16):
@@ -204,7 +198,7 @@ def load_address_book():
             result[label] = c
         return result
     except Exception as e:
-        logger.error(f"Address Book Error: {e}")
+        print(f"Address Book Error: {e}")
         return {}
 
 def _save_new_contact(contact_data):
@@ -227,7 +221,7 @@ def _save_new_contact(contact_data):
             return True
         return False
     except Exception as e:
-        logger.error(f"Smart Save Error: {e}")
+        print(f"Smart Save Error: {e}")
         return False
 
 def _handle_draft_creation(email, tier, price):
@@ -245,7 +239,7 @@ def _handle_draft_creation(email, tier, price):
     if not success or not d_id:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
-        logger.info(f"✅ Created New Draft: {d_id}")
+        print(f"✅ Created New Draft: {d_id}")
         
     return d_id
 
@@ -412,7 +406,7 @@ def render_workspace_page():
                 if sel != "Select..." and sel != st.session_state.get("last_loaded_contact"):
                     d = addr_opts[sel]
                     
-                    logger.info(f"[DEBUG] Loading Contact from Book: {d.get('name')}")
+                    print(f"[DEBUG] Loading Contact from Book: {d.get('name')}")
                     
                     # Direct State Injection
                     st.session_state.to_name_input = str(d.get('name') or d.get('full_name') or "")
@@ -608,14 +602,15 @@ def render_workspace_page():
         st.session_state.letter_body = content_to_save
         
         # 2. Force Save EVERYTHING
-        logger.info(f"[DEBUG] Review Button: Saving Data...")
-        _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from)
-
-        if not content_to_save:
-            st.error("⚠️ Letter is empty!")
+        print(f"[DEBUG] Review Button: Saving Data...")
+        if _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from):
+            if not content_to_save:
+                st.error("⚠️ Letter is empty!")
+            else:
+                st.session_state.app_mode = "review"
+                st.rerun()
         else:
-            st.session_state.app_mode = "review"
-            st.rerun()
+            st.error("❌ Database Save Failed. Please refresh.")
 
 def render_review_page():
     # --- CRITICAL FIX: FORCE SYNC WITH DB ---
@@ -627,14 +622,14 @@ def render_review_page():
         try:
             with database.get_db_session() as s:
                 # Force ID to String for safety
-                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == str(d_id)).first()
+                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == int(d_id)).first()
                 
                 # --- VINTAGE FIX ---
                 if d and d.tier:
                     st.session_state.locked_tier = d.tier
-                    logger.info(f"[DEBUG] Synced Tier from DB: {d.tier}")
+                    print(f"[DEBUG] Synced Tier from DB: {d.tier}")
         except Exception as e:
-            logger.error(f"Tier Sync Error: {e}")
+            print(f"Tier Sync Error: {e}")
 
     tier = st.session_state.get("locked_tier", "Standard")
     st.markdown(f"## 👁️ Step 4: Secure & Send ({tier})")
@@ -698,14 +693,13 @@ def render_review_page():
         if st.button("✅ Complete Free Order", type="primary", use_container_width=True):
             if d_id and database:
                 try:
-                    # --- FINAL SAFETY SAVE (CRITICAL FIX) ---
-                    # Ensure DB is up to date before finalizing
+                    # --- FINAL SAFETY SAVE ---
                     t_addr = st.session_state.get('addr_to', {})
                     f_addr = st.session_state.get('addr_from', {})
                     body = st.session_state.get('letter_body', '')
-                    logger.info("[DEBUG] Performing Final Safety Save before Free Order...")
+                    print("[DEBUG] Performing Final Safety Save before Free Order...")
                     _force_save_to_db(d_id, content=body, to_data=t_addr, from_data=f_addr)
-                    # -----------------------------------------
+                    # -------------------------
 
                     # 1. GENERATE PDF & MAIL
                     with st.spinner("Processing..."):
@@ -721,11 +715,11 @@ def render_review_page():
                             # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
-                            logger.info(f"Vintage Free Order {d_id} sent to Manual Queue")
+                            print(f"Vintage Free Order {d_id} sent to Manual Queue")
                             
                             # Send "Queued" Email
                             if email_engine:
-                                logger.info("[DEBUG] Sending Queued Email...")
+                                print("[DEBUG] Sending Queued Email...")
                                 email_engine.send_email(
                                     to_email=u_email,
                                     subject=f"VerbaPost Receipt: Order #{d_id}",
@@ -734,7 +728,12 @@ def render_review_page():
                         else:
                             # STANDARD POSTGRID API
                             if letter_format and mailer:
-                                logger.info(f"[DEBUG] Mailing Free Order... To: {t_addr}")
+                                t_addr = st.session_state.get('addr_to', {})
+                                f_addr = st.session_state.get('addr_from', {})
+                                body = st.session_state.get('letter_body', '')
+                                
+                                print(f"[DEBUG] Mailing Free Order... To: {t_addr}")
+                                
                                 pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
                                 tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
                                 status_msg = "Sent"
@@ -771,7 +770,7 @@ def render_review_page():
                             # 5. SEND RECEIPT EMAIL (ADDED)
                             if email_engine and current_tier_str.lower() != "vintage": # Vintage handled above
                                 try:
-                                    logger.info("[DEBUG] Sending Standard Email...")
+                                    print("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
                                         to_email=u_email,
                                         subject=f"VerbaPost Receipt: Order #{d_id}",
@@ -783,7 +782,7 @@ def render_review_page():
                                         """
                                     )
                                 except Exception as ex:
-                                    logger.error(f"[DEBUG] Email Error: {ex}")
+                                    print(f"[DEBUG] Email Error: {ex}")
                                     logger.error(f"Free Order Receipt Failed: {ex}")
 
                             # 6. SUCCESS
@@ -803,7 +802,7 @@ def render_review_page():
         t_addr = st.session_state.get('addr_to', {})
         f_addr = st.session_state.get('addr_from', {})
         body = st.session_state.get('letter_body', '')
-        logger.info("[DEBUG] Performing Final Safety Save before Checkout...")
+        print("[DEBUG] Performing Final Safety Save before Checkout...")
         _force_save_to_db(d_id, content=body, to_data=t_addr, from_data=f_addr)
         # -----------------------------------------
 
