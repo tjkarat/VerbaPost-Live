@@ -203,8 +203,8 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.multi_cell(0, 5, safe_recipient_block, align='L')
         
         # 7. Render Letter Body (Safe Zone)
-        # --- FIX: Force body WAY below the fold to prevent overlap ---
-        pdf.set_y(115)  # Moved from 105 to 115mm
+        # --- ADJUSTMENT: Moved up to 100mm per user request ---
+        pdf.set_y(100)  
         
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0) # Black text
