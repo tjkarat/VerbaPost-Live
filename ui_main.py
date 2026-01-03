@@ -100,12 +100,11 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
             result = conn.execute(query, params)
             logger.info(f"✅ [NUCLEAR] Update Executed. Rows Affected: {result.rowcount}")
             
-            # B. VERIFY (Read it back)
-            verify_q = text("SELECT recipient_data, content FROM letter_drafts WHERE id = :id")
-            row = conn.execute(verify_q, {"id": safe_id}).first()
-            if row:
-                logger.info(f"🔍 [VERIFY] DB Value for Recipient: {row[0]}")
-                logger.info(f"🔍 [VERIFY] DB Value for Content Len: {len(row[1]) if row[1] else 0}")
+            # CHECK IF ROW WAS ACTUALLY FOUND
+            if result.rowcount == 0:
+                logger.error(f"❌ [NUCLEAR] FAILED: ID {safe_id} not found in database.")
+                st.error(f"CRITICAL ERROR: Database could not find Draft ID {safe_id}. Please refresh the page.")
+                return False
             
             return True
                 
@@ -609,13 +608,16 @@ def render_workspace_page():
         
         # 2. Force Save EVERYTHING
         logger.error(f"[DEBUG] Review Button: Saving Data...")
-        _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from)
-
-        if not content_to_save:
-            st.error("⚠️ Letter is empty!")
+        
+        # --- THE FIX: CHECK THE RETURN VALUE ---
+        if _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from):
+            if not content_to_save:
+                st.error("⚠️ Letter is empty!")
+            else:
+                st.session_state.app_mode = "review"
+                st.rerun()
         else:
-            st.session_state.app_mode = "review"
-            st.rerun()
+            st.error("❌ Database Save Failed. Please refresh and try again.")
 
 def render_review_page():
     # --- CRITICAL FIX: FORCE SYNC WITH DB ---
@@ -633,9 +635,6 @@ def render_review_page():
                 if d and d.tier:
                     st.session_state.locked_tier = d.tier
                     logger.error(f"[DEBUG] Synced Tier from DB: {d.tier}")
-                else:
-                    logger.error(f"[DEBUG] DB Sync Failed for ID: {d_id}")
-                    
         except Exception as e:
             logger.error(f"Tier Sync Error: {e}")
 
