@@ -2,10 +2,10 @@ import streamlit as st
 import time
 import textwrap
 import json
-import os  # <--- FIXED: Added missing import
+import os
 from datetime import datetime
 import uuid 
-from sqlalchemy import text, create_engine # --- NUCLEAR FIX IMPORTS ---
+from sqlalchemy import text
 
 # --- MODULE IMPORTS ---
 try: import database
@@ -31,59 +31,54 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: NUCLEAR DATABASE UPDATE (Heirloom Specific) ---
+# --- HELPER: ATOMIC DATABASE UPDATE (Heirloom Specific) ---
 def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, tracking=None):
     """
-    Direct SQL injection to force save Heirloom status and addresses.
-    Writes to ALL address columns to ensure data persists.
+    FIXED: Uses shared database session to force save Heirloom status and addresses.
     """
     if not draft_id: return False
     
+    # Force String ID to match Schema
+    safe_id = str(draft_id)
+    
     try:
-        # Now safe to use os.environ because 'os' is imported
-        db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
-        
-        # Fallback for standard DATABASE_URL if specific one is missing
-        if not db_url:
-            db_url = secrets_manager.get_secret("DATABASE_URL") or os.environ.get("DATABASE_URL")
-
-        if not db_url: 
-            st.error("❌ Database URL not found in Secrets or Environment.")
-            return False
-
         # Serialize
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # Shotgun Query: Updates Status, Tracking, and Addresses (Old & New Cols)
-        query = text("""
-            UPDATE letter_drafts
-            SET 
-                status = :s,
-                tracking_number = :t,
-                recipient_data = :rd,
-                sender_data = :sd,
-                to_addr = :rd,
-                from_addr = :sd
-            WHERE id = :id
-        """)
-        
-        params = {
-            "s": status,
-            "t": tracking,
-            "rd": to_json,
-            "sd": from_json,
-            "id": str(draft_id)
-        }
+        # USE SHARED SESSION (Fixes Split-Brain)
+        with database.get_db_session() as session:
+            query = text("""
+                UPDATE letter_drafts
+                SET 
+                    status = :s,
+                    tracking_number = :t,
+                    recipient_data = :rd,
+                    sender_data = :sd,
+                    to_addr = :rd,
+                    from_addr = :sd
+                WHERE id = :id
+            """)
+            
+            params = {
+                "s": status,
+                "t": tracking,
+                "rd": to_json,
+                "sd": from_json,
+                "id": safe_id
+            }
 
-        # Execute with fresh engine
-        temp_engine = create_engine(db_url, echo=False)
-        with temp_engine.begin() as conn:
-            conn.execute(query, params)
-            return True
+            result = session.execute(query, params)
+            session.commit()
+            
+            if result.rowcount > 0:
+                return True
+            else:
+                st.error(f"❌ DB Update Failed: ID {safe_id} not found.")
+                return False
 
     except Exception as e:
-        st.error(f"❌ DB Update Failed: {e}")
+        st.error(f"❌ DB Exception: {e}")
         return False
 
 # --- HELPER: EMAIL SENDER ---
@@ -284,7 +279,6 @@ def render_dashboard():
         st.metric(
             label="Letter Credits",
             value=credits,
-            # UPDATE: Price changed from $4.75 to $5.99
             help="Each credit = 1 mailed letter (worth $5.99). Your subscription includes 4 credits per month."
         )
 
@@ -409,8 +403,6 @@ def render_dashboard():
 
         with col_later:
             st.markdown("#### Option B: Schedule for Later")
-            
-            # --- IMPROVED INSTRUCTIONS ---
             st.info("""
             **How Scheduling Works:**
             1. Pick a date & time below.
@@ -437,10 +429,8 @@ def render_dashboard():
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
             elif heirloom_engine:
                 with st.spinner(f"Scanning for calls from {p_phone}..."):
-                    # UPDATED: Now uses heirloom_engine to handle extension logic safely
                     transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
                     if transcript:
-                        # UPDATED: Now saves audio_ref to the database
                         if database: 
                             database.save_draft(user_email, transcript, "Heirloom", 0.0, audio_ref=audio_path)
                         st.success("✅ New Story Found!")
@@ -483,7 +473,6 @@ def render_dashboard():
                 if d_status == "Draft":
                     st.markdown("#### 📮 Mail this Story")
                     
-                    # 1. Gather Data (Safety Check)
                     recipient_name = profile.get("full_name", "")
                     recipient_street = profile.get("address_line1", "")
                     recipient_city = profile.get("address_city", "")
@@ -499,10 +488,8 @@ def render_dashboard():
                         • **Cost:** 1 Credit (Balance: {credits})
                         """)
                         
-                        # --- MANUAL QUEUE BUTTON ---
                         if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
                             if credits > 0:
-                                # A. Create Address Snapshot (CRITICAL: So Admin console has data)
                                 snapshot_to = {
                                     "name": recipient_name, "street": recipient_street, 
                                     "city": recipient_city, "state": profile.get("address_state", ""), 
@@ -513,22 +500,18 @@ def render_dashboard():
                                     "city": "Nashville", "state": "TN", "zip": "37209"
                                 }
 
-                                # B. Generate Fake Tracking
                                 ref_id = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                                 
-                                # C. Update Database (Credits, Status, AND ADDRESS SNAPSHOT)
                                 new_credits = credits - 1
                                 if database:
                                     database.update_user_credits(user_email, new_credits)
                                     
-                                    # --- NUCLEAR UPDATE ---
-                                    # We use the raw connection helper here to ensure data writes
+                                    # --- ATOMIC UPDATE CALL ---
                                     if _force_heirloom_update(d_id, snapshot_to, snapshot_from, "Queued (Manual)", ref_id):
                                         st.success("Data secured in DB.")
                                     else:
                                         st.error("DB Write Failed.")
                                 
-                                # D. Audit & Receipt
                                 _send_receipt(
                                     user_email,
                                     f"VerbaPost Sent: {d_date}",
@@ -537,7 +520,6 @@ def render_dashboard():
                                 if audit_engine:
                                     audit_engine.log_event(user_email, "HEIRLOOM_SENT_MANUAL", metadata={"ref": ref_id})
                                 
-                                # E. Finish
                                 st.session_state.user_profile['credits'] = new_credits
                                 st.balloons()
                                 st.success(f"✅ Queued for Printing! ID: {ref_id}")
@@ -549,3 +531,6 @@ def render_dashboard():
 
     st.markdown("<br><br><br>", unsafe_allow_html=True)
     st.markdown("<div style='text-align: center; color: #888; font-style: italic;'>VerbaPost helps families save voices, stories, and moments—before they’re gone.</div>", unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    render_dashboard()

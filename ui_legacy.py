@@ -5,7 +5,7 @@ import os
 import json
 import base64
 import hashlib
-from sqlalchemy import text, create_engine # --- NUCLEAR FIX IMPORTS ---
+from sqlalchemy import text
 
 # --- ROBUST IMPORTS ---
 try: import database
@@ -23,53 +23,54 @@ except ImportError: mailer = None
 try: import audit_engine 
 except ImportError: audit_engine = None
 
-# --- HELPER: NUCLEAR DATABASE SAVE (Legacy Specific) ---
+# --- HELPER: ATOMIC DATABASE SAVE (Legacy Specific) ---
 def _force_legacy_save(draft_id, content=None, to_data=None, from_data=None):
     """
-    Direct SQL injection to force save Legacy drafts. 
-    Writes to ALL address columns to ensure data persists.
+    FIXED: Uses shared session to save Legacy drafts reliably.
     """
     if not draft_id: return False
     
+    # Force String ID to match Schema
+    safe_id = str(draft_id)
+    
     try:
-        db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
-        if not db_url:
-            st.error("❌ DB Error: Missing Connection String")
-            return False
-
         # Serialize
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # Shotgun Query: Updates Legacy Tier, Price, Content, and Addresses (Old & New Cols)
-        query = text("""
-            UPDATE letter_drafts
-            SET 
-                content = :c,
-                tier = 'Legacy',
-                price = 15.99,
-                recipient_data = :rd,
-                sender_data = :sd,
-                to_addr = :rd,
-                from_addr = :sd
-            WHERE id = :id
-        """)
-        
-        params = {
-            "c": content if content else "",
-            "rd": to_json,
-            "sd": from_json,
-            "id": str(draft_id)
-        }
+        # USE SHARED SESSION (Fixes Split-Brain)
+        with database.get_db_session() as session:
+            query = text("""
+                UPDATE letter_drafts
+                SET 
+                    content = :c,
+                    tier = 'Legacy',
+                    price = 15.99,
+                    recipient_data = :rd,
+                    sender_data = :sd,
+                    to_addr = :rd,
+                    from_addr = :sd
+                WHERE id = :id
+            """)
+            
+            params = {
+                "c": content if content else "",
+                "rd": to_json,
+                "sd": from_json,
+                "id": safe_id
+            }
 
-        # Execute with fresh engine
-        temp_engine = create_engine(db_url, echo=False)
-        with temp_engine.begin() as conn:
-            conn.execute(query, params)
-            return True
+            result = session.execute(query, params)
+            session.commit()
+            
+            if result.rowcount > 0:
+                return True
+            else:
+                st.error(f"❌ Save Failed: ID {safe_id} not found.")
+                return False
 
     except Exception as e:
-        st.error(f"❌ Save Failed: {e}")
+        st.error(f"❌ DB Exception: {e}")
         return False
 
 # --- HELPER: SAFE PROFILE ACCESS ---
@@ -122,7 +123,7 @@ def load_address_book():
 
 def _save_legacy_draft():
     """
-    Wrapper that calls the Nuclear Option.
+    Wrapper that calls the Fixed Atomic Save.
     """
     if not database: st.error("Database connection missing."); return
     user_email = st.session_state.get("user_email", "guest")
@@ -141,11 +142,9 @@ def _save_legacy_draft():
         s_data = st.session_state.get("legacy_sender", {})
         r_data = st.session_state.get("legacy_recipient", {})
         
-        # 3. FORCE SAVE (Nuclear)
+        # 3. FORCE SAVE (Atomic)
         if _force_legacy_save(d_id, content, r_data, s_data):
             st.toast("Draft & Addresses Saved!", icon="💾")
-            # Optional debug
-            # st.success(f"✅ DEBUG: Saved to Row {d_id}")
         else:
             st.error("Save Failed.")
 
