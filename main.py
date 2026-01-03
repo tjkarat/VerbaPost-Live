@@ -3,7 +3,7 @@ import time
 import os
 import logging
 import ast
-import uuid # --- ADDED FOR MANUAL TRACKING ID ---
+import uuid 
 from datetime import datetime, timedelta
 
 # --- LOGGING SETUP ---
@@ -90,16 +90,6 @@ def inject_dynamic_seo(mode):
 
 # --- MAIN LOGIC ---
 def main():
-    # 1. PRE-FLIGHT CHECK (DISABLED TO PREVENT RECURSIVE CRASHES)
-    # try:
-    #     import module_validator
-    #     is_healthy, error_log = module_validator.validate_critical_modules()
-    #     if not is_healthy:
-    #         st.error(f"SYSTEM CRITICAL FAILURE: {error_log}")
-    #         st.stop()
-    # except ImportError:
-    #     pass 
-
     # 2. DETERMINE SYSTEM MODE
     if "system_mode" not in st.session_state:
         st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
@@ -207,8 +197,9 @@ def render_sidebar(mode):
             # --- NAVIGATION BUTTONS ---
             if mode == "utility":
                 if st.button("✉️ Letter Store", use_container_width=True):
-                    # SAFETY: Ensure mode is sticky
-                    st.session_state.system_mode = "utility" # <--- FIXED HERE
+                    # SAFETY: Ensure mode is sticky in Session AND URL
+                    st.session_state.system_mode = "utility"
+                    st.query_params["mode"] = "utility" # <--- FIXED: Updates URL
                     st.session_state.app_mode = "main"
                     st.rerun()
                 
@@ -223,8 +214,9 @@ def render_sidebar(mode):
                     st.session_state.app_mode = "heirloom"; st.rerun()
                 
                 if st.button("🔄 Switch to Letter Store", use_container_width=True):
+                    # SAFETY: Update Session AND URL
                     st.session_state.system_mode = "utility"
-                    st.query_params["mode"] = "utility"
+                    st.query_params["mode"] = "utility" # <--- FIXED: Updates URL
                     st.session_state.app_mode = "main"
                     st.rerun()
 
@@ -262,6 +254,9 @@ def handle_payment_return(session_id):
     db = get_module("database")
     pay_eng = get_module("payment_engine")
     
+    # Preserve current mode so clearing params doesn't reset us to Archive
+    current_mode = st.session_state.get("system_mode", "archive")
+
     # 1. IDEMPOTENCY CHECK
     if db and hasattr(db, "is_fulfillment_recorded"):
         if db.is_fulfillment_recorded(session_id):
@@ -271,6 +266,7 @@ def handle_payment_return(session_id):
              else:
                  st.session_state.app_mode = "heirloom"
              st.query_params.clear()
+             st.query_params["mode"] = current_mode # Restore Mode
              return
 
     # 2. RECORD FULFILLMENT ATTEMPT
@@ -348,6 +344,7 @@ def handle_payment_return(session_id):
                             logger.error(f"Welcome Email Failed: {e}")
 
                     st.query_params.clear()
+                    st.query_params["mode"] = "archive" # Restore Mode
                     st.session_state.system_mode = "archive"
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
@@ -460,6 +457,7 @@ def handle_payment_return(session_id):
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "receipt"
                             st.query_params.clear()
+                            st.query_params["mode"] = "utility" # Restore Mode
                             st.rerun()
                             return
                 
@@ -472,6 +470,7 @@ def handle_payment_return(session_id):
                 # FAILURE CASE
                 st.error("⚠️ Payment verification failed or session expired.")
                 st.query_params.clear()
+                st.query_params["mode"] = current_mode # Restore Mode
                 time.sleep(2)
                 st.session_state.app_mode = "store"
                 st.rerun()
@@ -479,6 +478,7 @@ def handle_payment_return(session_id):
         except Exception as e:
             logger.error(f"Payment Verification Crash: {e}")
             st.query_params.clear()
+            st.query_params["mode"] = current_mode # Restore Mode
             st.rerun()
 
 if __name__ == "__main__":
