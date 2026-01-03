@@ -175,7 +175,7 @@ def load_address_book():
         result = {}
         for c in contacts:
             name = str(c.get('name') or "Unknown")
-            street = str(c.get('street') or "")[:10]
+            street = str(c.get('street') or c.get('address_line1') or "")[:10]
             label = f"{name} ({street}...)"
             result[label] = c
         return result
@@ -374,7 +374,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC (Explicitly Included)
+        # 2. ADDRESS BOOK LOGIC (Explicitly Included & Robust)
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             
@@ -384,12 +384,12 @@ def render_workspace_page():
                     selected_contact_label = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
                     if selected_contact_label != "Select..." and selected_contact_label != st.session_state.get("last_loaded_contact"):
                         data = addr_opts[selected_contact_label]
-                        # FIX: FORCE STRING CONVERSION TO PREVENT NoneType CRASH IN POSTGRID
-                        st.session_state.to_name_input = str(data.get('name') or "")
-                        st.session_state.to_street_input = str(data.get('street') or "")
-                        st.session_state.to_city_input = str(data.get('city') or "")
-                        st.session_state.to_state_input = str(data.get('state') or "")
-                        st.session_state.to_zip_input = str(data.get('zip_code') or "")
+                        # FIX: Check multiple keys to ensure population
+                        st.session_state.to_name_input = str(data.get('name') or data.get('full_name') or "")
+                        st.session_state.to_street_input = str(data.get('street') or data.get('address_line1') or data.get('line1') or "")
+                        st.session_state.to_city_input = str(data.get('city') or data.get('address_city') or "")
+                        st.session_state.to_state_input = str(data.get('state') or data.get('province') or "")
+                        st.session_state.to_zip_input = str(data.get('zip_code') or data.get('zip') or "")
                         st.session_state.last_loaded_contact = selected_contact_label
                         st.rerun()
             else:
@@ -488,7 +488,7 @@ def render_workspace_page():
                     }
                     st.session_state.signature_text = st.session_state.from_sig
                     
-                    # Update Draft - NUCLEAR FIX (SESSION BASED)
+                    # Update Draft - NUCLEAR FIX
                     if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
                         st.success("✅ Addresses Saved to Database!")
                         _save_new_contact(st.session_state.addr_to)
@@ -531,6 +531,8 @@ def render_workspace_page():
     with tab_type:
         st.markdown("### ⌨️ Typing Mode")
         
+        # WE CAPTURE THE WIDGET VALUE HERE
+        # No KEY to avoid conflicts, just value capture
         new_text = st.text_area(
             "Letter Body", 
             value=content_to_save, 
@@ -543,12 +545,14 @@ def render_workspace_page():
         if new_text != st.session_state.get("letter_body", ""):
             st.session_state.letter_body = new_text
         
+        # --- NEW BUTTON LAYOUT ---
         col_save, col_polish, col_undo = st.columns([1, 1, 1])
         
         with col_save:
              if st.button("💾 Save Draft", use_container_width=True):
                  st.session_state.letter_body = content_to_save
                  d_id = st.session_state.get("current_draft_id")
+                 # NUCLEAR FIX
                  if _force_save_to_db(d_id, content=content_to_save):
                      st.session_state.last_autosave = time.time()
                      st.toast(f"✅ Saved to Draft #{d_id}")
@@ -573,6 +577,8 @@ def render_workspace_page():
                     st.session_state.letter_body = st.session_state.letter_body_history.pop()
                     st.rerun()
 
+        # Auto-save Logic (Background)
+        # Using nuclear save sparingly for autosave to prevent connection spam
         if content_to_save != st.session_state.get("last_saved_content", ""):
             if time.time() - st.session_state.get("last_autosave", 0) > 3:
                 _force_save_to_db(d_id, content=content_to_save)
@@ -608,16 +614,38 @@ def render_workspace_page():
 
     st.divider()
     
+    # --- CRITICAL FIX: CAPTURE AND SAVE ALL DATA ON NAVIGATION ---
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-        if content_to_save:
-             st.session_state.letter_body = content_to_save 
-             d_id = st.session_state.get("current_draft_id")
-             _force_save_to_db(d_id, content=content_to_save)
+        d_id = st.session_state.get("current_draft_id")
+        
+        # 1. Capture addresses implicitly in case explicit Save button wasn't clicked
+        addr_to = {
+            "name": st.session_state.get("to_name_input", ""), 
+            "street": st.session_state.get("to_street_input", ""),
+            "city": st.session_state.get("to_city_input", ""), 
+            "state": st.session_state.get("to_state_input", ""),
+            "zip_code": st.session_state.get("to_zip_input", "")
+        }
+        addr_from = {
+            "name": st.session_state.get("from_name", ""), 
+            "street": st.session_state.get("from_street", ""),
+            "city": st.session_state.get("from_city", ""), 
+            "state": st.session_state.get("from_state", ""),
+            "zip_code": st.session_state.get("from_zip", "")
+        }
+        
+        # Update session state with implicit capture
+        st.session_state.addr_to = addr_to
+        st.session_state.addr_from = addr_from
+        st.session_state.letter_body = content_to_save
+        
+        # 2. Force Save EVERYTHING
+        _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from)
 
         if not content_to_save:
             st.error("⚠️ Letter is empty!")
-        elif not st.session_state.get("addr_to") and current_tier != "Civic":
-            st.error("⚠️ Please save addresses first.")
+        elif not addr_to.get("name") or not addr_to.get("street"):
+            st.error("⚠️ Please fill out the recipient address.")
         else:
             st.session_state.app_mode = "review"
             st.rerun()
@@ -735,10 +763,13 @@ def render_review_page():
                             # 2. UPDATE DB
                             # Use Nuclear Update for Status too just in case
                             try:
-                                with database.get_db_session() as session:
-                                    query = text("UPDATE letter_drafts SET status=:s, price=:p, tracking_number=:t WHERE id=:id")
-                                    session.execute(query, {"s": status_msg, "p": 0.0, "t": tracking, "id": int(d_id)})
-                                    session.commit()
+                                db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+                                temp_engine = create_engine(db_url, echo=False)
+                                with temp_engine.begin() as conn:
+                                    conn.execute(
+                                        text("UPDATE letter_drafts SET status=:s, price=:p, tracking_number=:t WHERE id=:id"),
+                                        {"s": status_msg, "p": 0.0, "t": tracking, "id": str(d_id)}
+                                    )
                             except:
                                 # Fallback
                                 database.update_draft_data(d_id, price=0.0, status=status_msg, tracking_number=tracking)
