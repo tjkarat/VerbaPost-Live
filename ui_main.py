@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime
 import json
 import ast
+from sqlalchemy import text
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -40,61 +41,73 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: UNIFIED DATABASE SAVE ---
+# --- HELPER: NUCLEAR DATABASE SAVE (HYBRID FIX) ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
-    FIXED VERSION: Uses shared database session instead of creating separate engine.
-    This ensures we see the same data across the entire application.
+    HYBRID FIX: Uses shared database session (to prevent connection split)
+    BUT executes RAW SQL (to prevent ORM Type Mismatches).
+    
+    This ensures:
+    1. We are on the correct connection (Session Pooler).
+    2. We treat ID as TEXT (String) regardless of what the Python Model says.
     """
     if not draft_id: 
         logger.error("❌ [SAVE] Aborted: No Draft ID")
         return False
     
-    # Keep draft_id as string to match schema (id is TEXT, not INTEGER)
+    # --- CRITICAL: FORCE STRING TYPE FOR TEXT COLUMN ---
     safe_id = str(draft_id)
     
-    logger.info(f"--- STARTING SAVE FOR ID: {safe_id} ---")
+    # --- DEEP DEBUGGING ---
+    logger.info(f"--- STARTING SAVE FOR ID: {safe_id} (Type: {type(safe_id)}) ---")
+    
+    # Serialize Data
+    to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
+    from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
+    
+    logger.info(f"   [DEBUG] Content Length: {len(content) if content else 0}")
+    logger.info(f"   [DEBUG] Recipient Payload: {to_json}")
     
     try:
-        # Prepare Data
-        to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
-        from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
-        
-        # Extract flat fields for legacy columns
-        t_name = to_data.get("name") if to_data else None
-        t_street = to_data.get("street") or to_data.get("address_line1") if to_data else None
-        t_city = to_data.get("city") if to_data else None
-        
-        logger.info(f"   PAYLOAD TO (JSON): {to_json}")
+        # Extract flat fields for admin console visibility
+        t_name = to_data.get("name") if isinstance(to_data, dict) else None
+        t_city = to_data.get("city") if isinstance(to_data, dict) else None
 
-        # USE SHARED DATABASE SESSION (This is the critical fix!)
+        # USE SHARED SESSION (Fixes Split-Brain)
         with database.get_db_session() as session:
-            # Query the draft
-            draft = session.query(database.LetterDraft).filter(
-                database.LetterDraft.id == safe_id
-            ).first()
+            # EXECUTE RAW SQL (Fixes Type Mismatch)
+            # We explicitly cast parameters to ensure Postgres receives them correctly.
+            query = text("""
+                UPDATE letter_drafts 
+                SET 
+                    recipient_data = :rd, 
+                    sender_data = :sd,
+                    to_addr = :rd,
+                    from_addr = :sd,
+                    to_name = :tn,
+                    to_city = :tc,
+                    content = COALESCE(:c, content)
+                WHERE id = :id
+            """)
             
-            if not draft:
-                logger.error(f"❌ [SAVE] FAILED: ID {safe_id} not found in database.")
+            params = {
+                "rd": to_json,
+                "sd": from_json,
+                "tn": t_name,
+                "tc": t_city,
+                "c": content,
+                "id": safe_id  # Sending String to Text Column
+            }
+            
+            result = session.execute(query, params)
+            session.commit() # Explicit Commit
+            
+            if result.rowcount > 0:
+                logger.info(f"✅ [SAVE] Success! DB confirmed {result.rowcount} row(s) updated.")
+                return True
+            else:
+                logger.error(f"❌ [SAVE] FAILED: Database returned 0 rows updated. ID {safe_id} was not found.")
                 return False
-            
-            # Update fields
-            if to_json:
-                draft.recipient_data = to_json
-                draft.to_addr = to_json
-            if from_json:
-                draft.sender_data = from_json
-                draft.from_addr = from_json
-            if t_name:
-                draft.to_name = t_name
-            if t_city:
-                draft.to_city = t_city
-            if content is not None:
-                draft.content = content
-            
-            # Session will auto-commit due to context manager
-            logger.info(f"✅ [SAVE] Update Executed Successfully")
-            return True
                 
     except Exception as e:
         logger.error(f"❌ [SAVE] EXCEPTION: {e}")
@@ -214,9 +227,6 @@ def _save_new_contact(contact_data):
         return False
 
 def _handle_draft_creation(email, tier, price):
-    """
-    FIXED: Creates draft with TEXT id (matches schema) using shared database session.
-    """
     d_id = st.session_state.get("current_draft_id")
     success = False
     
