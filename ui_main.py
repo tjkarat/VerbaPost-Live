@@ -588,10 +588,10 @@ def render_workspace_page():
             "zip_code": st.session_state.get("from_zip", "")
         }
         
-        # --- CRITICAL SAFETY CHECK ---
-        # If the widget was blank (ghost data), DO NOT overwrite the valid DB data
+        # --- CRITICAL GUARDRAIL ---
+        # If the widget inputs are empty, STOP immediately. Do NOT overwrite DB with blanks.
         if not addr_to.get("street"):
-            st.error("❌ Street Address missing. Please re-enter or reload contact.")
+            st.error("❌ Street Address Missing. Please reload the contact or type it in.")
             st.stop()
         
         # Update session state with implicit capture
@@ -605,8 +605,6 @@ def render_workspace_page():
 
         if not content_to_save:
             st.error("⚠️ Letter is empty!")
-        elif not addr_to.get("name") or not addr_to.get("street"):
-            st.error("⚠️ Please fill out the recipient address.")
         else:
             st.session_state.app_mode = "review"
             st.rerun()
@@ -623,6 +621,7 @@ def render_review_page():
                 d = s.query(database.LetterDraft).filter(database.LetterDraft.id == d_id).first()
                 if d and d.tier:
                     st.session_state.locked_tier = d.tier
+                    print(f"[DEBUG] Synced Tier from DB: {d.tier}")
         except Exception as e:
             logger.error(f"Tier Sync Error: {e}")
 
@@ -697,7 +696,8 @@ def render_review_page():
                         # FORCE STRING CHECK
                         current_tier_str = str(tier).strip()
                         
-                        if current_tier_str == "Vintage":
+                        # IGNORE CASE ("Vintage" or "vintage")
+                        if current_tier_str.lower() == "vintage":
                             # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
@@ -754,7 +754,7 @@ def render_review_page():
                                 database.record_promo_usage(promo_code, u_email)
 
                             # 5. SEND RECEIPT EMAIL (ADDED)
-                            if email_engine and current_tier_str != "Vintage": # Vintage handled above
+                            if email_engine and current_tier_str.lower() != "vintage": # Vintage handled above
                                 try:
                                     print("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
@@ -826,6 +826,6 @@ def render_main():
     elif mode == "review": render_review_page()
     elif mode == "receipt": render_receipt_page()
     else: pass
-#comment
+
 if __name__ == "__main__":
     render_main()
