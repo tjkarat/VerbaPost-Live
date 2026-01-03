@@ -144,6 +144,9 @@ class LetterDraft(Base):
     to_addr = Column(Text)
     from_addr = Column(Text)
     audio_ref = Column(Text)
+    # --- ADDED TO MATCH SUPABASE SCHEMA ---
+    recipient_data = Column(Text) 
+    sender_data = Column(Text)
 
 class ScheduledEvent(Base):
     __tablename__ = 'scheduled_events'
@@ -166,6 +169,9 @@ class Letter(Base):
     recipient_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
     user_email = Column(String, nullable=True) 
+    # --- ADDED TO MATCH SUPABASE SCHEMA ---
+    recipient_data = Column(Text)
+    sender_data = Column(Text)
     
 class Contact(Base):
     __tablename__ = 'saved_contacts'
@@ -228,6 +234,7 @@ def get_all_orders():
     combined = []
     try:
         with get_db_session() as session:
+            # Update to include recipient data parsing if possible, or just raw
             legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
             for o in legacy:
                 d = to_dict(o)
