@@ -39,14 +39,14 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: NUCLEAR DATABASE SAVE (Heirloom Logic) ---
+# --- HELPER: NUCLEAR DATABASE SAVE ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    FIXED: Handles Integer vs String IDs correctly.
+    Includes explicit debugging to the server console.
     """
     if not draft_id: 
-        print(f"[DEBUG] ❌ Save Aborted: No Draft ID")
+        print(f"❌ [DEBUG] Save Aborted: No Draft ID")
         return False
     
     try:
@@ -63,14 +63,14 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 3. DEBUG OUTPUT TO CONSOLE
-        print(f"--- [DEBUG] FORCE SAVE ---")
-        print(f"ID: {draft_id}")
-        if to_data: print(f"To: {to_data.get('name')} | {to_data.get('street')}")
-        if content: print(f"Content Length: {len(content)}")
+        # 3. DEBUG OUTPUT (Look in your Terminal!)
+        print(f"--- [DEBUG] FORCE SAVE (ID: {draft_id}) ---")
+        if to_data: 
+            print(f"    TO: {to_data.get('name')} | Street: '{to_data.get('street')}'")
+        if content: 
+            print(f"    CONTENT: {len(content)} chars")
         
         # 4. CONSTRUCT RAW SQL
-        # Updates 'recipient_data' (New) and 'to_addr' (Legacy) to be safe.
         query = text("""
             UPDATE letter_drafts 
             SET 
@@ -95,7 +95,6 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         }
 
         # 5. EXECUTE
-        # Uses fresh engine to bypass session pool issues
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
             result = conn.execute(query, params)
@@ -400,7 +399,7 @@ def render_workspace_page():
                 if sel != "Select..." and sel != st.session_state.get("last_loaded_contact"):
                     d = addr_opts[sel]
                     
-                    print(f"[DEBUG] Loading Contact: {d.get('name')}")
+                    print(f"[DEBUG] Loading Contact from Book: {d.get('name')}")
                     
                     # Direct State Injection
                     st.session_state.to_name_input = str(d.get('name') or d.get('full_name') or "")
@@ -421,11 +420,10 @@ def render_workspace_page():
                     
                     # Force save to DB so "Review" page sees it even if UI refreshes
                     saved = _force_save_to_db(d_id, to_data=direct_addr_to)
-                    
                     if saved:
-                        st.toast("✅ Contact Loaded & Saved to Database!")
+                        st.toast("✅ Contact Loaded & Saved!")
                     else:
-                        st.error("❌ Database Save Failed (Check Logs)")
+                        st.error("❌ DB Save Failed (Check Logs)")
                     # ----------------------------------------------
                     
                     st.session_state.last_loaded_contact = sel
@@ -590,13 +588,19 @@ def render_workspace_page():
             "zip_code": st.session_state.get("from_zip", "")
         }
         
+        # --- CRITICAL SAFETY CHECK ---
+        # If the widget was blank (ghost data), DO NOT overwrite the valid DB data
+        if not addr_to.get("street"):
+            st.error("❌ Street Address missing. Please re-enter or reload contact.")
+            st.stop()
+        
         # Update session state with implicit capture
         st.session_state.addr_to = addr_to
         st.session_state.addr_from = addr_from
         st.session_state.letter_body = content_to_save
         
         # 2. Force Save EVERYTHING
-        st.info(f"Checking data: {addr_to}") # VISUAL DEBUG
+        print(f"[DEBUG] Review Button: Saving Data...")
         _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from)
 
         if not content_to_save:
@@ -701,23 +705,21 @@ def render_review_page():
                             
                             # Send "Queued" Email
                             if email_engine:
-                                print("[DEBUG] Attempting to send Queued Email...")
-                                try:
-                                    email_engine.send_email(
-                                        to_email=u_email,
-                                        subject=f"VerbaPost Receipt: Order #{d_id}",
-                                        html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking}</p>"
-                                    )
-                                    print("[DEBUG] Queued Email Sent.")
-                                except Exception as e:
-                                    print(f"[DEBUG] Email Error: {e}")
-
+                                print("[DEBUG] Sending Queued Email...")
+                                email_engine.send_email(
+                                    to_email=u_email,
+                                    subject=f"VerbaPost Receipt: Order #{d_id}",
+                                    html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking}</p>"
+                                )
                         else:
                             # STANDARD POSTGRID API
                             if letter_format and mailer:
                                 t_addr = st.session_state.get('addr_to', {})
                                 f_addr = st.session_state.get('addr_from', {})
                                 body = st.session_state.get('letter_body', '')
+                                
+                                print(f"[DEBUG] Mailing Free Order... To: {t_addr}")
+                                
                                 pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
                                 tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
                                 status_msg = "Sent"
@@ -753,8 +755,8 @@ def render_review_page():
 
                             # 5. SEND RECEIPT EMAIL (ADDED)
                             if email_engine and current_tier_str != "Vintage": # Vintage handled above
-                                print("[DEBUG] Attempting to send Standard Email...")
                                 try:
+                                    print("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
                                         to_email=u_email,
                                         subject=f"VerbaPost Receipt: Order #{d_id}",
@@ -765,9 +767,8 @@ def render_review_page():
                                         <p>Thank you for using VerbaPost.</p>
                                         """
                                     )
-                                    print("[DEBUG] Standard Email Sent.")
                                 except Exception as ex:
-                                    print(f"[DEBUG] Standard Email Error: {ex}")
+                                    print(f"[DEBUG] Email Error: {ex}")
                                     logger.error(f"Free Order Receipt Failed: {ex}")
 
                             # 6. SUCCESS
