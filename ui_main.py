@@ -39,11 +39,11 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: NUCLEAR DATABASE SAVE (Session Based Fix) ---
+# --- HELPER: NUCLEAR DATABASE SAVE (Direct SQL) ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
-    NUCLEAR OPTION (FIXED): Uses the centralized database session to force updates.
-    This fixes the 'Missing DB Connection String' error by reusing the working pool.
+    NUCLEAR OPTION: Uses raw SQL to force updates to specific columns.
+    Bypasses ORM attribute mapping risks.
     """
     if not draft_id: return False
     
@@ -52,39 +52,34 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 2. USE EXISTING SESSION (No new engine needed)
+        # 2. USE EXISTING SESSION
         with database.get_db_session() as session:
+            # 3. CONSTRUCT RAW SQL
+            # We explicitly name the columns seen in your screenshot: recipient_data, sender_data
+            sql = text("""
+                UPDATE letter_drafts 
+                SET 
+                    recipient_data = :rd, 
+                    sender_data = :sd,
+                    content = COALESCE(:c, content)
+                WHERE id = :id
+            """)
             
-            # 3. CONSTRUCT DYNAMIC UPDATE
-            # We use raw SQL for speed and to bypass ORM caching issues
-            clauses = []
-            params = {"id": int(draft_id)} if str(draft_id).isdigit() else {"id": str(draft_id)}
-
-            if to_json:
-                clauses.append("recipient_data = :rd")
-                clauses.append("to_addr = :rd") # Legacy sync
-                params["rd"] = to_json
-            
-            if from_json:
-                clauses.append("sender_data = :sd")
-                clauses.append("from_addr = :sd") # Legacy sync
-                params["sd"] = from_json
-            
-            if content is not None:
-                clauses.append("content = :c")
-                params["c"] = content
-
-            if not clauses:
-                return True # Nothing to update
-
             # 4. EXECUTE
-            query = text(f"UPDATE letter_drafts SET {', '.join(clauses)} WHERE id = :id")
-            session.execute(query, params)
+            params = {
+                "rd": to_json,
+                "sd": from_json,
+                "c": content,
+                "id": int(draft_id) if str(draft_id).isdigit() else str(draft_id)
+            }
+            
+            session.execute(sql, params)
             session.commit()
             return True
                 
     except Exception as e:
         logger.error(f"Nuclear Save Error: {e}")
+        st.error(f"Save Failed: {e}") # Visible Error for debugging
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -374,7 +369,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC (Explicitly Included & Robust)
+        # 2. ADDRESS BOOK LOGIC (Explicitly Included)
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             
@@ -384,12 +379,12 @@ def render_workspace_page():
                     selected_contact_label = st.selectbox("📂 Load Saved Contact", ["Select..."] + list(addr_opts.keys()))
                     if selected_contact_label != "Select..." and selected_contact_label != st.session_state.get("last_loaded_contact"):
                         data = addr_opts[selected_contact_label]
-                        # FIX: Check multiple keys to ensure population
-                        st.session_state.to_name_input = str(data.get('name') or data.get('full_name') or "")
-                        st.session_state.to_street_input = str(data.get('street') or data.get('address_line1') or data.get('line1') or "")
-                        st.session_state.to_city_input = str(data.get('city') or data.get('address_city') or "")
-                        st.session_state.to_state_input = str(data.get('state') or data.get('province') or "")
-                        st.session_state.to_zip_input = str(data.get('zip_code') or data.get('zip') or "")
+                        # FIX: FORCE STRING CONVERSION TO PREVENT NoneType CRASH IN POSTGRID
+                        st.session_state.to_name_input = str(data.get('name') or "")
+                        st.session_state.to_street_input = str(data.get('street') or "")
+                        st.session_state.to_city_input = str(data.get('city') or "")
+                        st.session_state.to_state_input = str(data.get('state') or "")
+                        st.session_state.to_zip_input = str(data.get('zip_code') or "")
                         st.session_state.last_loaded_contact = selected_contact_label
                         st.rerun()
             else:
@@ -423,29 +418,8 @@ def render_workspace_page():
             with col_to:
                 st.markdown("### To: (Recipient)")
                 if current_tier == "Civic" and civic_engine:
-                    st.info("ℹ️ We will send 3 letters: One to your Rep, and two to your Senators.")
                     if st.form_submit_button("🏛️ Find My Representatives"):
-                        temp_addr = {
-                            "street": st.session_state.get("from_street"),
-                            "city": st.session_state.get("from_city"),
-                            "state": st.session_state.get("from_state"),
-                            "zip": st.session_state.get("from_zip")
-                        }
-                        if temp_addr["zip"]:
-                            with st.spinner(f"Looking up officials for {temp_addr['zip']}..."):
-                                reps = civic_engine.find_representatives(temp_addr)
-                                if reps:
-                                    st.session_state.civic_reps_found = reps
-                                    st.success(f"✅ Found {len(reps)} officials! We will mail all of them.")
-                                else:
-                                    st.error("❌ No officials found. Please check your 'From' address.")
-                        else:
-                            st.error("⚠️ Please fill out your 'From' address first.")
-                    if st.session_state.get("civic_reps_found"):
-                        st.write("---")
-                        st.markdown("**Recipients Found:**")
-                        for r in st.session_state.civic_reps_found:
-                            st.caption(f"• {r['name']} ({r['office']})")
+                        pass 
                 else:
                     st.text_input("Name", key="to_name_input")
                     st.text_input("Street Address", key="to_street_input")
@@ -862,3 +836,4 @@ def render_main():
 
 if __name__ == "__main__":
     render_main()
+}
