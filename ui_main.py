@@ -392,6 +392,20 @@ def render_workspace_page():
                     st.session_state.to_state_input = str(d.get('state') or d.get('province') or "")
                     st.session_state.to_zip_input = str(d.get('zip_code') or d.get('zip') or "")
                     
+                    # --- FIX: DIRECT DB SAVE (NUCLEAR OPTION) ---
+                    # Construct dictionary immediately to avoid 'Save' button step
+                    direct_addr_to = {
+                        "name": st.session_state.to_name_input,
+                        "street": st.session_state.to_street_input,
+                        "city": st.session_state.to_city_input,
+                        "state": st.session_state.to_state_input,
+                        "zip_code": st.session_state.to_zip_input
+                    }
+                    # Force save to DB so "Review" page sees it even if UI refreshes
+                    _force_save_to_db(d_id, to_data=direct_addr_to)
+                    st.toast("✅ Contact Loaded & Saved to Database!")
+                    # ----------------------------------------------
+                    
                     st.session_state.last_loaded_contact = sel
                     st.rerun() # Force UI refresh with new values
         
