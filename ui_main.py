@@ -45,19 +45,23 @@ except ImportError: email_engine = None
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    Updates BOTH JSON columns and Legacy Flat columns.
+    FIXED: Forces ID to INTEGER to match DB schema.
     """
     if not draft_id: 
         logger.error("❌ [NUCLEAR] Aborted: No Draft ID")
         return False
     
-    # FORCE STRING ID
-    safe_id = str(draft_id)
+    # --- CRITICAL FIX: FORCE INTEGER TYPE ---
+    try:
+        safe_id = int(draft_id)
+    except ValueError:
+        logger.error(f"❌ [NUCLEAR] Invalid ID format: {draft_id} (Expected Integer)")
+        return False
     
-    logger.info(f"--- STARTING NUCLEAR SAVE FOR ID: {safe_id} ---")
+    logger.info(f"--- STARTING NUCLEAR SAVE FOR ID: {safe_id} (Type: {type(safe_id)}) ---")
     
     try:
-        # 1. GET URL
+        # 1. GET URL DIRECTLY
         db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
         if not db_url:
              db_url = secrets_manager.get_secret("DATABASE_URL") or os.environ.get("DATABASE_URL")
@@ -65,11 +69,6 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         if not db_url:
             st.error("Database URL missing.")
             return False
-            
-        # DEBUG: Print DB Host to ensure we are on the right DB
-        if "@" in db_url:
-            host_part = db_url.split("@")[1].split(":")[0]
-            logger.info(f"🔌 Connecting to DB Host: {host_part}")
 
         # 2. PREPARE DATA
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
@@ -80,14 +79,13 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         t_street = to_data.get("street") or to_data.get("address_line1") if to_data else None
         t_city = to_data.get("city") if to_data else None
         
-        # 3. LOG PAYLOAD
+        # 3. LOG DATA PAYLOAD
         logger.info(f"   PAYLOAD TO (JSON): {to_json}")
-        logger.info(f"   PAYLOAD TO (Flat): Name={t_name}, City={t_city}")
 
         # 4. EXECUTE
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
-            # A. UPDATE (Targeting ALL possible columns)
+            # A. UPDATE
             query = text("""
                 UPDATE letter_drafts 
                 SET 
@@ -113,16 +111,15 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
             result = conn.execute(query, params)
             logger.info(f"✅ [NUCLEAR] Update Executed. Rows Affected: {result.rowcount}")
             
+            # B. CHECK IF ROW WAS FOUND
             if result.rowcount == 0:
                 logger.error(f"❌ [NUCLEAR] FAILED: ID {safe_id} not found in database.")
-                st.error(f"Database Error: Could not find Draft ID {safe_id}. Please refresh.")
                 return False
             
             return True
                 
     except Exception as e:
         logger.error(f"❌ [NUCLEAR] EXCEPTION: {e}")
-        st.error(f"Save Error: {e}")
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -637,7 +634,7 @@ def render_review_page():
         try:
             with database.get_db_session() as s:
                 # Force ID to String for safety
-                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == str(d_id)).first()
+                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == int(d_id)).first()
                 
                 # --- VINTAGE FIX ---
                 if d and d.tier:
