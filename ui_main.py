@@ -84,9 +84,10 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
 
         # 4. EXECUTE WITH FRESH ENGINE
         # This is the key fix: We open a new connection, execute, and close it immediately.
-        temp_engine = create_engine(db_url, echo=False)
+        temp_engine = create_engine(db_url, echo=True) # Echo=True for debugging
         with temp_engine.begin() as conn:
             conn.execute(query, params)
+            print(f"✅ DB UPDATE SUCCESS for ID {draft_id}")
             return True
                 
     except Exception as e:
@@ -370,6 +371,12 @@ def render_workspace_page():
 
     d_id = st.session_state.get("current_draft_id")
     
+    # --- 1. STATE INITIALIZATION (Prevent Ghost Data) ---
+    keys_to_init = ["to_name_input", "to_street_input", "to_city_input", "to_state_input", "to_zip_input"]
+    for k in keys_to_init:
+        if k not in st.session_state:
+            st.session_state[k] = ""
+
     col_slide, col_gap = st.columns([1, 2])
     with col_slide:
         text_size = st.slider("Text Size", 12, 24, 16, help="Adjust text size")
@@ -381,7 +388,7 @@ def render_workspace_page():
     with st.expander("📍 Step 2: Addressing", expanded=True):
         st.info("💡 **Tip:** Hit 'Save Addresses' to lock them in.")
         
-        # 2. ADDRESS BOOK LOGIC (Explicitly Included)
+        # --- 2. ADDRESS BOOK LOGIC (MOVED TO TOP) ---
         if st.session_state.get("authenticated") and current_tier != "Civic":
             addr_opts = load_address_book()
             
@@ -425,84 +432,84 @@ def render_workspace_page():
             else:
                 st.info("Please sign in to manage contacts.")
 
-        with st.form("addressing_form"):
-            col_to, col_from = st.columns(2)
-            with col_to:
-                st.markdown("### To: (Recipient)")
-                if current_tier == "Civic" and civic_engine:
-                    if st.form_submit_button("🏛️ Find My Representatives"):
-                        pass 
-                else:
-                    st.text_input("Name", key="to_name_input")
-                    st.text_input("Street Address", key="to_street_input")
-                    st.text_input("City", key="to_city_input")
-                    c_s, c_z = st.columns(2)
-                    c_s.text_input("State", key="to_state_input")
-                    c_z.text_input("Zip", key="to_zip_input")
+        # --- LIVE INPUTS (NO FORM WRAPPER) ---
+        col_to, col_from = st.columns(2)
+        with col_to:
+            st.markdown("### To: (Recipient)")
+            if current_tier == "Civic" and civic_engine:
+                if st.button("🏛️ Find My Representatives"):
+                    pass
+            else:
+                st.text_input("Name", key="to_name_input")
+                st.text_input("Street Address", key="to_street_input")
+                st.text_input("City", key="to_city_input")
+                c_s, c_z = st.columns(2)
+                c_s.text_input("State", key="to_state_input")
+                c_z.text_input("Zip", key="to_zip_input")
 
-            with col_from:
-                st.markdown("### From: (Return Address)")
-                st.text_input("Your Name", key="from_name")
-                st.text_input("Signature (Sign-off)", key="from_sig")
-                st.text_input("Your Street", key="from_street")
-                st.text_input("Your City", key="from_city")
-                c_fs, c_fz = st.columns(2)
-                c_fs.text_input("Your State", key="from_state")
-                c_fz.text_input("Your Zip", key="from_zip")
+        with col_from:
+            st.markdown("### From: (Return Address)")
+            st.text_input("Your Name", key="from_name")
+            st.text_input("Signature (Sign-off)", key="from_sig")
+            st.text_input("Your Street", key="from_street")
+            st.text_input("Your City", key="from_city")
+            c_fs, c_fz = st.columns(2)
+            c_fs.text_input("Your State", key="from_state")
+            c_fz.text_input("Your Zip", key="from_zip")
             
-            # Add Smart Save Option
-            save_to_book = False
-            if current_tier != "Civic" and st.session_state.get("authenticated"):
-                 st.caption("✅ New contacts will be automatically saved to your Address Book.")
-                 save_to_book = True
+        # Add Smart Save Option
+        save_to_book = False
+        if current_tier != "Civic" and st.session_state.get("authenticated"):
+             st.caption("✅ New contacts will be automatically saved to your Address Book.")
+             save_to_book = True
 
-            if current_tier != "Civic":
-                if st.form_submit_button("💾 Save Addresses"):
-                    st.session_state.addr_to = {
-                        "name": st.session_state.to_name_input, 
-                        "street": st.session_state.to_street_input, 
-                        "city": st.session_state.to_city_input, 
-                        "state": st.session_state.to_state_input, 
-                        "zip_code": st.session_state.to_zip_input
-                    }
-                    st.session_state.addr_from = {
-                        "name": st.session_state.from_name, 
-                        "street": st.session_state.from_street, 
-                        "city": st.session_state.from_city, 
-                        "state": st.session_state.from_state, 
-                        "zip_code": st.session_state.from_zip
-                    }
-                    st.session_state.signature_text = st.session_state.from_sig
-                    
-                    # Update Draft - NUCLEAR FIX
-                    if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
-                        st.success("✅ Addresses Saved to Database!")
-                        _save_new_contact(st.session_state.addr_to)
-                    else:
-                        st.error("Failed to save addresses.")
+        if current_tier != "Civic":
+            if st.button("💾 Save Addresses"):
+                st.session_state.addr_to = {
+                    "name": st.session_state.to_name_input, 
+                    "street": st.session_state.to_street_input, 
+                    "city": st.session_state.to_city_input, 
+                    "state": st.session_state.to_state_input, 
+                    "zip_code": st.session_state.to_zip_input
+                }
+                st.session_state.addr_from = {
+                    "name": st.session_state.from_name, 
+                    "street": st.session_state.from_street, 
+                    "city": st.session_state.from_city, 
+                    "state": st.session_state.from_state, 
+                    "zip_code": st.session_state.from_zip
+                }
+                st.session_state.signature_text = st.session_state.from_sig
+                
+                # Update Draft - NUCLEAR FIX
+                if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
+                    st.success("✅ Addresses Saved to Database!")
+                    _save_new_contact(st.session_state.addr_to)
+                else:
+                    st.error("Failed to save addresses.")
 
-                    if mailer:
-                        with st.spinner("Validating with USPS/PostGrid..."):
-                            t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
-                            f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
-                            if not t_valid:
-                                err = t_data.get('error', 'Invalid Recipient Address')
-                                st.error(f"❌ Recipient Address Error: {err}")
-                            if not f_valid:
-                                err = f_data.get('error', 'Invalid Sender Address')
-                                st.error(f"❌ Sender Address Error: {err}")
-                            if t_valid and f_valid:
-                                st.session_state.addr_to = t_data
-                                st.session_state.addr_from = f_data
-                                st.session_state.addresses_saved_at = time.time()
-                                st.success(f"✅ Addresses Verified & Saved!")
-                    else:
-                        st.session_state.addresses_saved_at = time.time()
-                        st.success(f"✅ Addresses Saved (Verification Offline)")
-        
-        # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
-        if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.get("addresses_saved_at", 0) < 10:
-            st.success("✅ Your addresses are saved and ready!")
+                if mailer:
+                    with st.spinner("Validating with USPS/PostGrid..."):
+                        t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
+                        f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
+                        if not t_valid:
+                            err = t_data.get('error', 'Invalid Recipient Address')
+                            st.error(f"❌ Recipient Address Error: {err}")
+                        if not f_valid:
+                            err = f_data.get('error', 'Invalid Sender Address')
+                            st.error(f"❌ Sender Address Error: {err}")
+                        if t_valid and f_valid:
+                            st.session_state.addr_to = t_data
+                            st.session_state.addr_from = f_data
+                            st.session_state.addresses_saved_at = time.time()
+                            st.success(f"✅ Addresses Verified & Saved!")
+                else:
+                    st.session_state.addresses_saved_at = time.time()
+                    st.success(f"✅ Addresses Saved (Verification Offline)")
+    
+    # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
+    if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.get("addresses_saved_at", 0) < 10:
+        st.success("✅ Your addresses are saved and ready!")
 
     st.divider()
 
@@ -626,6 +633,7 @@ def render_workspace_page():
         st.session_state.letter_body = content_to_save
         
         # 2. Force Save EVERYTHING
+        st.info(f"Saving to DB: {addr_to}") # VISUAL CONFIRMATION
         _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from)
 
         if not content_to_save:
