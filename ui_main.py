@@ -13,7 +13,9 @@ from sqlalchemy import text, create_engine
 import database 
 import secrets_manager 
 
-logger = logging.getLogger(__name__)
+# --- CONFIGURE LOGGER TO FORCE OUTPUT ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("VerbaPost_UI")
 
 # --- ENGINE IMPORTS ---
 try: import ai_engine
@@ -43,11 +45,16 @@ except ImportError: email_engine = None
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    FIXED: Forces ID to String to match 'id text' schema.
+    Includes AGGRESSIVE DEBUGGING visible in both Logs and UI.
     """
     if not draft_id: 
-        print(f"❌ [DEBUG] Save Aborted: No Draft ID")
+        logger.error("❌ [NUCLEAR] Aborted: No Draft ID")
         return False
+    
+    # FORCE STRING ID (Matches schema: id text)
+    safe_id = str(draft_id)
+    
+    logger.error(f"--- STARTING NUCLEAR SAVE FOR ID: {safe_id} ---")
     
     try:
         # 1. GET URL DIRECTLY
@@ -63,49 +70,49 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 3. DEBUG OUTPUT
-        print(f"--- [DEBUG] FORCE SAVE (ID: {draft_id}) ---")
-        if to_data: print(f"    TO: {to_data.get('name')} | Street: '{to_data.get('street')}'")
-        if content: print(f"    CONTENT: {len(content)} chars")
-        
-        # 4. CONSTRUCT RAW SQL
-        query = text("""
-            UPDATE letter_drafts 
-            SET 
-                recipient_data = :rd, 
-                sender_data = :sd,
-                to_addr = :rd,
-                from_addr = :sd,
-                content = COALESCE(:c, content)
-            WHERE id = :id
-        """)
-        
-        # CRITICAL FIX: Schema is 'id text', so we MUST use string.
-        safe_id = str(draft_id)
+        # 3. LOG DATA PAYLOAD
+        if to_json: logger.error(f"   DATA TO SAVE (Recipient): {to_json}")
+        if content: logger.error(f"   DATA TO SAVE (Content Len): {len(content)}")
 
-        params = {
-            "rd": to_json,
-            "sd": from_json,
-            "c": content,
-            "id": safe_id
-        }
-
-        # 5. EXECUTE
+        # 4. EXECUTE WITH PRE-CHECK
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
-            result = conn.execute(query, params)
-            print(f"✅ [DEBUG] DB COMMIT SUCCESS | Rows Updated={result.rowcount}")
+            # A. PRE-CHECK: Does row exist?
+            check_q = text("SELECT count(*) FROM letter_drafts WHERE id = :id")
+            count = conn.execute(check_q, {"id": safe_id}).scalar()
+            logger.error(f"   ROW CHECK: Found {count} rows for ID {safe_id}")
             
-            # Warn if ID wasn't found
-            if result.rowcount == 0:
-                print(f"⚠️ [DEBUG] WARNING: Update ran but found 0 rows for ID {safe_id}")
-                
+            if count == 0:
+                logger.error(f"❌ [NUCLEAR] ID {safe_id} NOT FOUND IN DB. Cannot Update.")
+                st.error(f"Database Sync Error: Draft {safe_id} not found.")
+                return False
+
+            # B. UPDATE
+            query = text("""
+                UPDATE letter_drafts 
+                SET 
+                    recipient_data = :rd, 
+                    sender_data = :sd,
+                    to_addr = :rd,
+                    from_addr = :sd,
+                    content = COALESCE(:c, content)
+                WHERE id = :id
+            """)
+            
+            params = {
+                "rd": to_json,
+                "sd": from_json,
+                "c": content,
+                "id": safe_id
+            }
+            
+            result = conn.execute(query, params)
+            logger.error(f"✅ [NUCLEAR] SUCCESS. Rows Updated: {result.rowcount}")
             return True
                 
     except Exception as e:
-        print(f"❌ [DEBUG] NUCLEAR SAVE ERROR: {e}")
-        logger.error(f"Nuclear Save Error: {e}")
-        st.error(f"Save Failed: {e}") 
+        logger.error(f"❌ [NUCLEAR] EXCEPTION: {e}")
+        st.error(f"Save Error: {e}") 
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -234,6 +241,7 @@ def _handle_draft_creation(email, tier, price):
     if not success or not d_id:
         d_id = database.save_draft(email, "", tier, price)
         st.session_state.current_draft_id = d_id
+        logger.error(f"✅ Created New Draft: {d_id}")
         
     return d_id
 
@@ -400,7 +408,7 @@ def render_workspace_page():
                 if sel != "Select..." and sel != st.session_state.get("last_loaded_contact"):
                     d = addr_opts[sel]
                     
-                    print(f"[DEBUG] Loading Contact from Book: {d.get('name')}")
+                    logger.error(f"[DEBUG] Loading Contact from Book: {d.get('name')}")
                     
                     # Direct State Injection
                     st.session_state.to_name_input = str(d.get('name') or d.get('full_name') or "")
@@ -601,7 +609,7 @@ def render_workspace_page():
         st.session_state.letter_body = content_to_save
         
         # 2. Force Save EVERYTHING
-        print(f"[DEBUG] Review Button: Saving Data...")
+        logger.error(f"[DEBUG] Review Button: Saving Data...")
         _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from)
 
         if not content_to_save:
@@ -622,7 +630,7 @@ def render_review_page():
                 d = s.query(database.LetterDraft).filter(database.LetterDraft.id == d_id).first()
                 if d and d.tier:
                     st.session_state.locked_tier = d.tier
-                    print(f"[DEBUG] Synced Tier from DB: {d.tier}")
+                    logger.error(f"[DEBUG] Synced Tier from DB: {d.tier}")
         except Exception as e:
             logger.error(f"Tier Sync Error: {e}")
 
@@ -702,11 +710,11 @@ def render_review_page():
                             # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
-                            logger.info(f"Vintage Free Order {d_id} sent to Manual Queue")
+                            logger.error(f"Vintage Free Order {d_id} sent to Manual Queue")
                             
                             # Send "Queued" Email
                             if email_engine:
-                                print("[DEBUG] Sending Queued Email...")
+                                logger.error("[DEBUG] Sending Queued Email...")
                                 email_engine.send_email(
                                     to_email=u_email,
                                     subject=f"VerbaPost Receipt: Order #{d_id}",
@@ -719,7 +727,7 @@ def render_review_page():
                                 f_addr = st.session_state.get('addr_from', {})
                                 body = st.session_state.get('letter_body', '')
                                 
-                                print(f"[DEBUG] Mailing Free Order... To: {t_addr}")
+                                logger.error(f"[DEBUG] Mailing Free Order... To: {t_addr}")
                                 
                                 pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
                                 tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
@@ -757,7 +765,7 @@ def render_review_page():
                             # 5. SEND RECEIPT EMAIL (ADDED)
                             if email_engine and current_tier_str.lower() != "vintage": # Vintage handled above
                                 try:
-                                    print("[DEBUG] Sending Standard Email...")
+                                    logger.error("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
                                         to_email=u_email,
                                         subject=f"VerbaPost Receipt: Order #{d_id}",
@@ -769,7 +777,7 @@ def render_review_page():
                                         """
                                     )
                                 except Exception as ex:
-                                    print(f"[DEBUG] Email Error: {ex}")
+                                    logger.error(f"[DEBUG] Email Error: {ex}")
                                     logger.error(f"Free Order Receipt Failed: {ex}")
 
                             # 6. SUCCESS
