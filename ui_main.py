@@ -43,7 +43,7 @@ except ImportError: email_engine = None
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    Includes explicit debugging to the server console.
+    FIXED: Forces ID to String to match 'id text' schema.
     """
     if not draft_id: 
         print(f"❌ [DEBUG] Save Aborted: No Draft ID")
@@ -63,12 +63,10 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 3. DEBUG OUTPUT (Look in your Terminal!)
+        # 3. DEBUG OUTPUT
         print(f"--- [DEBUG] FORCE SAVE (ID: {draft_id}) ---")
-        if to_data: 
-            print(f"    TO: {to_data.get('name')} | Street: '{to_data.get('street')}'")
-        if content: 
-            print(f"    CONTENT: {len(content)} chars")
+        if to_data: print(f"    TO: {to_data.get('name')} | Street: '{to_data.get('street')}'")
+        if content: print(f"    CONTENT: {len(content)} chars")
         
         # 4. CONSTRUCT RAW SQL
         query = text("""
@@ -82,10 +80,8 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
             WHERE id = :id
         """)
         
-        # FIX: Ensure ID type matches DB schema (Integer)
-        safe_id = draft_id
-        if str(draft_id).isdigit():
-            safe_id = int(draft_id)
+        # CRITICAL FIX: Schema is 'id text', so we MUST use string.
+        safe_id = str(draft_id)
 
         params = {
             "rd": to_json,
@@ -99,6 +95,11 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         with temp_engine.begin() as conn:
             result = conn.execute(query, params)
             print(f"✅ [DEBUG] DB COMMIT SUCCESS | Rows Updated={result.rowcount}")
+            
+            # Warn if ID wasn't found
+            if result.rowcount == 0:
+                print(f"⚠️ [DEBUG] WARNING: Update ran but found 0 rows for ID {safe_id}")
+                
             return True
                 
     except Exception as e:
@@ -588,8 +589,8 @@ def render_workspace_page():
             "zip_code": st.session_state.get("from_zip", "")
         }
         
-        # --- CRITICAL GUARDRAIL ---
-        # If the widget inputs are empty, STOP immediately. Do NOT overwrite DB with blanks.
+        # --- CRITICAL SAFETY CHECK ---
+        # If the widget was blank (ghost data), DO NOT overwrite the valid DB data
         if not addr_to.get("street"):
             st.error("❌ Street Address Missing. Please reload the contact or type it in.")
             st.stop()
