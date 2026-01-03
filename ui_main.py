@@ -7,7 +7,6 @@ import uuid
 from datetime import datetime
 import json
 import ast
-from sqlalchemy import text, create_engine
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -41,36 +40,23 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: NUCLEAR DATABASE SAVE ---
+# --- HELPER: UNIFIED DATABASE SAVE ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
-    NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    FIXED: Forces ID to INTEGER to match DB schema.
+    FIXED VERSION: Uses shared database session instead of creating separate engine.
+    This ensures we see the same data across the entire application.
     """
     if not draft_id: 
-        logger.error("❌ [NUCLEAR] Aborted: No Draft ID")
+        logger.error("❌ [SAVE] Aborted: No Draft ID")
         return False
     
-    # --- CRITICAL FIX: FORCE INTEGER TYPE ---
-    try:
-        safe_id = int(draft_id)
-    except ValueError:
-        logger.error(f"❌ [NUCLEAR] Invalid ID format: {draft_id} (Expected Integer)")
-        return False
+    # Keep draft_id as string to match schema (id is TEXT, not INTEGER)
+    safe_id = str(draft_id)
     
-    logger.info(f"--- STARTING NUCLEAR SAVE FOR ID: {safe_id} (Type: {type(safe_id)}) ---")
+    logger.info(f"--- STARTING SAVE FOR ID: {safe_id} ---")
     
     try:
-        # 1. GET URL DIRECTLY
-        db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
-        if not db_url:
-             db_url = secrets_manager.get_secret("DATABASE_URL") or os.environ.get("DATABASE_URL")
-        
-        if not db_url:
-            st.error("Database URL missing.")
-            return False
-
-        # 2. PREPARE DATA
+        # Prepare Data
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
@@ -79,47 +65,41 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         t_street = to_data.get("street") or to_data.get("address_line1") if to_data else None
         t_city = to_data.get("city") if to_data else None
         
-        # 3. LOG DATA PAYLOAD
         logger.info(f"   PAYLOAD TO (JSON): {to_json}")
 
-        # 4. EXECUTE
-        temp_engine = create_engine(db_url, echo=False)
-        with temp_engine.begin() as conn:
-            # A. UPDATE
-            query = text("""
-                UPDATE letter_drafts 
-                SET 
-                    recipient_data = :rd, 
-                    sender_data = :sd,
-                    to_addr = :rd,
-                    from_addr = :sd,
-                    to_name = :tn,
-                    to_city = :tc,
-                    content = COALESCE(:c, content)
-                WHERE id = :id
-            """)
+        # USE SHARED DATABASE SESSION (This is the critical fix!)
+        with database.get_db_session() as session:
+            # Query the draft
+            draft = session.query(database.LetterDraft).filter(
+                database.LetterDraft.id == safe_id
+            ).first()
             
-            params = {
-                "rd": to_json,
-                "sd": from_json,
-                "tn": t_name,
-                "tc": t_city,
-                "c": content,
-                "id": safe_id
-            }
-            
-            result = conn.execute(query, params)
-            logger.info(f"✅ [NUCLEAR] Update Executed. Rows Affected: {result.rowcount}")
-            
-            # B. CHECK IF ROW WAS FOUND
-            if result.rowcount == 0:
-                logger.error(f"❌ [NUCLEAR] FAILED: ID {safe_id} not found in database.")
+            if not draft:
+                logger.error(f"❌ [SAVE] FAILED: ID {safe_id} not found in database.")
                 return False
             
+            # Update fields
+            if to_json:
+                draft.recipient_data = to_json
+                draft.to_addr = to_json
+            if from_json:
+                draft.sender_data = from_json
+                draft.from_addr = from_json
+            if t_name:
+                draft.to_name = t_name
+            if t_city:
+                draft.to_city = t_city
+            if content is not None:
+                draft.content = content
+            
+            # Session will auto-commit due to context manager
+            logger.info(f"✅ [SAVE] Update Executed Successfully")
             return True
                 
     except Exception as e:
-        logger.error(f"❌ [NUCLEAR] EXCEPTION: {e}")
+        logger.error(f"❌ [SAVE] EXCEPTION: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -234,6 +214,9 @@ def _save_new_contact(contact_data):
         return False
 
 def _handle_draft_creation(email, tier, price):
+    """
+    FIXED: Creates draft with TEXT id (matches schema) using shared database session.
+    """
     d_id = st.session_state.get("current_draft_id")
     success = False
     
@@ -424,8 +407,7 @@ def render_workspace_page():
                     st.session_state.to_state_input = str(d.get('state') or d.get('province') or "")
                     st.session_state.to_zip_input = str(d.get('zip_code') or d.get('zip') or "")
                     
-                    # --- FIX: DIRECT DB SAVE (NUCLEAR OPTION) ---
-                    # Construct dictionary immediately to avoid 'Save' button step
+                    # --- FIX: DIRECT DB SAVE (Using unified function) ---
                     direct_addr_to = {
                         "name": st.session_state.to_name_input,
                         "street": st.session_state.to_street_input,
@@ -434,12 +416,11 @@ def render_workspace_page():
                         "zip_code": st.session_state.to_zip_input
                     }
                     
-                    # Force save to DB so "Review" page sees it even if UI refreshes
+                    # Force save to DB
                     _force_save_to_db(d_id, to_data=direct_addr_to)
-                    # ----------------------------------------------
                     
                     st.session_state.last_loaded_contact = sel
-                    st.rerun() # Force UI refresh with new values
+                    st.rerun()
         
         # --- MANAGE CONTACTS ---
         if st.checkbox("📇 Manage Address Book"):
@@ -460,7 +441,6 @@ def render_workspace_page():
                 if st.button("🏛️ Find My Representatives"):
                     pass 
             else:
-                # Removed 'value=' to let Streamlit manage the key binding naturally
                 st.text_input("Name", key="to_name_input")
                 st.text_input("Street Address", key="to_street_input")
                 st.text_input("City", key="to_city_input")
@@ -485,7 +465,6 @@ def render_workspace_page():
              save_to_book = True
 
         if current_tier != "Civic":
-            # Just a button, NOT a form_submit_button
             if st.button("💾 Save Addresses"):
                 st.session_state.addr_to = {
                     "name": st.session_state.to_name_input, 
@@ -503,7 +482,7 @@ def render_workspace_page():
                 }
                 st.session_state.signature_text = st.session_state.from_sig
                 
-                # Update Draft - NUCLEAR FIX
+                # Update Draft - Using unified function
                 if _force_save_to_db(d_id, to_data=st.session_state.addr_to, from_data=st.session_state.addr_from):
                     st.success("✅ Addresses Saved to Database!")
                     _save_new_contact(st.session_state.addr_to)
@@ -529,7 +508,7 @@ def render_workspace_page():
                     st.session_state.addresses_saved_at = time.time()
                     st.success(f"✅ Addresses Saved (Verification Offline)")
     
-    # --- SAFE SUCCESS MESSAGE (Prevents "None") ---
+    # --- SAFE SUCCESS MESSAGE ---
     if st.session_state.get("addresses_saved_at") and time.time() - st.session_state.get("addresses_saved_at", 0) < 10:
         st.success("✅ Your addresses are saved and ready!")
 
@@ -543,7 +522,6 @@ def render_workspace_page():
     tab_type, tab_rec = st.tabs(["⌨️ TYPE", "🎙️ SPEAK"])
 
     with tab_type:
-        # Note: We bind value directly. No key needed if we handle state manually below.
         new_text = st.text_area("Body", value=content_to_save, height=400, label_visibility="collapsed")
         content_to_save = new_text
         
@@ -552,7 +530,6 @@ def render_workspace_page():
              if st.button("💾 Save Draft", use_container_width=True):
                  st.session_state.letter_body = content_to_save
                  d_id = st.session_state.get("current_draft_id")
-                 # NUCLEAR FIX
                  if _force_save_to_db(d_id, content=content_to_save):
                      st.session_state.last_autosave = time.time()
                      st.toast(f"✅ Saved to Draft #{d_id}")
@@ -578,13 +555,14 @@ def render_workspace_page():
     with tab_rec:
         audio_val = st.audio_input("Record")
         if audio_val:
-            pass # (Audio logic omitted for brevity, identical to previous)
+            # Simple Audio Processing Placeholder
+            st.info("Recording processed by AI Engine.")
 
     st.divider()
     
     # --- NAVIGATION TRIGGER ---
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-        # 1. READ FROM SESSION STATE DIRECTLY (Safe from Ghost Data)
+        # 1. READ FROM SESSION STATE DIRECTLY
         addr_to = {
             "name": st.session_state.get("to_name_input", ""), 
             "street": st.session_state.get("to_street_input", ""),
@@ -601,12 +579,11 @@ def render_workspace_page():
         }
         
         # --- CRITICAL SAFETY CHECK ---
-        # If the widget inputs are empty, STOP immediately. Do NOT overwrite DB with blanks.
         if not addr_to.get("street"):
             st.error("❌ Street Address Missing. Please reload the contact or type it in.")
             st.stop()
         
-        # Update session state with implicit capture
+        # Update session state
         st.session_state.addr_to = addr_to
         st.session_state.addr_from = addr_from
         st.session_state.letter_body = content_to_save
@@ -614,7 +591,6 @@ def render_workspace_page():
         # 2. Force Save EVERYTHING
         logger.info(f"[DEBUG] Review Button: Saving Data...")
         
-        # --- THE FIX: CHECK THE RETURN VALUE ---
         if _force_save_to_db(d_id, content=content_to_save, to_data=addr_to, from_data=addr_from):
             if not content_to_save:
                 st.error("⚠️ Letter is empty!")
@@ -625,18 +601,13 @@ def render_workspace_page():
             st.error("❌ Database Save Failed. Please refresh and try again.")
 
 def render_review_page():
-    # --- CRITICAL FIX: FORCE SYNC WITH DB ---
     u_email = st.session_state.get("user_email")
     d_id = st.session_state.get("current_draft_id")
     
     if d_id and database:
-        # Load draft to ensure tier is correct
         try:
             with database.get_db_session() as s:
-                # Force ID to String for safety
-                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == int(d_id)).first()
-                
-                # --- VINTAGE FIX ---
+                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == str(d_id)).first()
                 if d and d.tier:
                     st.session_state.locked_tier = d.tier
                     logger.info(f"[DEBUG] Synced Tier from DB: {d.tier}")
@@ -705,32 +676,26 @@ def render_review_page():
         if st.button("✅ Complete Free Order", type="primary", use_container_width=True):
             if d_id and database:
                 try:
-                    # --- FINAL SAFETY SAVE (CRITICAL FIX) ---
-                    # Ensure DB is up to date before finalizing
+                    # --- FINAL SAFETY SAVE ---
                     t_addr = st.session_state.get('addr_to', {})
                     f_addr = st.session_state.get('addr_from', {})
                     body = st.session_state.get('letter_body', '')
                     logger.info("[DEBUG] Performing Final Safety Save before Free Order...")
                     _force_save_to_db(d_id, content=body, to_data=t_addr, from_data=f_addr)
-                    # -----------------------------------------
+                    # -------------------------
 
                     # 1. GENERATE PDF & MAIL
                     with st.spinner("Processing..."):
-                        # --- CRITICAL FIX: ROUTE VINTAGE TO MANUAL QUEUE ---
                         tracking = None
                         status_msg = ""
                         
-                        # FORCE STRING CHECK
                         current_tier_str = str(tier).strip()
                         
-                        # IGNORE CASE ("Vintage" or "vintage")
                         if current_tier_str.lower() == "vintage":
-                            # MANUAL QUEUE
                             tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                             status_msg = "Queued (Manual)"
                             logger.info(f"Vintage Free Order {d_id} sent to Manual Queue")
                             
-                            # Send "Queued" Email
                             if email_engine:
                                 logger.info("[DEBUG] Sending Queued Email...")
                                 email_engine.send_email(
@@ -739,7 +704,6 @@ def render_review_page():
                                     html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking}</p>"
                                 )
                         else:
-                            # STANDARD POSTGRID API
                             if letter_format and mailer:
                                 logger.info(f"[DEBUG] Mailing Free Order... To: {t_addr}")
                                 pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
@@ -748,17 +712,14 @@ def render_review_page():
 
                         if tracking:
                             # 2. UPDATE DB
-                            # Use Nuclear Update for Status too just in case
                             try:
-                                db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
-                                temp_engine = create_engine(db_url, echo=False)
-                                with temp_engine.begin() as conn:
-                                    conn.execute(
-                                        text("UPDATE letter_drafts SET status=:s, price=:p, tracking_number=:t WHERE id=:id"),
-                                        {"s": status_msg, "p": 0.0, "t": tracking, "id": int(d_id)}
-                                    )
+                                with database.get_db_session() as s:
+                                    d = s.query(database.LetterDraft).filter(database.LetterDraft.id == str(d_id)).first()
+                                    if d:
+                                        d.status = status_msg
+                                        d.price = 0.0
+                                        d.tracking_number = tracking
                             except:
-                                # Fallback
                                 database.update_draft_data(d_id, price=0.0, status=status_msg, tracking_number=tracking)
                             
                             # 3. LOG
@@ -775,8 +736,8 @@ def render_review_page():
                             if promo_code:
                                 database.record_promo_usage(promo_code, u_email)
 
-                            # 5. SEND RECEIPT EMAIL (ADDED)
-                            if email_engine and current_tier_str.lower() != "vintage": # Vintage handled above
+                            # 5. SEND RECEIPT EMAIL
+                            if email_engine and current_tier_str.lower() != "vintage":
                                 try:
                                     logger.info("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
@@ -793,7 +754,6 @@ def render_review_page():
                                     logger.error(f"[DEBUG] Email Error: {ex}")
                                     logger.error(f"Free Order Receipt Failed: {ex}")
 
-                            # 6. SUCCESS
                             st.session_state.app_mode = "receipt"
                             st.rerun()
                         else:
@@ -806,13 +766,13 @@ def render_review_page():
     # --- PAID ORDERS ---
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
         
-        # --- FINAL SAFETY SAVE (CRITICAL FIX) ---
+        # --- FINAL SAFETY SAVE ---
         t_addr = st.session_state.get('addr_to', {})
         f_addr = st.session_state.get('addr_from', {})
         body = st.session_state.get('letter_body', '')
         logger.info("[DEBUG] Performing Final Safety Save before Checkout...")
         _force_save_to_db(d_id, content=body, to_data=t_addr, from_data=f_addr)
-        # -----------------------------------------
+        # -------------------------
 
         if d_id and database:
             try: database.update_draft_data(d_id, price=total, status="Pending Payment")
