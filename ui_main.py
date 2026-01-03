@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 import json
 import ast
-from sqlalchemy import text 
+from sqlalchemy import text, create_engine # <--- FIXED: Added create_engine
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -39,47 +39,59 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: NUCLEAR DATABASE SAVE (Direct SQL) ---
+# --- HELPER: NUCLEAR DATABASE SAVE (Heirloom Style - Fresh Connection) ---
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
-    NUCLEAR OPTION: Uses raw SQL to force updates to specific columns.
-    Bypasses ORM attribute mapping risks.
+    NUCLEAR OPTION: Creates a FRESH connection to force updates.
+    Imitates logic from ui_heirloom.py to bypass session pool issues.
     """
     if not draft_id: return False
     
     try:
-        # 1. PREPARE DATA
+        # 1. GET URL DIRECTLY (Bypass database.py pool)
+        # We check specific Supabase URL first, then generic Database URL
+        db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+        if not db_url:
+             db_url = secrets_manager.get_secret("DATABASE_URL") or os.environ.get("DATABASE_URL")
+        
+        if not db_url:
+            st.error("Database URL missing.")
+            return False
+
+        # 2. PREPARE DATA
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 2. USE EXISTING SESSION
-        with database.get_db_session() as session:
-            # 3. CONSTRUCT RAW SQL
-            # We explicitly name the columns seen in your screenshot: recipient_data, sender_data
-            sql = text("""
-                UPDATE letter_drafts 
-                SET 
-                    recipient_data = :rd, 
-                    sender_data = :sd,
-                    content = COALESCE(:c, content)
-                WHERE id = :id
-            """)
-            
-            # 4. EXECUTE
-            params = {
-                "rd": to_json,
-                "sd": from_json,
-                "c": content,
-                "id": int(draft_id) if str(draft_id).isdigit() else str(draft_id)
-            }
-            
-            session.execute(sql, params)
-            session.commit()
+        # 3. CONSTRUCT RAW SQL
+        # Updates both new JSON columns AND legacy Text columns for maximum compatibility
+        query = text("""
+            UPDATE letter_drafts 
+            SET 
+                recipient_data = :rd, 
+                sender_data = :sd,
+                to_addr = :rd,
+                from_addr = :sd,
+                content = COALESCE(:c, content)
+            WHERE id = :id
+        """)
+        
+        params = {
+            "rd": to_json,
+            "sd": from_json,
+            "c": content,
+            "id": int(draft_id) if str(draft_id).isdigit() else str(draft_id)
+        }
+
+        # 4. EXECUTE WITH FRESH ENGINE
+        # This is the key fix: We open a new connection, execute, and close it immediately.
+        temp_engine = create_engine(db_url, echo=False)
+        with temp_engine.begin() as conn:
+            conn.execute(query, params)
             return True
                 
     except Exception as e:
         logger.error(f"Nuclear Save Error: {e}")
-        st.error(f"Save Failed: {e}") # Visible Error for debugging
+        st.error(f"Save Failed: {e}") 
         return False
 
 # --- HELPER: SAFE PROFILE GETTER ---
@@ -836,4 +848,3 @@ def render_main():
 
 if __name__ == "__main__":
     render_main()
-}
