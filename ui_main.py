@@ -597,8 +597,8 @@ def render_workspace_page():
             "zip_code": st.session_state.get("from_zip", "")
         }
         
-        # --- CRITICAL SAFETY CHECK ---
-        # If the widget was blank (ghost data), DO NOT overwrite the valid DB data
+        # --- CRITICAL GUARDRAIL ---
+        # If the widget inputs are empty, STOP immediately. Do NOT overwrite DB with blanks.
         if not addr_to.get("street"):
             st.error("❌ Street Address Missing. Please reload the contact or type it in.")
             st.stop()
@@ -627,10 +627,16 @@ def render_review_page():
         # Load draft to ensure tier is correct
         try:
             with database.get_db_session() as s:
-                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == d_id).first()
+                # Force ID to String for safety
+                d = s.query(database.LetterDraft).filter(database.LetterDraft.id == str(d_id)).first()
+                
+                # --- VINTAGE FIX ---
                 if d and d.tier:
                     st.session_state.locked_tier = d.tier
                     logger.error(f"[DEBUG] Synced Tier from DB: {d.tier}")
+                else:
+                    logger.error(f"[DEBUG] DB Sync Failed for ID: {d_id}")
+                    
         except Exception as e:
             logger.error(f"Tier Sync Error: {e}")
 
