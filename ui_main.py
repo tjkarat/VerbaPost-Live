@@ -13,7 +13,7 @@ from sqlalchemy import text, create_engine
 import database 
 import secrets_manager 
 
-# --- CONFIGURE LOGGER TO FORCE OUTPUT ---
+# --- CONFIGURE LOGGER ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("VerbaPost_UI")
 
@@ -45,16 +45,16 @@ except ImportError: email_engine = None
 def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
     """
     NUCLEAR OPTION: Uses raw SQL and a fresh connection.
-    Includes AGGRESSIVE DEBUGGING visible in both Logs and UI.
+    Now performs a READ-BACK verification.
     """
     if not draft_id: 
         logger.error("❌ [NUCLEAR] Aborted: No Draft ID")
         return False
     
-    # FORCE STRING ID (Matches schema: id text)
+    # FORCE STRING ID
     safe_id = str(draft_id)
     
-    logger.error(f"--- STARTING NUCLEAR SAVE FOR ID: {safe_id} ---")
+    logger.info(f"--- STARTING NUCLEAR SAVE FOR ID: {safe_id} ---")
     
     try:
         # 1. GET URL DIRECTLY
@@ -70,24 +70,15 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # 3. LOG DATA PAYLOAD
-        if to_json: logger.error(f"   DATA TO SAVE (Recipient): {to_json}")
-        if content: logger.error(f"   DATA TO SAVE (Content Len): {len(content)}")
+        # 3. LOG DATA PAYLOAD (Check this in your console!)
+        logger.info(f"   PAYLOAD TO: {to_json}")
+        logger.info(f"   PAYLOAD FROM: {from_json}")
+        if content: logger.info(f"   PAYLOAD CONTENT LEN: {len(content)}")
 
-        # 4. EXECUTE WITH PRE-CHECK
+        # 4. EXECUTE
         temp_engine = create_engine(db_url, echo=False)
         with temp_engine.begin() as conn:
-            # A. PRE-CHECK: Does row exist?
-            check_q = text("SELECT count(*) FROM letter_drafts WHERE id = :id")
-            count = conn.execute(check_q, {"id": safe_id}).scalar()
-            logger.error(f"   ROW CHECK: Found {count} rows for ID {safe_id}")
-            
-            if count == 0:
-                logger.error(f"❌ [NUCLEAR] ID {safe_id} NOT FOUND IN DB. Cannot Update.")
-                st.error(f"Database Sync Error: Draft {safe_id} not found.")
-                return False
-
-            # B. UPDATE
+            # A. UPDATE
             query = text("""
                 UPDATE letter_drafts 
                 SET 
@@ -107,7 +98,15 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
             }
             
             result = conn.execute(query, params)
-            logger.error(f"✅ [NUCLEAR] SUCCESS. Rows Updated: {result.rowcount}")
+            logger.info(f"✅ [NUCLEAR] Update Executed. Rows Affected: {result.rowcount}")
+            
+            # B. VERIFY (Read it back)
+            verify_q = text("SELECT recipient_data, content FROM letter_drafts WHERE id = :id")
+            row = conn.execute(verify_q, {"id": safe_id}).first()
+            if row:
+                logger.info(f"🔍 [VERIFY] DB Value for Recipient: {row[0]}")
+                logger.info(f"🔍 [VERIFY] DB Value for Content Len: {len(row[1]) if row[1] else 0}")
+            
             return True
                 
     except Exception as e:
@@ -581,7 +580,7 @@ def render_workspace_page():
     
     # --- NAVIGATION TRIGGER ---
     if st.button("👀 Review & Pay (Next Step)", type="primary", use_container_width=True):
-        # 1. IMPLICIT CAPTURE (Safe now that form is gone)
+        # 1. READ FROM SESSION STATE DIRECTLY (Safe from Ghost Data)
         addr_to = {
             "name": st.session_state.get("to_name_input", ""), 
             "street": st.session_state.get("to_street_input", ""),
@@ -597,7 +596,7 @@ def render_workspace_page():
             "zip_code": st.session_state.get("from_zip", "")
         }
         
-        # --- CRITICAL GUARDRAIL ---
+        # --- CRITICAL SAFETY CHECK ---
         # If the widget inputs are empty, STOP immediately. Do NOT overwrite DB with blanks.
         if not addr_to.get("street"):
             st.error("❌ Street Address Missing. Please reload the contact or type it in.")
