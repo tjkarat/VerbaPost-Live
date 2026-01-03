@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 import json
 import ast
-from sqlalchemy import text, create_engine
+from sqlalchemy import text, create_engine # <--- FIXED: Added create_engine
 
 # --- CRITICAL IMPORTS ---
 import database 
@@ -82,6 +82,7 @@ def _force_save_to_db(draft_id, content=None, to_data=None, from_data=None):
         }
 
         # 4. EXECUTE
+        # Uses fresh engine to bypass session pool issues
         temp_engine = create_engine(db_url, echo=True)
         with temp_engine.begin() as conn:
             result = conn.execute(query, params)
@@ -191,9 +192,8 @@ def _save_new_contact(contact_data):
         
         is_new = True
         for label, existing in current_book.items():
-            e_street = existing.get('street') or existing.get('address_line1')
-            n_street = contact_data.get('street') or contact_data.get('address_line1')
-            if (existing.get('name') == contact_data.get('name') and e_street == n_street):
+            if (existing.get('name') == contact_data.get('name') and 
+                existing.get('street') == contact_data.get('street')):
                 is_new = False
                 break
         
@@ -289,40 +289,58 @@ def render_store_page():
     
     # --- DIRECT ACTION BUTTONS ---
     with b1:
-        if st.button("Select Standard", key="btn_std", use_container_width=True):
+        if st.button("Select Standard", key="store_btn_standard_final", use_container_width=True):
             st.session_state.locked_tier = "Standard"
             st.session_state.locked_price = 2.99
-            _handle_draft_creation(u_email, "Standard", 2.99)
-            st.session_state.app_mode = "workspace"
-            st.rerun()
+            # FORCE CREATE
+            new_id = _handle_draft_creation(u_email, "Standard", 2.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Create Failed")
 
     with b2:
-        if st.button("Select Vintage", key="btn_vint", use_container_width=True):
+        if st.button("Select Vintage", key="store_btn_vintage_final", use_container_width=True):
             st.session_state.locked_tier = "Vintage"
             st.session_state.locked_price = 5.99
-            _handle_draft_creation(u_email, "Vintage", 5.99)
-            st.session_state.app_mode = "workspace"
-            st.rerun()
+            # FORCE CREATE
+            new_id = _handle_draft_creation(u_email, "Vintage", 5.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Create Failed")
 
     with b3:
-        if st.button("Select Civic", key="btn_civ", use_container_width=True):
+        if st.button("Select Civic", key="store_btn_civic_final", use_container_width=True):
             st.session_state.locked_tier = "Civic"
             st.session_state.locked_price = 6.99
-            _handle_draft_creation(u_email, "Civic", 6.99)
-            st.session_state.app_mode = "workspace"
-            st.rerun()
+            # FORCE CREATE
+            new_id = _handle_draft_creation(u_email, "Civic", 6.99)
+            if new_id:
+                st.session_state.app_mode = "workspace"
+                st.rerun()
+            else: st.error("Database Create Failed")
 
 def render_campaign_uploader():
     st.markdown("### 📁 Upload Recipient List (CSV)")
+    st.markdown("**Format Required:** `name, street, city, state, zip`")
     uploaded_file = st.file_uploader("Upload CSV", type=["csv"])
     if uploaded_file:
         contacts = bulk_engine.parse_csv(uploaded_file)
-        if contacts:
-            st.success(f"✅ Loaded {len(contacts)} recipients.")
-            st.dataframe(contacts[:5])
-            if st.button("Proceed with Campaign"):
+        if not contacts:
+            st.error("❌ Could not parse CSV. Please check the format.")
+            return
+        st.success(f"✅ Loaded {len(contacts)} recipients.")
+        st.dataframe(contacts[:5])
+        total = pricing_engine.calculate_total("Campaign", qty=len(contacts))
+        st.metric("Estimated Total", f"${total}")
+        if st.button("Proceed with Campaign"):
+            with st.spinner(f"Preparing {len(contacts)} letters..."):
+                time.sleep(1)
                 st.session_state.locked_tier = "Campaign"
                 st.session_state.bulk_targets = contacts
+                st.success(f"✅ Ready!")
+                time.sleep(1)
                 st.session_state.app_mode = "workspace"
                 st.rerun()
 
@@ -340,7 +358,7 @@ def render_workspace_page():
         return
 
     d_id = st.session_state.get("current_draft_id")
-
+    
     # --- 1. STATE INITIALIZATION (Prevent Ghost Data) ---
     keys_to_init = ["to_name_input", "to_street_input", "to_city_input", "to_state_input", "to_zip_input"]
     for k in keys_to_init:
@@ -421,6 +439,7 @@ def render_workspace_page():
              save_to_book = True
 
         if current_tier != "Civic":
+            # Just a button, NOT a form_submit_button
             if st.button("💾 Save Addresses"):
                 st.session_state.addr_to = {
                     "name": st.session_state.to_name_input, 
