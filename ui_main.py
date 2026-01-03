@@ -755,7 +755,7 @@ def render_review_page():
                                 with temp_engine.begin() as conn:
                                     conn.execute(
                                         text("UPDATE letter_drafts SET status=:s, price=:p, tracking_number=:t WHERE id=:id"),
-                                        {"s": status_msg, "p": 0.0, "t": tracking, "id": str(d_id)}
+                                        {"s": status_msg, "p": 0.0, "t": tracking, "id": int(d_id)}
                                     )
                             except:
                                 # Fallback
