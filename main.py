@@ -396,7 +396,18 @@ def handle_payment_return(session_id):
                                 d.tracking_number = tracking_num
                                 logger.info(f"Paid Vintage Order {target_draft_id} sent to Manual Queue")
                                 
-                                # Send "Queued" Receipt
+                                # 1. NOTIFY ADMIN (NEW)
+                                if email_engine:
+                                    email_engine.send_admin_alert(
+                                        trigger_event="New Vintage Letter (Paid)",
+                                        details_html=f"""
+                                        <p><strong>User:</strong> {user_email}</p>
+                                        <p><strong>Draft ID:</strong> {target_draft_id}</p>
+                                        <p><strong>Tracking:</strong> {tracking_num}</p>
+                                        """
+                                    )
+                                
+                                # 2. Send "Queued" Receipt to User
                                 if email_engine:
                                     try:
                                         email_engine.send_email(

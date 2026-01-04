@@ -8,30 +8,46 @@ import json
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- ROBUST SECRETS FETCHER ---
+# --- SECRETS & CONFIG ---
 def get_api_key():
     """Retrieves the API key from Env Vars or Secrets."""
-    # 1. Try Environment Variable (Prod)
     key = os.environ.get("RESEND_API_KEY") or os.environ.get("email_password")
     if key: return key
-    
-    # 2. Try Streamlit Secrets (QA)
     try:
-        if "resend" in st.secrets:
-            return st.secrets["resend"]["api_key"]
-        if "email" in st.secrets:
-            return st.secrets["email"]["password"]
-    except:
-        pass
-    
+        if "resend" in st.secrets: return st.secrets["resend"]["api_key"]
+        if "email" in st.secrets: return st.secrets["email"]["password"]
+    except: pass
     return None
 
-# --- NEW: GENERIC SEND FUNCTION (REQUIRED BY MAIN.PY) ---
+def get_admin_email():
+    """Retrieves the Admin Email for notifications."""
+    try:
+        # Check standard admin location
+        if "admin" in st.secrets:
+            return st.secrets["admin"]["email"]
+    except: pass
+    return os.environ.get("ADMIN_EMAIL")
+
+def get_sender_address():
+    """
+    Returns the configured sender or the Resend default.
+    Change 'VERIFIED_DOMAIN_EMAIL' in secrets to use your custom domain.
+    """
+    try:
+        if "email" in st.secrets and "sender" in st.secrets["email"]:
+            return st.secrets["email"]["sender"]
+    except: pass
+    
+    # Fallback to Resend Test Domain if not configured (Ensures delivery)
+    return "VerbaPost <onboarding@resend.dev>"
+
+# --- CORE SEND FUNCTION ---
 def send_email(to_email, subject, html_content):
     """
-    Generic wrapper to match the signature expected by main.py and ui_main.py.
+    Generic wrapper to send emails to Users.
     """
     api_key = get_api_key()
+    sender = get_sender_address()
     
     if not api_key:
         logger.error("❌ Email Failed: API Key missing.")
@@ -48,7 +64,7 @@ def send_email(to_email, subject, html_content):
     }
     
     payload = {
-        "from": "VerbaPost <support@verbapost.com>", # Update this once you verify your domain
+        "from": sender, 
         "to": [to_email],
         "subject": subject,
         "html": html_content
@@ -66,32 +82,27 @@ def send_email(to_email, subject, html_content):
         logger.error(f"❌ Email Exception: {e}")
         return False
 
-# --- BACKWARD COMPATIBILITY (OPTIONAL) ---
-def send_confirmation(to_email, tracking_number, tier="Standard", order_id=None):
+# --- NEW: ADMIN NOTIFICATION SYSTEM ---
+def send_admin_alert(trigger_event, details_html):
     """
-    Constructs the HTML and calls the generic send_email function.
+    Sends an alert to the Admin when a manual action is needed.
     """
-    subject = f"VerbaPost: {tier} Letter Dispatched"
+    admin_email = get_admin_email()
+    if not admin_email:
+        logger.warning("⚠️ Cannot send Admin Alert: No Admin Email configured.")
+        return False
+        
+    subject = f"🔔 ACTION REQUIRED: {trigger_event}"
     
-    track_block = ""
-    if tracking_number:
-        track_block = f"""
-        <div style="background:#f4f4f4; padding:15px; margin:20px 0; border-radius:5px;">
-            <strong>Tracking Number:</strong><br>
-            <span style="font-family:monospace; color:#d93025; font-size:16px; letter-spacing:1px;">{tracking_number}</span>
-        </div>"""
-    else:
-        track_block = f"<p>Order ID: {order_id}</p>"
-
     html = f"""
-    <div style="font-family:sans-serif; color:#333; max-width:600px; margin:0 auto;">
-        <h2 style="color:#d93025;">Letter Sent! 📮</h2>
-        <p>Your <strong>{tier}</strong> letter has been securely generated and is entering the mail stream.</p>
-        {track_block}
-        <p>If you have any questions, simply reply to this email.</p>
-        <hr style="border:0; border-top:1px solid #eee; margin:20px 0;">
-        <p style="color:#999; font-size:12px;">Thank you for using VerbaPost.</p>
+    <div style="font-family:sans-serif; border:1px solid #d93025; padding:20px;">
+        <h2 style="color:#d93025; margin-top:0;">Manual Fulfillment Required</h2>
+        <p><strong>Event:</strong> {trigger_event}</p>
+        <hr>
+        {details_html}
+        <hr>
+        <p>Login to <a href="https://verbapost.streamlit.app">VerbaPost Admin</a> to print.</p>
     </div>
     """
     
-    return send_email(to_email, subject, html)
+    return send_email(admin_email, subject, html)

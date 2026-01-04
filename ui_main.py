@@ -751,7 +751,18 @@ def render_review_page():
                             status_msg = "Queued (Manual)"
                             logger.info(f"Vintage Free Order {d_id} sent to Manual Queue")
                             
-                            # Send "Queued" Email
+                            # 1. NOTIFY ADMIN (NEW)
+                            if email_engine:
+                                email_engine.send_admin_alert(
+                                    trigger_event="New Vintage Letter (Free/Promo)",
+                                    details_html=f"""
+                                    <p><strong>User:</strong> {u_email}</p>
+                                    <p><strong>Draft ID:</strong> {d_id}</p>
+                                    <p><strong>Promo Code:</strong> {st.session_state.get('applied_promo')}</p>
+                                    """
+                                )
+                            
+                            # 2. Send "Queued" Email to User
                             if email_engine:
                                 logger.info("[DEBUG] Sending Queued Email...")
                                 email_engine.send_email(

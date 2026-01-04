@@ -512,6 +512,18 @@ def render_dashboard():
                                     else:
                                         st.error("DB Write Failed.")
                                 
+                                # 1. NOTIFY ADMIN (NEW)
+                                if email_engine:
+                                    email_engine.send_admin_alert(
+                                        trigger_event="New Heirloom Letter",
+                                        details_html=f"""
+                                        <p><strong>User:</strong> {user_email}</p>
+                                        <p><strong>Ref ID:</strong> {ref_id}</p>
+                                        <p><strong>Status:</strong> Queued for Manual Print</p>
+                                        """
+                                    )
+
+                                # 2. NOTIFY USER
                                 _send_receipt(
                                     user_email,
                                     f"VerbaPost Sent: {d_date}",
