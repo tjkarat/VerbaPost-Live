@@ -1,11 +1,4 @@
 #Be Well, Do Good Work, and Keep in Touch
----
-title: "Be Well, Do Good Work, and Keep in Touch"
-date: 2026-01-04
-author: Tarak J. Robbana
-description: "Reflecting on the daily ritual of The Writer's Almanac and the power of a familiar voice."
-image: "static/writers-almanac.jpg"
----
 
 For years, my mornings when I wasn't working I would be driving hwy 26 to the coast, morning edition on OPB would be over and you would hear that familiar, gravelly baritone voice:
 
