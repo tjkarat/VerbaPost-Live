@@ -52,7 +52,8 @@ def get_module(module_name):
             "ui_blog": "ui_blog",
             "payment_engine": "payment_engine",
             "database": "database",
-            "analytics": "analytics"
+            "analytics": "analytics",
+            "auth_engine": "auth_engine"
         }
         if module_name in known_modules:
             return __import__(known_modules[module_name])
@@ -95,6 +96,34 @@ def main():
     # 0. AUTH LISTENER (OAuth Hash Handler)
     if auth_listener:
         auth_listener.listen_for_oauth()
+
+    # --- NEW: OAUTH HANDSHAKE ---
+    # Catches the reload AFTER auth_listener has converted hash to query params
+    if "type" in st.query_params and st.query_params["type"] == "oauth_callback":
+        token = st.query_params.get("access_token")
+        
+        if token:
+            auth_eng = get_module("auth_engine")
+            
+            if auth_eng:
+                # We use a spinner to indicate activity while verifying
+                with st.spinner("Verifying Google Account..."):
+                    email, err = auth_eng.verify_oauth_token(token)
+                    
+                    if email:
+                        # SUCCESS! Log them in
+                        st.session_state.authenticated = True
+                        st.session_state.user_email = email
+                        
+                        # Clean the URL so token doesn't leak or re-trigger
+                        st.query_params.clear()
+                        
+                        # Route to Heirloom (Archive) by default for Google Logins
+                        st.session_state.app_mode = "heirloom"
+                        st.rerun()
+                    else:
+                        st.error(f"Authentication Failed: {err}")
+    # ---------------------------
 
     # 2. DETERMINE SYSTEM MODE
     if "system_mode" not in st.session_state:

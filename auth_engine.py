@@ -1,92 +1,132 @@
 import streamlit as st
-from supabase import create_client, Client
+from supabase import create_client
 import logging
-import os
 
-# --- CONFIGURATION ---
 logger = logging.getLogger(__name__)
 
-def _get_supabase():
+# Try to get secrets manager
+try: import secrets_manager
+except ImportError: secrets_manager = None
+
+# Singleton Client
+_supabase_client = None
+
+def get_client():
     """
-    Safely retrieves the Supabase client.
-    Prioritizes Environment Variables (Production), falls back to Secrets (QA).
+    Lazy loader for Supabase Client.
+    Prioritizes secrets_manager (Env Vars) over st.secrets (TOML).
     """
+    global _supabase_client
+    if _supabase_client: return _supabase_client
+    
     try:
-        # 1. Try Environment Variables (GCP Production)
-        url = os.environ.get("SUPABASE_URL")
-        key = os.environ.get("SUPABASE_KEY")
-
-        # 2. Fallback to Streamlit Secrets (QA / Local)
-        if not url and hasattr(st, "secrets") and "supabase" in st.secrets:
-            url = st.secrets["supabase"]["url"]
+        url = None
+        key = None
         
-        if not key and hasattr(st, "secrets") and "supabase" in st.secrets:
+        # 1. Try Secrets Manager
+        if secrets_manager:
+            url = secrets_manager.get_secret("supabase.url")
+            key = secrets_manager.get_secret("supabase.key")
+            
+        # 2. Fallback to Streamlit Secrets
+        if not url and "supabase" in st.secrets:
+            url = st.secrets["supabase"]["url"]
+        if not key and "supabase" in st.secrets:
             key = st.secrets["supabase"]["key"]
-
-        if not url or not key:
-            logger.error("Supabase credentials missing from both Env Vars and Secrets.")
+            
+        if url and key:
+            _supabase_client = create_client(url, key)
+            return _supabase_client
+        else:
+            logger.error("Supabase URL or Key missing.")
             return None
-
-        return create_client(url, key)
     except Exception as e:
-        logger.error(f"Supabase Config Error: {e}")
+        logger.error(f"Supabase Init Error: {e}")
         return None
 
-# --- AUTH FUNCTIONS ---
+# --- OAUTH VERIFICATION (NEW) ---
 
-def sign_in(email, password):
-    client = _get_supabase()
-    if not client: return None, "Configuration Error: API Keys Missing"
+def verify_oauth_token(access_token):
+    """
+    Uses the access token from the URL hash to verify the user
+    and fetch their profile from Supabase.
+    Returns: (user_email, error_message)
+    """
+    client = get_client()
+    if not client: return None, "Supabase Client Missing"
 
     try:
-        res = client.auth.sign_in_with_password({"email": email, "password": password})
-        if res.user:
-            return res.user, None
+        # Verify token by fetching the user object
+        user_response = client.auth.get_user(access_token)
+        
+        if user_response and user_response.user:
+            return user_response.user.email, None
+        else:
+            return None, "Invalid Token or User not found"
     except Exception as e:
-        msg = str(e)
-        if "Invalid login credentials" in msg: return None, "Incorrect email or password."
-        return None, msg
-    return None, "Unknown Error"
+        logger.error(f"Token Verification Failed: {e}")
+        return None, str(e)
+
+# --- STANDARD AUTH FLOWS (Existing) ---
 
 def sign_up(email, password, data=None):
-    client = _get_supabase()
-    if not client: return None, "Configuration Error"
-
+    """
+    Creates a new user.
+    """
+    client = get_client()
+    if not client: return None, "Client Missing"
     try:
         options = {"data": data} if data else {}
         res = client.auth.sign_up({"email": email, "password": password, "options": options})
-        if res.user:
-            return res.user, None
+        return res.user, None
     except Exception as e:
         return None, str(e)
-    return None, "Signup Failed"
+
+def sign_in(email, password):
+    """
+    Logs in an existing user.
+    """
+    client = get_client()
+    if not client: return None, "Client Missing"
+    try:
+        res = client.auth.sign_in_with_password({"email": email, "password": password})
+        return res.user, None
+    except Exception as e:
+        return None, str(e)
 
 def send_password_reset(email):
-    client = _get_supabase()
-    if not client: return False, "Configuration Error"
-
+    """
+    Sends a password reset email.
+    """
+    client = get_client()
+    if not client: return False, "Client Missing"
     try:
-        client.auth.reset_password_email(email)
-        return True, "Sent"
+        # You might need to configure the redirect_to URL in Supabase dashboard
+        client.auth.reset_password_for_email(email)
+        return True, None
     except Exception as e:
         return False, str(e)
 
-def update_user_password(new_password):
-    client = _get_supabase()
-    if not client: return False, "Configuration Error"
-
+def verify_otp(email, token, type="recovery"):
+    """
+    Verifies a One-Time Password (used for password reset flows).
+    """
+    client = get_client()
+    if not client: return None, "Client Missing"
     try:
-        client.auth.update_user({"password": new_password})
-        return True, "Updated"
-    except Exception as e:
-        return False, str(e)
-
-def verify_otp(email, token):
-    client = _get_supabase()
-    if not client: return None, "Configuration Error"
-    
-    try:
-        res = client.auth.verify_otp({"email": email, "token": token, "type": "recovery"})
+        res = client.auth.verify_otp({"email": email, "token": token, "type": type})
         return res.session, None
     except Exception as e:
         return None, str(e)
+
+def update_user_password(new_password):
+    """
+    Updates the password for the currently authenticated user.
+    """
+    client = get_client()
+    if not client: return False, "Client Missing"
+    try:
+        client.auth.update_user({"password": new_password})
+        return True, None
+    except Exception as e:
+        return False, str(e)
