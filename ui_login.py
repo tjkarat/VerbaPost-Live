@@ -8,6 +8,8 @@ try: import database
 except ImportError: database = None
 try: import mailer
 except ImportError: mailer = None
+try: import secrets_manager  # <--- Use your existing manager
+except ImportError: secrets_manager = None
 
 def render_login_page():
     """
@@ -55,10 +57,12 @@ def render_login_page():
     # --- 2. STANDARD LOGIN/SIGNUP UI ---
     st.markdown("## 🔐 Access VerbaPost")
     
-    # --- GOOGLE AUTHENTICATION BUTTON ---
-    try:
-        if "supabase" in st.secrets and "url" in st.secrets["supabase"]:
-            sb_url = st.secrets["supabase"]["url"]
+    # --- GOOGLE AUTHENTICATION BUTTON (ROBUST) ---
+    if secrets_manager:
+        # Uses your smart manager to find the URL in secrets OR env vars
+        sb_url = secrets_manager.get_secret("SUPABASE_URL")
+        
+        if sb_url:
             # Construct the OAuth URL for Google Provider
             google_auth_url = f"{sb_url}/auth/v1/authorize?provider=google"
             
@@ -71,9 +75,6 @@ def render_login_page():
                     — OR —
                 </div>
             """, unsafe_allow_html=True)
-    except Exception as e:
-        # Fail silently if secrets are missing so the rest of the UI still loads
-        pass
     # ------------------------------------
     
     # CHANGED: "New Account" is now first, making it the default tab
