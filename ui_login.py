@@ -55,6 +55,27 @@ def render_login_page():
     # --- 2. STANDARD LOGIN/SIGNUP UI ---
     st.markdown("## 🔐 Access VerbaPost")
     
+    # --- GOOGLE AUTHENTICATION BUTTON ---
+    try:
+        if "supabase" in st.secrets and "url" in st.secrets["supabase"]:
+            sb_url = st.secrets["supabase"]["url"]
+            # Construct the OAuth URL for Google Provider
+            google_auth_url = f"{sb_url}/auth/v1/authorize?provider=google"
+            
+            if st.link_button("🇬 Continue with Google", google_auth_url, type="primary", use_container_width=True):
+                # The link handles the redirection to Google
+                pass
+            
+            st.markdown("""
+                <div style="text-align: center; color: #666; font-size: 0.8rem; margin: 15px 0;">
+                    — OR —
+                </div>
+            """, unsafe_allow_html=True)
+    except Exception as e:
+        # Fail silently if secrets are missing so the rest of the UI still loads
+        pass
+    # ------------------------------------
+    
     # CHANGED: "New Account" is now first, making it the default tab
     tab_signup, tab_login, tab_forgot = st.tabs(["New Account", "Sign In", "Forgot Password"])
 

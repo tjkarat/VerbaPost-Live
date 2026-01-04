@@ -69,6 +69,8 @@ try: import letter_format
 except ImportError: letter_format = None
 try: import email_engine
 except ImportError: email_engine = None
+try: import auth_listener
+except ImportError: auth_listener = None
 
 # --- SEO INJECTOR ---
 def inject_dynamic_seo(mode):
@@ -90,6 +92,10 @@ def inject_dynamic_seo(mode):
 
 # --- MAIN LOGIC ---
 def main():
+    # 0. AUTH LISTENER (OAuth Hash Handler)
+    if auth_listener:
+        auth_listener.listen_for_oauth()
+
     # 2. DETERMINE SYSTEM MODE
     if "system_mode" not in st.session_state:
         st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
