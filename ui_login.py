@@ -57,17 +57,20 @@ def render_login_page():
     # --- 2. STANDARD LOGIN/SIGNUP UI ---
     st.markdown("## 🔐 Access VerbaPost")
     
-    # --- GOOGLE AUTHENTICATION BUTTON (ROBUST) ---
+    # --- GOOGLE AUTHENTICATION BUTTON ---
     if secrets_manager:
-        # Uses your smart manager to find the URL in secrets OR env vars
         sb_url = secrets_manager.get_secret("SUPABASE_URL")
         
+        # 1. DETERMINE BASE URL (Production vs Local)
+        # Check secrets/env first, fallback to hardcoded prod
+        base_url = secrets_manager.get_secret("BASE_URL") or "https://app.verbapost.com"
+        
         if sb_url:
-            # Construct the OAuth URL for Google Provider
-            google_auth_url = f"{sb_url}/auth/v1/authorize?provider=google"
+            # 2. CONSTRUCT URL WITH EXPLICIT REDIRECT
+            # This ensures Supabase sends the #hash to the right place
+            google_auth_url = f"{sb_url}/auth/v1/authorize?provider=google&redirect_to={base_url}"
             
             if st.link_button("🇬 Continue with Google", google_auth_url, type="primary", use_container_width=True):
-                # The link handles the redirection to Google
                 pass
             
             st.markdown("""
@@ -75,7 +78,6 @@ def render_login_page():
                     — OR —
                 </div>
             """, unsafe_allow_html=True)
-    # ------------------------------------
     
     # CHANGED: "New Account" is now first, making it the default tab
     tab_signup, tab_login, tab_forgot = st.tabs(["New Account", "Sign In", "Forgot Password"])
