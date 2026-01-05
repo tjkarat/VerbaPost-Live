@@ -265,10 +265,24 @@ def render_sidebar(mode):
         else:
             user_email = st.session_state.get("user_email")
             st.caption(f"Logged in as: {user_email}")
+            
+            # --- FIXED: HARD LOGOUT ---
             if st.button("🚪 Sign Out", use_container_width=True):
-                st.session_state.authenticated = False
-                st.session_state.user_email = None
-                st.session_state.credits_synced = False
+                # 1. Kill Supabase Session (if engine available)
+                auth_eng = get_module("auth_engine")
+                if auth_eng and hasattr(auth_eng, "sign_out"):
+                    auth_eng.sign_out()
+                
+                # 2. Clear Streamlit Session State
+                keys_to_clear = ["authenticated", "user_email", "credits_synced", "user_profile"]
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                # 3. Clear URL Params (Crucial for OAuth loops)
+                st.query_params.clear()
+                
+                # 4. Redirect to Splash
                 st.session_state.app_mode = "splash"
                 st.rerun()
             

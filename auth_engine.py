@@ -130,3 +130,15 @@ def update_user_password(new_password):
         return True, None
     except Exception as e:
         return False, str(e)
+def sign_out():
+    """
+    Clears the Supabase session active in the client.
+    """
+    client = get_client()
+    if not client: return
+    
+    try:
+        # This clears the local session cache in the GoTrue client
+        client.auth.sign_out()
+    except Exception as e:
+        logger.warning(f"Supabase SignOut Error: {e}")
