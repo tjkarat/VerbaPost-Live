@@ -210,11 +210,15 @@ def render_admin_page():
                                             else:
                                                 std_from = address_standard.StandardAddress(name="VerbaPost", street="123 Main", city="Nashville", state="TN", zip_code="37209")
                                             
+                                            # Pass audio ref for QR code if it exists
+                                            audio_link = getattr(item, 'audio_ref', None)
+
                                             pdf_bytes = letter_format.create_pdf(
                                                 item.content,
                                                 std_to,
                                                 std_from,
-                                                tier=item.tier
+                                                tier=item.tier,
+                                                audio_url=audio_link
                                             )
                                             b64 = base64.b64encode(pdf_bytes).decode()
                                             href = f'<a href="data:application/pdf;base64,{b64}" download="VerbaPost_{item.id}.pdf">Click here to Download PDF</a>'

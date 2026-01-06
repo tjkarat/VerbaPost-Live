@@ -458,6 +458,9 @@ def render_dashboard():
             d_content = draft.get('content', '')
             status_icon = "🟢" if d_status == "Draft" else "✅ Sent"
             
+            # Retrieve the audio_ref for QR code generation
+            d_audio_ref = draft.get('audio_ref')
+
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
                 
                 new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{d_id}")
@@ -520,6 +523,7 @@ def render_dashboard():
                                         <p><strong>User:</strong> {user_email}</p>
                                         <p><strong>Ref ID:</strong> {ref_id}</p>
                                         <p><strong>Status:</strong> Queued for Manual Print</p>
+                                        <p><strong>Audio Ref:</strong> {d_audio_ref}</p>
                                         """
                                     )
 

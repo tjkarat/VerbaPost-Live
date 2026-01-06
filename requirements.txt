@@ -20,3 +20,5 @@ ffmpeg-python
 geocodio
 twilio
 streamlit-javascript
+qrcode
+pillow
