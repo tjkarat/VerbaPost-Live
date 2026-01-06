@@ -1,6 +1,6 @@
 #Be Well, Do Good Work, and Keep in Touch
 
-For years, my mornings when I wasn't working I would be driving hwy 26 to the coast, morning edition on OPB would be over and you would hear that familiar, gravelly baritone voice:
+For years, my mornings, when I wasn't working,  would be driving HWY 26 to the coast, morning edition on OPB would be over and you would hear some music and then that familiar, gravelly baritone voice:
 
 *"And here is The Writer's Almanac for..."*
 
