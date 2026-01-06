@@ -264,12 +264,13 @@ def trigger_outbound_call(to_number, from_number, parent_name="there", topic="yo
     except Exception as e:
         return None, f"Dialing Error: {e}"
 
-def fetch_and_transcribe_latest_call(parent_phone):
+def fetch_and_transcribe_latest_call(parent_phone, user_email=None):
     """
     Finds the last call for a specific number.
+    RETURNS: (transcript_text, audio_url, error_message)
     """
     client = _get_twilio_client()
-    if not client: return None, "Twilio Config Missing"
+    if not client: return None, None, "Twilio Config Missing"
 
     try:
         clean_phone = _normalize_phone(parent_phone)
@@ -282,10 +283,10 @@ def fetch_and_transcribe_latest_call(parent_phone):
         all_calls.sort(key=lambda c: c.date_created, reverse=True)
         
     except Exception as e:
-        return None, f"Twilio List Error: {e}"
+        return None, None, f"Twilio List Error: {e}"
     
     if not all_calls:
-        return None, f"No calls found for {clean_phone}"
+        return None, None, f"No calls found for {clean_phone}"
 
     target_recording_url = None
     for call in all_calls:
@@ -303,7 +304,7 @@ def fetch_and_transcribe_latest_call(parent_phone):
             continue
             
     if not target_recording_url:
-        return None, "Found calls, but no audio recordings."
+        return None, None, "Found calls, but no audio recordings."
 
     try:
         account_sid = client.username
@@ -311,7 +312,7 @@ def fetch_and_transcribe_latest_call(parent_phone):
         response = requests.get(target_recording_url, auth=(account_sid, auth_token))
         
         if response.status_code != 200:
-            return None, f"Download failed: {response.status_code}"
+            return None, None, f"Download failed: {response.status_code}"
             
         temp_dir = tempfile.gettempdir()
         temp_path = os.path.join(temp_dir, f"temp_story_{int(time.time())}.mp3")
@@ -320,7 +321,7 @@ def fetch_and_transcribe_latest_call(parent_phone):
             f.write(response.content)
 
         client_ai = get_openai_client()
-        if not client_ai: return None, "OpenAI Failed"
+        if not client_ai: return None, None, "OpenAI Failed"
 
         with open(temp_path, "rb") as audio_file:
             transcript = client_ai.audio.transcriptions.create(
@@ -330,10 +331,15 @@ def fetch_and_transcribe_latest_call(parent_phone):
             )
         
         if os.path.exists(temp_path): os.remove(temp_path)
-        return transcript, None
+        
+        # --- FIXED: RETURN URL INSTEAD OF NONE ---
+        return transcript, target_recording_url, None
 
     except Exception as e:
-        return None, f"Process failed: {e}"
+        return None, None, f"Process failed: {e}"
+
+# --- ALIAS FOR COMPATIBILITY ---
+process_latest_call = fetch_and_transcribe_latest_call
 
 def get_recent_call_logs(limit=20):
     """
