@@ -175,6 +175,7 @@ def render_paywall():
     </style>
     """, unsafe_allow_html=True)
 
+    # --- UPDATED: Added QR Code Feature to HTML ---
     html_content = """
 <div class="paywall-container">
     <div class="lock-icon">🔒</div>
@@ -185,6 +186,7 @@ def render_paywall():
         <br><br>
         <div class="feature-list">
             <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
+            <div class="feature-item"><span class="check">✔</span> <b>New:</b> Letters include Audio QR Codes</div>
             <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
             <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
             <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
