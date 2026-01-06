@@ -53,6 +53,33 @@ def parse_address_data(raw_data):
         except:
             return {}
 
+# --- HELPER: HYDRATE AUDIO URL ---
+def _hydrate_audio_url(raw_ref):
+    """
+    Converts a database audio_ref into a fully qualified, clickable URL.
+    Handles both direct Twilio links (http...) and Supabase Storage paths.
+    """
+    if not raw_ref: 
+        return None
+    
+    # Case A: It's already a link (e.g. Twilio API)
+    if raw_ref.startswith("http"): 
+        return raw_ref
+    
+    # Case B: It's a Storage Path (e.g. email/filename.mp3)
+    # We construct the Supabase Storage Public URL
+    sb_url = secrets_manager.get_secret("supabase.url")
+    if not sb_url: 
+        sb_url = os.environ.get("SUPABASE_URL")
+    
+    if sb_url:
+        sb_url = sb_url.rstrip("/")
+        # We assume the bucket is 'audio' based on standard Heirloom architecture
+        # If your bucket is named 'recordings', change 'audio' below to 'recordings'
+        return f"{sb_url}/storage/v1/object/public/audio/{raw_ref}"
+        
+    return raw_ref
+
 def check_connection(service_name, check_func):
     try:
         check_func()
@@ -194,6 +221,11 @@ def render_admin_page():
                                 to_dict = parse_address_data(item.recipient_data or item.to_addr)
                                 from_dict = parse_address_data(item.sender_data or item.from_addr)
                                 
+                                # HYDRATE AUDIO FOR QR CODE
+                                audio_link = _hydrate_audio_url(getattr(item, 'audio_ref', None))
+                                if audio_link:
+                                    st.success(f"🎵 Audio Linked (QR will generate)")
+                                
                                 if st.button(f"⬇️ Generate PDF for #{item.id}", key=f"pdf_{item.id}"):
                                     if letter_format and address_standard:
                                         try:
@@ -210,9 +242,6 @@ def render_admin_page():
                                             else:
                                                 std_from = address_standard.StandardAddress(name="VerbaPost", street="123 Main", city="Nashville", state="TN", zip_code="37209")
                                             
-                                            # Pass audio ref for QR code if it exists
-                                            audio_link = getattr(item, 'audio_ref', None)
-
                                             pdf_bytes = letter_format.create_pdf(
                                                 item.content,
                                                 std_to,
@@ -320,7 +349,17 @@ def render_admin_page():
                                         db.commit()
                                         
                                         if mailer and letter_format:
-                                            pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
+                                            # Fetch Tier and Audio for robust PDF generation
+                                            rec_tier = getattr(record, 'tier', 'Standard')
+                                            rec_audio = _hydrate_audio_url(getattr(record, 'audio_ref', None))
+                                            
+                                            pdf = letter_format.create_pdf(
+                                                new_content, 
+                                                updated_to, 
+                                                f_addr,
+                                                tier=rec_tier,
+                                                audio_url=rec_audio
+                                            )
                                             res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
                                             if res: 
                                                 record.status = "Sent"; record.tracking_number = res; db.commit()
