@@ -3,7 +3,7 @@ from fpdf import FPDF
 import io
 import os
 import logging
-import qrcode
+# import qrcode  # <--- DISABLED FOR NOW
 import tempfile
 
 # --- LOGGING SETUP ---
@@ -227,49 +227,50 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
              pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
 
         # 9. Heirloom QR Code Logic
-        if tier == "Heirloom" and audio_url:
-            try:
-                # Generate QR Code
-                qr = qrcode.QRCode(
-                    version=1,
-                    error_correction=qrcode.constants.ERROR_CORRECT_L,
-                    box_size=10,
-                    border=2,
-                )
-                qr.add_data(audio_url)
-                qr.make(fit=True)
-                img = qr.make_image(fill_color="black", back_color="white")
-
-                # Save to temporary file for FPDF to read
-                with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
-                    img.save(tmp_file.name)
-                    tmp_path = tmp_file.name
-
-                # Check space left on page. If low, add page.
-                # QR Height approx 30mm. Need buffer.
-                if pdf.get_y() > (PAGE_HEIGHT_MM - 60):
-                    pdf.add_page()
-                else:
-                    pdf.ln(15)
-
-                # Place QR Code (Center Bottom relative to text)
-                current_y = pdf.get_y()
-                # Center X: Page Width / 2 - Image Width / 2
-                # Assuming 30mm width image
-                center_x = (PAGE_WIDTH_MM - 30) / 2
-                
-                pdf.image(tmp_path, x=center_x, y=current_y, w=30)
-                
-                # Add "Scan to Listen" text below
-                pdf.set_y(current_y + 32)
-                pdf.set_font("Helvetica", size=9)
-                pdf.set_text_color(100, 100, 100)
-                pdf.cell(0, 5, "Scan to listen to this story", align='C', ln=1)
-
-                # Cleanup temp file
-                os.unlink(tmp_path)
-            except Exception as e:
-                logger.error(f"QR Generation Failed: {e}")
+        # --- DISABLED FOR NOW ---
+        # if tier == "Heirloom" and audio_url:
+        #     try:
+        #         # Generate QR Code
+        #         qr = qrcode.QRCode(
+        #             version=1,
+        #             error_correction=qrcode.constants.ERROR_CORRECT_L,
+        #             box_size=10,
+        #             border=2,
+        #         )
+        #         qr.add_data(audio_url)
+        #         qr.make(fit=True)
+        #         img = qr.make_image(fill_color="black", back_color="white")
+        #
+        #         # Save to temporary file for FPDF to read
+        #         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+        #             img.save(tmp_file.name)
+        #             tmp_path = tmp_file.name
+        #
+        #         # Check space left on page. If low, add page.
+        #         # QR Height approx 30mm. Need buffer.
+        #         if pdf.get_y() > (PAGE_HEIGHT_MM - 60):
+        #             pdf.add_page()
+        #         else:
+        #             pdf.ln(15)
+        #
+        #         # Place QR Code (Center Bottom relative to text)
+        #         current_y = pdf.get_y()
+        #         # Center X: Page Width / 2 - Image Width / 2
+        #         # Assuming 30mm width image
+        #         center_x = (PAGE_WIDTH_MM - 30) / 2
+        #         
+        #         pdf.image(tmp_path, x=center_x, y=current_y, w=30)
+        #         
+        #         # Add "Scan to Listen" text below
+        #         pdf.set_y(current_y + 32)
+        #         pdf.set_font("Helvetica", size=9)
+        #         pdf.set_text_color(100, 100, 100)
+        #         pdf.cell(0, 5, "Scan to listen to this story", align='C', ln=1)
+        #
+        #         # Cleanup temp file
+        #         os.unlink(tmp_path)
+        #     except Exception as e:
+        #         logger.error(f"QR Generation Failed: {e}")
 
         # NOTE: Footer is now handled automatically by the class footer() method
         
