@@ -14,14 +14,22 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import ai_engine
 except ImportError: ai_engine = None
+try: import heirloom_engine
+except ImportError: heirloom_engine = None
 try: import mailer
 except ImportError: mailer = None
 try: import letter_format
 except ImportError: letter_format = None
-try: import email_engine
-except ImportError: email_engine = None
+try: import address_standard
+except ImportError: address_standard = None
+try: import audit_engine
+except ImportError: audit_engine = None
+try: import payment_engine
+except ImportError: payment_engine = None
 try: import promo_engine
 except ImportError: promo_engine = None
+try: import email_engine
+except ImportError: email_engine = None
 
 # --- HELPER: ATOMIC DATABASE UPDATE (Heirloom Specific) ---
 def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, tracking=None):
@@ -167,7 +175,6 @@ def render_paywall():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- UPDATED: Added QR Code Feature to HTML ---
     html_content = """
 <div class="paywall-container">
     <div class="lock-icon">🔒</div>
@@ -178,7 +185,6 @@ def render_paywall():
         <br><br>
         <div class="feature-list">
             <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
-            <div class="feature-item"><span class="check">✔</span> <b>New:</b> Letters include Audio QR Codes</div>
             <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
             <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
             <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
@@ -193,17 +199,22 @@ def render_paywall():
     with c_main:
         if st.button("🔓 Subscribe Now", type="primary", use_container_width=True):
             user_email = st.session_state.get("user_email")
-            # Inline import to avoid circular dependency
-            try: import payment_engine
-            except ImportError: payment_engine = None
-            
             if payment_engine:
                 with st.spinner("Connecting to Secure Payment..."):
                     try:
                         st.session_state.pending_subscription = True
+                        
+                        # --- FIX: DYNAMIC PRICE ID ---
+                        # 1. Try Secrets Manager (Env Specific)
+                        price_id = secrets_manager.get_secret("STRIPE_PRICE_ID")
+                        
+                        # 2. Fallback to Hardcoded (Live) if missing
+                        if not price_id:
+                            price_id = "price_1SjVdgRmmrLilo6X2d4lU7K0"
+
                         url = payment_engine.create_checkout_session(
                             line_items=[{
-                                "price": "price_1SjVdgRmmrLilo6X2d4lU7K0", # RECURRING PRICE ID
+                                "price": price_id, 
                                 "quantity": 1,
                             }],
                             mode="subscription",
@@ -425,13 +436,11 @@ def render_dashboard():
         if st.button("🔄 Check for New Recordings"):
             if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
-            elif ai_engine: # --- FIX: Switched from heirloom_engine to ai_engine ---
+            elif heirloom_engine:
                 with st.spinner(f"Scanning for calls from {p_phone}..."):
-                    # We utilize the corrected engine which returns the URL
-                    transcript, audio_path, err = ai_engine.process_latest_call(p_phone, user_email)
+                    transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
                     if transcript:
                         if database: 
-                            # audio_path now contains the full URL
                             database.save_draft(user_email, transcript, "Heirloom", 0.0, audio_ref=audio_path)
                         st.success("✅ New Story Found!")
                         time.sleep(1)
@@ -439,7 +448,7 @@ def render_dashboard():
                     else: 
                         st.warning(f"No new recordings found. ({err})")
             else:
-                st.error("AI Engine not loaded.")
+                st.error("Heirloom Engine not loaded.")
         
         st.divider()
 
@@ -458,9 +467,6 @@ def render_dashboard():
             d_content = draft.get('content', '')
             status_icon = "🟢" if d_status == "Draft" else "✅ Sent"
             
-            # Retrieve the audio_ref for QR code generation
-            d_audio_ref = draft.get('audio_ref')
-
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
                 
                 new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{d_id}")
@@ -523,7 +529,6 @@ def render_dashboard():
                                         <p><strong>User:</strong> {user_email}</p>
                                         <p><strong>Ref ID:</strong> {ref_id}</p>
                                         <p><strong>Status:</strong> Queued for Manual Print</p>
-                                        <p><strong>Audio Ref:</strong> {d_audio_ref}</p>
                                         """
                                     )
 
