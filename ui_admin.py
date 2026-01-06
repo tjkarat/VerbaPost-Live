@@ -74,9 +74,8 @@ def _hydrate_audio_url(raw_ref):
     
     if sb_url:
         sb_url = sb_url.rstrip("/")
-        # We assume the bucket is 'audio' based on standard Heirloom architecture
-        # If your bucket is named 'recordings', change 'audio' below to 'recordings'
-        return f"{sb_url}/storage/v1/object/public/audio/{raw_ref}"
+        # UPDATED: Point to 'heirloom-audio' bucket instead of 'audio'
+        return f"{sb_url}/storage/v1/object/public/heirloom-audio/{raw_ref}"
         
     return raw_ref
 
