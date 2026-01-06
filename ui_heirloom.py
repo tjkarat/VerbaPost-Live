@@ -14,22 +14,14 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import ai_engine
 except ImportError: ai_engine = None
-try: import heirloom_engine
-except ImportError: heirloom_engine = None
 try: import mailer
 except ImportError: mailer = None
 try: import letter_format
 except ImportError: letter_format = None
-try: import address_standard
-except ImportError: address_standard = None
-try: import audit_engine
-except ImportError: audit_engine = None
-try: import payment_engine
-except ImportError: payment_engine = None
-try: import promo_engine
-except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
+try: import promo_engine
+except ImportError: promo_engine = None
 
 # --- HELPER: ATOMIC DATABASE UPDATE (Heirloom Specific) ---
 def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, tracking=None):
@@ -201,6 +193,10 @@ def render_paywall():
     with c_main:
         if st.button("🔓 Subscribe Now", type="primary", use_container_width=True):
             user_email = st.session_state.get("user_email")
+            # Inline import to avoid circular dependency
+            try: import payment_engine
+            except ImportError: payment_engine = None
+            
             if payment_engine:
                 with st.spinner("Connecting to Secure Payment..."):
                     try:
@@ -429,11 +425,13 @@ def render_dashboard():
         if st.button("🔄 Check for New Recordings"):
             if not p_phone:
                 st.error("⚠️ Set 'Parent Phone' in Settings first.")
-            elif heirloom_engine:
+            elif ai_engine: # --- FIX: Switched from heirloom_engine to ai_engine ---
                 with st.spinner(f"Scanning for calls from {p_phone}..."):
-                    transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
+                    # We utilize the corrected engine which returns the URL
+                    transcript, audio_path, err = ai_engine.process_latest_call(p_phone, user_email)
                     if transcript:
                         if database: 
+                            # audio_path now contains the full URL
                             database.save_draft(user_email, transcript, "Heirloom", 0.0, audio_ref=audio_path)
                         st.success("✅ New Story Found!")
                         time.sleep(1)
@@ -441,7 +439,7 @@ def render_dashboard():
                     else: 
                         st.warning(f"No new recordings found. ({err})")
             else:
-                st.error("Heirloom Engine not loaded.")
+                st.error("AI Engine not loaded.")
         
         st.divider()
 
