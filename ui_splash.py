@@ -7,13 +7,6 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("SPLASH")
 
-# --- ASSETS ---
-LOGO_STRIPE = "https://cdn.simpleicons.org/stripe/635BFF"
-LOGO_TWILIO = "https://cdn.simpleicons.org/twilio/F22F46"
-LOGO_OPENAI = "https://cdn.simpleicons.org/openai/000000"
-LOGO_SUPABASE = "https://cdn.simpleicons.org/supabase/3ECF8E"
-LOGO_USPS = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/United_States_Postal_Service_Logo.svg/320px-United_States_Postal_Service_Logo.svg.png"
-
 def render_splash_page():
     # --- CSS ---
     st.markdown("""
@@ -22,10 +15,6 @@ def render_splash_page():
     .hero-container { background-color: #ffffff; width: 100%; padding: 4rem 1rem; text-align: center; border-bottom: 1px solid #eaeaea; margin-bottom: 2rem; }
     .hero-title { font-family: 'Merriweather', serif; font-weight: 700; color: #111; font-size: clamp(2.5rem, 6vw, 4.5rem); margin-bottom: 0.5rem; letter-spacing: -1px; line-height: 1.1; }
     .hero-subtitle { font-family: 'Helvetica Neue', sans-serif; font-size: clamp(1rem, 3vw, 1.4rem); font-weight: 300; color: #555; margin-bottom: 2rem; margin-top: 1rem; max-width: 700px; margin-left: auto; margin-right: auto; line-height: 1.5; }
-    .trust-container { text-align: center; padding: 20px 0; margin-top: 40px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 30px; opacity: 0.8; }
-    .trust-logo { height: 24px; width: auto; object-fit: contain; filter: grayscale(100%); transition: filter 0.3s; }
-    .trust-logo:hover { filter: grayscale(0%); }
-    .logo-usps { height: 35px; filter: grayscale(0%); } 
     .secondary-link { text-align: center; margin-top: 50px; padding-top: 20px; border-top: 1px dashed #ddd; }
     .secondary-text { font-size: 0.9rem; color: #888; margin-bottom: 10px; }
     </style>
@@ -52,20 +41,6 @@ def render_splash_page():
                 st.session_state.app_mode = "login"
                 st.session_state.redirect_to = "heirloom"
             st.rerun()
-
-    # --- TRUST BADGES ---
-    st.markdown(f"""
-    <div style="text-align: center; margin-top: 50px; margin-bottom: 15px;">
-        <small style="font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; color: #999; font-weight: 600;">Secure Infrastructure</small>
-    </div>
-    <div class="trust-container">
-        <img class="trust-logo" src="{LOGO_STRIPE}" title="Stripe">
-        <img class="trust-logo" src="{LOGO_TWILIO}" title="Twilio">
-        <img class="trust-logo" src="{LOGO_OPENAI}" title="OpenAI">
-        <img class="trust-logo" src="{LOGO_SUPABASE}" title="Supabase">
-        <img class="trust-logo logo-usps" src="{LOGO_USPS}" title="USPS">
-    </div>
-    """, unsafe_allow_html=True)
 
     # --- SECONDARY OPTION ---
     st.markdown("<div class='secondary-link'><div class='secondary-text'>Looking to send a single letter?</div></div>", unsafe_allow_html=True)
