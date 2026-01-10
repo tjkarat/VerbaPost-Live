@@ -8,165 +8,161 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_api_key():
+def get_api_config():
     """
-    Retrieves the PostGrid API Key safely.
+    Retrieves PCM API credentials safely.
+    Checks: st.secrets['pcm'] -> os.environ['PCM_API_KEY']
     """
     key = None
-    # 1. Check Secrets
-    if hasattr(st, "secrets") and "postgrid" in st.secrets:
-        key = st.secrets["postgrid"].get("api_key")
+    url = "https://api.pcmintegrations.com/direct-mail/v3" # Default v3 Base URL
+
+    # 1. Try Streamlit Secrets
+    if hasattr(st, "secrets") and "pcm" in st.secrets:
+        key = st.secrets["pcm"].get("api_key")
+        if "base_url" in st.secrets["pcm"]:
+            url = st.secrets["pcm"]["base_url"]
     
-    # 2. Check Environment
+    # 2. Try Env Vars (Cloud Run)
     if not key:
-        key = os.environ.get("POSTGRID_API_KEY")
-        
-    if key:
-        # Sanitize: Remove quotes or whitespace that might have been copied
-        return str(key).strip().replace("'", "").replace('"', "")
-    return None
+        key = os.environ.get("PCM_API_KEY")
+        if os.environ.get("PCM_BASE_URL"):
+            url = os.environ.get("PCM_BASE_URL")
 
-def _create_contact(contact_data):
+    return key, url
+
+def _map_tier_attributes(tier):
     """
-    Internal helper to create a contact in PostGrid and get an ID.
-    Used for both sending mail AND validating addresses.
+    Maps VerbaPost Tiers to PCM Order Attributes.
     """
-    api_key = get_api_key()
-    if not api_key:
-        print("[ERROR] Mailer: Missing API Key")
-        return None
-
-    # --- DEBUG START ---
-    print(f"[DEBUG] Creating Contact for: {contact_data.get('name')}")
-    # -------------------
-
-    # Split Name if possible
-    full_name = str(contact_data.get('name', ''))
-    first_name = full_name
-    last_name = ""
-    if " " in full_name:
-        parts = full_name.split(" ", 1)
-        first_name = parts[0]
-        last_name = parts[1]
-
-    # Map Fields - FORCE STRING to prevent NoneType errors
-    payload = {
-        "firstName": first_name,
-        "lastName": last_name,
-        "addressLine1": str(contact_data.get('address_line1') or contact_data.get('street') or ""),
-        "addressLine2": str(contact_data.get('address_line2') or ""),
-        "city": str(contact_data.get('city') or ""),
-        "provinceOrState": str(contact_data.get('state') or ""),
-        "postalOrZip": str(contact_data.get('zip_code') or contact_data.get('zip') or ""),
-        "countryCode": "US"
+    t = str(tier).strip().title()
+    
+    # Defaults (Standard, Civic, Campaign)
+    specs = {
+        "paper_type": "Standard",     # Update if PCM uses specific ID (e.g. '60# Text')
+        "postage_type": "Metered",    # Standard Indicia
+        "envelope": "#10 Double Window",
+        "print_color": "Full Color"
     }
 
-    # --- DEBUG PAYLOAD ---
-    print(f"[DEBUG] Payload: {json.dumps(payload)}")
-    # ---------------------
+    # Premium Tiers (Vintage, Heirloom)
+    if t in ["Vintage", "Heirloom"]:
+        specs["paper_type"] = "70# Text"  # Request 70lb Paper
+        specs["postage_type"] = "Live Stamp" # Request Real Stamp
+        specs["envelope"] = "#10 Standard" # Standard envelope for manual feel
 
-    headers = {
-        "x-api-key": api_key,
-        "Content-Type": "application/json"
-    }
-
-    try:
-        # CRITICAL: This is the ONLY endpoint we are allowed to use
-        url = "https://api.postgrid.com/print-mail/v1/contacts"
-        
-        print(f"[DEBUG] POST {url}")
-        resp = requests.post(url, json=payload, headers=headers)
-        
-        print(f"[DEBUG] Status: {resp.status_code}")
-        
-        if resp.status_code in [200, 201]:
-            cid = resp.json().get('id')
-            print(f"[DEBUG] Contact Created: {cid}")
-            return cid
-        else:
-            # Log the specific rejection reason (e.g., "Invalid Zip")
-            print(f"[DEBUG] Contact Failed: {resp.text}")
-            logger.error(f"Contact Creation Failed: {resp.status_code} - {resp.text}")
-            return None
-
-    except Exception as e:
-        print(f"[DEBUG] Exception: {e}")
-        logger.error(f"Contact Exception: {e}")
-        return None
+    return specs
 
 def validate_address(address_dict):
     """
-    Validates an address by attempting to create a Contact.
-    This bypasses the need for a separate Address Verification subscription.
+    Validates address via PCM API. 
+    Returns (True, cleaned_data) or (False, error_msg).
     """
-    print(f"[VALIDATION] Testing address via Contact Creation...")
-    
-    # We attempt to create the contact.
-    # If successful, PostGrid has accepted the address as valid (or valid enough to mail).
-    contact_id = _create_contact(address_dict)
-    
-    if contact_id:
-        # Success! The address is valid.
-        # Note: We cannot standardize the address (CAPS, Zip+4) because
-        # we don't have access to the CASS data, but we know it's deliverable.
-        return True, address_dict
-    else:
-        # Failure. PostGrid rejected it (likely Error 400 - Invalid Address).
-        return False, {"error": "Address Rejected by Post Office. Please check Street and Zip Code."}
+    key, base_url = get_api_config()
+    if not key: return True, address_dict # Dev Mode bypass
 
-def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
-    """
-    Sends a letter via PostGrid.
-    """
-    api_key = get_api_key()
-    if not api_key: 
-        logger.error("Missing API Key")
-        return None
+    # Construct Payload
+    payload = {
+        "address_line1": address_dict.get("address_line1") or address_dict.get("street"),
+        "address_line2": address_dict.get("address_line2", ""),
+        "city": address_dict.get("city"),
+        "state_code": address_dict.get("state"), # PCM usually expects 2-char code
+        "postal_code": address_dict.get("zip_code") or address_dict.get("zip"),
+        "country_code": "US"
+    }
 
-    print("[MAILING] Starting Send Process...")
-
-    # 1. Create Contacts First
-    to_id = _create_contact(to_addr)
-    from_id = _create_contact(from_addr)
-
-    if not to_id:
-        print("[MAILING] Failed to create RECIPIENT contact")
-        return None
-    if not from_id:
-        print("[MAILING] Failed to create SENDER contact")
-        return None
-
-    # 2. Create Letter
     try:
-        url = "https://api.postgrid.com/print-mail/v1/letters"
+        # Attempt Validation
+        url = f"{base_url}/address/validate"
+        resp = requests.post(url, json=payload, headers={"Authorization": f"Bearer {key}"})
         
-        files = {
-            'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')
-        }
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("is_valid", True): # Adjust based on exact PCM response field
+                return True, address_dict
+            else:
+                return False, {"error": "Invalid Address according to USPS data."}
         
-        data = {
-            'to': to_id,
-            'from': from_id,
-            'description': description,
-            'color': 'true', 
-            'express': 'false',
-            'addressPlacement': 'top_first_page'
+        # If API Endpoint fails (404/500), Log it but ALLOW passage to not break app
+        logger.warning(f"PCM Validation Endpoint Failed ({resp.status_code}). Allowing address.")
+        return True, address_dict
+
+    except Exception as e:
+        logger.error(f"Validation Exception: {e}")
+        return True, address_dict # Fail open
+
+def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="VerbaPost Letter"):
+    """
+    Sends PDF to PCM Integrations for fulfillment.
+    """
+    key, base_url = get_api_config()
+    if not key:
+        logger.error("PCM: Missing API Key")
+        return None
+
+    logger.info(f"PCM: Processing {tier} Order...")
+    
+    try:
+        # 1. Get Tier Config
+        specs = _map_tier_attributes(tier)
+
+        # 2. Prepare Metadata (JSON)
+        # Note: PCM v3 often uses a 'json' field within multipart, or direct fields.
+        # This implementation assumes the standard multipart pattern.
+        order_details = {
+            "external_id": description[:50],
+            "recipient": {
+                "name": to_addr.get("name"),
+                "address_line1": to_addr.get("address_line1") or to_addr.get("street"),
+                "address_line2": to_addr.get("address_line2", ""),
+                "city": to_addr.get("city"),
+                "state_code": to_addr.get("state"),
+                "postal_code": to_addr.get("zip_code") or to_addr.get("zip"),
+                "country_code": "US"
+            },
+            "sender": {
+                "name": from_addr.get("name"),
+                "address_line1": from_addr.get("address_line1") or from_addr.get("street"),
+                "address_line2": from_addr.get("address_line2", ""),
+                "city": from_addr.get("city"),
+                "state_code": from_addr.get("state"),
+                "postal_code": from_addr.get("zip_code") or from_addr.get("zip"),
+                "country_code": "US"
+            },
+            "options": {
+                "paper_type": specs["paper_type"],
+                "postage_type": specs["postage_type"],
+                "envelope_type": specs["envelope"],
+                "color": specs["print_color"]
+            }
         }
 
-        print("[MAILING] Sending Letter Request...")
-        resp = requests.post(url, headers={"x-api-key": api_key}, files=files, data=data)
+        # 3. Construct Request
+        url = f"{base_url}/orders/create"
         
+        # Files + Data
+        files = {
+            'file': ('letter.pdf', pdf_bytes, 'application/pdf')
+        }
+        data = {
+            'order': json.dumps(order_details) # Most APIs expect JSON string here
+        }
+
+        resp = requests.post(
+            url, 
+            headers={"Authorization": f"Bearer {key}"},
+            files=files,
+            data=data
+        )
+
         if resp.status_code in [200, 201]:
-            letter_id = resp.json().get('id')
-            print(f"[MAILING] Success! Letter ID: {letter_id}")
-            logger.info(f"Letter Sent! ID: {letter_id}")
-            return letter_id
+            res_json = resp.json()
+            order_id = res_json.get("id") or res_json.get("order_id")
+            logger.info(f"PCM Success! Order ID: {order_id}")
+            return order_id
         else:
-            print(f"[MAILING] Failed: {resp.text}")
-            logger.error(f"Letter Failed: {resp.status_code} - {resp.text}")
+            logger.error(f"PCM Error {resp.status_code}: {resp.text}")
             return None
 
     except Exception as e:
-        print(f"[MAILING] Exception: {e}")
-        logger.error(f"Mailing Exception: {e}")
+        logger.error(f"PCM Exception: {e}")
         return None

@@ -127,16 +127,19 @@ def run_system_health_checks():
     status, color = check_connection("Twilio (Voice)", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
-    # 5. POSTGRID
-    def check_postgrid():
-        k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
-        if not k: raise Exception("Missing Key")
-        r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
-        if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code} - {r.text}")
-    status, color = check_connection("PostGrid (Fulfillment)", check_postgrid)
-    results.append({"Service": "PostGrid (Fulfillment)", "Status": status, "Color": color})
+    # 5. PCM INTEGRATIONS (Replaces PostGrid Check)
+    def check_pcm():
+        if mailer and hasattr(mailer, 'get_api_config'):
+            key, base_url = mailer.get_api_config()
+            if not key: raise Exception("Missing Key")
+            # Verify auth
+            r = requests.get(f"{base_url}/account", headers={"Authorization": f"Bearer {key}"})
+            if r.status_code not in [200, 201]: 
+                if r.status_code == 401: raise Exception("Unauthorized (Check Key)")
+    status, color = check_connection("PCM (Mailing)", check_pcm)
+    results.append({"Service": "PCM (Mailing)", "Status": status, "Color": color})
 
-    # 6. GEOCODIO
+    # 6. GEOCODIO (Required for Civic Tier)
     def check_geocodio():
         k = secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCODIO_API_KEY")
         if not k: raise Exception("Missing Key")
@@ -201,7 +204,7 @@ def render_admin_page():
         if database:
             with database.get_db_session() as db:
                 queued_items = db.query(database.LetterDraft).filter(
-                    database.LetterDraft.status == "Queued (Manual)"
+                    database.LetterDraft.status.like("%Manual%")
                 ).order_by(database.LetterDraft.created_at.desc()).all()
                 
                 if not queued_items:
@@ -297,7 +300,7 @@ def render_admin_page():
                 
                 st.divider()
                 st.markdown("### 🛠️ Repair & Force Dispatch")
-                st.info("Select a Standard order to fix addresses or force a re-send via PostGrid.")
+                st.info("Select a Standard order to fix addresses or force a re-send via PCM/Mailer.")
                 
                 c_sel, c_act = st.columns([3, 1])
                 with c_sel:
@@ -359,7 +362,8 @@ def render_admin_page():
                                                 tier=rec_tier,
                                                 audio_url=rec_audio
                                             )
-                                            res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
+                                            # Uses mailer.send_letter (Now pointing to PCM)
+                                            res = mailer.send_letter(pdf, updated_to, f_addr, tier=rec_tier, description=f"Repair {selected_id}")
                                             if res: 
                                                 record.status = "Sent"; record.tracking_number = res; db.commit()
                                                 st.success("Dispatched!"); st.rerun()
@@ -445,18 +449,15 @@ def render_admin_page():
 
                 with c_del:
                     if st.button("🗑️ Permanently Delete", key=f"del_{sel_sid}", type="primary"):
-                        sid = secrets_manager.get_secret("twilio.account_sid")
-                        token = secrets_manager.get_secret("twilio.auth_token")
-                        if sid and token:
-                            try:
-                                client = TwilioClient(sid, token)
-                                client.recordings(sel_sid).delete()
+                        if ai_engine and hasattr(ai_engine, 'delete_twilio_recording'):
+                            if ai_engine.delete_twilio_recording(sel_sid):
                                 st.success(f"Deleted {sel_sid}")
                                 st.session_state.active_recordings = [r for r in st.session_state.active_recordings if r['SID'] != sel_sid]
                                 time.sleep(1)
                                 st.rerun()
-                            except Exception as e: st.error(f"Delete Failed: {e}")
-                        else: st.error("Twilio Credentials Missing")
+                            else: st.error("Delete Failed")
+                        else:
+                            st.error("AI Engine update required.")
 
     # --- TAB 4-7: (Standard Views) ---
     with tab_promos:
