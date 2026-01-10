@@ -737,52 +737,32 @@ def render_review_page():
 
                     # 1. GENERATE PDF & MAIL
                     with st.spinner("Processing..."):
-                        # --- CRITICAL FIX: ROUTE VINTAGE TO MANUAL QUEUE ---
+                        
                         tracking = None
                         status_msg = ""
                         
-                        # FORCE STRING CHECK
-                        current_tier_str = str(tier).strip()
-                        
-                        # IGNORE CASE ("Vintage" or "vintage")
-                        if current_tier_str.lower() == "vintage":
-                            # MANUAL QUEUE
-                            tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
-                            status_msg = "Queued (Manual)"
-                            logger.info(f"Vintage Free Order {d_id} sent to Manual Queue")
+                        # --- UPDATED: ALL TIERS USE PCM API ---
+                        if letter_format and mailer:
+                            logger.info(f"[DEBUG] Mailing Free Order... To: {t_addr}")
+                            pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
                             
-                            # 1. NOTIFY ADMIN (NEW)
-                            if email_engine:
-                                email_engine.send_admin_alert(
-                                    trigger_event="New Vintage Letter (Free/Promo)",
-                                    details_html=f"""
-                                    <p><strong>User:</strong> {u_email}</p>
-                                    <p><strong>Draft ID:</strong> {d_id}</p>
-                                    <p><strong>Promo Code:</strong> {st.session_state.get('applied_promo')}</p>
-                                    """
-                                )
+                            # Calls mailer.send_letter, which now handles Vintage 70lb/Stamp logic internally
+                            tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, tier=tier, description=f"Free Order {d_id}")
                             
-                            # 2. Send "Queued" Email to User
-                            if email_engine:
-                                logger.info("[DEBUG] Sending Queued Email...")
-                                email_engine.send_email(
-                                    to_email=u_email,
-                                    subject=f"VerbaPost Receipt: Order #{d_id}",
-                                    html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking}</p>"
-                                )
-                        else:
-                            # STANDARD POSTGRID API
-                            if letter_format and mailer:
-                                logger.info(f"[DEBUG] Mailing Free Order... To: {t_addr}")
-                                pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
-                                tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, description=f"Free Order {d_id}")
+                            if tracking:
                                 status_msg = "Sent"
+                            else:
+                                # Fallback to manual if API fails
+                                tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
+                                status_msg = "Queued (Manual)"
+                                logger.warning(f"API Failed for Free Order {d_id}. Routed to Manual Queue.")
 
                         if tracking:
                             # 2. UPDATE DB
                             # Use Nuclear Update for Status too just in case
                             try:
                                 db_url = secrets_manager.get_secret("SUPABASE_DB_URL") or os.environ.get("SUPABASE_DB_URL")
+                                from sqlalchemy import create_engine
                                 temp_engine = create_engine(db_url, echo=False)
                                 with temp_engine.begin() as conn:
                                     conn.execute(
@@ -807,8 +787,8 @@ def render_review_page():
                             if promo_code:
                                 database.record_promo_usage(promo_code, u_email)
 
-                            # 5. SEND RECEIPT EMAIL (ADDED)
-                            if email_engine and current_tier_str.lower() != "vintage": # Vintage handled above
+                            # 5. SEND RECEIPT EMAIL
+                            if email_engine:
                                 try:
                                     logger.info("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
@@ -816,14 +796,13 @@ def render_review_page():
                                         subject=f"VerbaPost Receipt: Order #{d_id}",
                                         html_content=f"""
                                         <h3>Letter Sent Successfully!</h3>
-                                        <p>Your letter has been dispatched to the post office (Free via Promo).</p>
-                                        <p><b>Tracking ID:</b> {tracking}</p>
+                                        <p>Your letter has been dispatched.</p>
+                                        <p><b>Order ID:</b> {tracking}</p>
                                         <p>Thank you for using VerbaPost.</p>
                                         """
                                     )
                                 except Exception as ex:
                                     logger.error(f"[DEBUG] Email Error: {ex}")
-                                    logger.error(f"Free Order Receipt Failed: {ex}")
 
                             # 6. SUCCESS
                             st.session_state.app_mode = "receipt"
@@ -837,10 +816,6 @@ def render_review_page():
 
     # --- PAID ORDERS ---
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
-        
-        # --- REMOVED "FINAL SAFETY SAVE" TO PREVENT DATA WIPE ---
-        # We rely on the data already saved (and verified) in the Workspace step.
-        # If we save here with empty session state, we nuke the DB record.
         
         if d_id and database:
             try: database.update_draft_data(d_id, price=total, status="Pending Payment")
