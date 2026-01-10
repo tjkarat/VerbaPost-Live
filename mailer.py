@@ -14,7 +14,8 @@ def get_api_config():
     Checks: st.secrets['pcm'] -> os.environ['PCM_API_KEY']
     """
     key = None
-    url = "https://api.pcmintegrations.com/direct-mail/v3" # Default v3 Base URL
+    # CORRECTED BASE URL FOR V3
+    url = "https://v3.pcmintegrations.com" 
 
     # 1. Try Streamlit Secrets
     if hasattr(st, "secrets") and "pcm" in st.secrets:
@@ -38,14 +39,14 @@ def _map_tier_attributes(tier):
     
     # Defaults (Standard, Civic, Campaign)
     specs = {
-        "paper_type": "Standard",     # Update if PCM uses specific ID (e.g. '60# Text')
-        "postage_type": "Metered",    # Standard Indicia
+        "paper_type": "Standard",     
+        "postage_type": "Metered",    
         "envelope": "#10 Double Window",
         "print_color": "Full Color"
     }
 
-    # Premium Tiers (Vintage, Heirloom)
-    if t in ["Vintage", "Heirloom"]:
+    # Premium Tiers (Vintage, Heirloom, Legacy)
+    if t in ["Vintage", "Heirloom", "Legacy"]:
         specs["paper_type"] = "70# Text"  # Request 70lb Paper
         specs["postage_type"] = "Live Stamp" # Request Real Stamp
         specs["envelope"] = "#10 Standard" # Standard envelope for manual feel
@@ -65,7 +66,7 @@ def validate_address(address_dict):
         "address_line1": address_dict.get("address_line1") or address_dict.get("street"),
         "address_line2": address_dict.get("address_line2", ""),
         "city": address_dict.get("city"),
-        "state_code": address_dict.get("state"), # PCM usually expects 2-char code
+        "state_code": address_dict.get("state"), 
         "postal_code": address_dict.get("zip_code") or address_dict.get("zip"),
         "country_code": "US"
     }
@@ -77,12 +78,12 @@ def validate_address(address_dict):
         
         if resp.status_code == 200:
             data = resp.json()
-            if data.get("is_valid", True): # Adjust based on exact PCM response field
+            if data.get("is_valid", True): 
                 return True, address_dict
             else:
                 return False, {"error": "Invalid Address according to USPS data."}
         
-        # If API Endpoint fails (404/500), Log it but ALLOW passage to not break app
+        # If API Endpoint fails, Log but ALLOW passage
         logger.warning(f"PCM Validation Endpoint Failed ({resp.status_code}). Allowing address.")
         return True, address_dict
 
@@ -106,8 +107,6 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
         specs = _map_tier_attributes(tier)
 
         # 2. Prepare Metadata (JSON)
-        # Note: PCM v3 often uses a 'json' field within multipart, or direct fields.
-        # This implementation assumes the standard multipart pattern.
         order_details = {
             "external_id": description[:50],
             "recipient": {
@@ -136,15 +135,14 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
             }
         }
 
-        # 3. Construct Request
+        # 3. Construct Request (Trying /orders/create first, then /orders)
         url = f"{base_url}/orders/create"
         
-        # Files + Data
         files = {
             'file': ('letter.pdf', pdf_bytes, 'application/pdf')
         }
         data = {
-            'order': json.dumps(order_details) # Most APIs expect JSON string here
+            'order': json.dumps(order_details) 
         }
 
         resp = requests.post(
@@ -153,6 +151,14 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
             files=files,
             data=data
         )
+
+        if resp.status_code == 404:
+             # Fallback: Some v3 implementations use just /orders
+             url_fallback = f"{base_url}/orders"
+             logger.info("PCM: Retrying with fallback endpoint /orders ...")
+             # Re-open file pointer for retry
+             files = {'file': ('letter.pdf', pdf_bytes, 'application/pdf')}
+             resp = requests.post(url_fallback, headers={"Authorization": f"Bearer {key}"}, files=files, data=data)
 
         if resp.status_code in [200, 201]:
             res_json = resp.json()
