@@ -110,12 +110,14 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0)
         
-        # Date
+        # --- DATE (Moved to Right) ---
         current_date = datetime.now().strftime("%B %d, %Y")
-        pdf.cell(0, 5, current_date, ln=1)
+        pdf.cell(0, 5, current_date, align='R', ln=1)
         pdf.ln(5)
         
-        # From Address Block
+        # --- FROM ADDRESS (Return Address) ---
+        # We keep this manual because PCM/PostGrid often expects the PDF to contain the Return Address
+        # for the top window of a double-window envelope.
         f_name = _safe_get(from_addr, 'name') or _safe_get(from_addr, 'company')
         f_street = _safe_get(from_addr, 'address_line1') or _safe_get(from_addr, 'street')
         f_line2 = _safe_get(from_addr, 'address_line2') or _safe_get(from_addr, 'street2')
@@ -126,26 +128,16 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         from_lines = [f_name, f_street, f_line2, f"{f_city}, {f_state} {f_zip}"]
         from_text = "\n".join([str(L) for L in from_lines if L and str(L).strip() != ",  "])
         pdf.multi_cell(0, 5, _sanitize_text(from_text))
-        pdf.ln(5)
-
-        # To Address Block
-        t_name = _safe_get(to_addr, 'name')
-        t_street = _safe_get(to_addr, 'address_line1') or _safe_get(to_addr, 'street')
-        t_line2 = _safe_get(to_addr, 'address_line2') or _safe_get(to_addr, 'street2')
-        t_city = _safe_get(to_addr, 'city')
-        t_state = _safe_get(to_addr, 'state')
-        t_zip = _safe_get(to_addr, 'zip_code') or _safe_get(to_addr, 'zip')
-
-        to_lines = [t_name, t_street, t_line2, f"{t_city}, {t_state} {t_zip}"]
-        to_text = "\n".join([str(L) for L in to_lines if L and str(L).strip() != ",  "])
-        pdf.multi_cell(0, 5, _sanitize_text(to_text))
         
-        # Space before body
-        pdf.ln(10)
+        # --- TO ADDRESS (Recipient) ---
+        # DISABLED: PCM/PostGrid stamps the Recipient Address (with Barcode) automatically.
+        # We disable manual rendering here to prevent duplicates/overlaps.
+        # We ADD SPACING to ensure the body text starts below the window area.
+        
+        # Space for From Address + Window Gap
+        pdf.ln(25) 
 
         # 6. Render Letter Body
-        # Removed hardcoded set_y to allow natural flow after address blocks
-        
         safe_body = _sanitize_text(body_text)
         if not safe_body.strip(): safe_body = "[No Content Provided]"
             
@@ -161,7 +153,6 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         if audio_url:
             try:
                 # Construct Player URL
-                # Note: Ideally fetch base_url from env/secrets, using hardcoded fallback per prompt
                 player_link = f"https://app.verbapost.com/?play={audio_url}"
                 
                 # Generate QR
@@ -172,11 +163,6 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
                     qr_img.save(tmp_qr.name)
                     
                     # Position: Bottom Center of Current Page
-                    # A4 Width ~210mm / US Letter ~215mm
-                    # QR Width 30mm
-                    # X = (215.9 - 30) / 2 = ~92.95
-                    
-                    # Calculate vertical position: Ensure it fits or add page
                     y_pos = pdf.get_y() + 10
                     if y_pos > (PAGE_HEIGHT_MM - MARGIN_MM - 40): # Check if space remains
                         pdf.add_page()
