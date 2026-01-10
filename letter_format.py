@@ -5,6 +5,7 @@ import os
 import logging
 import tempfile
 import qrcode
+from datetime import datetime
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
@@ -105,12 +106,45 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         # 4. Add Page
         pdf.add_page()
 
-        # 5. Position Cursor for Body (Just below top margin)
-        pdf.set_y(MARGIN_MM + 10) 
+        # 5. Header Content (Date, From, To)
+        pdf.set_font(font_family, size=12)
+        pdf.set_text_color(0, 0, 0)
+        
+        # Date
+        current_date = datetime.now().strftime("%B %d, %Y")
+        pdf.cell(0, 5, current_date, ln=1)
+        pdf.ln(5)
+        
+        # From Address Block
+        f_name = _safe_get(from_addr, 'name') or _safe_get(from_addr, 'company')
+        f_street = _safe_get(from_addr, 'address_line1') or _safe_get(from_addr, 'street')
+        f_line2 = _safe_get(from_addr, 'address_line2') or _safe_get(from_addr, 'street2')
+        f_city = _safe_get(from_addr, 'city')
+        f_state = _safe_get(from_addr, 'state')
+        f_zip = _safe_get(from_addr, 'zip_code') or _safe_get(from_addr, 'zip')
+        
+        from_lines = [f_name, f_street, f_line2, f"{f_city}, {f_state} {f_zip}"]
+        from_text = "\n".join([str(L) for L in from_lines if L and str(L).strip() != ",  "])
+        pdf.multi_cell(0, 5, _sanitize_text(from_text))
+        pdf.ln(5)
+
+        # To Address Block
+        t_name = _safe_get(to_addr, 'name')
+        t_street = _safe_get(to_addr, 'address_line1') or _safe_get(to_addr, 'street')
+        t_line2 = _safe_get(to_addr, 'address_line2') or _safe_get(to_addr, 'street2')
+        t_city = _safe_get(to_addr, 'city')
+        t_state = _safe_get(to_addr, 'state')
+        t_zip = _safe_get(to_addr, 'zip_code') or _safe_get(to_addr, 'zip')
+
+        to_lines = [t_name, t_street, t_line2, f"{t_city}, {t_state} {t_zip}"]
+        to_text = "\n".join([str(L) for L in to_lines if L and str(L).strip() != ",  "])
+        pdf.multi_cell(0, 5, _sanitize_text(to_text))
+        
+        # Space before body
+        pdf.ln(10)
 
         # 6. Render Letter Body
-        pdf.set_font(font_family, size=12)
-        pdf.set_text_color(0, 0, 0) 
+        # Removed hardcoded set_y to allow natural flow after address blocks
         
         safe_body = _sanitize_text(body_text)
         if not safe_body.strip(): safe_body = "[No Content Provided]"
