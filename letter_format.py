@@ -4,6 +4,7 @@ import io
 import os
 import logging
 import tempfile
+import qrcode
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
@@ -74,30 +75,10 @@ def _safe_get(obj, key, default=""):
     if isinstance(obj, dict): return obj.get(key, default)
     return getattr(obj, key, default)
 
-def _format_address_block(addr_obj):
-    """
-    Formats an address object into a standard multi-line string.
-    Kept for compatibility even if not currently printed on the PDF body.
-    """
-    if not addr_obj: return ""
-    lines = []
-    name = _safe_get(addr_obj, 'name', '').strip()
-    if name: lines.append(name)
-    street1 = _safe_get(addr_obj, 'address_line1', '').strip() or _safe_get(addr_obj, 'street', '').strip()
-    if street1: lines.append(street1)
-    street2 = _safe_get(addr_obj, 'address_line2', '').strip()
-    if street2: lines.append(street2)
-    city = _safe_get(addr_obj, 'city', '').strip()
-    state = _safe_get(addr_obj, 'state', '').strip()
-    zip_code = _safe_get(addr_obj, 'zip_code', '').strip() or _safe_get(addr_obj, 'zip', '').strip()
-    city_line = f"{city}, {state} {zip_code}".strip()
-    if city_line != ",": lines.append(city_line)
-    return "\n".join(lines)
-
 def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text="", audio_url=None):
     """
     Generates the final PDF bytes for the letter.
-    FIX: Removed address blocks and vertical offset.
+    Supports Audio QR Code if audio_url is provided.
     """
     try:
         # 1. Determine Footer Text
@@ -124,12 +105,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         # 4. Add Page
         pdf.add_page()
 
-        # --- FIX: ADDRESS BLOCKS REMOVED ---
-        # The code that printed Sender/Recipient addresses here has been removed.
-
-        # 5. Position Cursor for Body
-        # --- FIX: Removed pdf.set_y(100) ---
-        # We now start just below the top margin
+        # 5. Position Cursor for Body (Just below top margin)
         pdf.set_y(MARGIN_MM + 10) 
 
         # 6. Render Letter Body
@@ -147,7 +123,45 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
              pdf.set_font(font_family, 'I', 14) 
              pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
 
-        # 8. Output
+        # 8. AUDIO QR CODE (Heirloom)
+        if audio_url:
+            try:
+                # Construct Player URL
+                # Note: Ideally fetch base_url from env/secrets, using hardcoded fallback per prompt
+                player_link = f"https://app.verbapost.com/?play={audio_url}"
+                
+                # Generate QR
+                qr_img = qrcode.make(player_link)
+                
+                # Use temp file to insert into FPDF
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_qr:
+                    qr_img.save(tmp_qr.name)
+                    
+                    # Position: Bottom Center of Current Page
+                    # A4 Width ~210mm / US Letter ~215mm
+                    # QR Width 30mm
+                    # X = (215.9 - 30) / 2 = ~92.95
+                    
+                    # Calculate vertical position: Ensure it fits or add page
+                    y_pos = pdf.get_y() + 10
+                    if y_pos > (PAGE_HEIGHT_MM - MARGIN_MM - 40): # Check if space remains
+                        pdf.add_page()
+                        y_pos = MARGIN_MM + 10
+                    
+                    x_center = (PAGE_WIDTH_MM - 30) / 2
+                    pdf.image(tmp_qr.name, x=x_center, y=y_pos, w=30)
+                    
+                    # Add Caption
+                    pdf.set_y(y_pos + 32)
+                    pdf.set_font("Helvetica", size=9)
+                    pdf.cell(0, 5, "Scan to listen to this story", align='C', ln=1)
+                    
+                os.unlink(tmp_qr.name) # Cleanup
+                
+            except Exception as e:
+                logger.error(f"QR Generation Error: {e}")
+
+        # 9. Output
         raw_output = pdf.output(dest='S')
         if isinstance(raw_output, str): return raw_output.encode('latin-1')
         elif isinstance(raw_output, bytearray): return bytes(raw_output)

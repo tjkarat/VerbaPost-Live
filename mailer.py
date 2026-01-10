@@ -10,6 +10,8 @@ try: import audit_engine
 except ImportError: audit_engine = None
 try: import storage_engine # REQUIRED for V3 URL generation
 except ImportError: storage_engine = None
+try: import letter_format # REQUIRED for PDF generation with QR
+except ImportError: letter_format = None
 
 # --- LOGGING ---
 logging.basicConfig(level=logging.INFO)
@@ -91,12 +93,24 @@ def validate_address(address_dict):
         logger.error(f"Validation Exception: {e}")
         return True, address_dict
 
-def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="VerbaPost", user_email=None):
+def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="VerbaPost", user_email=None, audio_url=None, content=None):
     """
     1. Upload PDF -> Get Signed URL.
     2. Login -> Get Token.
     3. Send JSON Order.
+    
+    If pdf_bytes is None and content+audio_url provided, can generate PDF using letter_format.
     """
+    
+    # --- AUTO-GENERATE PDF IF MISSING (Support for Audio QR Flow) ---
+    if not pdf_bytes and content and letter_format:
+        try:
+            logger.info("Generating PDF inside mailer (including QR code)...")
+            pdf_bytes = letter_format.create_pdf(content, to_addr, from_addr, tier=tier, audio_url=audio_url)
+        except Exception as e:
+            logger.error(f"Auto-PDF Generation Failed: {e}")
+            return None
+
     key, secret, base_url = get_api_config()
     if not key or not secret:
         logger.error("PCM: Missing API Key or Secret")

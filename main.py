@@ -53,7 +53,8 @@ def get_module(module_name):
             "payment_engine": "payment_engine",
             "database": "database",
             "analytics": "analytics",
-            "auth_engine": "auth_engine"
+            "auth_engine": "auth_engine",
+            "storage_engine": "storage_engine"
         }
         if module_name in known_modules:
             return __import__(known_modules[module_name])
@@ -93,12 +94,49 @@ def inject_dynamic_seo(mode):
 
 # --- MAIN LOGIC ---
 def main():
-    # 0. AUTH LISTENER (OAuth Hash Handler)
+    # 0. PLAYER ROUTE (Secure Audio Playback)
+    # Checks for ?play=path/to/audio.mp3
+    if "play" in st.query_params:
+        audio_ref = st.query_params["play"]
+        storage = get_module("storage_engine")
+        
+        if audio_ref and storage:
+            try:
+                # Generate Secure Link (Valid for 1 hour)
+                signed_url = storage.get_signed_url(audio_ref)
+                
+                if signed_url:
+                    st.markdown("<br><br>", unsafe_allow_html=True)
+                    st.title("🎧 Listen to Story")
+                    st.caption("VerbaPost Family Archive")
+                    st.audio(signed_url)
+                    
+                    st.divider()
+                    
+                    if st.button("🏠 Go to VerbaPost Home", use_container_width=True):
+                        st.query_params.clear()
+                        st.rerun()
+                    
+                    # Stop execution here to prevent loading the full app
+                    return
+                else:
+                    st.error("Audio file unavailable or expired.")
+            except Exception as e:
+                logger.error(f"Player Error: {e}")
+                st.error("Could not load audio player.")
+        
+        if st.button("Back"):
+             st.query_params.clear()
+             st.rerun()
+        return
+
+    # --- START NORMAL APP FLOW ---
+
+    # 1. AUTH LISTENER (OAuth Hash Handler)
     if auth_listener:
         auth_listener.listen_for_oauth()
 
     # --- NEW: OAUTH HANDSHAKE ---
-    # Catches the reload AFTER auth_listener has converted hash to query params
     if "type" in st.query_params and st.query_params["type"] == "oauth_callback":
         token = st.query_params.get("access_token")
         
@@ -106,24 +144,17 @@ def main():
             auth_eng = get_module("auth_engine")
             
             if auth_eng:
-                # We use a spinner to indicate activity while verifying
                 with st.spinner("Verifying Google Account..."):
                     email, err = auth_eng.verify_oauth_token(token)
                     
                     if email:
-                        # SUCCESS! Log them in
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
-                        
-                        # Clean the URL so token doesn't leak or re-trigger
                         st.query_params.clear()
-                        
-                        # Route to Heirloom (Archive) by default for Google Logins
                         st.session_state.app_mode = "heirloom"
                         st.rerun()
                     else:
                         st.error(f"Authentication Failed: {err}")
-    # ---------------------------
 
     # 2. DETERMINE SYSTEM MODE
     if "system_mode" not in st.session_state:
@@ -141,49 +172,37 @@ def main():
 
     # 4. Default Routing Logic
     if "app_mode" not in st.session_state:
-        # Check URL for navigation targets
         nav_target = st.query_params.get("nav")
         
-        # --- PUBLIC ROUTES (No Auth Required) ---
         if nav_target == "login":
             st.session_state.app_mode = "login"
-            if system_mode == "archive":
-                st.session_state.redirect_to = "heirloom"
-            else:
-                st.session_state.redirect_to = "main"
+            if system_mode == "archive": st.session_state.redirect_to = "heirloom"
+            else: st.session_state.redirect_to = "main"
 
-        elif nav_target == "legal":
-             st.session_state.app_mode = "legal"
-             
-        elif nav_target == "blog":
-             st.session_state.app_mode = "blog"
+        elif nav_target == "legal": st.session_state.app_mode = "legal"
+        elif nav_target == "blog": st.session_state.app_mode = "blog"
 
-        # --- PROTECTED ROUTES (Auth Required) ---
         elif nav_target == "heirloom":
-            if st.session_state.get("authenticated"):
-                st.session_state.app_mode = "heirloom"
+            if st.session_state.get("authenticated"): st.session_state.app_mode = "heirloom"
             else:
                 st.session_state.app_mode = "login"
                 st.session_state.redirect_to = "heirloom"
 
         elif nav_target == "store":
-            if st.session_state.get("authenticated"):
-                 st.session_state.app_mode = "main"
+            if st.session_state.get("authenticated"): st.session_state.app_mode = "main"
             else:
                 st.session_state.app_mode = "login"
                 st.session_state.redirect_to = "main"
 
         else:
-            # Fallback to Splash
             st.session_state.app_mode = "splash"
             
-    # 5. LAZY SUBSCRIPTION CHECK (Refills credits on login)
+    # 5. LAZY SUBSCRIPTION CHECK
     if st.session_state.get("authenticated") and not st.session_state.get("credits_synced"):
         pay_eng = get_module("payment_engine")
         user_email = st.session_state.get("user_email")
         if pay_eng and user_email:
             try:
-                # Calls Stripe and syncs local DB
                 if pay_eng.check_subscription_status(user_email):
                     st.toast("🔄 Monthly Credits Refilled!")
             except Exception as e:
@@ -196,7 +215,6 @@ def main():
     # 7. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
     
-    # --- ROUTE MAP ---
     route_map = {
         "login":     ("ui_login", "render_login_page"),
         "legal":     ("ui_legal", "render_legal_page"),
@@ -229,12 +247,10 @@ def render_sidebar(mode):
         st.header("VerbaPost" if mode == "utility" else "The Archive")
         
         if st.session_state.get("authenticated"):
-            # --- NAVIGATION BUTTONS ---
             if mode == "utility":
                 if st.button("✉️ Letter Store", use_container_width=True):
-                    # SAFETY: Ensure mode is sticky in Session AND URL
                     st.session_state.system_mode = "utility"
-                    st.query_params["mode"] = "utility" # <--- FIXED: Updates URL
+                    st.query_params["mode"] = "utility"
                     st.session_state.app_mode = "main"
                     st.rerun()
                 
@@ -249,9 +265,8 @@ def render_sidebar(mode):
                     st.session_state.app_mode = "heirloom"; st.rerun()
                 
                 if st.button("🔄 Switch to Letter Store", use_container_width=True):
-                    # SAFETY: Update Session AND URL
                     st.session_state.system_mode = "utility"
-                    st.query_params["mode"] = "utility" # <--- FIXED: Updates URL
+                    st.query_params["mode"] = "utility"
                     st.session_state.app_mode = "main"
                     st.rerun()
 
@@ -266,23 +281,15 @@ def render_sidebar(mode):
             user_email = st.session_state.get("user_email")
             st.caption(f"Logged in as: {user_email}")
             
-            # --- FIXED: HARD LOGOUT ---
             if st.button("🚪 Sign Out", use_container_width=True):
-                # 1. Kill Supabase Session (if engine available)
                 auth_eng = get_module("auth_engine")
-                if auth_eng and hasattr(auth_eng, "sign_out"):
-                    auth_eng.sign_out()
+                if auth_eng and hasattr(auth_eng, "sign_out"): auth_eng.sign_out()
                 
-                # 2. Clear Streamlit Session State
                 keys_to_clear = ["authenticated", "user_email", "credits_synced", "user_profile"]
                 for key in keys_to_clear:
-                    if key in st.session_state:
-                        del st.session_state[key]
+                    if key in st.session_state: del st.session_state[key]
                 
-                # 3. Clear URL Params (Crucial for OAuth loops)
                 st.query_params.clear()
-                
-                # 4. Redirect to Splash
                 st.session_state.app_mode = "splash"
                 st.rerun()
             
@@ -297,28 +304,20 @@ def render_sidebar(mode):
                     st.session_state.app_mode = "admin"; st.rerun()
 
 def handle_payment_return(session_id):
-    """
-    Handles Stripe Callback with TYPE SAFE DRAFT RECOVERY & FULFILLMENT.
-    """
     db = get_module("database")
     pay_eng = get_module("payment_engine")
-    
-    # Preserve current mode so clearing params doesn't reset us to Archive
     current_mode = st.session_state.get("system_mode", "archive")
 
-    # 1. IDEMPOTENCY CHECK
     if db and hasattr(db, "is_fulfillment_recorded"):
         if db.is_fulfillment_recorded(session_id):
-             logger.info(f"Payment {session_id} already recorded.")
              if st.session_state.get("system_mode") == "utility":
                  st.session_state.app_mode = "receipt"
              else:
                  st.session_state.app_mode = "heirloom"
              st.query_params.clear()
-             st.query_params["mode"] = current_mode # Restore Mode
+             st.query_params["mode"] = current_mode
              return
 
-    # 2. RECORD FULFILLMENT ATTEMPT
     is_new = True
     if db and hasattr(db, "record_stripe_fulfillment"):
         is_new = db.record_stripe_fulfillment(session_id)
@@ -327,18 +326,13 @@ def handle_payment_return(session_id):
     if pay_eng:
         user_email = st.session_state.get("user_email")
         try:
-            # 3. VERIFY SESSION
             raw_obj = pay_eng.verify_session(session_id)
-            
             if raw_obj:
-                # SUCCESS LOGIC
                 if not user_email and hasattr(raw_obj, 'customer_email'):
                     user_email = raw_obj.customer_email
-                
                 st.session_state.authenticated = True
                 st.session_state.user_email = user_email
 
-                # Audit Log
                 if db and hasattr(db, "save_audit_log"):
                     try:
                         db.save_audit_log({
@@ -356,32 +350,20 @@ def handle_payment_return(session_id):
                 ref_id = getattr(raw_obj, 'client_reference_id', '')
                 if hasattr(raw_obj, 'metadata') and raw_obj.metadata:
                     meta_id = raw_obj.metadata.get('draft_id', '')
-                    promo_code = raw_obj.metadata.get('promo_code', '') # Extract Promo
+                    promo_code = raw_obj.metadata.get('promo_code', '') 
 
-                # A. Subscription
                 if (ref_id == "SUBSCRIPTION_INIT") or (meta_id == "SUBSCRIPTION_INIT"):
                     if db and user_email: 
-                        # REFILLED via update_subscription_state internally if we were strictly using payment_engine logic
-                        # But for safety here we do explicit updates
                         db.update_user_credits(user_email, 4)
                         if hasattr(raw_obj, 'subscription'):
-                            # Use new function to sync subscription state immediately
-                            sub_id = raw_obj.subscription
-                            # Note: To get end date we'd need to query subscription object again, 
-                            # but check_subscription_status will catch it on next login anyway.
-                            # Just storing ID is good for now.
                             try:
-                                # Quick update for ID
                                 with db.get_db_session() as s:
                                     p = s.query(db.UserProfile).filter_by(email=user_email).first()
-                                    if p: p.stripe_subscription_id = sub_id
+                                    if p: p.stripe_subscription_id = raw_obj.subscription
                             except: pass
 
-                    # Log Promo Usage for Subscriptions
-                    if promo_code and db:
-                        db.record_promo_usage(promo_code, user_email)
+                    if promo_code and db: db.record_promo_usage(promo_code, user_email)
 
-                    # Send Welcome Email
                     if email_engine:
                         try:
                             email_engine.send_email(
@@ -393,40 +375,31 @@ def handle_payment_return(session_id):
                             logger.error(f"Welcome Email Failed: {e}")
 
                     st.query_params.clear()
-                    st.query_params["mode"] = "archive" # Restore Mode
+                    st.query_params["mode"] = "archive"
                     st.session_state.system_mode = "archive"
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
                     return
 
-                # B. Single Letter (Utility)
                 target_draft_id = None
-                if meta_id:
-                     target_draft_id = str(meta_id) # FIRST FORCE STRING
+                if meta_id: target_draft_id = str(meta_id)
                 
-                # --- AGGRESSIVE RECOVERY LOGIC (Fix for Promo Code 404s) ---
                 if not target_draft_id and db and user_email:
                     with db.get_db_session() as s:
-                         # 1. Try 'Pending Payment' first
                          fallback = s.query(db.LetterDraft).filter(
                              db.LetterDraft.user_email == user_email,
                              db.LetterDraft.status == "Pending Payment"
                          ).order_by(db.LetterDraft.created_at.desc()).first()
-                         
-                         # 2. If fails, try ANY draft from last 1 hour
                          if not fallback:
                              cutoff = datetime.utcnow() - timedelta(hours=1)
                              fallback = s.query(db.LetterDraft).filter(
                                  db.LetterDraft.user_email == user_email,
                                  db.LetterDraft.created_at >= cutoff
                              ).order_by(db.LetterDraft.created_at.desc()).first()
-                             
-                         if fallback:
-                             target_draft_id = str(fallback.id) # FORCE STRING AGAIN
+                         if fallback: target_draft_id = str(fallback.id)
 
                 if db and target_draft_id:
                     with db.get_db_session() as s:
-                        # FILTER WITH EXPLICIT STRING
                         d = s.query(db.LetterDraft).filter(db.LetterDraft.id == str(target_draft_id)).first()
                         if d:
                             d.status = "Paid/Writing"
@@ -434,103 +407,48 @@ def handle_payment_return(session_id):
                             st.session_state.locked_tier = d.tier 
                             st.session_state.current_draft_id = str(target_draft_id)
                             
-                            # --- FULFILLMENT LOGIC ---
                             tracking_num = None
                             
-                            # --- FIX: ROUTE VINTAGE TO MANUAL QUEUE ---
                             if d.tier == "Vintage":
-                                # MANUAL QUEUE
                                 tracking_num = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                                 d.status = "Queued (Manual)"
                                 d.tracking_number = tracking_num
-                                logger.info(f"Paid Vintage Order {target_draft_id} sent to Manual Queue")
-                                
-                                # 1. NOTIFY ADMIN (NEW)
                                 if email_engine:
-                                    email_engine.send_admin_alert(
-                                        trigger_event="New Vintage Letter (Paid)",
-                                        details_html=f"""
-                                        <p><strong>User:</strong> {user_email}</p>
-                                        <p><strong>Draft ID:</strong> {target_draft_id}</p>
-                                        <p><strong>Tracking:</strong> {tracking_num}</p>
-                                        """
-                                    )
-                                
-                                # 2. Send "Queued" Receipt to User
-                                if email_engine:
-                                    try:
-                                        email_engine.send_email(
-                                            to_email=user_email,
-                                            subject=f"VerbaPost Receipt: Order #{target_draft_id}",
-                                            html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking_num}</p>"
-                                        )
-                                    except Exception as ex:
-                                        logger.error(f"Queued Receipt Failed: {ex}")
+                                    email_engine.send_admin_alert("New Vintage Letter (Paid)", f"Draft: {target_draft_id}")
                             
-                            # --- STANDARD POSTGRID API ---
                             elif mailer and letter_format:
                                 try:
-                                    # Parse stored JSON strings
                                     to_addr = ast.literal_eval(d.to_addr) if d.to_addr else {}
                                     from_addr = ast.literal_eval(d.from_addr) if d.from_addr else {}
-                                    
-                                    # Create PDF
                                     pdf_bytes = letter_format.create_pdf(d.content, to_addr, from_addr, tier=d.tier)
-                                    
-                                    # Send to PostGrid
                                     tracking_num = mailer.send_letter(
                                         pdf_bytes, to_addr, from_addr, 
                                         description=f"Paid Order {target_draft_id}"
                                     )
-                                    
                                     if tracking_num:
                                         d.status = "Sent"
                                         d.tracking_number = tracking_num
-                                        
-                                        # Send "Sent" Receipt
-                                        if email_engine:
-                                            try:
-                                                email_engine.send_email(
-                                                    to_email=user_email,
-                                                    subject=f"VerbaPost Receipt: Order #{target_draft_id}",
-                                                    html_content=f"""
-                                                    <h3>Letter Sent Successfully!</h3>
-                                                    <p>Your letter has been dispatched to the post office.</p>
-                                                    <p><b>Tracking ID:</b> {tracking_num}</p>
-                                                    <p>Thank you for using VerbaPost.</p>
-                                                    """
-                                                )
-                                            except Exception as ex:
-                                                logger.error(f"Receipt Email Failed: {ex}")
-                                    else:
-                                        logger.error("Mailing Failed during fulfillment.")
-                                        
                                 except Exception as fulfillment_err:
                                     logger.error(f"Fulfillment Error: {fulfillment_err}")
 
                             s.commit() 
-                            
-                            # RECORD PROMO USAGE FOR SINGLE LETTERS
-                            if promo_code:
-                                db.record_promo_usage(promo_code, user_email)
+                            if promo_code: db.record_promo_usage(promo_code, user_email)
 
                             st.session_state.system_mode = "utility"
                             st.session_state.app_mode = "receipt"
                             st.query_params.clear()
-                            st.query_params["mode"] = "utility" # Restore Mode
+                            st.query_params["mode"] = "utility"
                             st.rerun()
                             return
                 
-                # If we absolutely cannot find the draft, go to Heirloom
                 st.query_params.clear()
                 st.session_state.app_mode = "heirloom"
                 st.rerun()
 
             else:
-                # FAILURE CASE
                 st.error("⚠️ Payment verification failed or session expired.")
                 st.query_params.clear()
-                st.query_params["mode"] = current_mode # Restore Mode
+                st.query_params["mode"] = current_mode
                 time.sleep(2)
                 st.session_state.app_mode = "store"
                 st.rerun()
@@ -538,7 +456,7 @@ def handle_payment_return(session_id):
         except Exception as e:
             logger.error(f"Payment Verification Crash: {e}")
             st.query_params.clear()
-            st.query_params["mode"] = current_mode # Restore Mode
+            st.query_params["mode"] = current_mode
             st.rerun()
 
 if __name__ == "__main__":
