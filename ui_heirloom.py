@@ -502,50 +502,61 @@ def render_dashboard():
                                 snapshot_to = {
                                     "name": recipient_name, "street": recipient_street, 
                                     "city": recipient_city, "state": profile.get("address_state", ""), 
-                                    "zip": profile.get("address_zip", "")
+                                    "zip": profile.get("address_zip")
                                 }
                                 snapshot_from = {
                                     "name": sender_name, "street": "VerbaPost Archive Ctr", 
                                     "city": "Nashville", "state": "TN", "zip": "37209"
                                 }
 
-                                ref_id = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
-                                
-                                new_credits = credits - 1
-                                if database:
-                                    database.update_user_credits(user_email, new_credits)
-                                    
-                                    # --- ATOMIC UPDATE CALL ---
-                                    if _force_heirloom_update(d_id, snapshot_to, snapshot_from, "Queued (Manual)", ref_id):
-                                        st.success("Data secured in DB.")
-                                    else:
-                                        st.error("DB Write Failed.")
-                                
-                                # 1. NOTIFY ADMIN (NEW)
-                                if email_engine:
-                                    email_engine.send_admin_alert(
-                                        trigger_event="New Heirloom Letter",
-                                        details_html=f"""
-                                        <p><strong>User:</strong> {user_email}</p>
-                                        <p><strong>Ref ID:</strong> {ref_id}</p>
-                                        <p><strong>Status:</strong> Queued for Manual Print</p>
-                                        """
-                                    )
-
-                                # 2. NOTIFY USER
-                                _send_receipt(
-                                    user_email,
-                                    f"VerbaPost Sent: {d_date}",
-                                    f"<h3>Story Queued!</h3><p>Your letter is in the manual print queue.</p><p>ID: {ref_id}</p>"
-                                )
-                                if audit_engine:
-                                    audit_engine.log_event(user_email, "HEIRLOOM_SENT_MANUAL", metadata={"ref": ref_id})
-                                
-                                st.session_state.user_profile['credits'] = new_credits
-                                st.balloons()
-                                st.success(f"✅ Queued for Printing! ID: {ref_id}")
-                                time.sleep(2)
-                                st.rerun()
+                                # --- UPDATED FULFILLMENT LOGIC (PCM API) ---
+                                if mailer and letter_format:
+                                    try:
+                                        # 1. Generate PDF
+                                        pdf = letter_format.create_pdf(
+                                            new_text, 
+                                            snapshot_to, 
+                                            snapshot_from, 
+                                            tier="Heirloom" # Important for 70lb/Stamp
+                                        )
+                                        
+                                        # 2. Send via PCM
+                                        track_id = mailer.send_letter(
+                                            pdf, 
+                                            snapshot_to, 
+                                            snapshot_from, 
+                                            tier="Heirloom",
+                                            description=f"Heirloom {d_id}",
+                                            user_email=user_email # <--- PASS USER EMAIL HERE
+                                        )
+                                        
+                                        if track_id:
+                                            # 3. Atomic Deduction
+                                            new_credits = credits - 1
+                                            database.update_user_credits(user_email, new_credits)
+                                            _force_heirloom_update(d_id, snapshot_to, snapshot_from, "Sent", track_id)
+                                            st.session_state.user_profile['credits'] = new_credits
+                                            
+                                            # 4. Notify
+                                            _send_receipt(
+                                                user_email,
+                                                f"VerbaPost Sent: {d_date}",
+                                                f"<h3>Story Sent!</h3><p>Order ID: {track_id}</p>"
+                                            )
+                                            if audit_engine:
+                                                audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"track": track_id})
+                                            
+                                            st.balloons()
+                                            st.success(f"✅ Sent! Order ID: {track_id}")
+                                            time.sleep(2)
+                                            st.rerun()
+                                        else:
+                                            st.error("Mailing Service Error. Please try again or contact support.")
+                                            
+                                    except Exception as e:
+                                        st.error(f"System Error: {e}")
+                                else:
+                                    st.error("Mailer Engine Missing")
                             else: st.error("Insufficient Credits. Please top up.")
                 else:
                     st.success(f"Sent! Tracking Number: {draft.get('tracking_number', 'N/A')}")

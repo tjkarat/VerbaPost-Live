@@ -4,6 +4,10 @@ import os
 import streamlit as st
 import logging
 
+# --- IMPORTS ---
+try: import audit_engine
+except ImportError: audit_engine = None
+
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -11,10 +15,8 @@ logger = logging.getLogger(__name__)
 def get_api_config():
     """
     Retrieves PCM API credentials safely.
-    Checks: st.secrets['pcm'] -> os.environ['PCM_API_KEY']
     """
     key = None
-    # CORRECTED BASE URL FOR V3
     url = "https://v3.pcmintegrations.com" 
 
     # 1. Try Streamlit Secrets
@@ -91,9 +93,10 @@ def validate_address(address_dict):
         logger.error(f"Validation Exception: {e}")
         return True, address_dict # Fail open
 
-def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="VerbaPost Letter"):
+def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="VerbaPost Letter", user_email=None):
     """
     Sends PDF to PCM Integrations for fulfillment.
+    LOGS FULL API RESPONSE TO AUDIT_ENGINE.
     """
     key, base_url = get_api_config()
     if not key:
@@ -135,7 +138,8 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
             }
         }
 
-        # 3. Construct Request (Trying /orders/create first, then /orders)
+        # 3. Construct Request
+        # Attempt /orders/create first (Standard V3 Multipart)
         url = f"{base_url}/orders/create"
         
         files = {
@@ -152,21 +156,40 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
             data=data
         )
 
+        # Fallback for 404 (Some V3 implementations use /orders)
         if resp.status_code == 404:
-             # Fallback: Some v3 implementations use just /orders
              url_fallback = f"{base_url}/orders"
              logger.info("PCM: Retrying with fallback endpoint /orders ...")
-             # Re-open file pointer for retry
              files = {'file': ('letter.pdf', pdf_bytes, 'application/pdf')}
              resp = requests.post(url_fallback, headers={"Authorization": f"Bearer {key}"}, files=files, data=data)
 
         if resp.status_code in [200, 201]:
             res_json = resp.json()
             order_id = res_json.get("id") or res_json.get("order_id")
+            
+            # --- CRITICAL: AUDIT LOGGING ---
+            if audit_engine and user_email:
+                audit_engine.log_event(
+                    user_email, 
+                    "PCM_API_RESPONSE", 
+                    metadata=res_json # <--- CAPTURES ALL INFO
+                )
+                logger.info("✅ PCM Response logged to Audit.")
+            # -------------------------------
+
             logger.info(f"PCM Success! Order ID: {order_id}")
             return order_id
         else:
             logger.error(f"PCM Error {resp.status_code}: {resp.text}")
+            
+            # Log Failure to Audit as well
+            if audit_engine and user_email:
+                audit_engine.log_event(
+                    user_email, 
+                    "PCM_API_ERROR", 
+                    metadata={"status": resp.status_code, "error": resp.text}
+                )
+            
             return None
 
     except Exception as e:

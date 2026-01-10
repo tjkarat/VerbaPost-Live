@@ -1,110 +1,117 @@
-import csv
+import pandas as pd
 import io
+import streamlit as st
 import logging
-import audit_engine
-import mailer
-from address_standard import StandardAddress
+import time
+
+# --- IMPORTS ---
+try: import letter_format
+except ImportError: letter_format = None
+try: import mailer
+except ImportError: mailer = None
+try: import audit_engine
+except ImportError: audit_engine = None
 
 logger = logging.getLogger(__name__)
 
-def parse_csv(file_obj):
+def parse_csv(uploaded_file):
     """
-    Parses a CSV file using positional indexing to ensure 100% reliability.
+    Parses CSV and normalizes column headers.
+    Returns: List of dicts [{"name": "...", "street": "...", ...}]
     """
-    contacts = []
     try:
-        if hasattr(file_obj, "getvalue"):
-            content = file_obj.getvalue().decode("utf-8")
-        else:
-            content = file_obj
-            
-        f = io.StringIO(content)
-        reader = csv.reader(f)
+        df = pd.read_csv(uploaded_file)
         
-        headers = next(reader, None)
-        if not headers:
-            return []
+        # 1. Normalize Headers (Case insensitive)
+        df.columns = [c.strip().lower() for c in df.columns]
+        
+        # 2. Map variations to standard keys
+        # Standard: name, street, city, state, zip
+        column_map = {
+            "full name": "name", "recipient": "name",
+            "address": "street", "address 1": "street", "addr": "street", "address_line1": "street",
+            "town": "city",
+            "province": "state",
+            "postal": "zip", "zip code": "zip", "zipcode": "zip"
+        }
+        df.rename(columns=column_map, inplace=True)
+        
+        # 3. Validate Required Fields
+        required = ["name", "street", "city", "state", "zip"]
+        missing = [req for req in required if req not in df.columns]
+        
+        if missing:
+            logger.warning(f"CSV Missing columns: {missing}")
+            return None
+            
+        # 4. Fill NaNs
+        df.fillna("", inplace=True)
+        
+        return df.to_dict(orient="records")
+        
+    except Exception as e:
+        logger.error(f"CSV Parse Error: {e}")
+        return None
 
-        for row in reader:
-            if len(row) < 5:
-                logger.warning(f"Skipping row with insufficient data: {row}")
-                continue
-                
-            normalized = {
-                "name": row[0].strip() if row[0] else "",
-                "street": row[1].strip() if row[1] else "",
-                "city": row[2].strip() if row[2] else "",
-                "state": row[3].strip() if row[3] else "",
-                "zip": row[4].strip() if row[4] else "",
-                "address_line2": ""
+def process_campaign(contacts, letter_body, from_addr, user_email):
+    """
+    Iterates through contacts and sends letters via Mailer API.
+    """
+    if not mailer or not letter_format:
+        return 0, "Engines Missing"
+        
+    success_count = 0
+    fail_count = 0
+    
+    # Progress Bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    total = len(contacts)
+    
+    for i, contact in enumerate(contacts):
+        # Update UI
+        status_text.text(f"Processing {i+1}/{total}: {contact.get('name')}")
+        progress_bar.progress((i + 1) / total)
+        
+        try:
+            # 1. Prepare To-Address
+            to_addr = {
+                "name": contact.get("name"),
+                "street": contact.get("street"),
+                "city": contact.get("city"),
+                "state": contact.get("state"),
+                "zip": contact.get("zip")
             }
             
-            if normalized["name"] and normalized["street"]:
-                contacts.append(normalized)
-            else:
-                logger.warning(f"Skipping incomplete row: {row}")
-                
-        return contacts
-    except Exception as e:
-        logger.error(f"Critical CSV Parse Error: {e}")
-        return []
-
-def run_bulk_campaign(user_email, contacts, pdf_bytes, tier_name="Campaign"):
-    """
-    Back-end helper for bulk campaigns. 
-    Note: ui_main.py handles the UI loop, but this can be used for background jobs.
-    """
-    results = {
-        "success": 0,
-        "failed": 0,
-        "letter_ids": []
-    }
-
-    if not contacts:
-        return results
-
-    audit_engine.log_event(
-        user_email=user_email,
-        event_type="BULK_CAMPAIGN_START",
-        description=f"Campaign started for {len(contacts)} recipients.",
-        details={"tier": tier_name}
-    )
-
-    for contact_data in contacts:
-        try:
-            addr_to = StandardAddress.from_dict(contact_data)
+            # 2. Generate PDF
+            pdf_bytes = letter_format.create_pdf(letter_body, to_addr, from_addr, tier="Campaign")
             
-            success, response = mailer.send_letter(
-                pdf_bytes=pdf_bytes,
-                addr_to=addr_to,
-                addr_from=None, 
-                tier=tier_name
+            # 3. Send (PCM API)
+            # Use 'Campaign' tier so mailer defaults to Standard/Metered
+            track_id = mailer.send_letter(
+                pdf_bytes, 
+                to_addr, 
+                from_addr, 
+                tier="Campaign", 
+                description=f"Bulk {user_email}",
+                user_email=user_email # <--- PASS USER EMAIL HERE
             )
-
-            if success:
-                results["success"] += 1
-                letter_id = response if isinstance(response, str) else "unknown_id"
-                results["letter_ids"].append(letter_id)
-                
-                audit_engine.log_event(
-                    user_email=user_email,
-                    event_type="LETTER_SENT",
-                    description=f"Campaign mail dispatched to {addr_to.name}",
-                    details={"letter_id": letter_id}
-                )
+            
+            if track_id:
+                success_count += 1
+                # Log Success (Now redundant if mailer logs, but harmless to keep)
+                if audit_engine:
+                    audit_engine.log_event(user_email, "BULK_SENT", metadata={"recipient": to_addr['name'], "id": track_id})
             else:
-                results["failed"] += 1
-                logger.error(f"Mailing failed for {contact_data.get('name')}: {response}")
-
+                fail_count += 1
+                
+            # Rate limit safety
+            time.sleep(0.5) 
+            
         except Exception as e:
-            results["failed"] += 1
-            logger.error(f"Bulk Process Exception for {contact_data.get('name')}: {e}")
+            logger.error(f"Bulk Error on row {i}: {e}")
+            fail_count += 1
 
-    audit_engine.log_event(
-        user_email=user_email,
-        event_type="BULK_CAMPAIGN_COMPLETE",
-        description=f"Campaign finished. Sent: {results['success']} | Failed: {results['failed']}",
-        details={"total_attempted": len(contacts)}
-    )
-
-    return results
+    status_text.text(f"Done! Sent: {success_count}, Failed: {fail_count}")
+    return success_count, fail_count

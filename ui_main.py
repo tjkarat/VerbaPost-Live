@@ -741,21 +741,41 @@ def render_review_page():
                         tracking = None
                         status_msg = ""
                         
-                        # --- UPDATED: ALL TIERS USE PCM API ---
-                        if letter_format and mailer:
+                        # --- VINTAGE EXCEPTION (Manual) ---
+                        if tier == "Vintage":
+                            tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
+                            status_msg = "Queued (Manual)"
+                            
+                            if email_engine:
+                                email_engine.send_admin_alert("Promo Vintage Order (Manual)", f"User: {u_email}")
+                                email_engine.send_email(
+                                    to_email=u_email,
+                                    subject=f"VerbaPost Receipt: Order #{d_id}",
+                                    html_content=f"<h3>Order Queued</h3><p>Your Vintage letter is in the manual print queue.</p><p>ID: {tracking}</p>"
+                                )
+
+                        # --- AUTOMATED FULFILLMENT (API) ---
+                        elif letter_format and mailer:
                             logger.info(f"[DEBUG] Mailing Free Order... To: {t_addr}")
                             pdf_bytes = letter_format.create_pdf(body, t_addr, f_addr, tier=tier)
                             
-                            # Calls mailer.send_letter, which now handles Vintage 70lb/Stamp logic internally
-                            tracking = mailer.send_letter(pdf_bytes, t_addr, f_addr, tier=tier, description=f"Free Order {d_id}")
+                            # Calls mailer.send_letter (PCM API) with user_email passed
+                            tracking = mailer.send_letter(
+                                pdf_bytes, 
+                                t_addr, 
+                                f_addr, 
+                                tier=tier, 
+                                description=f"Free Order {d_id}",
+                                user_email=u_email
+                            )
                             
                             if tracking:
                                 status_msg = "Sent"
                             else:
-                                # Fallback to manual if API fails
+                                # Fallback
                                 tracking = f"MANUAL_{str(uuid.uuid4())[:8].upper()}"
                                 status_msg = "Queued (Manual)"
-                                logger.warning(f"API Failed for Free Order {d_id}. Routed to Manual Queue.")
+                                logger.warning(f"API Failed for Promo Order {d_id}")
 
                         if tracking:
                             # 2. UPDATE DB
@@ -788,7 +808,7 @@ def render_review_page():
                                 database.record_promo_usage(promo_code, u_email)
 
                             # 5. SEND RECEIPT EMAIL
-                            if email_engine:
+                            if email_engine and tier != "Vintage":
                                 try:
                                     logger.info("[DEBUG] Sending Standard Email...")
                                     email_engine.send_email(
@@ -816,6 +836,10 @@ def render_review_page():
 
     # --- PAID ORDERS ---
     if st.button("💳 Proceed to Secure Checkout", type="primary", use_container_width=True):
+        
+        # --- REMOVED "FINAL SAFETY SAVE" TO PREVENT DATA WIPE ---
+        # We rely on the data already saved (and verified) in the Workspace step.
+        # If we save here with empty session state, we nuke the DB record.
         
         if d_id and database:
             try: database.update_draft_data(d_id, price=total, status="Pending Payment")
