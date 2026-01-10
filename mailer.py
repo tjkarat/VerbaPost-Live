@@ -144,7 +144,8 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
             "letter": pdf_url, 
             "color": True,
             "printOnBothSides": False,
-            "insertAddressingPage": True,
+            # --- UPDATED: No separate addressing page ---
+            "insertAddressingPage": False, 
             "extRefNbr": description[:50],
             "envelope": opts["envelope"],
             "recipients": [{

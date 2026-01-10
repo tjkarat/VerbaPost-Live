@@ -480,84 +480,101 @@ def render_dashboard():
                 st.divider()
 
                 if d_status == "Draft":
-                    st.markdown("#### 📮 Mail this Story")
+                    st.markdown("#### 📮 Mailing Details")
                     
-                    recipient_name = profile.get("full_name", "")
-                    recipient_street = profile.get("address_line1", "")
-                    recipient_city = profile.get("address_city", "")
-                    sender_name = profile.get("parent_name", "The Family Archive")
+                    # --- FIX: RETURN ADDRESS INPUTS ---
+                    # We now explicitly ask for the Return Address so it isn't "Unknown"
+                    st.caption("Return Address (From):")
+                    c_ra1, c_ra2 = st.columns(2)
                     
-                    if not recipient_street or not recipient_city:
-                        st.warning("⚠️ **Missing Address:** Go to the 'Settings' tab.")
-                    else:
-                        st.info(f"""
-                        **Flight Check:**
-                        • **From:** {sender_name}
-                        • **To:** {recipient_name}, {recipient_street}
-                        • **Cost:** 1 Credit (Balance: {credits})
-                        """)
-                        
-                        if st.button("🚀 Send Mail (1 Credit)", key=f"send_{d_id}", type="primary"):
-                            if credits > 0:
-                                snapshot_to = {
-                                    "name": recipient_name, "street": recipient_street, 
-                                    "city": recipient_city, "state": profile.get("address_state", ""), 
-                                    "zip": profile.get("address_zip")
-                                }
-                                snapshot_from = {
-                                    "name": sender_name, "street": "VerbaPost Archive Ctr", 
-                                    "city": "Nashville", "state": "TN", "zip": "37209"
-                                }
+                    # Defaults: Name = Parent Name, Address = User Address (Fallback)
+                    def_ra_name = profile.get("parent_name", "Mom")
+                    def_ra_st = profile.get("address_line1", "")
+                    def_ra_city = profile.get("address_city", "")
+                    def_ra_state = profile.get("address_state", "")
+                    def_ra_zip = profile.get("address_zip", "")
 
-                                # --- UPDATED FULFILLMENT LOGIC (PCM API) ---
-                                if mailer and letter_format:
-                                    try:
-                                        # 1. Generate PDF
-                                        pdf = letter_format.create_pdf(
-                                            new_text, 
-                                            snapshot_to, 
-                                            snapshot_from, 
-                                            tier="Heirloom" # Important for 70lb/Stamp
-                                        )
+                    ra_name = c_ra1.text_input("Name", value=def_ra_name, key=f"ra_n_{did}")
+                    ra_st = c_ra2.text_input("Street", value=def_ra_st, key=f"ra_s_{did}")
+                    c_ra3, c_ra4, c_ra5 = st.columns(3)
+                    ra_city = c_ra3.text_input("City", value=def_ra_city, key=f"ra_c_{did}")
+                    ra_state = c_ra4.text_input("State", value=def_ra_state, key=f"ra_st_{did}")
+                    ra_zip = c_ra5.text_input("Zip", value=def_ra_zip, key=f"ra_z_{did}")
+
+                    # --- RECIPIENT PREVIEW (To User) ---
+                    st.caption("Recipient (To):")
+                    st.text(f"{profile.get('full_name')}\n{profile.get('address_line1')}\n{profile.get('address_city')}, {profile.get('address_state')} {profile.get('address_zip')}")
+
+                    if st.button(f"🚀 Mail (1 Credit)", key=f"m_{did}", type="primary"):
+                        if credits > 0:
+                            # Recipient is always the Account Holder (You)
+                            r_addr = {
+                                "name": profile.get("full_name"),
+                                "street": profile.get("address_line1"),
+                                "city": profile.get("address_city"),
+                                "state": profile.get("address_state"),
+                                "zip": profile.get("address_zip")
+                            }
+                            # Sender is the manual input (Parent)
+                            s_addr = {
+                                "name": ra_name,
+                                "street": ra_st,
+                                "city": ra_city,
+                                "state": ra_state,
+                                "zip": ra_zip
+                            }
+                            
+                            if not r_addr['street']: st.error("Please set YOUR address in Settings."); st.stop()
+                            if not s_addr['street']: st.error("Please enter a Return Address."); st.stop()
+
+                            if mailer and letter_format:
+                                try:
+                                    # 1. Generate PDF
+                                    pdf = letter_format.create_pdf(
+                                        new_text, 
+                                        r_addr, 
+                                        s_addr, 
+                                        tier="Heirloom" # Important for 70lb/Stamp
+                                    )
+                                    
+                                    # 2. Send via PCM
+                                    track_id = mailer.send_letter(
+                                        pdf, 
+                                        r_addr, 
+                                        s_addr, 
+                                        tier="Heirloom",
+                                        description=f"Heirloom {d_id}",
+                                        user_email=user_email
+                                    )
+                                    
+                                    if track_id:
+                                        # 3. Atomic Deduction
+                                        new_credits = credits - 1
+                                        database.update_user_credits(user_email, new_credits)
+                                        _force_heirloom_update(d_id, r_addr, s_addr, "Sent", track_id)
+                                        st.session_state.user_profile['credits'] = new_credits
                                         
-                                        # 2. Send via PCM
-                                        track_id = mailer.send_letter(
-                                            pdf, 
-                                            snapshot_to, 
-                                            snapshot_from, 
-                                            tier="Heirloom",
-                                            description=f"Heirloom {d_id}",
-                                            user_email=user_email # <--- PASS USER EMAIL HERE
+                                        # 4. Notify
+                                        _send_receipt(
+                                            user_email,
+                                            f"VerbaPost Sent: {d_date}",
+                                            f"<h3>Story Sent!</h3><p>Order ID: {track_id}</p>"
                                         )
+                                        if audit_engine:
+                                            audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"track": track_id})
                                         
-                                        if track_id:
-                                            # 3. Atomic Deduction
-                                            new_credits = credits - 1
-                                            database.update_user_credits(user_email, new_credits)
-                                            _force_heirloom_update(d_id, snapshot_to, snapshot_from, "Sent", track_id)
-                                            st.session_state.user_profile['credits'] = new_credits
-                                            
-                                            # 4. Notify
-                                            _send_receipt(
-                                                user_email,
-                                                f"VerbaPost Sent: {d_date}",
-                                                f"<h3>Story Sent!</h3><p>Order ID: {track_id}</p>"
-                                            )
-                                            if audit_engine:
-                                                audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"track": track_id})
-                                            
-                                            st.balloons()
-                                            st.success(f"✅ Sent! Order ID: {track_id}")
-                                            time.sleep(2)
-                                            st.rerun()
-                                        else:
-                                            st.error("Mailing Service Error. Please try again or contact support.")
-                                            
-                                    except Exception as e:
-                                        st.error(f"System Error: {e}")
-                                else:
-                                    st.error("Mailer Engine Missing")
-                            else: st.error("Insufficient Credits. Please top up.")
+                                        st.balloons()
+                                        st.success(f"✅ Sent! Order ID: {track_id}")
+                                        time.sleep(2)
+                                        st.rerun()
+                                    else:
+                                        st.error("Mailing Service Error. Please try again or contact support.")
+                                        
+                                except Exception as e:
+                                    st.error(f"System Error: {e}")
+                            else:
+                                st.error("Mailer Engine Missing")
+                        else: st.error("Insufficient Credits. Please top up.")
                 else:
                     st.success(f"Sent! Tracking Number: {draft.get('tracking_number', 'N/A')}")
 

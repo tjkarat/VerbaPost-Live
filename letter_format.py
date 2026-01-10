@@ -3,7 +3,6 @@ from fpdf import FPDF
 import io
 import os
 import logging
-# import qrcode  # <--- DISABLED FOR NOW
 import tempfile
 
 # --- LOGGING SETUP ---
@@ -31,6 +30,7 @@ class LetterPDF(FPDF):
     def header(self):
         """
         Custom header logic.
+        Currently empty as we don't want a header on every page for personal letters.
         """
         pass
 
@@ -48,14 +48,11 @@ class LetterPDF(FPDF):
         self.cell(0, 5, self.custom_footer_text, align='C', ln=1)
         
         # 2. Page Numbers (if more than 1 page)
-        # We check total pages alias usually, but page_no is safer for simple logic
         if self.page_no() > 1:
-            # Select font style for numbers
             if self.tier == "Vintage":
                 self.set_font('Courier', 'I', 8)
             else:
                 self.set_font('Times', 'I', 8)
-            
             self.cell(0, 5, f'Page {self.page_no()}', align='C')
 
 def _sanitize_text(text):
@@ -66,7 +63,6 @@ def _sanitize_text(text):
     if not text:
         return ""
     
-    # Ensure text is string
     text = str(text)
     
     replacements = {
@@ -137,78 +133,45 @@ def _format_address_block(addr_obj):
 def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text="", audio_url=None):
     """
     Generates the final PDF bytes for the letter.
-    Updated to support QR codes for Heirloom tier if audio_url is provided.
     """
     try:
-        # 1. Determine Footer Text BEFORE Init
+        # 1. Determine Footer Text
         footer_msg = "Sent via VerbaPost.com"
         if tier == "Vintage" or tier == "Heirloom":
             footer_msg = "Dictated and Mailed by VerbaPost.com"
         elif tier == "Civic":
             footer_msg = "Civic Action Letter via VerbaPost.com"
 
-        # 2. Initialize PDF with custom footer text
+        # 2. Initialize PDF
         pdf = LetterPDF(tier=tier, footer_text=footer_msg)
         
         # 3. Configure Fonts & Styling based on Tier
-        # Default Logic
         font_family = 'Times'
-        header_font_family = 'Helvetica'
         
-        # Vintage Logic (Typewriter)
         if tier == "Vintage":
             # Attempt to load custom font
-            has_custom_font = False
             if os.path.exists("type_right.ttf"):
                 try:
                     pdf.add_font('TypeRight', '', 'type_right.ttf')
                     font_family = 'TypeRight'
-                    header_font_family = 'TypeRight'
-                    has_custom_font = True
                 except Exception as e:
                     logger.warning(f"Could not load custom font: {e}")
-            
-            # Fallback to Courier (Standard Typewriter) if custom font fails
-            if not has_custom_font:
+                    font_family = 'Courier'
+            else:
                 font_family = 'Courier'
-                header_font_family = 'Courier'
 
         # 4. Add Page
         pdf.add_page()
 
-        # 5. Render Sender Address (Top Right)
-        # We assume standard business layout (Top Right for sender)
-        pdf.set_font(header_font_family, size=10)
-        pdf.set_text_color(80, 80, 80) # Dark Grey
+        # --- FIX: ADDRESS BLOCKS REMOVED ---
+        # The address printing block has been removed here to support pre-printed stationery/envelopes.
         
-        # --- FIX: Ensure we use FROM address here ---
-        sender_block = _format_address_block(from_addr)
-        sender_lines = sender_block.split('\n')
+        # 5. Position Cursor for Body
+        # --- FIX: Removed pdf.set_y(100) ---
+        # We now start just below the top margin to utilize the full page.
+        pdf.set_y(MARGIN_MM + 10)
         
-        # Align Right logic
-        for line in sender_lines:
-            safe_line = _sanitize_text(line)
-            w = pdf.get_string_width(safe_line) + 2
-            pdf.set_x(PAGE_WIDTH_MM - MARGIN_MM - w)
-            pdf.cell(w, 5, safe_line, ln=1, align='R')
-            
-        pdf.ln(10) # Spacer (approx 2 lines)
-        
-        # 6. Render Recipient Address (Top Left)
-        # CRITICAL: Position for #10 Window Envelope
-        pdf.set_y(45) # Force Y position to 45mm from top
-        pdf.set_font(header_font_family, size=10)
-        pdf.set_text_color(0, 0, 0) # Black
-        
-        recipient_block = _format_address_block(to_addr)
-        safe_recipient_block = _sanitize_text(recipient_block)
-        
-        pdf.multi_cell(0, 5, safe_recipient_block, align='L')
-        
-        # 7. Render Letter Body (Safe Zone)
-        # --- ADJUSTMENT: Moved up to 100mm per user request ---
-        pdf.set_y(100)  
-        
+        # 6. Render Letter Body
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0) # Black text
         
@@ -220,62 +183,13 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         # Write Body
         pdf.multi_cell(0, 6, safe_body)
         
-        # 8. Signature
+        # 7. Signature
         if signature_text:
              pdf.ln(10)
              pdf.set_font(font_family, 'I', 14) 
              pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
 
-        # 9. Heirloom QR Code Logic
-        # --- DISABLED FOR NOW ---
-        # if tier == "Heirloom" and audio_url:
-        #     try:
-        #         # Generate QR Code
-        #         qr = qrcode.QRCode(
-        #             version=1,
-        #             error_correction=qrcode.constants.ERROR_CORRECT_L,
-        #             box_size=10,
-        #             border=2,
-        #         )
-        #         qr.add_data(audio_url)
-        #         qr.make(fit=True)
-        #         img = qr.make_image(fill_color="black", back_color="white")
-        #
-        #         # Save to temporary file for FPDF to read
-        #         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
-        #             img.save(tmp_file.name)
-        #             tmp_path = tmp_file.name
-        #
-        #         # Check space left on page. If low, add page.
-        #         # QR Height approx 30mm. Need buffer.
-        #         if pdf.get_y() > (PAGE_HEIGHT_MM - 60):
-        #             pdf.add_page()
-        #         else:
-        #             pdf.ln(15)
-        #
-        #         # Place QR Code (Center Bottom relative to text)
-        #         current_y = pdf.get_y()
-        #         # Center X: Page Width / 2 - Image Width / 2
-        #         # Assuming 30mm width image
-        #         center_x = (PAGE_WIDTH_MM - 30) / 2
-        #         
-        #         pdf.image(tmp_path, x=center_x, y=current_y, w=30)
-        #         
-        #         # Add "Scan to Listen" text below
-        #         pdf.set_y(current_y + 32)
-        #         pdf.set_font("Helvetica", size=9)
-        #         pdf.set_text_color(100, 100, 100)
-        #         pdf.cell(0, 5, "Scan to listen to this story", align='C', ln=1)
-        #
-        #         # Cleanup temp file
-        #         os.unlink(tmp_path)
-        #     except Exception as e:
-        #         logger.error(f"QR Generation Failed: {e}")
-
-        # NOTE: Footer is now handled automatically by the class footer() method
-        
-        # 10. Output (Byte Safety)
-        # FPDF2 output() can return str or bytearray depending on version/args
+        # 8. Output (Byte Safety)
         raw_output = pdf.output(dest='S')
         
         # Ensure we return clean bytes
