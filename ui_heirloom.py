@@ -34,7 +34,7 @@ except ImportError: email_engine = None
 # --- HELPER: ATOMIC DATABASE UPDATE (Heirloom Specific) ---
 def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, tracking=None):
     """
-    FIXED: Uses shared database session to force save Heirloom status and addresses.
+    Uses shared database session to force save Heirloom status and addresses.
     """
     if not draft_id: return False
     
@@ -205,10 +205,7 @@ def render_paywall():
                         st.session_state.pending_subscription = True
                         
                         # --- FIX: DYNAMIC PRICE ID ---
-                        # 1. Try Secrets Manager (Env Specific)
                         price_id = secrets_manager.get_secret("STRIPE_PRICE_ID")
-                        
-                        # 2. Fallback to Hardcoded (Live) if missing
                         if not price_id:
                             price_id = "price_1SjVdgRmmrLilo6X2d4lU7K0"
 
@@ -256,20 +253,12 @@ def render_paywall():
                         st.rerun()
                     else: st.error("Invalid Code")
 
-# --- MAIN DASHBOARD RENDERER ---
+# --- MAIN RENDERER ---
 def render_dashboard():
-    p_phone = None  
-    credits = 0
-    
     if not st.session_state.get("authenticated"):
-        st.warning("Please log in to access the archive.")
-        if st.button("Go to Login"):
-            st.session_state.app_mode = "login"
-            st.rerun()
-        return
+        st.warning("Please log in."); return
 
     user_email = st.session_state.get("user_email")
-    
     if not st.session_state.get("profile_synced") and database:
         profile = database.get_user_profile(user_email)
         st.session_state.user_profile = profile or {}
@@ -461,7 +450,8 @@ def render_dashboard():
             st.markdown("<div style='text-align:center; color:#888;'>No stories yet. Try calling!</div>", unsafe_allow_html=True)
         
         for draft in heirloom_drafts:
-            d_id = draft.get('id')
+            # FIX: Ensure 'did' is defined HERE inside the loop
+            did = draft.get('id')
             d_date = draft.get('created_at', 'Unknown Date')
             d_status = draft.get('status', 'Draft')
             d_content = draft.get('content', '')
@@ -469,12 +459,12 @@ def render_dashboard():
             
             with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
                 
-                new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{d_id}")
+                new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{did}")
                 
                 c_save, c_send = st.columns([1, 1])
                 with c_save:
-                    if st.button("💾 Save Changes", key=f"save_{d_id}", use_container_width=True):
-                        if database: database.update_draft_data(d_id, content=new_text)
+                    if st.button("💾 Save Changes", key=f"save_{did}", use_container_width=True):
+                        if database: database.update_draft_data(did, content=new_text)
                         st.toast("Saved changes.")
                 
                 st.divider()
@@ -482,12 +472,11 @@ def render_dashboard():
                 if d_status == "Draft":
                     st.markdown("#### 📮 Mailing Details")
                     
-                    # --- FIX: RETURN ADDRESS INPUTS ---
-                    # We now explicitly ask for the Return Address so it isn't "Unknown"
+                    # --- RETURN ADDRESS INPUTS ---
+                    # FIX: Defined INSIDE the loop, using 'did' for unique keys
                     st.caption("Return Address (From):")
                     c_ra1, c_ra2 = st.columns(2)
                     
-                    # Defaults: Name = Parent Name, Address = User Address (Fallback)
                     def_ra_name = profile.get("parent_name", "Mom")
                     def_ra_st = profile.get("address_line1", "")
                     def_ra_city = profile.get("address_city", "")
@@ -501,13 +490,13 @@ def render_dashboard():
                     ra_state = c_ra4.text_input("State", value=def_ra_state, key=f"ra_st_{did}")
                     ra_zip = c_ra5.text_input("Zip", value=def_ra_zip, key=f"ra_z_{did}")
 
-                    # --- RECIPIENT PREVIEW (To User) ---
+                    # --- RECIPIENT PREVIEW ---
                     st.caption("Recipient (To):")
                     st.text(f"{profile.get('full_name')}\n{profile.get('address_line1')}\n{profile.get('address_city')}, {profile.get('address_state')} {profile.get('address_zip')}")
 
                     if st.button(f"🚀 Mail (1 Credit)", key=f"m_{did}", type="primary"):
                         if credits > 0:
-                            # Recipient is always the Account Holder (You)
+                            # Recipient = Account Holder
                             r_addr = {
                                 "name": profile.get("full_name"),
                                 "street": profile.get("address_line1"),
@@ -515,7 +504,7 @@ def render_dashboard():
                                 "state": profile.get("address_state"),
                                 "zip": profile.get("address_zip")
                             }
-                            # Sender is the manual input (Parent)
+                            # Sender = Manual Input
                             s_addr = {
                                 "name": ra_name,
                                 "street": ra_st,
@@ -529,46 +518,33 @@ def render_dashboard():
 
                             if mailer and letter_format:
                                 try:
-                                    # 1. Generate PDF
+                                    # PDF Generation
                                     pdf = letter_format.create_pdf(
                                         new_text, 
                                         r_addr, 
                                         s_addr, 
-                                        tier="Heirloom" # Important for 70lb/Stamp
+                                        tier="Heirloom" 
                                     )
                                     
-                                    # 2. Send via PCM
-                                    track_id = mailer.send_letter(
+                                    # Automated Send
+                                    tid = mailer.send_letter(
                                         pdf, 
                                         r_addr, 
                                         s_addr, 
                                         tier="Heirloom",
-                                        description=f"Heirloom {d_id}",
+                                        description=f"Heirloom {did}",
                                         user_email=user_email
                                     )
                                     
-                                    if track_id:
-                                        # 3. Atomic Deduction
-                                        new_credits = credits - 1
-                                        database.update_user_credits(user_email, new_credits)
-                                        _force_heirloom_update(d_id, r_addr, s_addr, "Sent", track_id)
-                                        st.session_state.user_profile['credits'] = new_credits
-                                        
-                                        # 4. Notify
-                                        _send_receipt(
-                                            user_email,
-                                            f"VerbaPost Sent: {d_date}",
-                                            f"<h3>Story Sent!</h3><p>Order ID: {track_id}</p>"
-                                        )
-                                        if audit_engine:
-                                            audit_engine.log_event(user_email, "HEIRLOOM_SENT", metadata={"track": track_id})
-                                        
-                                        st.balloons()
-                                        st.success(f"✅ Sent! Order ID: {track_id}")
-                                        time.sleep(2)
-                                        st.rerun()
+                                    if tid:
+                                        new_c = credits - 1
+                                        database.update_user_credits(user_email, new_c)
+                                        _force_heirloom_update(did, r_addr, s_addr, "Sent", tid)
+                                        st.success(f"Sent! ID: {tid}")
+                                        if audit_engine: audit_engine.log_event(user_email, "HEIRLOOM_API_SENT", metadata={"id": tid})
+                                        time.sleep(2); st.rerun()
                                     else:
-                                        st.error("Mailing Service Error. Please try again or contact support.")
+                                        st.error("API Error. Check Logs.")
                                         
                                 except Exception as e:
                                     st.error(f"System Error: {e}")
