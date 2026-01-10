@@ -110,14 +110,12 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0)
         
-        # --- DATE (Moved to Right) ---
+        # --- DATE (Aligned Right) ---
         current_date = datetime.now().strftime("%B %d, %Y")
         pdf.cell(0, 5, current_date, align='R', ln=1)
         pdf.ln(5)
         
         # --- FROM ADDRESS (Return Address) ---
-        # We keep this manual because PCM/PostGrid often expects the PDF to contain the Return Address
-        # for the top window of a double-window envelope.
         f_name = _safe_get(from_addr, 'name') or _safe_get(from_addr, 'company')
         f_street = _safe_get(from_addr, 'address_line1') or _safe_get(from_addr, 'street')
         f_line2 = _safe_get(from_addr, 'address_line2') or _safe_get(from_addr, 'street2')
@@ -129,13 +127,13 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         from_text = "\n".join([str(L) for L in from_lines if L and str(L).strip() != ",  "])
         pdf.multi_cell(0, 5, _sanitize_text(from_text))
         
-        # --- TO ADDRESS (Recipient) ---
-        # DISABLED: PCM/PostGrid stamps the Recipient Address (with Barcode) automatically.
-        # We disable manual rendering here to prevent duplicates/overlaps.
-        # We ADD SPACING to ensure the body text starts below the window area.
+        # --- TO ADDRESS RESERVED ZONE ---
+        # We DO NOT render the To address here. PCM/PostGrid will stamp it 
+        # (with barcode) in the standard window position.
+        # We add vertical spacing to ensure the body text starts clear of that zone.
         
-        # Space for From Address + Window Gap
-        pdf.ln(25) 
+        # Approximate height of address window + spacing
+        pdf.ln(35) 
 
         # 6. Render Letter Body
         safe_body = _sanitize_text(body_text)
