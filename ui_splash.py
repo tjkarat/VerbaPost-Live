@@ -21,7 +21,7 @@ def render_splash_page():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- HERO SECTION ---
+    # --- HERO SECTION (B2B) ---
     st.markdown("""
     <div class="hero-container">
         <div class="badge">For Estate Planners & Attorneys</div>
@@ -35,13 +35,10 @@ def render_splash_page():
     # --- PRIMARY CTA (PARTNER PORTAL) ---
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        # B2B ACCESS BUTTON
         if st.button("💼 Partner Portal Access", type="primary", use_container_width=True):
             if st.session_state.get("authenticated"):
-                # If logged in, go straight to Partner Dashboard
                 st.session_state.app_mode = "partner"
             else:
-                # If not, go to Login but Redirect to Partner
                 st.session_state.app_mode = "login"
                 st.session_state.redirect_to = "partner"
             st.rerun()

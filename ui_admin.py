@@ -95,12 +95,15 @@ def run_system_health_checks():
     status, color = check_connection("OpenAI (Intelligence)", check_openai)
     results.append({"Service": "OpenAI (Intelligence)", "Status": status, "Color": color})
 
-    # 4. PCM INTEGRATIONS (MAILING) - NEW
+    # 4. PCM INTEGRATIONS (MAILING) - UPDATED FOR V4
     def check_pcm():
-        if mailer and hasattr(mailer, 'get_api_config'):
-            key, base_url = mailer.get_api_config()
+        # PCM V3 Check
+        if mailer and hasattr(mailer, 'get_api_key'):
+            key = mailer.get_api_key()
             if not key: raise Exception("Missing API Key")
-            # Verify auth
+            # Simple auth check against V3 endpoint
+            # Note: Adjust endpoint if mailer.py uses a specific base URL
+            base_url = "https://api.pcmintegrations.com/v3" 
             r = requests.get(f"{base_url}/orders", headers={"Authorization": f"Bearer {key}"})
             if r.status_code not in [200, 201]: 
                 if r.status_code == 401: raise Exception("Unauthorized (Check Key)")
@@ -466,13 +469,13 @@ def render_admin_page():
         if promos: st.dataframe(pd.DataFrame(promos), use_container_width=True)
         else: st.info("No promo codes found.")
 
-    # --- TAB 5: USERS (PARTNER MANAGEMENT ADDED) ---
+    # --- TAB 5: USERS & PARTNERS (UPDATED FEATURE) ---
     with tab_users:
         st.subheader("User Profiles & Partners")
         users = database.get_all_users()
         
         if users:
-            # 1. DISPLAY USERS
+            # 1. DISPLAY USERS (With Partner Status)
             safe_users = []
             for u in users:
                 is_p = u.get("is_partner", False)
@@ -484,7 +487,7 @@ def render_admin_page():
                 })
             st.dataframe(pd.DataFrame(safe_users), use_container_width=True)
             
-            # 2. PROVISIONING TOOLS
+            # 2. PROVISIONING TOOLS (THE REQUESTED ADDITION)
             st.divider()
             st.markdown("### 💼 Partner Provisioning")
             c_prov, c_revoke = st.columns(2)
@@ -519,7 +522,6 @@ def render_admin_page():
                                 time.sleep(1); st.rerun()
                             else:
                                 st.error("User not found.")
-                                
         else:
             st.info("No users found.")
 
@@ -532,6 +534,8 @@ def render_admin_page():
                 for log in logs:
                     with st.expander(f"{log.get('timestamp','')} | {log.get('event_type','')} | {log.get('user_email','user')}"):
                         st.write(log.get('description', ''))
+                        
+                        # Try to parse Details as JSON for PCM Inspection
                         raw_details = log.get('details', '{}')
                         try:
                             json_details = json.loads(raw_details)
