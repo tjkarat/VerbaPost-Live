@@ -143,6 +143,20 @@ def main():
                     if email:
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
+                        
+                        # --- FIX: IMMEDIATE PARTNER CHECK ---
+                        # Determine role immediately after auth to force correct routing
+                        is_partner = check_partner_status(email)
+                        st.session_state.is_partner = is_partner
+                        
+                        if is_partner:
+                            st.session_state.app_mode = "partner"
+                            st.session_state.system_mode = "partner"
+                        else:
+                            # Default to Heirloom for B2C, or redirect_to if set
+                            target = st.session_state.get("redirect_to", "heirloom")
+                            st.session_state.app_mode = target
+
                         st.query_params.clear()
                         st.rerun()
                     else:
@@ -479,16 +493,3 @@ def handle_payment_return(session_id):
             else:
                 st.error("⚠️ Payment verification failed or session expired.")
                 st.query_params.clear()
-                st.query_params["mode"] = current_mode
-                time.sleep(2)
-                st.session_state.app_mode = "store"
-                st.rerun()
-
-        except Exception as e:
-            logger.error(f"Payment Verification Crash: {e}")
-            st.query_params.clear()
-            st.query_params["mode"] = current_mode
-            st.rerun()
-
-if __name__ == "__main__":
-    main()

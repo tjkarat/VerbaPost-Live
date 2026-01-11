@@ -1,4 +1,5 @@
 import streamlit as st
+import textwrap
 
 def inject_meta_tags(mode="archive"):
     """
@@ -21,21 +22,24 @@ def inject_meta_tags(mode="archive"):
         desc = "Preserve your family's legacy. We interview your loved ones over the phone, transcribe their memories, and mail keepsake letters."
         image = "https://app.verbapost.com/static/og_image.png"
 
-    # 2. Construct HTML Block
-    meta_html = f"""
-    <head>
-        <meta property="og:type" content="website">
-        <meta property="og:url" content="https://verbapost.com/">
-        <meta property="og:title" content="{title}">
-        <meta property="og:description" content="{desc}">
-        <meta property="og:image" content="{image}">
-        
-        <meta name="twitter:card" content="summary_large_image">
-        <meta name="twitter:title" content="{title}">
-        <meta name="twitter:description" content="{desc}">
-        <meta name="twitter:image" content="{image}">
-    </head>
-    """
+    # 2. Construct HTML Block (Use dedent to prevent code-block rendering)
+    # The indentation in the f-string caused Streamlit to think this was code.
+    meta_html = textwrap.dedent(f"""
+        <div style="display: none;">
+        <head>
+            <meta property="og:type" content="website">
+            <meta property="og:url" content="https://verbapost.com/">
+            <meta property="og:title" content="{title}">
+            <meta property="og:description" content="{desc}">
+            <meta property="og:image" content="{image}">
+            
+            <meta name="twitter:card" content="summary_large_image">
+            <meta name="twitter:title" content="{title}">
+            <meta name="twitter:description" content="{desc}">
+            <meta name="twitter:image" content="{image}">
+        </head>
+        </div>
+    """)
 
     # 3. Inject Invisibly
     st.markdown(meta_html, unsafe_allow_html=True)
