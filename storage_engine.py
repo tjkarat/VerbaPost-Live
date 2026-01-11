@@ -3,6 +3,11 @@ from supabase import create_client
 import logging
 import uuid
 from datetime import datetime
+import os
+
+# --- IMPORT SECRETS MANAGER ---
+try: import secrets_manager
+except ImportError: secrets_manager = None
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +18,32 @@ def get_storage_client():
     global _supabase_storage_client
     if _supabase_storage_client:
         return _supabase_storage_client
+    
+    url = None
+    key = None
+
+    # 1. Try Secrets Manager (Production/GCP)
+    if secrets_manager:
+        url = secrets_manager.get_secret("SUPABASE_URL") or secrets_manager.get_secret("supabase.url")
+        key = secrets_manager.get_secret("SUPABASE_KEY") or secrets_manager.get_secret("supabase.key")
+
+    # 2. Fallback: Streamlit Secrets (Local/QA)
+    if not url and hasattr(st, "secrets") and "supabase" in st.secrets:
+        try:
+            url = st.secrets["supabase"]["url"]
+            key = st.secrets["supabase"]["key"]
+        except KeyError: pass
+
+    # 3. Last Resort: Raw Env Vars
+    if not url:
+        url = os.environ.get("SUPABASE_URL")
+        key = os.environ.get("SUPABASE_KEY")
+
+    if not url or not key:
+        logger.error("Storage Error: Missing SUPABASE_URL or SUPABASE_KEY")
+        return None
+
     try:
-        # Re-using existing secrets
-        url = st.secrets["supabase"]["url"]
-        key = st.secrets["supabase"]["key"]
         _supabase_storage_client = create_client(url, key)
         return _supabase_storage_client
     except Exception as e:
@@ -26,7 +53,6 @@ def get_storage_client():
 def upload_audio(user_email, file_bytes, content_type="audio/mpeg"):
     """
     Uploads audio bytes to 'heirloom-audio' bucket.
-    Returns: storage_path (e.g. 'user@email.com/20231225_uuid.mp3')
     """
     client = get_storage_client()
     if not client: return None
@@ -56,10 +82,8 @@ def get_signed_url(storage_path, expiry=3600):
     if not client: return None
     
     try:
-        # Create Signed URL valid for 1 hour
         response = client.storage.from_("heirloom-audio").create_signed_url(storage_path, expiry)
         
-        # Handle Supabase Client response variations (Dict vs Str)
         if isinstance(response, dict) and 'signedURL' in response:
             return response['signedURL']
         elif isinstance(response, str):
