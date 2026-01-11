@@ -466,28 +466,72 @@ def render_admin_page():
         if promos: st.dataframe(pd.DataFrame(promos), use_container_width=True)
         else: st.info("No promo codes found.")
 
-    # --- TAB 5: USERS ---
+    # --- TAB 5: USERS (PARTNER MANAGEMENT ADDED) ---
     with tab_users:
-        st.subheader("User Profiles")
+        st.subheader("User Profiles & Partners")
         users = database.get_all_users()
+        
         if users:
+            # 1. DISPLAY USERS
             safe_users = []
             for u in users:
-                safe_users.append({"Name": u.get("full_name"), "Email": u.get("email"), "Parent Phone": u.get("parent_phone", "--"), "Credits": u.get("credits_remaining")})
+                is_p = u.get("is_partner", False)
+                safe_users.append({
+                    "Name": u.get("full_name"), 
+                    "Email": u.get("email"), 
+                    "Is Partner": "✅ YES" if is_p else "No",
+                    "Credits": u.get("credits_remaining")
+                })
             st.dataframe(pd.DataFrame(safe_users), use_container_width=True)
+            
+            # 2. PROVISIONING TOOLS
+            st.divider()
+            st.markdown("### 💼 Partner Provisioning")
+            c_prov, c_revoke = st.columns(2)
+            
+            with c_prov:
+                new_partner_email = st.text_input("User Email to Promote")
+                if st.button("⬆️ Make Partner", type="primary"):
+                    if new_partner_email:
+                        with database.get_db_session() as db:
+                            from sqlalchemy import text
+                            # Direct SQL update for robustness
+                            sql = text("UPDATE user_profiles SET is_partner = true WHERE email = :e")
+                            res = db.execute(sql, {"e": new_partner_email.strip()})
+                            db.commit()
+                            if res.rowcount > 0:
+                                st.success(f"Promoted {new_partner_email} to Partner!")
+                                time.sleep(1); st.rerun()
+                            else:
+                                st.error("User not found.")
+            
+            with c_revoke:
+                revoke_email = st.text_input("User Email to Demote")
+                if st.button("⬇️ Revoke Partner Status"):
+                    if revoke_email:
+                        with database.get_db_session() as db:
+                            from sqlalchemy import text
+                            sql = text("UPDATE user_profiles SET is_partner = false WHERE email = :e")
+                            res = db.execute(sql, {"e": revoke_email.strip()})
+                            db.commit()
+                            if res.rowcount > 0:
+                                st.success(f"Revoked Partner status from {revoke_email}")
+                                time.sleep(1); st.rerun()
+                            else:
+                                st.error("User not found.")
+                                
+        else:
+            st.info("No users found.")
 
-    # --- TAB 6: LOGS (UPDATED FOR PCM JSON) ---
+    # --- TAB 6: LOGS ---
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
             logs = audit_engine.get_audit_logs(limit=100)
             if logs:
-                # NEW: Iterate for Expander View to show JSON
                 for log in logs:
                     with st.expander(f"{log.get('timestamp','')} | {log.get('event_type','')} | {log.get('user_email','user')}"):
                         st.write(log.get('description', ''))
-                        
-                        # Try to parse Details as JSON for PCM Inspection
                         raw_details = log.get('details', '{}')
                         try:
                             json_details = json.loads(raw_details)

@@ -145,20 +145,15 @@ def main():
                         st.error(f"Authentication Failed: {err}")
 
     # 2. ROLE & MODE DETECTION
-    
-    # Check Partner Status Logic
     if st.session_state.get("authenticated") and "is_partner" not in st.session_state:
         st.session_state.is_partner = check_partner_status(st.session_state.user_email)
 
-    # Determine Routing Mode
     if st.session_state.get("is_partner"):
         st.session_state.system_mode = "partner"
-        # Inject SEO for Partner
         if seo_injector: seo_injector.inject_meta_tags("partner")
     else:
         if "system_mode" not in st.session_state:
             st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
-        # Inject SEO for B2C
         if seo_injector: seo_injector.inject_meta_tags(st.session_state.system_mode)
     
     analytics = get_module("analytics")
@@ -168,39 +163,52 @@ def main():
     if "session_id" in st.query_params:
         handle_payment_return(st.query_params["session_id"])
 
-    # 4. Default Routing Logic
+    # 4. ROUTING LOGIC (FIXED)
     if "app_mode" not in st.session_state:
         nav_target = st.query_params.get("nav")
         
-        # B2B Routing
-        if st.session_state.get("is_partner"):
-            if nav_target == "admin": st.session_state.app_mode = "admin"
-            else: st.session_state.app_mode = "partner" 
-        
-        # B2C Routing
-        else:
-            if nav_target == "login":
-                st.session_state.app_mode = "login"
-                if st.session_state.system_mode == "archive": st.session_state.redirect_to = "heirloom"
-                else: st.session_state.redirect_to = "main"
-
-            elif nav_target == "legal": st.session_state.app_mode = "legal"
-            elif nav_target == "blog": st.session_state.app_mode = "blog"
-
-            elif nav_target == "heirloom":
-                if st.session_state.get("authenticated"): st.session_state.app_mode = "heirloom"
-                else:
-                    st.session_state.app_mode = "login"
-                    st.session_state.redirect_to = "heirloom"
-
-            elif nav_target == "store":
-                if st.session_state.get("authenticated"): st.session_state.app_mode = "main"
-                else:
-                    st.session_state.app_mode = "login"
-                    st.session_state.redirect_to = "main"
-
+        # --- EXPLICIT PARTNER ROUTING (B2B Pivot) ---
+        if nav_target == "partner":
+            if st.session_state.get("authenticated"):
+                st.session_state.app_mode = "partner"
             else:
-                st.session_state.app_mode = "splash"
+                st.session_state.app_mode = "login"
+                st.session_state.redirect_to = "partner"
+        
+        # --- ADMIN ---
+        elif nav_target == "admin":
+             st.session_state.app_mode = "admin"
+             
+        # --- LOGIN ---
+        elif nav_target == "login":
+            st.session_state.app_mode = "login"
+            if st.session_state.system_mode == "archive": st.session_state.redirect_to = "heirloom"
+            elif st.session_state.system_mode == "utility": st.session_state.redirect_to = "main"
+            else: st.session_state.redirect_to = "partner"
+
+        # --- HEIRLOOM (B2C) ---
+        elif nav_target == "heirloom":
+            if st.session_state.get("authenticated"): st.session_state.app_mode = "heirloom"
+            else:
+                st.session_state.app_mode = "login"
+                st.session_state.redirect_to = "heirloom"
+
+        # --- STORE (B2C) ---
+        elif nav_target == "store":
+            if st.session_state.get("authenticated"): st.session_state.app_mode = "main"
+            else:
+                st.session_state.app_mode = "login"
+                st.session_state.redirect_to = "main"
+
+        # --- OTHER ---
+        elif nav_target == "legal": st.session_state.app_mode = "legal"
+        elif nav_target == "blog": st.session_state.app_mode = "blog"
+
+        # --- DEFAULT FALLBACK ---
+        elif st.session_state.get("is_partner"):
+             st.session_state.app_mode = "partner"
+        else:
+             st.session_state.app_mode = "splash"
             
     # 5. LAZY SUBSCRIPTION CHECK
     if st.session_state.get("authenticated") and not st.session_state.get("is_partner") and not st.session_state.get("credits_synced"):

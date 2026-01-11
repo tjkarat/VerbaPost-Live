@@ -3,196 +3,109 @@ import json
 import os
 import streamlit as st
 import logging
-import uuid
 
-# --- IMPORTS ---
-try: import audit_engine
-except ImportError: audit_engine = None
-try: import storage_engine 
-except ImportError: storage_engine = None
-
-# --- LOGGING ---
+# --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_api_config():
-    """Retrieves Key, Secret, and URL."""
-    key = None
-    secret = None
-    url = "https://v3.pcmintegrations.com" 
+# --- CONFIGURATION ---
+PCM_BASE_URL = "https://api.pcmintegrations.com/v3" 
 
-    # 1. Secrets
+def get_api_key():
+    """Retrieves PCM Integrations API Key."""
+    key = None
     if hasattr(st, "secrets") and "pcm" in st.secrets:
         key = st.secrets["pcm"].get("api_key")
-        secret = st.secrets["pcm"].get("api_secret")
-        if "base_url" in st.secrets["pcm"]:
-            url = st.secrets["pcm"]["base_url"]
-    
-    # 2. Env Vars
     if not key:
         key = os.environ.get("PCM_API_KEY")
-        secret = os.environ.get("PCM_API_SECRET")
-    
-    # Sanitize
-    if key: key = str(key).strip().replace("'", "").replace('"', "")
-    if secret: secret = str(secret).strip().replace("'", "").replace('"', "")
-
-    return key, secret, url
-
-def _get_auth_token(key, secret, base_url):
-    """Exchanges Key/Secret for a Bearer Token."""
-    try:
-        resp = requests.post(f"{base_url}/auth/login", json={"apiKey": key, "apiSecret": secret})
-        if resp.status_code == 200:
-            return resp.json().get("token")
-        logger.error(f"PCM Auth Failed {resp.status_code}: {resp.text}")
-        return None
-    except Exception as e:
-        logger.error(f"PCM Auth Error: {e}")
-        return None
-
-def _map_tier_options(tier):
-    t = str(tier).strip().title()
-    options = {
-        "addons": [],
-        # CHANGED: 'Number10' is the standard non-window envelope
-        "envelope": {"type": "Number10", "fontColor": "Black"}
-    }
-    # VINTAGE / HEIRLOOM / LEGACY -> Live Stamp
-    if t in ["Vintage", "Heirloom", "Legacy"]:
-        options["addons"].append({"addon": "Livestamping"})
-    return options
+    return str(key).strip().replace("'", "").replace('"', "") if key else None
 
 def validate_address(address_dict):
-    """Validates address via PCM V3."""
-    key, secret, base_url = get_api_config()
-    if not key or not secret: return True, address_dict
+    """
+    Validates address via PCM Integrations /recipient/verify endpoint.
+    """
+    api_key = get_api_key()
+    if not api_key: return False, "Missing API Key"
 
-    token = _get_auth_token(key, secret, base_url)
-    if not token: return True, address_dict 
-
-    payload = [{
-        "address": address_dict.get("address_line1") or address_dict.get("street"),
-        "address2": address_dict.get("address_line2", ""),
-        "city": address_dict.get("city"),
-        "state": address_dict.get("state"), 
-        "zipCode": address_dict.get("zip_code") or address_dict.get("zip")
-    }]
+    url = f"{PCM_BASE_URL}/recipient/verify"
+    
+    # Map to PCM naming convention if needed, standardizing on typical payload
+    payload = {
+        "address1": address_dict.get('street') or address_dict.get('address_line1'),
+        "address2": address_dict.get('street2') or address_dict.get('address_line2', ""),
+        "city": address_dict.get('city'),
+        "state": address_dict.get('state'),
+        "zip": address_dict.get('zip_code') or address_dict.get('zip'),
+        "country": address_dict.get('country', "US")
+    }
 
     try:
-        url = f"{base_url}/recipient/verify"
-        resp = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
-        if resp.status_code == 201:
+        resp = requests.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}"})
+        
+        if resp.status_code == 200:
             data = resp.json()
-            if data.get("results", {}).get("valid"): return True, address_dict
-            else: return False, {"error": "Invalid Address"}
-        return True, address_dict
+            # PCM usually returns a 'status' or 'valid' boolean. Adjust based on specific docs.
+            if data.get('isValid') or data.get('status') == 'verified':
+                return True, address_dict
+            else:
+                return False, "Address not verifiable by carrier."
+        else:
+            logger.error(f"PCM Verification Error: {resp.status_code}")
+            return False, f"Verification Service Error: {resp.status_code}"
     except Exception as e:
         logger.error(f"Validation Exception: {e}")
-        return True, address_dict
+        return False, "Service Unavailable"
 
-def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="VerbaPost", user_email=None):
+def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
     """
-    1. Upload PDF -> Get Signed URL.
-    2. Login -> Get Token.
-    3. Send JSON Order.
+    Sends PDF via PCM Integrations V3.
     """
-    key, secret, base_url = get_api_config()
-    if not key or not secret:
-        logger.error("PCM: Missing API Key or Secret")
-        return None
+    api_key = get_api_key()
+    if not api_key: return None
 
-    # --- 1. UPLOAD PDF ---
-    if not storage_engine:
-        logger.error("PCM: Storage Engine missing.")
-        return None
-        
-    file_name = f"letters/{uuid.uuid4()}.pdf"
-    pdf_url = None
+    url = f"{PCM_BASE_URL}/orders/create" # Endpoint placeholder based on V3 structure
+
+    # Construct Multipart Upload
+    files = {
+        'file': ('letter.pdf', pdf_bytes, 'application/pdf')
+    }
     
-    try:
-        client = storage_engine.get_storage_client()
-        bucket = "heirloom-audio"
-        
-        if not client:
-            logger.error("PCM: Storage Client Init Failed (Check Secrets)")
-            return None
-        
-        client.storage.from_(bucket).upload(file_name, pdf_bytes, {"content-type": "application/pdf"})
-        
-        signed_resp = client.storage.from_(bucket).create_signed_url(file_name, 3600)
-        
-        if isinstance(signed_resp, dict): pdf_url = signed_resp.get("signedURL")
-        elif isinstance(signed_resp, str): pdf_url = signed_resp
-            
-        if not pdf_url:
-            logger.error("PCM: Failed to generate URL")
-            return None
-        logger.info(f"📄 PDF Ready: {pdf_url[:30]}...")
-        
-    except Exception as e:
-        logger.error(f"PCM: Upload Error: {e}")
-        return None
-
-    # --- 2. AUTHENTICATE ---
-    token = _get_auth_token(key, secret, base_url)
-    if not token: return None
-
-    # --- 3. CONSTRUCT ORDER ---
-    try:
-        opts = _map_tier_options(tier)
-        
-        payload = {
-            "mailClass": "FirstClass",
-            "letter": pdf_url, 
-            "color": True,
-            "printOnBothSides": False,
-            "insertAddressingPage": False,
-            "extRefNbr": description[:50],
-            "envelope": opts["envelope"],
-            "recipients": [{
-                "firstName": to_addr.get("name", "").split(" ")[0],
-                "lastName": " ".join(to_addr.get("name", "").split(" ")[1:]),
-                "address": to_addr.get("address_line1") or to_addr.get("street"),
-                "address2": to_addr.get("address_line2", ""),
-                "city": to_addr.get("city"),
-                "state": to_addr.get("state"),
-                "zipCode": to_addr.get("zip_code") or to_addr.get("zip"),
-                "variables": []
-            }],
-            "returnAddress": {
-                "company": from_addr.get("name"),
-                "address": from_addr.get("address_line1") or from_addr.get("street"),
-                "city": from_addr.get("city"),
-                "state": from_addr.get("state"),
-                "zipCode": from_addr.get("zip_code") or from_addr.get("zip")
-            }
+    # JSON data often needs to be passed as a string field in multipart requests
+    metadata = {
+        "recipient": {
+            "name": to_addr.get('name'),
+            "address1": to_addr.get('street') or to_addr.get('address_line1'),
+            "city": to_addr.get('city'),
+            "state": to_addr.get('state'),
+            "zip": to_addr.get('zip_code') or to_addr.get('zip')
+        },
+        "sender": {
+            "name": from_addr.get('name'),
+            "address1": from_addr.get('street') or from_addr.get('address_line1'),
+            "city": from_addr.get('city'),
+            "state": from_addr.get('state'),
+            "zip": from_addr.get('zip_code') or from_addr.get('zip')
+        },
+        "options": {
+            "printColor": True,
+            "envelopeType": "standard_double_window"
         }
-        
-        if opts["addons"]: payload["addons"] = opts["addons"]
+    }
 
-        # --- 4. SEND ---
-        url = f"{base_url}/order/letter"
-        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-        
-        logger.info(f"🚀 Sending Order to {url}")
-        resp = requests.post(url, headers=headers, json=payload)
+    try:
+        # Note: Implementation may vary depending on if PCM accepts 'data' as form-data string
+        resp = requests.post(
+            url, 
+            headers={"Authorization": f"Bearer {api_key}"},
+            files=files,
+            data={"order_data": json.dumps(metadata)} 
+        )
 
-        # Audit
-        if audit_engine and user_email:
-            meta = {"status": resp.status_code}
-            try: meta.update(resp.json())
-            except: meta["raw"] = resp.text
-            audit_engine.log_event(user_email, "PCM_API_ATTEMPT", metadata=meta)
-
-        if resp.status_code == 201:
-            order_id = resp.json().get("orderID")
-            logger.info(f"✅ PCM Success! ID: {order_id}")
-            return str(order_id)
+        if resp.status_code in [200, 201]:
+            return resp.json().get('id')
         else:
-            logger.error(f"❌ PCM Error {resp.status_code}: {resp.text}")
+            logger.error(f"PCM Send Failed: {resp.text}")
             return None
-
     except Exception as e:
-        logger.error(f"❌ PCM Exception: {e}")
+        logger.error(f"PCM Exception: {e}")
         return None
