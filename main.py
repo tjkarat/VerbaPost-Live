@@ -493,3 +493,16 @@ def handle_payment_return(session_id):
             else:
                 st.error("⚠️ Payment verification failed or session expired.")
                 st.query_params.clear()
+                st.query_params["mode"] = current_mode
+                time.sleep(2)
+                st.session_state.app_mode = "store"
+                st.rerun()
+
+        except Exception as e:
+            logger.error(f"Payment Verification Crash: {e}")
+            st.query_params.clear()
+            st.query_params["mode"] = current_mode
+            st.rerun()
+
+if __name__ == "__main__":
+    main()
