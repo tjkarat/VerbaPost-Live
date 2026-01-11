@@ -2,8 +2,8 @@ import os
 import streamlit as st
 import logging
 import urllib.parse
-from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, BigInteger, Date, func
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, BigInteger, Date, func, ForeignKey
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from contextlib import contextmanager
 from datetime import datetime, timedelta
@@ -21,20 +21,14 @@ _engine = None
 _SessionLocal = None
 
 def get_db_url():
-    """
-    Refactored to use secrets_manager for consistent lookup
-    across Dev (Streamlit Cloud) and Prod (Google Cloud Run).
-    """
     if not secrets_manager:
         logger.error("Secrets Manager module missing")
         return None
 
     try:
-        # 1. Try standard connection string first (Prod/Env Var)
         url = secrets_manager.get_secret("DATABASE_URL")
         if url: return url
 
-        # 2. Try Supabase specific keys (QA/Streamlit Secrets)
         sb_url = secrets_manager.get_secret("supabase.url")
         sb_key = secrets_manager.get_secret("supabase.key")
         sb_pass = secrets_manager.get_secret("supabase.db_password") or sb_key
@@ -79,15 +73,8 @@ def get_db_session():
 def to_dict(obj):
     if not obj: return None
     data = {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
-    
-    # Auto-fill address_line1 if street exists
-    if 'street' in data and 'address_line1' not in data:
-        data['address_line1'] = data['street']
-    
-    # Auto-fill zip_code if zip exists
-    if 'zip' in data and 'zip_code' not in data:
-        data['zip_code'] = data['zip']
-        
+    if 'street' in data and 'address_line1' not in data: data['address_line1'] = data['street']
+    if 'zip' in data and 'zip_code' not in data: data['zip_code'] = data['zip']
     return data
 
 # ==========================================
@@ -113,8 +100,18 @@ class UserProfile(Base):
     stripe_customer_id = Column(String, nullable=True)
     stripe_subscription_id = Column(String, nullable=True)
     subscription_end_date = Column(DateTime, nullable=True)
-    # --- ADDED FOR B2B PIVOT ---
-    role = Column(String, default="user") # 'user', 'partner', 'admin'
+    # --- PARTNER UPDATE ---
+    is_partner = Column(Boolean, default=False)
+
+class PartnerClient(Base):
+    __tablename__ = 'partner_clients'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    partner_email = Column(String, nullable=False)
+    client_name = Column(String)
+    client_phone = Column(String)
+    status = Column(String, default="Active") # Active, Interviewing, Archived
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
@@ -148,6 +145,7 @@ class LetterDraft(Base):
     audio_ref = Column(Text)
     recipient_data = Column(Text) 
     sender_data = Column(Text)
+    # Could link to partner_client_id if needed in future
 
 class ScheduledEvent(Base):
     __tablename__ = 'scheduled_events'
@@ -209,127 +207,68 @@ class PaymentFulfillment(Base):
 # 🛠️ FUNCTIONS
 # ==========================================
 
-def update_subscription_state(email, sub_id, customer_id, period_end_dt, refill_credits=False):
+# --- PARTNER METHODS (NEW) ---
+def get_partner_clients(partner_email):
     try:
         with get_db_session() as session:
-            profile = session.query(UserProfile).filter_by(email=email).first()
-            if profile:
-                profile.stripe_subscription_id = sub_id
-                profile.stripe_customer_id = customer_id
-                profile.subscription_end_date = period_end_dt
-                if refill_credits:
-                    profile.credits = 4
-                    logger.info(f"Credits refilled for {email}")
-                session.commit()
-                return True
-            return False
+            clients = session.query(PartnerClient).filter_by(partner_email=partner_email).order_by(PartnerClient.created_at.desc()).all()
+            return [to_dict(c) for c in clients]
     except Exception as e:
-        logger.error(f"Update Subscription State Error: {e}")
-        return False
-
-# Backward compatibility alias
-update_user_subscription_id = lambda e, s: update_subscription_state(e, s, None, None)
-
-def get_all_orders():
-    combined = []
-    try:
-        with get_db_session() as session:
-            legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
-            for o in legacy:
-                d = to_dict(o)
-                if not d.get('user_email'): d['user_email'] = f"ID: {d.get('user_id', '?')}"
-                d['source'] = 'Sent Letter'
-                combined.append(d)
-    except Exception as e:
-        logger.error(f"Error fetching Letters table: {e}")
-
-    try:
-        with get_db_session() as session:
-            heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
-            for h in heirloom:
-                d = to_dict(h)
-                d['source'] = 'Draft/Heirloom'
-                d['recipient_name'] = "Pending..."
-                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
-                combined.append(d)
-    except Exception as e:
-        logger.error(f"Error fetching Drafts table: {e}")
-
-    if combined:
-        try: combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
-        except: pass
-        
-    return combined[:100]
-
-def get_all_users():
-    try:
-        with get_db_session() as session:
-            users = session.query(UserProfile).all()
-            results = []
-            for u in users:
-                d = to_dict(u)
-                d['credits_remaining'] = d.get('credits', 0)
-                # Ensure role exists in dict
-                if 'role' not in d or not d['role']: d['role'] = 'user'
-                results.append(d)
-            return results
-    except Exception as e:
-        logger.error(f"Get Users Error: {e}")
+        logger.error(f"Get Clients Error: {e}")
         return []
 
-def update_user_role(email, new_role):
-    """
-    Promotes or Demotes a user (e.g. 'user' -> 'partner').
-    """
+def add_partner_client(partner_email, name, phone, notes=""):
     try:
         with get_db_session() as session:
-            profile = session.query(UserProfile).filter_by(email=email).first()
-            if profile:
-                profile.role = new_role
-                session.commit()
-                return True
-            return False
-    except Exception as e:
-        logger.error(f"Update Role Error: {e}")
-        return False
-
-def get_all_promos():
-    try:
-        with get_db_session() as session:
-            promos = session.query(PromoCode).all()
-            return [to_dict(p) for p in promos]
-    except Exception as e:
-        logger.error(f"Get Promos Error: {e}")
-        return []
-
-def save_audit_log(log_entry):
-    try:
-        with get_db_session() as session:
-            valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
-            filtered_entry = {k: v for k, v in log_entry.items() if k in valid_keys}
-            log = AuditEvent(**filtered_entry)
-            session.add(log)
+            new_client = PartnerClient(
+                partner_email=partner_email,
+                client_name=name,
+                client_phone=phone,
+                notes=notes
+            )
+            session.add(new_client)
             session.commit()
             return True
     except Exception as e:
-        logger.error(f"Audit Save Error: {e}")
+        logger.error(f"Add Client Error: {e}")
         return False
 
-def get_audit_logs(limit=100):
+def update_client_status(client_id, status):
     try:
         with get_db_session() as session:
-            logs = session.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(limit).all()
-            return [to_dict(l) for l in logs]
-    except Exception as e:
-        logger.error(f"Audit Log Fetch Error: {e}")
-        return []
+            client = session.query(PartnerClient).filter_by(id=client_id).first()
+            if client:
+                client.status = status
+                session.commit()
+                return True
+            return False
+    except Exception: return False
 
+def get_client_stories(partner_email, client_name):
+    """
+    Retrieves stories drafted for a specific client.
+    Logic: Checks drafts where user_email matches partner AND Recipient Name matches Client.
+    """
+    try:
+        with get_db_session() as session:
+            # Note: This assumes the partner is the 'user' who owns the draft.
+            # In V1, the partner triggers the call, so the draft is associated with the partner's account.
+            # We filter by content or metadata if possible, but for now we look for generic drafts.
+            # A better approach for V2 is linking draft.partner_client_id.
+            # Current Implementation: Retrieve all drafts for partner, filter by fuzzy match or return all (Simplified).
+            
+            # Simple approach: Return all drafts for the partner (User can filter in UI)
+            drafts = session.query(LetterDraft).filter_by(user_email=partner_email).order_by(LetterDraft.created_at.desc()).all()
+            return [to_dict(d) for d in drafts]
+    except Exception: return []
+
+# --- EXISTING METHODS ---
 def get_user_profile(email):
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
-                profile = UserProfile(email=email, credits=0, role="user")
+                profile = UserProfile(email=email, credits=0)
                 session.add(profile)
                 session.commit()
             return to_dict(profile)
@@ -340,7 +279,7 @@ def get_user_profile(email):
 def create_user(email, full_name):
     try:
         with get_db_session() as db:
-            user = UserProfile(email=email, full_name=full_name, role="user")
+            user = UserProfile(email=email, full_name=full_name)
             db.add(user)
             db.commit()
             return True
@@ -569,3 +508,100 @@ def record_promo_usage(code, user_email):
     except Exception as e:
         logger.error(f"Record Promo Usage Error: {e}")
         return False
+
+def update_subscription_state(email, sub_id, customer_id, period_end_dt, refill_credits=False):
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.stripe_subscription_id = sub_id
+                profile.stripe_customer_id = customer_id
+                profile.subscription_end_date = period_end_dt
+                if refill_credits:
+                    profile.credits = 4
+                    logger.info(f"Credits refilled for {email}")
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Subscription State Error: {e}")
+        return False
+
+# Backward compatibility alias
+update_user_subscription_id = lambda e, s: update_subscription_state(e, s, None, None)
+
+def get_all_orders():
+    combined = []
+    try:
+        with get_db_session() as session:
+            legacy = session.query(Letter).order_by(Letter.created_at.desc()).limit(50).all()
+            for o in legacy:
+                d = to_dict(o)
+                if not d.get('user_email'): d['user_email'] = f"ID: {d.get('user_id', '?')}"
+                d['source'] = 'Sent Letter'
+                combined.append(d)
+    except Exception as e:
+        logger.error(f"Error fetching Letters table: {e}")
+
+    try:
+        with get_db_session() as session:
+            heirloom = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(50).all()
+            for h in heirloom:
+                d = to_dict(h)
+                d['source'] = 'Draft/Heirloom'
+                d['recipient_name'] = "Pending..."
+                if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
+                combined.append(d)
+    except Exception as e:
+        logger.error(f"Error fetching Drafts table: {e}")
+
+    if combined:
+        try: combined.sort(key=lambda x: x.get('created_at') or datetime.min, reverse=True)
+        except: pass
+        
+    return combined[:100]
+
+def get_all_users():
+    try:
+        with get_db_session() as session:
+            users = session.query(UserProfile).all()
+            results = []
+            for u in users:
+                d = to_dict(u)
+                d['credits_remaining'] = d.get('credits', 0)
+                results.append(d)
+            return results
+    except Exception as e:
+        logger.error(f"Get Users Error: {e}")
+        return []
+
+def get_all_promos():
+    try:
+        with get_db_session() as session:
+            promos = session.query(PromoCode).all()
+            return [to_dict(p) for p in promos]
+    except Exception as e:
+        logger.error(f"Get Promos Error: {e}")
+        return []
+
+def save_audit_log(log_entry):
+    try:
+        with get_db_session() as session:
+            valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
+            filtered_entry = {k: v for k, v in log_entry.items() if k in valid_keys}
+            log = AuditEvent(**filtered_entry)
+            session.add(log)
+            session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Audit Save Error: {e}")
+        return False
+
+def get_audit_logs(limit=100):
+    try:
+        with get_db_session() as session:
+            logs = session.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(limit).all()
+            return [to_dict(l) for l in logs]
+    except Exception as e:
+        logger.error(f"Audit Log Fetch Error: {e}")
+        return []
