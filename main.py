@@ -34,7 +34,8 @@ st.markdown("""
         font-weight: 600;
     }
     .stDeployButton {display:none;}
-    meta { display: block; }
+    /* HIDE STREAMLIT HEADER ANCHORS */
+    a.anchor-link {display: none !important;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -55,7 +56,8 @@ def get_module(module_name):
             "database": "database",
             "analytics": "analytics",
             "auth_engine": "auth_engine",
-            "storage_engine": "storage_engine"
+            "storage_engine": "storage_engine",
+            "seo_injector": "seo_injector"
         }
         if module_name in known_modules:
             return __import__(known_modules[module_name])
@@ -74,6 +76,8 @@ try: import email_engine
 except ImportError: email_engine = None
 try: import auth_listener
 except ImportError: auth_listener = None
+
+# --- LOAD SEO INJECTOR ---
 try: import seo_injector
 except ImportError: seo_injector = None
 
@@ -148,26 +152,31 @@ def main():
     if st.session_state.get("authenticated") and "is_partner" not in st.session_state:
         st.session_state.is_partner = check_partner_status(st.session_state.user_email)
 
+    # 3. SEO INJECTION (FIXED)
+    current_system_mode = "archive"
     if st.session_state.get("is_partner"):
-        st.session_state.system_mode = "partner"
-        if seo_injector: seo_injector.inject_meta_tags("partner")
+        current_system_mode = "partner"
     else:
-        if "system_mode" not in st.session_state:
-            st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
-        if seo_injector: seo_injector.inject_meta_tags(st.session_state.system_mode)
+        current_system_mode = st.query_params.get("mode", "archive").lower()
+    
+    st.session_state.system_mode = current_system_mode
+    
+    # CALL THE FIXED INJECTOR
+    if seo_injector: 
+        seo_injector.inject_meta_tags(current_system_mode)
     
     analytics = get_module("analytics")
     if analytics: analytics.inject_ga()
 
-    # 3. Handle Stripe/Payment Returns
+    # 4. Handle Stripe/Payment Returns
     if "session_id" in st.query_params:
         handle_payment_return(st.query_params["session_id"])
 
-    # 4. ROUTING LOGIC (FIXED)
+    # 5. ROUTING LOGIC
     if "app_mode" not in st.session_state:
         nav_target = st.query_params.get("nav")
         
-        # --- EXPLICIT PARTNER ROUTING (B2B Pivot) ---
+        # --- EXPLICIT PARTNER ROUTING ---
         if nav_target == "partner":
             if st.session_state.get("authenticated"):
                 st.session_state.app_mode = "partner"
@@ -210,7 +219,7 @@ def main():
         else:
              st.session_state.app_mode = "splash"
             
-    # 5. LAZY SUBSCRIPTION CHECK
+    # 6. LAZY SUBSCRIPTION CHECK
     if st.session_state.get("authenticated") and not st.session_state.get("is_partner") and not st.session_state.get("credits_synced"):
         pay_eng = get_module("payment_engine")
         user_email = st.session_state.get("user_email")
@@ -222,11 +231,11 @@ def main():
                 logger.error(f"Lazy Sync Error: {e}")
         st.session_state.credits_synced = True
 
-    # 6. SIDEBAR NAVIGATION
+    # 7. SIDEBAR NAVIGATION
     if not st.session_state.get("is_partner"):
         render_sidebar(st.session_state.system_mode)
 
-    # 7. EXECUTE CONTROLLER
+    # 8. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
     
     route_map = {

@@ -63,7 +63,6 @@ def get_base_url():
         
     # 3. Safe Default (Production)
     if not url:
-        # CHANGED: Default to custom domain to fix session loss
         url = "https://app.verbapost.com"
         
     return url.rstrip("/")
@@ -175,7 +174,18 @@ def check_subscription_status(user_email):
         
         if len(subscriptions.data) > 0:
             sub = subscriptions.data[0]
-            stripe_end_ts = sub.current_period_end # Unix Timestamp
+            
+            # --- FIX: SAFE ATTRIBUTE ACCESS ---
+            # Stripe objects can behave like dicts or objects depending on version.
+            # Using .get() or dictionary access is safest.
+            stripe_end_ts = sub.get('current_period_end') 
+            if not stripe_end_ts:
+                # Fallback to attribute access if .get fails (rare object types)
+                stripe_end_ts = getattr(sub, 'current_period_end', None)
+
+            if not stripe_end_ts:
+                return False # Cannot determine date
+
             stripe_end_dt = datetime.fromtimestamp(stripe_end_ts)
             
             # 3. Check DB for Last Known Refill
@@ -190,7 +200,6 @@ def check_subscription_status(user_email):
                 should_refill = True
             
             # 5. Update Database (Atomic)
-            # Only update if the period has changed OR if we need to refill
             if should_refill or db_end_dt != stripe_end_dt:
                 database.update_subscription_state(
                     email=user_email,

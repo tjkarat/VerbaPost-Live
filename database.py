@@ -113,39 +113,8 @@ class UserProfile(Base):
     stripe_customer_id = Column(String, nullable=True)
     stripe_subscription_id = Column(String, nullable=True)
     subscription_end_date = Column(DateTime, nullable=True)
-    # --- B2B COLUMNS ---
-    is_partner = Column(Boolean, default=False)
-    firm_name = Column(String, nullable=True)
-    phone_number = Column(String, nullable=True)
-
-class PartnerClient(Base):
-    __tablename__ = 'partner_clients'
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    partner_email = Column(String, nullable=False)
-    client_name = Column(String, nullable=False)
-    client_phone = Column(String, nullable=False)
-    status = Column(String, default='Pending') # Pending, Scheduled, Recorded, Approved
-    notes = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-class LetterDraft(Base):
-    __tablename__ = 'letter_drafts'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    user_email = Column(String)
-    content = Column(Text)
-    status = Column(String, default="Draft")
-    tier = Column(String, default="Heirloom") 
-    price = Column(Float, default=0.0)
-    tracking_number = Column(String)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    to_addr = Column(Text)
-    from_addr = Column(Text)
-    audio_ref = Column(Text)
-    recipient_data = Column(Text) 
-    sender_data = Column(Text)
-    # --- B2B COLUMNS ---
-    partner_email = Column(String, nullable=True)
-    client_name = Column(String, nullable=True)
+    # --- ADDED FOR B2B PIVOT ---
+    role = Column(String, default="user") # 'user', 'partner', 'admin'
 
 class PromoLog(Base):
     __tablename__ = 'promo_logs'
@@ -163,6 +132,22 @@ class AuditEvent(Base):
     details = Column(Text)
     description = Column(Text)
     stripe_session_id = Column(String)
+
+class LetterDraft(Base):
+    __tablename__ = 'letter_drafts'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String)
+    content = Column(Text)
+    status = Column(String, default="Draft")
+    tier = Column(String, default="Heirloom") 
+    price = Column(Float, default=0.0)
+    tracking_number = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    to_addr = Column(Text)
+    from_addr = Column(Text)
+    audio_ref = Column(Text)
+    recipient_data = Column(Text) 
+    sender_data = Column(Text)
 
 class ScheduledEvent(Base):
     __tablename__ = 'scheduled_events'
@@ -221,62 +206,7 @@ class PaymentFulfillment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
-# 🛠️ PARTNER FUNCTIONS (NEW)
-# ==========================================
-
-def add_partner_client(partner_email, name, phone, notes=""):
-    try:
-        with get_db_session() as session:
-            new_client = PartnerClient(
-                partner_email=partner_email,
-                client_name=name,
-                client_phone=phone,
-                notes=notes,
-                status="Pending"
-            )
-            session.add(new_client)
-            session.commit()
-            return True
-    except Exception as e:
-        logger.error(f"Add Client Error: {e}")
-        return False
-
-def get_partner_clients(partner_email):
-    try:
-        with get_db_session() as session:
-            clients = session.query(PartnerClient).filter_by(partner_email=partner_email).order_by(PartnerClient.created_at.desc()).all()
-            return [to_dict(c) for c in clients]
-    except Exception as e:
-        logger.error(f"Get Clients Error: {e}")
-        return []
-
-def get_client_stories(partner_email, client_name):
-    """Fetches drafts associated with a specific B2B client."""
-    try:
-        with get_db_session() as session:
-            # Join logic: Drafts where partner_email matches AND client_name matches
-            drafts = session.query(LetterDraft).filter(
-                LetterDraft.partner_email == partner_email,
-                LetterDraft.client_name == client_name
-            ).order_by(LetterDraft.created_at.desc()).all()
-            return [to_dict(d) for d in drafts]
-    except Exception as e:
-        logger.error(f"Get Stories Error: {e}")
-        return []
-
-def update_client_status(client_id, status):
-    try:
-        with get_db_session() as session:
-            client = session.query(PartnerClient).filter_by(id=client_id).first()
-            if client:
-                client.status = status
-                session.commit()
-                return True
-            return False
-    except Exception: return False
-
-# ==========================================
-# 🛠️ EXISTING FUNCTIONS
+# 🛠️ FUNCTIONS
 # ==========================================
 
 def update_subscription_state(email, sub_id, customer_id, period_end_dt, refill_credits=False):
@@ -319,7 +249,7 @@ def get_all_orders():
             for h in heirloom:
                 d = to_dict(h)
                 d['source'] = 'Draft/Heirloom'
-                d['recipient_name'] = d.get('client_name') or "Pending..."
+                d['recipient_name'] = "Pending..."
                 if 'tier' not in d or not d['tier']: d['tier'] = 'Heirloom'
                 combined.append(d)
     except Exception as e:
@@ -339,11 +269,29 @@ def get_all_users():
             for u in users:
                 d = to_dict(u)
                 d['credits_remaining'] = d.get('credits', 0)
+                # Ensure role exists in dict
+                if 'role' not in d or not d['role']: d['role'] = 'user'
                 results.append(d)
             return results
     except Exception as e:
         logger.error(f"Get Users Error: {e}")
         return []
+
+def update_user_role(email, new_role):
+    """
+    Promotes or Demotes a user (e.g. 'user' -> 'partner').
+    """
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.role = new_role
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Role Error: {e}")
+        return False
 
 def get_all_promos():
     try:
@@ -381,7 +329,7 @@ def get_user_profile(email):
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
-                profile = UserProfile(email=email, credits=0)
+                profile = UserProfile(email=email, credits=0, role="user")
                 session.add(profile)
                 session.commit()
             return to_dict(profile)
@@ -392,7 +340,7 @@ def get_user_profile(email):
 def create_user(email, full_name):
     try:
         with get_db_session() as db:
-            user = UserProfile(email=email, full_name=full_name)
+            user = UserProfile(email=email, full_name=full_name, role="user")
             db.add(user)
             db.commit()
             return True

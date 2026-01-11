@@ -37,25 +37,21 @@ except ImportError: audit_engine = None
 # --- HELPER: ROBUST ADDRESS PARSER ---
 def parse_address_data(raw_data):
     """
-    Safely extracts address dictionary from DB string.
+    Safely extracts address dictionary from DB string, handling both 
+    JSON strings and Python string representations.
     """
-    if not raw_data: return {}
-    try: return json.loads(raw_data)
+    if not raw_data:
+        return {}
+    
+    try:
+        # Attempt 1: JSON
+        return json.loads(raw_data)
     except:
-        try: return ast.literal_eval(raw_data)
-        except: return {}
-
-# --- HELPER: HYDRATE AUDIO URL ---
-def _hydrate_audio_url(raw_ref):
-    if not raw_ref: return None
-    if raw_ref.startswith("http"): return raw_ref
-    sb_url = secrets_manager.get_secret("supabase.url")
-    if not sb_url: sb_url = os.environ.get("SUPABASE_URL")
-    if sb_url:
-        sb_url = sb_url.rstrip("/")
-        # Point to 'heirloom-audio' bucket
-        return f"{sb_url}/storage/v1/object/public/heirloom-audio/{raw_ref}"
-    return raw_ref
+        try:
+            # Attempt 2: Python Literal (e.g. "{'name': '...'}")
+            return ast.literal_eval(raw_data)
+        except:
+            return {}
 
 def check_connection(service_name, check_func):
     try:
@@ -95,22 +91,7 @@ def run_system_health_checks():
     status, color = check_connection("OpenAI (Intelligence)", check_openai)
     results.append({"Service": "OpenAI (Intelligence)", "Status": status, "Color": color})
 
-    # 4. PCM INTEGRATIONS (MAILING) - UPDATED FOR V4
-    def check_pcm():
-        # PCM V3 Check
-        if mailer and hasattr(mailer, 'get_api_key'):
-            key = mailer.get_api_key()
-            if not key: raise Exception("Missing API Key")
-            # Simple auth check against V3 endpoint
-            # Note: Adjust endpoint if mailer.py uses a specific base URL
-            base_url = "https://api.pcmintegrations.com/v3" 
-            r = requests.get(f"{base_url}/orders", headers={"Authorization": f"Bearer {key}"})
-            if r.status_code not in [200, 201]: 
-                if r.status_code == 401: raise Exception("Unauthorized (Check Key)")
-    status, color = check_connection("PCM (Mailing)", check_pcm)
-    results.append({"Service": "PCM (Mailing)", "Status": status, "Color": color})
-
-    # 5. TWILIO
+    # 4. TWILIO
     def check_twilio():
         sid = secrets_manager.get_secret("twilio.account_sid")
         token = secrets_manager.get_secret("twilio.auth_token")
@@ -120,7 +101,16 @@ def run_system_health_checks():
     status, color = check_connection("Twilio (Voice)", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
-    # 6. GEOCODIO (Required for Civic)
+    # 5. POSTGRID
+    def check_postgrid():
+        k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
+        if not k: raise Exception("Missing Key")
+        r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
+        if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code} - {r.text}")
+    status, color = check_connection("PostGrid (Fulfillment)", check_postgrid)
+    results.append({"Service": "PostGrid (Fulfillment)", "Status": status, "Color": color})
+
+    # 6. GEOCODIO
     def check_geocodio():
         k = secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCODIO_API_KEY")
         if not k: raise Exception("Missing Key")
@@ -129,16 +119,16 @@ def run_system_health_checks():
     status, color = check_connection("Geocodio (Civic)", check_geocodio)
     results.append({"Service": "Geocodio (Civic)", "Status": status, "Color": color})
 
-    # 7. RESEND (EMAIL)
+    # 7. RESEND
     def check_resend():
         k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
         if not k_raw: raise Exception("Missing Key")
         k = str(k_raw).strip().replace("'", "").replace('"', "")
-        if not k.startswith("re_"): raise Exception("Invalid Key Format")
+        if not k.startswith("re_"): raise Exception("Invalid Key Format (must start with re_)")
         headers = {"Authorization": f"Bearer {k}", "Content-Type": "application/json"}
         r_dom = requests.get("https://api.resend.com/domains", headers=headers)
         if r_dom.status_code == 403: return "⚠️ Online (Restricted)"
-        if r_dom.status_code != 200: raise Exception(f"API {r_dom.status_code}")
+        if r_dom.status_code != 200: raise Exception(f"API {r_dom.status_code}: {r_dom.text}")
             
     status, color = check_connection("Resend (Email)", check_resend)
     results.append({"Service": "Resend (Email)", "Status": status, "Color": color})
@@ -180,42 +170,41 @@ def render_admin_page():
     # --- TAB 1: MANUAL QUEUE ---
     with tab_print:
         st.subheader("🖨️ Manual Fulfillment Queue")
-        st.info("Items here were flagged for manual review or failed API sending.")
+        st.info("Items here were submitted via 'Manual Mode'. Download PDF, Print, then Mark as Mailed.")
         
         if database:
             with database.get_db_session() as db:
                 queued_items = db.query(database.LetterDraft).filter(
-                    database.LetterDraft.status.like("%Manual%")
+                    database.LetterDraft.status == "Queued (Manual)"
                 ).order_by(database.LetterDraft.created_at.desc()).all()
                 
                 if not queued_items:
-                    st.success("🎉 Print queue is empty!")
+                    st.success("🎉 Print queue is empty! All manual orders have been cleared.")
                 else:
                     st.write(f"**Pending items:** {len(queued_items)}")
                     for item in queued_items:
                         with st.expander(f"📄 {item.tier} | {item.created_at.strftime('%Y-%m-%d')} | {item.user_email}"):
                             c1, c2 = st.columns([2, 1])
+                            
                             with c1:
                                 st.caption("Content Preview:")
                                 st.text(item.content[:150] + "...")
                                 
+                                # FIX: Robust Parsing
                                 to_dict = parse_address_data(item.recipient_data or item.to_addr)
                                 from_dict = parse_address_data(item.sender_data or item.from_addr)
-                                
-                                # HYDRATE AUDIO FOR QR CODE
-                                audio_link = _hydrate_audio_url(getattr(item, 'audio_ref', None))
-                                if audio_link:
-                                    st.success(f"🎵 Audio Linked (QR will generate)")
                                 
                                 if st.button(f"⬇️ Generate PDF for #{item.id}", key=f"pdf_{item.id}"):
                                     if letter_format and address_standard:
                                         try:
                                             # Create Address Objects
+                                            # Only attempt creation if dict is valid
                                             if to_dict:
                                                 std_to = address_standard.StandardAddress.from_dict(to_dict)
                                             else:
+                                                # Fallback if empty (prevent crash)
                                                 std_to = address_standard.StandardAddress(name="Unknown", street="Unknown", city="Unknown", state="NA", zip_code="00000")
-                                            
+                                                
                                             if from_dict:
                                                 std_from = address_standard.StandardAddress.from_dict(from_dict)
                                             else:
@@ -225,8 +214,7 @@ def render_admin_page():
                                                 item.content,
                                                 std_to,
                                                 std_from,
-                                                tier=item.tier,
-                                                audio_url=audio_link
+                                                tier=item.tier
                                             )
                                             b64 = base64.b64encode(pdf_bytes).decode()
                                             href = f'<a href="data:application/pdf;base64,{b64}" download="VerbaPost_{item.id}.pdf">Click here to Download PDF</a>'
@@ -238,7 +226,7 @@ def render_admin_page():
 
                             with c2:
                                 st.markdown("<br>", unsafe_allow_html=True)
-                                manual_track = st.text_input("Tracking #", key=f"trk_{item.id}")
+                                manual_track = st.text_input("Tracking # (Optional)", key=f"trk_{item.id}")
                                 if st.button("✅ Mark as Mailed", key=f"done_{item.id}", type="primary"):
                                     item.status = "Sent (Manual)"
                                     if manual_track: item.tracking_number = manual_track
@@ -247,7 +235,7 @@ def render_admin_page():
                                     time.sleep(1)
                                     st.rerun()
 
-    # --- TAB 2: ORDER MANAGER ---
+    # --- TAB 2: REPAIR STATION ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
@@ -277,6 +265,7 @@ def render_admin_page():
                 
                 st.divider()
                 st.markdown("### 🛠️ Repair & Force Dispatch")
+                st.info("Select a Standard order to fix addresses or force a re-send via PostGrid.")
                 
                 c_sel, c_act = st.columns([3, 1])
                 with c_sel:
@@ -295,6 +284,8 @@ def render_admin_page():
                         if record:
                             st.markdown(f"**Processing Order:** `{selected_id}`")
                             
+                            # --- FIX: USE NEW PARSER HERE TOO ---
+                            # Prioritize new columns, fallback to old
                             t_addr = parse_address_data(getattr(record, 'recipient_data', None) or record.to_addr)
                             f_addr = parse_address_data(getattr(record, 'sender_data', None) or record.from_addr)
                             
@@ -318,31 +309,15 @@ def render_admin_page():
                                     if len(new_zip) < 5 or not new_street:
                                         st.error("Invalid Address.")
                                     else:
+                                        # Save to both columns to be safe
                                         record.recipient_data = updated_str
                                         if hasattr(record, 'to_addr'): record.to_addr = updated_str
                                         record.content = new_content
                                         db.commit()
                                         
                                         if mailer and letter_format:
-                                            rec_tier = getattr(record, 'tier', 'Standard')
-                                            rec_audio = _hydrate_audio_url(getattr(record, 'audio_ref', None))
-                                            
-                                            pdf = letter_format.create_pdf(
-                                                new_content, 
-                                                updated_to, 
-                                                f_addr,
-                                                tier=rec_tier,
-                                                audio_url=rec_audio
-                                            )
-                                            # UPDATED: Passes user_email for Audit Logging
-                                            res = mailer.send_letter(
-                                                pdf, 
-                                                updated_to, 
-                                                f_addr, 
-                                                tier=rec_tier, 
-                                                description=f"Repair {selected_id}",
-                                                user_email=record.user_email # <--- Critical Update
-                                            )
+                                            pdf = letter_format.create_pdf(new_content, updated_to, f_addr)
+                                            res = mailer.send_letter(pdf, updated_to, f_addr, description=f"Repair {selected_id}")
                                             if res: 
                                                 record.status = "Sent"; record.tracking_number = res; db.commit()
                                                 st.success("Dispatched!"); st.rerun()
@@ -369,39 +344,25 @@ def render_admin_page():
 
         except Exception as e: st.error(f"Error fetching orders: {e}")
 
-    # --- TAB 3: RECORDINGS (RESTORED GHOST DETECTION) ---
+    # --- TAB 3: RECORDINGS ---
     with tab_recordings:
         st.subheader("🎙️ Recording Management")
         if st.button("🔎 Scan Twilio Servers", use_container_width=True):
             if ai_engine and hasattr(ai_engine, 'get_all_twilio_recordings'):
                 with st.spinner("Fetching audio logs..."):
-                    # 1. Fetch Calls
                     raw_recordings = ai_engine.get_all_twilio_recordings(limit=50)
-                    
-                    # 2. Fetch Users for Ghost Detection
                     users = database.get_all_users()
-                    
-                    # 3. Create Known Numbers Set
-                    known_nums = set()
-                    for u in users:
-                        p = u.get('parent_phone')
-                        if p:
-                            # Normalize: strip non-digits, take last 10
-                            norm = "".join(filter(str.isdigit, str(p)))[-10:]
-                            known_nums.add(norm)
+                    known_nums = { "".join(filter(str.isdigit, str(u.get('parent_phone', ''))))[-10:] for u in users if u.get('parent_phone') }
                     
                     if raw_recordings:
                         rec_data = []
                         for r in raw_recordings:
-                            caller_raw = str(r.get('from', ''))
-                            caller_norm = "".join(filter(str.isdigit, caller_raw))[-10:]
-                            
+                            caller_norm = "".join(filter(str.isdigit, str(r.get('from', ''))))[-10:]
                             is_ghost = caller_norm not in known_nums
-                            
                             rec_data.append({
                                 "SID": r.get('sid'),
                                 "Date": r.get('date_created'),
-                                "From": caller_raw,
+                                "From": r.get('from', 'Unknown'),
                                 "Duration": f"{r.get('duration')}s",
                                 "Type": "👻 GHOST" if is_ghost else "👤 USER",
                                 "URL": r.get('uri')
@@ -413,10 +374,8 @@ def render_admin_page():
         if st.session_state.get("active_recordings"):
             df_recs = pd.DataFrame(st.session_state.active_recordings)
             st.dataframe(df_recs[['Type', 'Date', 'From', 'Duration', 'SID']], use_container_width=True)
-            
             st.divider()
             st.markdown("### 🎧 Review & Action")
-            
             rec_options = {f"{r['Date']} | {r['From']} | {r['SID']}": r for r in st.session_state.active_recordings}
             sel_rec_label = st.selectbox("Select Recording", ["Select..."] + list(rec_options.keys()))
             
@@ -444,16 +403,18 @@ def render_admin_page():
 
                 with c_del:
                     if st.button("🗑️ Permanently Delete", key=f"del_{sel_sid}", type="primary"):
-                        if ai_engine and hasattr(ai_engine, 'delete_twilio_recording'):
-                            if ai_engine.delete_twilio_recording(sel_sid):
+                        sid = secrets_manager.get_secret("twilio.account_sid")
+                        token = secrets_manager.get_secret("twilio.auth_token")
+                        if sid and token:
+                            try:
+                                client = TwilioClient(sid, token)
+                                client.recordings(sel_sid).delete()
                                 st.success(f"Deleted {sel_sid}")
-                                # Remove from local state
                                 st.session_state.active_recordings = [r for r in st.session_state.active_recordings if r['SID'] != sel_sid]
                                 time.sleep(1)
                                 st.rerun()
-                            else: st.error("Delete Failed")
-                        else:
-                            st.error("AI Engine update required.")
+                            except Exception as e: st.error(f"Delete Failed: {e}")
+                        else: st.error("Twilio Credentials Missing")
 
     # --- TAB 4: PROMOS ---
     with tab_promos:
@@ -469,83 +430,57 @@ def render_admin_page():
         if promos: st.dataframe(pd.DataFrame(promos), use_container_width=True)
         else: st.info("No promo codes found.")
 
-    # --- TAB 5: USERS & PARTNERS (UPDATED FEATURE) ---
+    # --- TAB 5: USERS & PARTNER PROVISIONING ---
     with tab_users:
-        st.subheader("User Profiles & Partners")
-        users = database.get_all_users()
+        st.subheader("User & Partner Management")
+        st.caption("Promote users to 'Partner' status to enable B2B features.")
         
+        users = database.get_all_users()
         if users:
-            # 1. DISPLAY USERS (With Partner Status)
+            # Create DataFrame
             safe_users = []
             for u in users:
-                is_p = u.get("is_partner", False)
                 safe_users.append({
-                    "Name": u.get("full_name"), 
                     "Email": u.get("email"), 
-                    "Is Partner": "✅ YES" if is_p else "No",
+                    "Name": u.get("full_name"), 
+                    "Role": u.get("role", "user"),
                     "Credits": u.get("credits_remaining")
                 })
-            st.dataframe(pd.DataFrame(safe_users), use_container_width=True)
+            df_users = pd.DataFrame(safe_users)
+            st.dataframe(df_users, use_container_width=True)
             
-            # 2. PROVISIONING TOOLS (THE REQUESTED ADDITION)
             st.divider()
-            st.markdown("### 💼 Partner Provisioning")
-            c_prov, c_revoke = st.columns(2)
+            st.markdown("### 🔑 Provisioning")
             
-            with c_prov:
-                new_partner_email = st.text_input("User Email to Promote")
-                if st.button("⬆️ Make Partner", type="primary"):
-                    if new_partner_email:
-                        with database.get_db_session() as db:
-                            from sqlalchemy import text
-                            # Direct SQL update for robustness
-                            sql = text("UPDATE user_profiles SET is_partner = true WHERE email = :e")
-                            res = db.execute(sql, {"e": new_partner_email.strip()})
-                            db.commit()
-                            if res.rowcount > 0:
-                                st.success(f"Promoted {new_partner_email} to Partner!")
-                                time.sleep(1); st.rerun()
-                            else:
-                                st.error("User not found.")
+            c_u, c_r, c_act = st.columns([3, 2, 1])
+            with c_u:
+                user_list = [f"{u['Email']} ({u['Role']})" for u in safe_users]
+                selected_user_str = st.selectbox("Select User", ["Select..."] + user_list)
             
-            with c_revoke:
-                revoke_email = st.text_input("User Email to Demote")
-                if st.button("⬇️ Revoke Partner Status"):
-                    if revoke_email:
-                        with database.get_db_session() as db:
-                            from sqlalchemy import text
-                            sql = text("UPDATE user_profiles SET is_partner = false WHERE email = :e")
-                            res = db.execute(sql, {"e": revoke_email.strip()})
-                            db.commit()
-                            if res.rowcount > 0:
-                                st.success(f"Revoked Partner status from {revoke_email}")
-                                time.sleep(1); st.rerun()
-                            else:
-                                st.error("User not found.")
-        else:
-            st.info("No users found.")
+            with c_r:
+                new_role = st.selectbox("Assign Role", ["user", "partner", "admin"])
+                
+            with c_act:
+                st.write("") # Spacer
+                if st.button("💾 Update Role", type="primary", use_container_width=True):
+                    if selected_user_str and selected_user_str != "Select...":
+                        target_email = selected_user_str.split(" ")[0]
+                        if database.update_user_role(target_email, new_role):
+                            st.success(f"Updated {target_email} to {new_role}")
+                            time.sleep(1)
+                            st.rerun()
+                        else:
+                            st.error("Update Failed")
 
     # --- TAB 6: LOGS ---
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
             logs = audit_engine.get_audit_logs(limit=100)
-            if logs:
-                for log in logs:
-                    with st.expander(f"{log.get('timestamp','')} | {log.get('event_type','')} | {log.get('user_email','user')}"):
-                        st.write(log.get('description', ''))
-                        
-                        # Try to parse Details as JSON for PCM Inspection
-                        raw_details = log.get('details', '{}')
-                        try:
-                            json_details = json.loads(raw_details)
-                            st.json(json_details)
-                        except:
-                            st.text(raw_details)
+            if logs: st.dataframe(pd.DataFrame(logs), use_container_width=True)
             else: st.info("No logs found.")
         else: st.warning("Audit Engine not loaded.")
         
-    # --- TAB 7: HEALTH ---
     with tab_health:
         st.subheader("🔌 Connection Diagnostics")
         if st.button("Run Diagnostics"):
