@@ -30,15 +30,11 @@ class LetterPDF(FPDF):
         self.set_auto_page_break(auto=True, margin=MARGIN_MM)
         
     def header(self):
-        """
-        Custom header logic.
-        """
         pass
 
     def footer(self):
         """
         Standard Footer: Always sticks to the bottom.
-        Includes Branding and Page Numbers (if multi-page).
         """
         # Position at 2.0 cm from bottom
         self.set_y(-20)
@@ -79,7 +75,7 @@ def _safe_get(obj, key, default=""):
 def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text="", audio_url=None):
     """
     Generates the final PDF bytes for the letter.
-    Supports Audio QR Code if audio_url is provided.
+    Standard Layout (Non-Window).
     """
     try:
         # 1. Determine Footer Text
@@ -106,7 +102,7 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         # 4. Add Page
         pdf.add_page()
 
-        # 5. Header Content (Date, From, To)
+        # 5. Header Content
         pdf.set_font(font_family, size=12)
         pdf.set_text_color(0, 0, 0)
         
@@ -118,24 +114,34 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         # --- FROM ADDRESS (Return Address) ---
         f_name = _safe_get(from_addr, 'name') or _safe_get(from_addr, 'company')
         f_street = _safe_get(from_addr, 'address_line1') or _safe_get(from_addr, 'street')
-        f_line2 = _safe_get(from_addr, 'address_line2') or _safe_get(from_addr, 'street2')
         f_city = _safe_get(from_addr, 'city')
         f_state = _safe_get(from_addr, 'state')
         f_zip = _safe_get(from_addr, 'zip_code') or _safe_get(from_addr, 'zip')
         
-        from_lines = [f_name, f_street, f_line2, f"{f_city}, {f_state} {f_zip}"]
-        from_text = "\n".join([str(L) for L in from_lines if L and str(L).strip() != ",  "])
+        from_lines = [f_name, f_street, f"{f_city}, {f_state} {f_zip}"]
+        from_text = "\n".join([str(L) for L in from_lines if L])
         pdf.multi_cell(0, 5, _sanitize_text(from_text))
         
-        # --- TO ADDRESS RESERVED ZONE ---
-        # We DO NOT render the To address here. PCM/PostGrid will stamp it 
-        # (with barcode) in the standard window position.
-        # We add vertical spacing to ensure the body text starts clear of that zone.
+        pdf.ln(10) # Spacing between From and To
+
+        # --- TO ADDRESS (Standard Block) ---
+        # No indents, just standard left layout
+        t_name = _safe_get(to_addr, 'name')
+        t_street = _safe_get(to_addr, 'address_line1') or _safe_get(to_addr, 'street')
+        t_city = _safe_get(to_addr, 'city')
+        t_state = _safe_get(to_addr, 'state')
+        t_zip = _safe_get(to_addr, 'zip_code') or _safe_get(to_addr, 'zip')
         
-        # Approximate height of address window + spacing
-        pdf.ln(35) 
+        to_lines = [t_name, t_street, f"{t_city}, {t_state} {t_zip}"]
+        to_text = "\n".join([str(L) for L in to_lines if L])
+        
+        pdf.multi_cell(0, 5, _sanitize_text(to_text))
+        
+        # Spacing before body
+        pdf.ln(15)
 
         # 6. Render Letter Body
+        pdf.set_font(font_family, size=12)
         safe_body = _sanitize_text(body_text)
         if not safe_body.strip(): safe_body = "[No Content Provided]"
             
@@ -150,32 +156,25 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         # 8. AUDIO QR CODE (Heirloom)
         if audio_url:
             try:
-                # Construct Player URL
                 player_link = f"https://app.verbapost.com/?play={audio_url}"
-                
-                # Generate QR
                 qr_img = qrcode.make(player_link)
                 
-                # Use temp file to insert into FPDF
                 with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_qr:
                     qr_img.save(tmp_qr.name)
                     
-                    # Position: Bottom Center of Current Page
                     y_pos = pdf.get_y() + 10
-                    if y_pos > (PAGE_HEIGHT_MM - MARGIN_MM - 40): # Check if space remains
+                    if y_pos > (PAGE_HEIGHT_MM - MARGIN_MM - 40): 
                         pdf.add_page()
                         y_pos = MARGIN_MM + 10
                     
                     x_center = (PAGE_WIDTH_MM - 30) / 2
                     pdf.image(tmp_qr.name, x=x_center, y=y_pos, w=30)
                     
-                    # Add Caption
                     pdf.set_y(y_pos + 32)
                     pdf.set_font("Helvetica", size=9)
                     pdf.cell(0, 5, "Scan to listen to this story", align='C', ln=1)
                     
-                os.unlink(tmp_qr.name) # Cleanup
-                
+                os.unlink(tmp_qr.name)
             except Exception as e:
                 logger.error(f"QR Generation Error: {e}")
 

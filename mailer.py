@@ -8,7 +8,7 @@ import uuid
 # --- IMPORTS ---
 try: import audit_engine
 except ImportError: audit_engine = None
-try: import storage_engine # REQUIRED for V3 URL generation
+try: import storage_engine 
 except ImportError: storage_engine = None
 
 # --- LOGGING ---
@@ -55,7 +55,8 @@ def _map_tier_options(tier):
     t = str(tier).strip().title()
     options = {
         "addons": [],
-        "envelope": {"type": "doubleWindow", "fontColor": "Black"}
+        # CHANGED: 'Number10' is the standard non-window envelope
+        "envelope": {"type": "Number10", "fontColor": "Black"}
     }
     # VINTAGE / HEIRLOOM / LEGACY -> Live Stamp
     if t in ["Vintage", "Heirloom", "Legacy"]:
@@ -68,7 +69,7 @@ def validate_address(address_dict):
     if not key or not secret: return True, address_dict
 
     token = _get_auth_token(key, secret, base_url)
-    if not token: return True, address_dict # Fail open if auth fails
+    if not token: return True, address_dict 
 
     payload = [{
         "address": address_dict.get("address_line1") or address_dict.get("street"),
@@ -83,7 +84,6 @@ def validate_address(address_dict):
         resp = requests.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
         if resp.status_code == 201:
             data = resp.json()
-            # V3 returns an array of results. We check the first one.
             if data.get("results", {}).get("valid"): return True, address_dict
             else: return False, {"error": "Invalid Address"}
         return True, address_dict
@@ -114,15 +114,12 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
         client = storage_engine.get_storage_client()
         bucket = "heirloom-audio"
         
-        # --- FIX: SAFETY CHECK RESTORED ---
         if not client:
             logger.error("PCM: Storage Client Init Failed (Check Secrets)")
             return None
-        # ----------------------------------
         
         client.storage.from_(bucket).upload(file_name, pdf_bytes, {"content-type": "application/pdf"})
         
-        # Use Signed URL for security (1 hour validity)
         signed_resp = client.storage.from_(bucket).create_signed_url(file_name, 3600)
         
         if isinstance(signed_resp, dict): pdf_url = signed_resp.get("signedURL")
@@ -150,7 +147,7 @@ def send_letter(pdf_bytes, to_addr, from_addr, tier="Standard", description="Ver
             "letter": pdf_url, 
             "color": True,
             "printOnBothSides": False,
-            "insertAddressingPage": False, # Explicitly disabled per your request
+            "insertAddressingPage": False,
             "extRefNbr": description[:50],
             "envelope": opts["envelope"],
             "recipients": [{

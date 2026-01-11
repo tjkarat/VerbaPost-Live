@@ -12,13 +12,13 @@ logger = logging.getLogger(__name__)
 
 # --- 1. CONFIGURATION ---
 st.set_page_config(
-    page_title="VerbaPost",
-    page_icon="📮",
+    page_title="VerbaPost | Client Retention", 
+    page_icon="⚖️", 
     layout="centered",
     initial_sidebar_state="collapsed",
     menu_items={
         'Get Help': 'mailto:support@verbapost.com',
-        'About': "# VerbaPost \n Real mail, real legacy."
+        'About': "# VerbaPost \n Legacy retention for estate planning."
     }
 )
 
@@ -28,8 +28,8 @@ st.markdown("""
     [data-testid="stSidebarNav"] {display: none !important;}
     .block-container {padding-top: 1rem !important;}
     button[kind="primary"] {
-        background-color: #d93025 !important;
-        border-color: #d93025 !important;
+        background-color: #0f172a !important; /* Navy Blue for Legal/Trust */
+        border-color: #0f172a !important;
         color: white !important; 
         font-weight: 600;
     }
@@ -50,6 +50,7 @@ def get_module(module_name):
             "ui_heirloom": "ui_heirloom",
             "ui_legal": "ui_legal",
             "ui_blog": "ui_blog",
+            "ui_partner": "ui_partner",
             "payment_engine": "payment_engine",
             "database": "database",
             "analytics": "analytics",
@@ -73,51 +74,43 @@ try: import email_engine
 except ImportError: email_engine = None
 try: import auth_listener
 except ImportError: auth_listener = None
+try: import seo_injector
+except ImportError: seo_injector = None
 
-# --- SEO INJECTOR ---
-def inject_dynamic_seo(mode):
-    if mode == "archive":
-        meta_title = "VerbaPost | The Family Archive"
-        meta_desc = "Preserve your family's legacy. We interview your loved ones over the phone and mail you physical keepsake letters."
-    else:
-        meta_title = "VerbaPost | Send Mail Online"
-        meta_desc = "The easiest way to send physical letters from your screen. No stamps, no printers. Just write and send."
-
-    seo_html = f"""
-        <meta name="description" content="{meta_desc}">
-        <meta property="og:type" content="website">
-        <meta property="og:title" content="{meta_title}">
-        <meta property="og:description" content="{meta_desc}">
-    """
-    st.markdown(seo_html, unsafe_allow_html=True)
-
+# --- HELPER: PARTNER CHECK (B2B Logic) ---
+def check_partner_status(email):
+    """Checks if the user is a Lawyer/Partner via Database."""
+    if not email: return False
+    db = get_module("database")
+    if db and hasattr(db, "get_user_profile"):
+        try:
+            profile = db.get_user_profile(email)
+            if isinstance(profile, dict): return profile.get("is_partner", False)
+            return getattr(profile, "is_partner", False)
+        except Exception as e:
+            logger.error(f"Partner Check Error: {e}")
+            return False
+    return False
 
 # --- MAIN LOGIC ---
 def main():
     # 0. PLAYER ROUTE (Secure Audio Playback)
-    # Checks for ?play=path/to/audio.mp3
     if "play" in st.query_params:
         audio_ref = st.query_params["play"]
         storage = get_module("storage_engine")
         
         if audio_ref and storage:
             try:
-                # Generate Secure Link (Valid for 1 hour)
                 signed_url = storage.get_signed_url(audio_ref)
-                
                 if signed_url:
                     st.markdown("<br><br>", unsafe_allow_html=True)
                     st.title("🎧 Listen to Story")
                     st.caption("VerbaPost Family Archive")
                     st.audio(signed_url)
-                    
                     st.divider()
-                    
                     if st.button("🏠 Go to VerbaPost Home", use_container_width=True):
                         st.query_params.clear()
                         st.rerun()
-                    
-                    # Stop execution here to prevent loading the full app
                     return
                 else:
                     st.error("Audio file unavailable or expired.")
@@ -132,36 +125,41 @@ def main():
 
     # --- START NORMAL APP FLOW ---
 
-    # 1. AUTH LISTENER (OAuth Hash Handler)
+    # 1. AUTH LISTENER
     if auth_listener:
         auth_listener.listen_for_oauth()
 
-    # --- NEW: OAUTH HANDSHAKE ---
     if "type" in st.query_params and st.query_params["type"] == "oauth_callback":
         token = st.query_params.get("access_token")
-        
         if token:
             auth_eng = get_module("auth_engine")
-            
             if auth_eng:
-                with st.spinner("Verifying Google Account..."):
+                with st.spinner("Verifying Account..."):
                     email, err = auth_eng.verify_oauth_token(token)
-                    
                     if email:
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
                         st.query_params.clear()
-                        st.session_state.app_mode = "heirloom"
                         st.rerun()
                     else:
                         st.error(f"Authentication Failed: {err}")
 
-    # 2. DETERMINE SYSTEM MODE
-    if "system_mode" not in st.session_state:
-        st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
+    # 2. ROLE & MODE DETECTION
     
-    system_mode = st.session_state.system_mode
-    inject_dynamic_seo(system_mode)
+    # Check Partner Status Logic
+    if st.session_state.get("authenticated") and "is_partner" not in st.session_state:
+        st.session_state.is_partner = check_partner_status(st.session_state.user_email)
+
+    # Determine Routing Mode
+    if st.session_state.get("is_partner"):
+        st.session_state.system_mode = "partner"
+        # Inject SEO for Partner
+        if seo_injector: seo_injector.inject_meta_tags("partner")
+    else:
+        if "system_mode" not in st.session_state:
+            st.session_state.system_mode = st.query_params.get("mode", "archive").lower()
+        # Inject SEO for B2C
+        if seo_injector: seo_injector.inject_meta_tags(st.session_state.system_mode)
     
     analytics = get_module("analytics")
     if analytics: analytics.inject_ga()
@@ -174,31 +172,38 @@ def main():
     if "app_mode" not in st.session_state:
         nav_target = st.query_params.get("nav")
         
-        if nav_target == "login":
-            st.session_state.app_mode = "login"
-            if system_mode == "archive": st.session_state.redirect_to = "heirloom"
-            else: st.session_state.redirect_to = "main"
-
-        elif nav_target == "legal": st.session_state.app_mode = "legal"
-        elif nav_target == "blog": st.session_state.app_mode = "blog"
-
-        elif nav_target == "heirloom":
-            if st.session_state.get("authenticated"): st.session_state.app_mode = "heirloom"
-            else:
-                st.session_state.app_mode = "login"
-                st.session_state.redirect_to = "heirloom"
-
-        elif nav_target == "store":
-            if st.session_state.get("authenticated"): st.session_state.app_mode = "main"
-            else:
-                st.session_state.app_mode = "login"
-                st.session_state.redirect_to = "main"
-
+        # B2B Routing
+        if st.session_state.get("is_partner"):
+            if nav_target == "admin": st.session_state.app_mode = "admin"
+            else: st.session_state.app_mode = "partner" 
+        
+        # B2C Routing
         else:
-            st.session_state.app_mode = "splash"
+            if nav_target == "login":
+                st.session_state.app_mode = "login"
+                if st.session_state.system_mode == "archive": st.session_state.redirect_to = "heirloom"
+                else: st.session_state.redirect_to = "main"
+
+            elif nav_target == "legal": st.session_state.app_mode = "legal"
+            elif nav_target == "blog": st.session_state.app_mode = "blog"
+
+            elif nav_target == "heirloom":
+                if st.session_state.get("authenticated"): st.session_state.app_mode = "heirloom"
+                else:
+                    st.session_state.app_mode = "login"
+                    st.session_state.redirect_to = "heirloom"
+
+            elif nav_target == "store":
+                if st.session_state.get("authenticated"): st.session_state.app_mode = "main"
+                else:
+                    st.session_state.app_mode = "login"
+                    st.session_state.redirect_to = "main"
+
+            else:
+                st.session_state.app_mode = "splash"
             
     # 5. LAZY SUBSCRIPTION CHECK
-    if st.session_state.get("authenticated") and not st.session_state.get("credits_synced"):
+    if st.session_state.get("authenticated") and not st.session_state.get("is_partner") and not st.session_state.get("credits_synced"):
         pay_eng = get_module("payment_engine")
         user_email = st.session_state.get("user_email")
         if pay_eng and user_email:
@@ -210,7 +215,8 @@ def main():
         st.session_state.credits_synced = True
 
     # 6. SIDEBAR NAVIGATION
-    render_sidebar(system_mode)
+    if not st.session_state.get("is_partner"):
+        render_sidebar(st.session_state.system_mode)
 
     # 7. EXECUTE CONTROLLER
     current_page = st.session_state.app_mode
@@ -220,6 +226,11 @@ def main():
         "legal":     ("ui_legal", "render_legal_page"),
         "admin":     ("ui_admin", "render_admin_page"),
         "splash":    ("ui_splash", "render_splash_page"), 
+        
+        # B2B Route
+        "partner":   ("ui_partner", "render_dashboard"),
+
+        # B2C Routes
         "main":      ("ui_main", "render_store_page"),
         "workspace": ("ui_main", "render_workspace_page"),
         "receipt":   ("ui_main", "render_receipt_page"),
@@ -235,9 +246,12 @@ def main():
         if mod and hasattr(mod, function_name):
             getattr(mod, function_name)()
         else:
-            st.error(f"404: Route {current_page} not found.")
-            st.session_state.app_mode = "splash"
-            st.rerun()
+            if current_page == "partner":
+                 st.info("🚧 Partner Portal is initializing...")
+            else:
+                st.error(f"404: Route {current_page} not found.")
+                st.session_state.app_mode = "splash"
+                st.rerun()
     else:
         st.session_state.app_mode = "splash"
         st.rerun()
@@ -285,7 +299,7 @@ def render_sidebar(mode):
                 auth_eng = get_module("auth_engine")
                 if auth_eng and hasattr(auth_eng, "sign_out"): auth_eng.sign_out()
                 
-                keys_to_clear = ["authenticated", "user_email", "credits_synced", "user_profile"]
+                keys_to_clear = ["authenticated", "user_email", "credits_synced", "user_profile", "is_partner"]
                 for key in keys_to_clear:
                     if key in st.session_state: del st.session_state[key]
                 

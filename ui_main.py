@@ -499,7 +499,7 @@ def render_workspace_page():
                     st.error("Failed to save addresses.")
 
                 if mailer:
-                    with st.spinner("Validating with USPS/PostGrid..."):
+                    with st.spinner("Validating Address..."):
                         t_valid, t_data = mailer.validate_address(st.session_state.addr_to)
                         f_valid, f_data = mailer.validate_address(st.session_state.addr_from)
                         if not t_valid:
@@ -828,7 +828,7 @@ def render_review_page():
                             st.session_state.app_mode = "receipt"
                             st.rerun()
                         else:
-                            st.error("Mailing Failed. PostGrid rejected the address.")
+                            st.error("Mailing Failed. Address verification failed.")
                 except Exception as e:
                     logger.error(f"Free Order Error: {e}")
                     st.error("Failed to process order. Please try again.")

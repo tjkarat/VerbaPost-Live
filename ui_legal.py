@@ -2,82 +2,110 @@ import streamlit as st
 
 def render_legal_page():
     """
-    Renders the Terms of Service and Privacy Policy.
-    Maintains the Merriweather/Helvetica design system of VerbaPost.
+    Renders the Terms of Service, Privacy Policy, and Acceptable Use Policy.
+    Explicitly covers Automated PCM Fulfillment and Content Review.
     """
-    # --- CSS INJECTION ---
-    st.markdown("""
-        <style>
-        .legal-container { max-width: 800px; margin: 0 auto; padding: 2rem 1rem; font-family: 'Helvetica Neue', sans-serif; line-height: 1.6; color: #333; }
-        .legal-header { font-family: 'Merriweather', serif; font-size: 2.5rem; font-weight: 700; border-bottom: 2px solid #eaeaea; padding-bottom: 1rem; margin-bottom: 2rem; }
-        .legal-section { margin-bottom: 2rem; }
-        .legal-title { font-weight: 700; text-transform: uppercase; letter-spacing: 1px; font-size: 0.9rem; color: #d93025; margin-bottom: 0.5rem; }
-        .legal-text { font-size: 1rem; color: #555; margin-bottom: 1rem; }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # --- TOP NAVIGATION ---
-    c_back1, c_back2, c_back3 = st.columns([1, 2, 1])
-    with c_back2:
-        if st.button("← Back to VerbaPost Home", use_container_width=True):
-            st.session_state.app_mode = "splash"
-            st.rerun()
-
-    # --- CONTENT ---
-    st.markdown('<div class="legal-container">', unsafe_allow_html=True)
-    st.markdown('<div class="legal-header">Legal & Terms</div>', unsafe_allow_html=True)
-
-    # 1. TERMS OF SERVICE
-    st.markdown('<div class="legal-section">', unsafe_allow_html=True)
-    st.markdown('<div class="legal-title">1. Terms of Service</div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div class="legal-text">
-            By using VerbaPost.com, you agree to our terms. We provide a platform for voice-to-letter transcription and physical mail fulfillment. 
-            You are responsible for the content of your letters and ensuring the recipient's address is accurate.
-        </div>
-    """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # 2. PRIVACY POLICY
-    st.markdown('<div class="legal-section">', unsafe_allow_html=True)
-    st.markdown('<div class="legal-title">2. Privacy & Data Security</div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div class="legal-text">
-            Your privacy is our core principle.
-            <ul>
-                <li><strong>Transcription:</strong> Audio is processed via OpenAI Whisper and is not used for training models.</li>
-                <li><strong>Storage:</strong> Drafts are stored securely in Supabase and are only accessible to you.</li>
-                <li><strong>Mailing:</strong> PDF data is transmitted to PostGrid for printing and is deleted from their servers following fulfillment.</li>
-            </ul>
-        </div>
-    """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # 3. FULFILLMENT & REFUNDS
-    st.markdown('<div class="legal-section">', unsafe_allow_html=True)
-    st.markdown('<div class="legal-title">3. Fulfillment & Refunds</div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div class="legal-text">
-            Once a letter is dispatched to the USPS, we cannot cancel it or issue a refund.
-            If a letter is returned due to our error in printing, we will re-mail it at no additional cost. 
-            VerbaPost is not responsible for USPS delivery delays or incorrect addresses provided by the user.
-        </div>
-    """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # 4. CONTACT
-    st.markdown('<div class="legal-section">', unsafe_allow_html=True)
-    st.markdown('<div class="legal-title">4. Contact Information</div>', unsafe_allow_html=True)
-    st.markdown("""
-        <div class="legal-text">
-            Questions regarding these terms should be directed to <strong>support@verbapost.com</strong>.
-        </div>
-    """, unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True) # End legal-container
+    st.title("⚖️ Legal & Privacy Center")
+    st.markdown("Last Updated: **January 2026**")
     
-    return "" # Mandatory to prevent "None" artifact
+    # --- NAVIGATION ---
+    if st.button("⬅️ Return to App", type="primary"):
+        # Smart Return Logic
+        if st.session_state.get("authenticated"):
+            # Return to active dashboard based on mode
+            if st.session_state.get("is_partner"):
+                st.session_state.app_mode = "partner"
+            elif st.session_state.get("system_mode") == "utility":
+                st.session_state.app_mode = "main"
+            else:
+                st.session_state.app_mode = "heirloom"
+        else:
+            # Return to Splash if logged out
+            st.session_state.app_mode = "splash"
+        st.rerun()
 
-if __name__ == "__main__":
-    render_legal_page()
+    st.divider()
+
+    # --- TABS ---
+    tab_terms, tab_privacy, tab_use = st.tabs(["📜 Terms of Service", "🔒 Privacy Policy", "🚫 Acceptable Use"])
+
+    # --- TAB 1: TERMS OF SERVICE ---
+    with tab_terms:
+        st.markdown("""
+        ### 1. Service Description
+        VerbaPost ("The Service") is a hybrid digital-physical correspondence platform. We provide:
+        * **The Letter Store:** A service to draft letters digitally which are printed and mailed physically.
+        * **The Family Archive:** A service to capture voice recordings, transcribe them, and mail them as physical letters.
+        
+        ### 2. Fulfillment & Delivery
+        By using VerbaPost, you acknowledge our fulfillment process:
+        * **Automated Processing:** Your letters are processed and printed by our API partner, **PCM Integrations**.
+        * **Carriers:** We utilize the United States Postal Service (USPS) for final delivery.
+        * **Timelines:** We target a dispatch time of 1-2 business days. Delivery times are subject to USPS performance and are not guaranteed.
+        * **Lost Mail:** VerbaPost is not liable for items lost, damaged, or delayed by the USPS. However, we will reprint and resend any undelivered items free of charge upon request.
+
+        ### 3. Payment & Subscriptions
+        * **One-Time Purchases:** Charged immediately via Stripe.
+        * **Subscriptions:** The "Family Archive" subscription ($19/mo) renews automatically. You may cancel at any time via your account settings.
+        * **Refunds:** Refunds are issued at our sole discretion. If a letter contains errors caused by our system, we will refund or reprint it. Errors in user-submitted addresses or content are the user's responsibility.
+
+        ### 4. User Accounts
+        You are responsible for maintaining the confidentiality of your login credentials. You agree to notify us immediately of any unauthorized use of your account.
+
+        ### 5. Limitation of Liability
+        To the maximum extent permitted by law, VerbaPost shall not be liable for any indirect, incidental, special, or consequential damages arising out of the use of the service.
+        """)
+
+    # --- TAB 2: PRIVACY POLICY ---
+    with tab_privacy:
+        st.markdown("""
+        ### 1. Information We Collect
+        * **Account Data:** Name, Email Address, and Password hash.
+        * **Correspondence Data:** The text content of your letters and audio recordings of your stories.
+        * **Mailing Data:** Names and Physical Addresses of your recipients.
+        * **Usage Data:** Logs of when you access the service and payment transaction history (via Stripe).
+
+        ### 2. How We Use Your Data
+        * **Fulfillment:** We use your content and address data solely to generate PDF documents and physical envelopes via **PCM Integrations**.
+        * **AI Processing:** We utilize **OpenAI** to transcribe audio and polish text. Data sent to OpenAI is processed ephemerally and is **not used to train their models**.
+        * **Communication:** We send transactional emails (receipts, tracking) via **Resend**.
+
+        ### 3. Data Privacy & Confidentiality
+        **Important:** Our fulfillment partner, PCM Integrations, adheres to strict data privacy and security standards. 
+        * We maintain strict confidentiality protocols.
+        * We do not sell, rent, or share your personal content with advertisers.
+        
+        ### 4. Data Retention & Deletion
+        * **Retention:** We retain drafts and sent letters to allow you to view your history.
+        * **Deletion:** You have the "Right to be Forgotten." Contact `support@verbapost.com` to request the permanent deletion of your account and all associated data.
+
+        ### 5. Third-Party Processors
+        We trust the following partners with specific data segments:
+        * **Stripe:** Payment Processing.
+        * **Supabase:** Encrypted Database Storage.
+        * **Twilio:** Telephony services for the Family Archive.
+        * [cite_start]**PCM Integrations:** Physical printing and mailing. [cite: 1]
+        * **Geocodio:** Civic data lookups (Representatives).
+        """)
+
+    # --- TAB 3: ACCEPTABLE USE ---
+    with tab_use:
+        st.error("⚠️ Violation of this policy will result in immediate account termination.")
+        st.markdown("""
+        ### 1. Prohibited Content
+        VerbaPost is a family-oriented service. You may not use our platform to send:
+        * **Hate Speech:** Content that promotes violence or hatred against individuals or groups based on race, religion, gender, or orientation.
+        * **Harassment:** Threats, stalking, or bullying behavior.
+        * **Illegal Material:** Content that facilitates illegal acts, including fraud or the sale of illicit goods.
+        * **Sexually Explicit Material:** Pornographic or obscene content.
+
+        ### 2. Content Screening
+        * We reserve the right to refuse to print or mail any letter that we, in our sole discretion, deem to violate these policies.
+        * If a letter is rejected for policy violations, your credit/payment may be forfeited to cover processing costs.
+
+        ### 3. Civic Letters
+        Letters sent to government officials must maintain a respectful tone. We will not process letters containing threats against public officials.
+        """)
+
+    st.divider()
+    st.caption("VerbaPost Inc. | Nashville, TN | support@verbapost.com")
