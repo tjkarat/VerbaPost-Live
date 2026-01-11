@@ -7,7 +7,6 @@ def render_blog_page():
     st.markdown("Thoughts on legacy, memory, and the future of family history.")
     
     # --- NAVIGATION ---
-    # Default to "For Advisors" if mode is partner, otherwise default to "All"
     default_idx = 1 if st.session_state.get("system_mode") == "partner" else 0
     tab_all, tab_b2b, tab_stories = st.tabs(["All Posts", "For Advisors (B2B)", "Family Stories"])
 
@@ -26,7 +25,6 @@ def render_blog_page():
             
             We call this **Heir Attrition**.
             
-                        
             The Great Wealth Transfer is seeing trillions of dollars move from Baby Boomers to Millennials and Gen Z. Yet, most advisors have no relationship with the next generation. When the matriarch or patriarch passes, the assets leave with them.
             
             ### The Missing Link: Emotional Legacy
@@ -63,7 +61,10 @@ def render_blog_page():
     ]
 
     # --- RENDERER HELPER ---
-    def render_posts(filter_cat=None):
+    def render_posts(filter_cat=None, tab_name="default"):
+        """
+        Renders posts with a unique key based on the tab name to prevent Streamlit collisions.
+        """
         for post in posts:
             if filter_cat and post['category'] != filter_cat:
                 continue
@@ -76,7 +77,11 @@ def render_blog_page():
                     st.divider()
                     st.markdown("#### 🤝 Partner with VerbaPost")
                     st.write("Retain your clients' heirs with our white-label solution.")
-                    if st.button("Partner Inquiry", key=f"btn_{post['id']}"):
+                    
+                    # FIX: Append tab_name to key to ensure uniqueness across tabs
+                    unique_key = f"btn_{post['id']}_{tab_name}"
+                    
+                    if st.button("Partner Inquiry", key=unique_key):
                         # Redirect to Partner Portal
                         st.session_state.app_mode = "partner"
                         st.session_state.redirect_to = "partner"
@@ -84,15 +89,15 @@ def render_blog_page():
 
     # --- TABS ---
     with tab_all:
-        render_posts()
+        render_posts(filter_cat=None, tab_name="all")
     with tab_b2b:
         st.info("Strategies for Wealth Managers & Estate Planners.")
-        render_posts("B2B")
+        render_posts(filter_cat="B2B", tab_name="b2b")
     with tab_stories:
-        render_posts("Stories")
+        render_posts(filter_cat="Stories", tab_name="stories")
         
     # --- FOOTER ---
     st.markdown("<br><br>", unsafe_allow_html=True)
-    if st.button("⬅️ Back Home"):
+    if st.button("⬅️ Back Home", key="blog_back_home"):
         st.session_state.app_mode = "splash"
         st.rerun()
