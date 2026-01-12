@@ -23,12 +23,12 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 # ==========================================
-# 📞 B2B TELEPHONY (NEW)
+# 📞 HYBRID MODEL TELEPHONY (UPDATED)
 # ==========================================
 
-def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id):
+def trigger_outbound_call(to_phone, advisor_name, firm_name, heir_name, strategic_prompt, project_id):
     """
-    Triggers a Twilio call with a dynamic B2B script.
+    Triggers a Twilio call focusing on the Strategic Endorsement first.
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
@@ -38,28 +38,39 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id):
         logger.error("Twilio Credentials Missing")
         return None, "Missing Credentials"
 
-    # Dynamic TwiML Script (The "Brain" of the call)
-    # We embed the project_id in the callback URL so we know who spoke later.
+    # Callback includes project_id for transcription mapping
     callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}"
     
-    # Sanitize inputs to prevent script injection or empty reads
+    # Sanitization
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
+    safe_heir = heir_name or "your family"
+    # Ensure the strategic prompt is never empty
+    safe_prompt = strategic_prompt or f"Why do you trust {safe_firm} for your family's future?"
 
+    # The Hybrid Script: Professional, Warm, and Strategic
     twiml = f"""
     <Response>
         <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
+            Hello. This is the Family Archive biographer, calling on behalf of {safe_advisor} at {safe_firm}.
         </Say>
         <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
-            Please share a favorite memory from your childhood after the beep. 
-            When you are finished, press the pound key.
+            {safe_advisor} has sponsored this session as a legacy gift for {safe_heir}. 
+            Before we record your personal stories, {safe_advisor} asked us to start with this question:
+        </Say>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            {safe_prompt}
         </Say>
         <Record maxLength="300" finishOnKey="#" action="{callback_url}" />
-        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved.</Say>
+        
+        <Say voice="Polly.Joanna-Neural">
+            Thank you. Now, please share a favorite memory from your childhood or a piece of advice for {safe_heir} after the beep.
+        </Say>
+        <Record maxLength="300" finishOnKey="#" action="{callback_url}" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your legacy stories have been preserved.</Say>
     </Response>
     """
 
@@ -101,8 +112,7 @@ def transcribe_audio(file_path):
 
 def refine_text(text):
     """
-    Legacy 'AI Polish' feature used by Standard Store.
-    Preserved to prevent ui_main.py crashes.
+    Legacy 'AI Polish' feature preserved for ui_main.py stability.
     """
     client = get_openai_client()
     if not client: return text
@@ -137,7 +147,6 @@ def get_all_twilio_recordings(limit=50):
         client = Client(sid, token)
         recordings = client.recordings.list(limit=limit)
         
-        # Serialize to dict to avoid Twilio object issues in Streamlit
         data = []
         for r in recordings:
             data.append({
@@ -145,7 +154,7 @@ def get_all_twilio_recordings(limit=50):
                 "date_created": r.date_created,
                 "duration": r.duration,
                 "status": r.status,
-                "uri": r.uri  # This is usually partial uri
+                "uri": r.uri 
             })
         return data
     except Exception as e:
