@@ -72,7 +72,8 @@ def _safe_get(obj, key, default=""):
     if isinstance(obj, dict): return obj.get(key, default)
     return getattr(obj, key, default)
 
-def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text="", audio_url=None):
+# --- B2B FIX APPLIED: ADDED advisor_firm PARAMETER ---
+def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text="", audio_url=None, advisor_firm=None):
     """
     Generates the final PDF bytes for the letter.
     Standard Layout (Non-Window).
@@ -112,7 +113,8 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.ln(5)
         
         # --- FROM ADDRESS (Return Address) ---
-        f_name = _safe_get(from_addr, 'name') or _safe_get(from_addr, 'company')
+        # B2B FIX: If an advisor_firm is provided, it overrides the default sender name
+        f_name = advisor_firm if advisor_firm else (_safe_get(from_addr, 'name') or _safe_get(from_addr, 'company'))
         f_street = _safe_get(from_addr, 'address_line1') or _safe_get(from_addr, 'street')
         f_city = _safe_get(from_addr, 'city')
         f_state = _safe_get(from_addr, 'state')
