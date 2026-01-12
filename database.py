@@ -419,3 +419,43 @@ def get_user_drafts(email):
         import logging
         logging.error(f"Error fetching drafts for {email}: {e}")
         return []
+
+def update_last_call_timestamp(email):
+    """
+    Updates the 'last_call_date' for a user to the current UTC time.
+    Used for call frequency limiting and activity tracking.
+    """
+    if not email:
+        return False
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if profile:
+                profile.last_call_date = datetime.utcnow()
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        import logging
+        logging.error(f"Error updating call timestamp for {email}: {e}")
+        return False
+
+def update_draft_data(draft_id, content=None, status=None, tier=None, price=None, tracking_number=None):
+    """
+    Updates a specific draft's metadata or content.
+    """
+    try:
+        with get_db_session() as session:
+            draft = session.query(LetterDraft).filter_by(id=draft_id).first()
+            if draft:
+                if content is not None: draft.content = content
+                if status is not None: draft.status = status
+                if tier is not None: draft.tier = tier
+                if price is not None: draft.price = price
+                if tracking_number is not None: draft.tracking_number = tracking_number
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Draft Error: {e}")
+        return False
