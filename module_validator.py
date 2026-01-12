@@ -1,38 +1,37 @@
-import streamlit as st
-import os
 import logging
+import streamlit as st
 
 logger = logging.getLogger(__name__)
 
-def validate_environment():
+def run_preflight_checks():
     """
-    Checks if critical environment variables and modules are present.
-    Returns True if healthy, False (and stops execution) if not.
+    Verifies that critical system components are reachable 
+    before the UI renders.
     """
-    # 1. Check Secrets / Env Vars
-    # We only check DATABASE_URL strictly. Others (Stripe, Twilio) warn but don't crash.
-    required_keys = ["DATABASE_URL"]
-    missing = []
+    results = {"status": True, "errors": []}
     
-    # Logic to check both st.secrets and os.environ
-    for key in required_keys:
-        found = False
-        # Check os.environ (Cloud Run)
-        if os.environ.get(key):
-            found = True
-        # Check st.secrets (Local/Streamlit Cloud)
-        elif hasattr(st, "secrets"):
-            if key in st.secrets:
-                found = True
-            elif "general" in st.secrets and key in st.secrets["general"]:
-                found = True
-        
-        if not found:
-            missing.append(key)
+    # 1. Check Secrets
+    try:
+        import secrets_manager
+        if not secrets_manager.get_secret("supabase.url"):
+            results["errors"].append("Supabase URL missing in secrets.")
+            results["status"] = False
+    except Exception as e:
+        results["errors"].append(f"Secrets Manager Error: {e}")
+        results["status"] = False
 
-    if missing:
-        st.error(f"❌ CRITICAL ERROR: Missing Environment Variables: {', '.join(missing)}")
-        st.info("Please update your .streamlit/secrets.toml or Cloud Run variables.")
-        return False
+    # 2. Check Database Connection
+    try:
+        import database
+        with database.get_db_session() as session:
+            from sqlalchemy import text
+            session.execute(text("SELECT 1"))
+    except Exception as e:
+        results["errors"].append(f"Database Connection Failed: {e}")
+        results["status"] = False
 
-    return True
+    if not results["status"]:
+        for err in results["errors"]:
+            logger.error(f"PREFLIGHT ERROR: {err}")
+            
+    return results
