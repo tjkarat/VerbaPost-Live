@@ -34,6 +34,25 @@ except ImportError: ai_engine = None
 try: import audit_engine
 except ImportError: audit_engine = None
 
+# --- HELPER: SALES SCRIPT ---
+DEFAULT_PITCH = """Dear {first_name},
+
+The "Great Wealth Transfer" is here. Over the next decade, $84 trillion will pass from Boomers to Gen X and Millennials.
+
+Statistics show that 70% of heirs fire their parents' financial advisor within 12 months of receiving an inheritance. Why? Because the relationship was never established.
+
+I built VerbaPost Wealth to solve this retention problem.
+
+We provide a high-touch "Family Legacy" service that captures your clients' stories and values through AI-driven interviews and physical keepsake letters. It connects you to the next generation today, protecting your AUM tomorrow.
+
+I would love to send you a sample of what we create.
+
+Sincerely,
+
+[Your Name]
+Founder, VerbaPost
+"""
+
 # --- HELPER: ROBUST ADDRESS PARSER ---
 def parse_address_data(raw_data):
     """
@@ -101,16 +120,7 @@ def run_system_health_checks():
     status, color = check_connection("Twilio (Voice)", check_twilio)
     results.append({"Service": "Twilio (Voice)", "Status": status, "Color": color})
 
-    # 5. POSTGRID
-    def check_postgrid():
-        k = secrets_manager.get_secret("postgrid.api_key") or secrets_manager.get_secret("POSTGRID_API_KEY")
-        if not k: raise Exception("Missing Key")
-        r = requests.get("https://api.postgrid.com/print-mail/v1/letters?limit=1", headers={"x-api-key": k})
-        if r.status_code not in [200, 201]: raise Exception(f"API {r.status_code} - {r.text}")
-    status, color = check_connection("PostGrid (Fulfillment)", check_postgrid)
-    results.append({"Service": "PostGrid (Fulfillment)", "Status": status, "Color": color})
-
-    # 6. GEOCODIO
+    # 5. GEOCODIO
     def check_geocodio():
         k = secrets_manager.get_secret("geocodio.api_key") or secrets_manager.get_secret("GEOCODIO_API_KEY")
         if not k: raise Exception("Missing Key")
@@ -118,20 +128,6 @@ def run_system_health_checks():
         if r.status_code != 200: raise Exception(f"API {r.status_code}")
     status, color = check_connection("Geocodio (Civic)", check_geocodio)
     results.append({"Service": "Geocodio (Civic)", "Status": status, "Color": color})
-
-    # 7. RESEND
-    def check_resend():
-        k_raw = secrets_manager.get_secret("email.password") or secrets_manager.get_secret("RESEND_API_KEY")
-        if not k_raw: raise Exception("Missing Key")
-        k = str(k_raw).strip().replace("'", "").replace('"', "")
-        if not k.startswith("re_"): raise Exception("Invalid Key Format (must start with re_)")
-        headers = {"Authorization": f"Bearer {k}", "Content-Type": "application/json"}
-        r_dom = requests.get("https://api.resend.com/domains", headers=headers)
-        if r_dom.status_code == 403: return "⚠️ Online (Restricted)"
-        if r_dom.status_code != 200: raise Exception(f"API {r_dom.status_code}: {r_dom.text}")
-            
-    status, color = check_connection("Resend (Email)", check_resend)
-    results.append({"Service": "Resend (Email)", "Status": status, "Color": color})
 
     return results
 
@@ -163,11 +159,78 @@ def render_admin_page():
         if st.button("🔄 Refresh Data"):
             st.rerun()
 
-    tab_print, tab_orders, tab_recordings, tab_promos, tab_users, tab_logs, tab_health = st.tabs([
-        "🖨️ Manual Print", "📦 All Orders", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
+    # --- UPDATED TABS: ADDED OUTREACH ---
+    tab_outreach, tab_print, tab_orders, tab_recordings, tab_promos, tab_users, tab_logs, tab_health = st.tabs([
+        "📢 Sales Outreach", "🖨️ Manual Print", "📦 Orders", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
     ])
 
-    # --- TAB 1: MANUAL QUEUE ---
+    # --- TAB 1: SALES OUTREACH (NEW) ---
+    with tab_outreach:
+        st.subheader("B2B Sales Cannon")
+        st.info("Draft a Vintage Letter for manual printing.")
+        
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            target_firm = st.text_input("Firm Name", placeholder="e.g. Acme Wealth Mgmt")
+            target_name = st.text_input("Advisor Name", placeholder="e.g. John Smith")
+            
+            # Auto-split name for script
+            first_name = target_name.split(" ")[0] if target_name else "Advisor"
+            
+        with c2:
+            target_street = st.text_input("Street Address")
+            c_city, c_state, c_zip = st.columns([2, 1, 1])
+            target_city = c_city.text_input("City")
+            target_state = c_state.text_input("State")
+            target_zip = c_zip.text_input("Zip")
+
+        st.markdown("### 📝 Letter Content")
+        script_body = st.text_area("Body", value=DEFAULT_PITCH.format(first_name=first_name), height=300)
+
+        if st.button("📥 Queue for Manual Print", type="primary", use_container_width=True):
+            if not target_street or not target_zip:
+                st.error("Missing Address Info")
+            else:
+                try:
+                    # 1. Prepare Addresses
+                    to_addr = {
+                        "name": target_name,
+                        "company": target_firm,
+                        "street": target_street,
+                        "city": target_city,
+                        "state": target_state,
+                        "zip": target_zip
+                    }
+                    from_addr = {
+                        "name": "VerbaPost Wealth",
+                        "street": "123 Your HQ St", # UPDATE THIS IN CODE OR DB
+                        "city": "Nashville",
+                        "state": "TN",
+                        "zip": "37203"
+                    }
+                    
+                    # 2. Insert into DB as "Queued (Manual)"
+                    # We inject directly into letter_drafts so it appears in Tab 2
+                    with database.get_db_session() as db:
+                        new_pitch = database.LetterDraft(
+                            user_email=admin_email, # Admin owns this draft
+                            content=script_body,
+                            tier="Vintage",
+                            status="Queued (Manual)",
+                            recipient_data=json.dumps(to_addr),
+                            sender_data=json.dumps(from_addr),
+                            to_addr=json.dumps(to_addr),
+                            from_addr=json.dumps(from_addr)
+                        )
+                        db.add(new_pitch)
+                        db.commit()
+                        
+                        st.success(f"✅ Queued! Go to 'Manual Print' tab to download PDF.")
+                        
+                except Exception as e:
+                    st.error(f"Queue Error: {e}")
+
+    # --- TAB 2: MANUAL QUEUE ---
     with tab_print:
         st.subheader("🖨️ Manual Fulfillment Queue")
         st.info("Items here were submitted via 'Manual Mode'. Download PDF, Print, then Mark as Mailed.")
@@ -198,11 +261,9 @@ def render_admin_page():
                                     if letter_format and address_standard:
                                         try:
                                             # Create Address Objects
-                                            # Only attempt creation if dict is valid
                                             if to_dict:
                                                 std_to = address_standard.StandardAddress.from_dict(to_dict)
                                             else:
-                                                # Fallback if empty (prevent crash)
                                                 std_to = address_standard.StandardAddress(name="Unknown", street="Unknown", city="Unknown", state="NA", zip_code="00000")
                                                 
                                             if from_dict:
@@ -235,7 +296,7 @@ def render_admin_page():
                                     time.sleep(1)
                                     st.rerun()
 
-    # --- TAB 2: REPAIR STATION ---
+    # --- TAB 3: REPAIR STATION ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
@@ -284,8 +345,6 @@ def render_admin_page():
                         if record:
                             st.markdown(f"**Processing Order:** `{selected_id}`")
                             
-                            # --- FIX: USE NEW PARSER HERE TOO ---
-                            # Prioritize new columns, fallback to old
                             t_addr = parse_address_data(getattr(record, 'recipient_data', None) or record.to_addr)
                             f_addr = parse_address_data(getattr(record, 'sender_data', None) or record.from_addr)
                             
@@ -309,7 +368,6 @@ def render_admin_page():
                                     if len(new_zip) < 5 or not new_street:
                                         st.error("Invalid Address.")
                                     else:
-                                        # Save to both columns to be safe
                                         record.recipient_data = updated_str
                                         if hasattr(record, 'to_addr'): record.to_addr = updated_str
                                         record.content = new_content
@@ -344,7 +402,7 @@ def render_admin_page():
 
         except Exception as e: st.error(f"Error fetching orders: {e}")
 
-    # --- TAB 3: RECORDINGS ---
+    # --- TAB 4: RECORDINGS ---
     with tab_recordings:
         st.subheader("🎙️ Recording Management")
         if st.button("🔎 Scan Twilio Servers", use_container_width=True):
@@ -416,7 +474,7 @@ def render_admin_page():
                             except Exception as e: st.error(f"Delete Failed: {e}")
                         else: st.error("Twilio Credentials Missing")
 
-    # --- TAB 4: PROMOS ---
+    # --- TAB 5: PROMOS ---
     with tab_promos:
         st.subheader("Manage Discounts")
         with st.expander("➕ Create New Code"):
@@ -430,7 +488,7 @@ def render_admin_page():
         if promos: st.dataframe(pd.DataFrame(promos), use_container_width=True)
         else: st.info("No promo codes found.")
 
-    # --- TAB 5: USERS & PARTNER PROVISIONING ---
+    # --- TAB 6: USERS & PARTNER PROVISIONING ---
     with tab_users:
         st.subheader("User & Partner Management")
         st.caption("Promote users to 'Partner' status to enable B2B features.")
@@ -472,7 +530,7 @@ def render_admin_page():
                         else:
                             st.error("Update Failed")
 
-    # --- TAB 6: LOGS ---
+    # --- TAB 7: LOGS ---
     with tab_logs:
         st.subheader("System Logs")
         if audit_engine:
@@ -481,6 +539,7 @@ def render_admin_page():
             else: st.info("No logs found.")
         else: st.warning("Audit Engine not loaded.")
         
+    # --- TAB 8: HEALTH ---
     with tab_health:
         st.subheader("🔌 Connection Diagnostics")
         if st.button("Run Diagnostics"):
