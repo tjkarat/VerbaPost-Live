@@ -385,7 +385,7 @@ def update_project_audio(project_id, audio_ref, transcript):
             return False
     except Exception: return False
     
-    def get_user_drafts(email):
+def get_user_drafts(email):
     """
     Fetches all letter drafts for a specific user from the database.
     Converts SQLAlchemy objects to dictionaries for safe UI rendering.
