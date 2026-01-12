@@ -1,6 +1,7 @@
 import streamlit as st
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
+# This must remain at the top to prevent Streamlit set_page_config errors.
 st.set_page_config(
     page_title="VerbaPost Wealth | Family Legacy Retention", 
     page_icon="🏛️", 
@@ -18,7 +19,7 @@ import json
 # ==========================================
 # 🔧 SYSTEM & LOGGING SETUP (PRESERVED)
 # ==========================================
-# This block ensures high-resolution logs for production debugging
+# This block ensures high-resolution logs for production debugging.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -43,7 +44,7 @@ components.html(
 )
 
 # --- 3. MODULE IMPORTS (ROBUST ERROR WRAPPING) ---
-# Each import is wrapped in an individual try/except to prevent app-wide crashes
+# Each import is wrapped in an individual try/except to prevent app-wide crashes.
 try: 
     import ui_splash
 except ImportError as e: 
@@ -167,7 +168,7 @@ def handle_logout():
 
 def main():
     # 1. AUTH INTERCEPTOR (THE GOOGLE LOGIN FIX)
-    # Intercepts the redirect before any UI or defaults are rendered
+    # Intercepts the redirect before any UI or defaults are rendered.
     query_params = st.query_params
     url_token = query_params.get("access_token")
     nav = query_params.get("nav")
@@ -192,7 +193,7 @@ def main():
                     st.error(f"Authentication Error: {err}")
 
     # 2. SYSTEM HEALTH PRE-FLIGHT (RESTORED)
-    # Verifies critical third-party engines before allowing the UI to load
+    # Verifies critical third-party engines before allowing the UI to load.
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
@@ -225,7 +226,7 @@ def main():
             st.session_state.app_mode = "splash"
 
     # 5. SIDEBAR: ADMIN MASTER SWITCH (RESTORED IN FULL)
-    # This section is strictly for the Founder/Developer
+    # This section is strictly for the Founder/Developer.
     if st.session_state.get("authenticated"):
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
