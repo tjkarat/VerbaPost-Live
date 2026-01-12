@@ -7,7 +7,7 @@ from datetime import datetime
 import uuid 
 from sqlalchemy import text
 
-# --- MODULE IMPORTS ---
+# --- MODULE IMPORTS (COMPLETE) ---
 try: import database
 except ImportError: database = None
 try: import secrets_manager
@@ -31,22 +31,61 @@ except ImportError: promo_engine = None
 try: import email_engine
 except ImportError: email_engine = None
 
-# --- HELPER: ATOMIC DATABASE UPDATE (Heirloom Specific) ---
+# --- STYLING: CSS INJECTION (PRESERVED) ---
+def inject_heirloom_css():
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
+    
+    .stApp { background-color: #fdfdfd; }
+    
+    .heirloom-header {
+        font-family: 'Playfair Display', serif;
+        font-size: 42px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 5px;
+    }
+    .heirloom-sub {
+        font-family: 'Playfair Display', serif;
+        font-style: italic;
+        font-size: 20px;
+        color: #475569;
+        margin-bottom: 30px;
+    }
+    .metric-container {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        padding: 20px;
+        border-radius: 12px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+    }
+    /* Senior-Friendly Accessibility */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 60px;
+        background-color: #f8fafc;
+        border-radius: 8px 8px 0 0;
+        padding: 0 30px;
+        font-weight: 600;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #ffffff !important;
+        border-top: 2px solid #0f172a !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- HELPER: ATOMIC DATABASE UPDATE (PRESERVED) ---
 def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, tracking=None):
-    """
-    Uses shared database session to force save Heirloom status and addresses.
-    """
     if not draft_id: return False
-    
-    # Force String ID to match Schema
     safe_id = str(draft_id)
-    
     try:
-        # Serialize
         to_json = json.dumps(to_data) if isinstance(to_data, dict) else (str(to_data) if to_data else None)
         from_json = json.dumps(from_data) if isinstance(from_data, dict) else (str(from_data) if from_data else None)
         
-        # USE SHARED SESSION (Fixes Split-Brain)
         with database.get_db_session() as session:
             query = text("""
                 UPDATE letter_drafts
@@ -59,202 +98,26 @@ def _force_heirloom_update(draft_id, to_data=None, from_data=None, status=None, 
                     from_addr = :sd
                 WHERE id = :id
             """)
-            
-            params = {
-                "s": status,
-                "t": tracking,
-                "rd": to_json,
-                "sd": from_json,
-                "id": safe_id
-            }
-
+            params = {"s": status, "t": tracking, "rd": to_json, "sd": from_json, "id": safe_id}
             result = session.execute(query, params)
             session.commit()
-            
-            if result.rowcount > 0:
-                return True
-            else:
-                st.error(f"❌ DB Update Failed: ID {safe_id} not found.")
-                return False
-
+            return result.rowcount > 0
     except Exception as e:
         st.error(f"❌ DB Exception: {e}")
         return False
 
-# --- HELPER: EMAIL SENDER ---
+# --- HELPER: EMAIL SENDER (PRESERVED) ---
 def _send_receipt(user_email, subject, body_html):
     if email_engine:
         try:
-            email_engine.send_email(
-                to_email=user_email,
-                subject=subject,
-                html_content=body_html
-            )
+            email_engine.send_email(to_email=user_email, subject=subject, html_content=body_html)
         except Exception as e:
-            print(f"Email Receipt Failed: {e}")
+            logger.error(f"Email Receipt Failed: {e}")
 
-# --- HELPER: PAYWALL RENDERER ---
-def render_paywall():
-    st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap');
-    
-    .paywall-container {
-        max-width: 700px;
-        margin: 20px auto;
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 12px;
-        padding: 40px;
-        box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-        text-align: center;
-        font-family: 'Helvetica Neue', sans-serif;
-    }
-    .lock-icon {
-        font-size: 50px;
-        background: #fdfbf7;
-        width: 100px;
-        height: 100px;
-        line-height: 100px;
-        border-radius: 50%;
-        margin: 0 auto 20px auto;
-        border: 1px solid #efebe0;
-    }
-    .paywall-title {
-        font-family: 'Playfair Display', serif;
-        font-size: 36px;
-        color: #1f2937;
-        margin-bottom: 10px;
-        font-weight: 700;
-    }
-    .paywall-sub {
-        color: #6b7280;
-        font-size: 18px;
-        margin-bottom: 30px;
-        line-height: 1.6;
-        font-family: 'Playfair Display', serif;
-        font-style: italic;
-    }
-    .price-box {
-        background: #f9fafb;
-        border-top: 1px solid #e5e7eb;
-        border-bottom: 1px solid #e5e7eb;
-        padding: 30px 0;
-        margin: 30px 0;
-    }
-    .price-amount {
-        font-family: 'Playfair Display', serif;
-        font-size: 52px;
-        color: #b91c1c; /* Deep Red */
-        font-weight: 700;
-    }
-    .price-freq {
-        font-size: 16px;
-        color: #9ca3af;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: 600;
-    }
-    .feature-list {
-        text-align: left;
-        display: inline-block;
-        color: #374151;
-        font-size: 16px;
-        margin: 0 auto;
-    }
-    .feature-item {
-        margin-bottom: 12px;
-        display: flex;
-        align-items: center;
-    }
-    .check {
-        color: #059669;
-        margin-right: 12px;
-        font-size: 18px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    html_content = """
-<div class="paywall-container">
-    <div class="lock-icon">🔒</div>
-    <div class="paywall-title">The Family Archive</div>
-    <div class="paywall-sub">"Capture family memories and history for future generations."</div>
-    <div class="price-box">
-        <span class="price-amount">$19</span><span class="price-freq"> / Month</span>
-        <br><br>
-        <div class="feature-list">
-            <div class="feature-item"><span class="check">✔</span> 4 Mailed "Vintage" Letters per Month</div>
-            <div class="feature-item"><span class="check">✔</span> Unlimited Voice Recording Storage</div>
-            <div class="feature-item"><span class="check">✔</span> Private Family Dashboard</div>
-            <div class="feature-item"><span class="check">✔</span> Cancel Anytime</div>
-        </div>
-    </div>
-</div>
-"""
-    
-    st.markdown(html_content, unsafe_allow_html=True)
-    
-    c_pad_left, c_main, c_pad_right = st.columns([1, 2, 1])
-    with c_main:
-        if st.button("🔓 Subscribe Now", type="primary", use_container_width=True):
-            user_email = st.session_state.get("user_email")
-            if payment_engine:
-                with st.spinner("Connecting to Secure Payment..."):
-                    try:
-                        st.session_state.pending_subscription = True
-                        
-                        # --- FIX: DYNAMIC PRICE ID ---
-                        price_id = secrets_manager.get_secret("STRIPE_PRICE_ID")
-                        if not price_id:
-                            price_id = "price_1SjVdgRmmrLilo6X2d4lU7K0"
-
-                        url = payment_engine.create_checkout_session(
-                            line_items=[{
-                                "price": price_id, 
-                                "quantity": 1,
-                            }],
-                            mode="subscription",
-                            user_email=user_email,
-                            draft_id="SUBSCRIPTION_INIT"
-                        )
-                        if url: 
-                            st.link_button("👉 Proceed to Stripe Checkout", url, type="primary", use_container_width=True)
-                        else: 
-                            st.error("Connection Error.")
-                    except Exception as e: st.error(f"Error: {e}")
-            else: st.error("System Error: Payment Engine Missing")
-        
-        st.markdown("<div style='text-align: center; color: #9ca3af; font-size: 12px; margin-top: 10px;'>Secured by Stripe SSL</div>", unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    with st.expander("🎟️ Have an Access Code?", expanded=False):
-        c_code, c_btn = st.columns([3, 1])
-        with c_code:
-            code = st.text_input("Code", label_visibility="collapsed", placeholder="Enter Promo Code")
-        with c_btn:
-            if st.button("Apply"):
-                if promo_engine:
-                    result = promo_engine.validate_code(code)
-                    is_valid = False
-                    if isinstance(result, tuple) and len(result) == 2: is_valid, _ = result
-                    elif isinstance(result, bool): is_valid = result
-                    
-                    if is_valid:
-                        user_email = st.session_state.get("user_email")
-                        if database:
-                            database.update_user_credits(user_email, 4)
-                            if "user_profile" in st.session_state:
-                                st.session_state.user_profile["credits"] = 4
-                        _send_receipt(user_email, "Archive Unlocked", f"Welcome to the Family Archive. Code {code} applied.")
-                        st.balloons()
-                        st.success("Unlocked! Redirecting...")
-                        time.sleep(1)
-                        st.rerun()
-                    else: st.error("Invalid Code")
-
-# --- MAIN RENDERER ---
+# --- B2B DASHBOARD RENDERER (FULL) ---
 def render_dashboard():
+    inject_heirloom_css()
+    
     if not st.session_state.get("authenticated"):
         st.warning("Please log in."); return
 
@@ -270,292 +133,199 @@ def render_dashboard():
     
     col_title, col_status = st.columns([3, 1])
     with col_title: 
-        st.title("The Family Archive")
-        st.markdown("**Preserve your loved one’s voice, stories, and memories—forever.**")
+        st.markdown('<div class="heirloom-header">The Family Archive</div>', unsafe_allow_html=True)
+        st.markdown('<div class="heirloom-sub">"Capture family memories and history for future generations."</div>', unsafe_allow_html=True)
     
     with col_status: 
+        st.markdown('<div class="metric-container">', unsafe_allow_html=True)
         st.metric(
             label="Letter Credits",
             value=credits,
-            help="Each credit = 1 mailed letter (worth $5.99). Your subscription includes 4 credits per month."
+            help="Each credit allows you to mail one physical keepsake letter. These are provided by your Advisor for authorized projects."
         )
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    if credits <= 0:
-        st.warning("⚠️ **Out of Credits** - Your subscription will refill on your next billing date.")
-        render_paywall()
-        return
-
+    # --- B2B REFACTOR: NO INITIAL PAYWALL ---
+    # We now allow users to proceed to Settings and Interview to maximize engagement.
+    
     tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & Setup", "📞 Start Interview", "📥 Stories (Inbox)"])
 
     # --- TAB A: SETTINGS ---
     with tab_settings:
         st.markdown("### ⚙️ Account Setup")
-        st.info("ℹ️ **Important:** We need to know who to call (the interviewee) and where to mail the finished letters (you).")
+        st.info("ℹ️ **Instruction:** Provide the contact details for the interviewee and your preferred mailing address for deliverables.")
 
         c_parent, c_user = st.columns(2)
         with c_parent:
             st.markdown("#### Step 1: Who are we interviewing?")
-            st.caption("We will call this person to record stories.")
+            st.caption("We will call this person to record their stories.")
             with st.form("settings_parent"):
                 curr_p_name = profile.get("parent_name", "")
                 curr_p_phone = profile.get("parent_phone", "")
-                new_p_name = st.text_input("Their Name (e.g. Grandma)", value=curr_p_name)
+                new_p_name = st.text_input("Interviewee Name (e.g. Grandma)", value=curr_p_name)
                 new_p_phone = st.text_input("Their Phone Number", value=curr_p_phone, placeholder="e.g. 615-555-1234")
-                if st.form_submit_button("Save Interviewee"):
+                if st.form_submit_button("Save Interviewee Settings"):
                     if database:
-                        success = database.update_heirloom_settings(user_email, new_p_name, new_p_phone)
-                        if success:
-                            st.session_state.user_profile['parent_name'] = new_p_name
-                            st.session_state.user_profile['parent_phone'] = new_p_phone
-                            st.success("✅ Saved!")
-                            time.sleep(1)
-                            st.rerun()
-                        else: st.error("Database Error")
+                        if database.update_heirloom_settings(user_email, new_p_name, new_p_phone):
+                            st.session_state.user_profile.update({'parent_name': new_p_name, 'parent_phone': new_p_phone})
+                            st.success("✅ Settings Saved!")
+                            time.sleep(1); st.rerun()
+                        else: st.error("Database Update Error")
 
         with c_user:
             st.markdown("#### Step 2: Where should we mail letters?")
-            st.caption("When you click 'Send', the physical letter goes here.")
+            st.caption("Finished physical letters will be dispatched to this address.")
             with st.form("settings_address"):
-                curr_name = profile.get("full_name", "")
-                curr_street = profile.get("address_line1", "")
-                curr_city = profile.get("address_city", "")
-                curr_state = profile.get("address_state", "")
-                curr_zip = profile.get("address_zip", "")
-                
-                n_name = st.text_input("Your Name", value=curr_name)
-                n_street = st.text_input("Street Address", value=curr_street)
-                n_city = st.text_input("City", value=curr_city)
-                
+                n_name = st.text_input("Recipient Name", value=profile.get("full_name", ""))
+                n_street = st.text_input("Street Address", value=profile.get("address_line1", ""))
+                n_city = st.text_input("City", value=profile.get("address_city", ""))
                 col_st, col_zp = st.columns(2)
-                n_state = col_st.text_input("State", value=curr_state)
-                n_zip = col_zp.text_input("Zip Code", value=curr_zip)
+                n_state = col_st.text_input("State", value=profile.get("address_state", ""))
+                n_zip = col_zp.text_input("Zip Code", value=profile.get("address_zip", ""))
                 
-                if st.form_submit_button("Save My Address"):
-                    if database:
-                        success = database.update_user_address(
-                            user_email, n_name, n_street, n_city, n_state, n_zip
-                        )
-                        if success:
-                            st.session_state.user_profile.update({
-                                "full_name": n_name,
-                                "address_line1": n_street,
-                                "address_city": n_city,
-                                "address_state": n_state,
-                                "address_zip": n_zip
-                            })
-                            st.success("✅ Address Updated!")
-                            st.rerun()
-                        else: st.error("Update Failed")
+                if st.form_submit_button("Save Mailing Profile"):
+                    if database and database.update_user_address(user_email, n_name, n_street, n_city, n_state, n_zip):
+                        st.session_state.user_profile.update({
+                            "full_name": n_name, "address_line1": n_street, "address_city": n_city,
+                            "address_state": n_state, "address_zip": n_zip
+                        })
+                        st.success("✅ Mailing Address Updated!")
+                        time.sleep(1); st.rerun()
+                    else: st.error("Address Update Failed")
 
     # --- TAB B: INTERVIEWER ---
     with tab_int:
-        st.markdown("### 🎙️ The Remote Interviewer")
-        
+        st.markdown("### 🎙️ The Family Biographer")
         if not p_phone:
-            st.warning("⚠️ Please complete **Step 1** in the Settings tab to add a phone number.")
+            st.warning("⚠️ Please configure Step 1 in Settings to start an interview.")
             st.stop()
         
-        st.success(f"📞 **Pro Tip:** You (or {profile.get('parent_name', 'they')}) can also call **(615) 656-7667** anytime from **{p_phone}** to record a story on your own terms.")
-        
-        st.info("💡 **Pre-Call Tip:** Text them beforehand! *'The robot is going to ask about [Topic]. Just gather your thoughts!'* It makes the call feel like a chat, not a quiz.")
+        st.success(f"📞 **Spontaneous Entry:** They can call **(615) 656-7667** from **{p_phone}** at any time to record.")
 
         st.divider()
-
         topic_options = [
-            "Tell me about your childhood home.",
-            "How did you meet your spouse?",
-            "What was your first job like?",
+            "Tell me about your childhood home.", 
+            "How did you meet your spouse?", 
+            "What was your first job like?", 
             "What is your favorite family tradition?",
-            "What advice would you give your younger self?",
             "Write your own question..."
         ]
-        selected_topic = st.selectbox("1. Choose a Topic", topic_options)
+        selected_topic = st.selectbox("1. Select a Conversation Starter", topic_options)
         
         final_topic = selected_topic
         if selected_topic == "Write your own question...":
-            final_topic = st.text_input("Type your question here", placeholder="e.g. Tell me about the day I was born.")
+            final_topic = st.text_input("Type your question", placeholder="e.g. Tell me about the day I was born.")
 
         st.markdown("---")
-        
         col_now, col_later = st.columns(2)
         with col_now:
             st.markdown("#### Option A: Call Immediately")
-            st.caption("We will dial their number right now.")
-            if st.button("📞 Call Now", type="primary", use_container_width=True):
-                allowed, msg = database.check_call_limit(user_email)
-                if not allowed:
-                    st.error(msg)
-                elif ai_engine:
-                    with st.spinner(f"Dialing {p_phone}..."):
+            st.caption("Initiate a phone call to the interviewee now.")
+            if st.button("📞 Start Call Now", type="primary", use_container_width=True):
+                if ai_engine:
+                    with st.spinner(f"Dailing {p_phone}..."):
                         sid, err = ai_engine.trigger_outbound_call(
                             p_phone, 
-                            "+16156567667",
-                            parent_name=profile.get("parent_name", "Mom"), 
+                            "+16156567667", 
+                            parent_name=profile.get("parent_name", "Client"), 
                             topic=final_topic
                         )
                         if sid:
-                            database.update_last_call_timestamp(user_email)
-                            st.success(f"Connecting... (SID: {sid})")
-                            st.info("Wait for them to answer and finish speaking. Then check the 'Stories' tab.")
-                        else: st.error(f"Call Failed: {err}")
+                            if database: database.update_last_call_timestamp(user_email)
+                            st.success("Call Initiated. Audio will appear in Inbox shortly.")
+                        else: st.error(f"Call Error: {err}")
 
         with col_later:
-            st.markdown("#### Option B: Schedule for Later")
-            st.info("""
-            **How Scheduling Works:**
-            1. Pick a date & time below.
-            2. We save this to your account.
-            3. On that day, you will receive an **email reminder** to initiate the call manually.
-            """)
-            
-            d = st.date_input("Date", help="When do you want to do the interview?")
-            t = st.time_input("Time", help="Select a time")
-            
-            if st.button("📅 Schedule Reminder", use_container_width=True):
-                combined_time = datetime.combine(d, t)
-                if database.schedule_call(user_email, p_phone, final_topic, combined_time):
-                    st.success(f"✅ Saved! We've added this to your schedule for {d} at {t}.")
-                else:
-                    st.error("Scheduling failed.")
+            st.markdown("#### Option B: Schedule Reminder")
+            st.caption("Schedule a notification to initiate an interview later.")
+            d = st.date_input("Select Date")
+            t = st.time_input("Select Time")
+            if st.button("📅 Set Reminder", use_container_width=True):
+                if database.schedule_call(user_email, p_phone, final_topic, datetime.combine(d, t)):
+                    st.success("Interview reminder scheduled successfully.")
+                else: st.error("Scheduling failed.")
 
     # --- TAB C: INBOX ---
     with tab_inbox:
-        st.markdown("### 📥 Your Story Inbox")
+        st.markdown("### 📥 Story Inbox")
         
-        if st.button("🔄 Check for New Recordings"):
-            if not p_phone:
-                st.error("⚠️ Set 'Parent Phone' in Settings first.")
-            elif heirloom_engine:
-                with st.spinner(f"Scanning for calls from {p_phone}..."):
+        if st.button("🔄 Check for New Stories"):
+            if heirloom_engine and p_phone:
+                with st.spinner("Scanning for recent recordings..."):
                     transcript, audio_path, err = heirloom_engine.process_latest_call(p_phone, user_email)
                     if transcript:
-                        if database: 
-                            database.save_draft(user_email, transcript, "Heirloom", 0.0, audio_ref=audio_path)
-                        st.success("✅ New Story Found!")
-                        time.sleep(1)
-                        st.rerun()
-                    else: 
-                        st.warning(f"No new recordings found. ({err})")
-            else:
-                st.error("Heirloom Engine not loaded.")
-        
-        st.divider()
+                        if database: database.save_draft(user_email, transcript, "Heirloom", 0.0, audio_ref=audio_path)
+                        st.success("New Story Found and Archived!"); time.sleep(1); st.rerun()
+                    else: st.warning(f"No new recordings found. ({err})")
+            else: st.error("Configuration Error: Phone or Engine missing.")
 
+        st.divider()
         if database:
             all_drafts = database.get_user_drafts(user_email)
             heirloom_drafts = [d for d in all_drafts if d.get('tier') == 'Heirloom']
         else: heirloom_drafts = []
 
         if not heirloom_drafts:
-            st.markdown("<div style='text-align:center; color:#888;'>No stories yet. Try calling!</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align:center; color:#888; padding: 40px;'>No stories in the archive yet. Try initiating a call!</div>", unsafe_allow_html=True)
         
         for draft in heirloom_drafts:
-            # FIX: Ensure 'did' is defined HERE inside the loop
             did = draft.get('id')
-            d_date = draft.get('created_at', 'Unknown Date')
             d_status = draft.get('status', 'Draft')
-            d_content = draft.get('content', '')
             status_icon = "🟢" if d_status == "Draft" else "✅ Sent"
             
-            with st.expander(f"{status_icon} Story from {d_date}", expanded=(d_status == "Draft")):
+            with st.expander(f"{status_icon} Story archived on {draft.get('created_at', 'Unknown Date')}"):
+                new_text = st.text_area("Edit Transcript", value=draft.get('content', ''), height=250, key=f"txt_{did}")
                 
-                new_text = st.text_area("Edit Story Transcript", value=d_content, height=250, key=f"txt_{did}")
-                
-                c_save, c_send = st.columns([1, 1])
+                c_save, c_mail = st.columns([1, 1])
                 with c_save:
                     if st.button("💾 Save Changes", key=f"save_{did}", use_container_width=True):
                         if database: database.update_draft_data(did, content=new_text)
-                        st.toast("Saved changes.")
+                        st.toast("Edits saved successfully.")
                 
                 st.divider()
-
                 if d_status == "Draft":
-                    st.markdown("#### 📮 Mailing Details")
+                    st.markdown("#### 📮 Physical Fulfillment")
+                    st.info("Convert this digital transcript into a physical keepsake letter.")
                     
-                    # --- RETURN ADDRESS INPUTS ---
-                    # FIX: Defined INSIDE the loop, using 'did' for unique keys
-                    st.caption("Return Address (From):")
-                    c_ra1, c_ra2 = st.columns(2)
-                    
-                    def_ra_name = profile.get("parent_name", "Mom")
-                    def_ra_st = profile.get("address_line1", "")
-                    def_ra_city = profile.get("address_city", "")
-                    def_ra_state = profile.get("address_state", "")
-                    def_ra_zip = profile.get("address_zip", "")
-
-                    ra_name = c_ra1.text_input("Name", value=def_ra_name, key=f"ra_n_{did}")
-                    ra_st = c_ra2.text_input("Street", value=def_ra_st, key=f"ra_s_{did}")
-                    c_ra3, c_ra4, c_ra5 = st.columns(3)
-                    ra_city = c_ra3.text_input("City", value=def_ra_city, key=f"ra_c_{did}")
-                    ra_state = c_ra4.text_input("State", value=def_ra_state, key=f"ra_st_{did}")
-                    ra_zip = c_ra5.text_input("Zip", value=def_ra_zip, key=f"ra_z_{did}")
-
-                    # --- RECIPIENT PREVIEW ---
-                    st.caption("Recipient (To):")
-                    st.text(f"{profile.get('full_name')}\n{profile.get('address_line1')}\n{profile.get('address_city')}, {profile.get('address_state')} {profile.get('address_zip')}")
-
-                    if st.button(f"🚀 Mail (1 Credit)", key=f"m_{did}", type="primary"):
+                    if st.button(f"🚀 Mail Keepsake (1 Credit)", key=f"m_{did}", type="primary", use_container_width=True):
+                        # B2B GATE: Check credits here instead of at the start.
                         if credits > 0:
-                            # Recipient = Account Holder
                             r_addr = {
-                                "name": profile.get("full_name"),
-                                "street": profile.get("address_line1"),
-                                "city": profile.get("address_city"),
-                                "state": profile.get("address_state"),
+                                "name": profile.get("full_name"), 
+                                "street": profile.get("address_line1"), 
+                                "city": profile.get("address_city"), 
+                                "state": profile.get("address_state"), 
                                 "zip": profile.get("address_zip")
                             }
-                            # Sender = Manual Input
                             s_addr = {
-                                "name": ra_name,
-                                "street": ra_st,
-                                "city": ra_city,
-                                "state": ra_state,
-                                "zip": ra_zip
+                                "name": profile.get("parent_name", "VerbaPost"), 
+                                "street": profile.get("address_line1"), 
+                                "city": profile.get("address_city"), 
+                                "state": profile.get("address_state"), 
+                                "zip": profile.get("address_zip")
                             }
                             
-                            if not r_addr['street']: st.error("Please set YOUR address in Settings."); st.stop()
-                            if not s_addr['street']: st.error("Please enter a Return Address."); st.stop()
-
                             if mailer and letter_format:
                                 try:
-                                    # PDF Generation
-                                    pdf = letter_format.create_pdf(
-                                        new_text, 
-                                        r_addr, 
-                                        s_addr, 
-                                        tier="Heirloom" 
-                                    )
-                                    
-                                    # Automated Send
-                                    tid = mailer.send_letter(
-                                        pdf, 
-                                        r_addr, 
-                                        s_addr, 
-                                        tier="Heirloom",
-                                        description=f"Heirloom {did}",
-                                        user_email=user_email
-                                    )
-                                    
+                                    pdf = letter_format.create_pdf(new_text, r_addr, s_addr, tier="Heirloom")
+                                    tid = mailer.send_letter(pdf, r_addr, s_addr, tier="Heirloom", user_email=user_email)
                                     if tid:
-                                        new_c = credits - 1
-                                        database.update_user_credits(user_email, new_c)
+                                        database.update_user_credits(user_email, credits - 1)
                                         _force_heirloom_update(did, r_addr, s_addr, "Sent", tid)
-                                        st.success(f"Sent! ID: {tid}")
-                                        if audit_engine: audit_engine.log_event(user_email, "HEIRLOOM_API_SENT", metadata={"id": tid})
+                                        st.success(f"Success! Physical mail dispatched (ID: {tid})")
+                                        if audit_engine: audit_engine.log_event(user_email, "B2B_HEIRLOOM_SENT", metadata={"id": tid})
                                         time.sleep(2); st.rerun()
-                                    else:
-                                        st.error("API Error. Check Logs.")
-                                        
-                                except Exception as e:
-                                    st.error(f"System Error: {e}")
-                            else:
-                                st.error("Mailer Engine Missing")
-                        else: st.error("Insufficient Credits. Please top up.")
+                                    else: st.error("Mailing API Error. Please contact support.")
+                                except Exception as e: st.error(f"Fulfillment Exception: {e}")
+                            else: st.error("Mailing Service Unavailable.")
+                        else:
+                            # B2B CONTEXT: Guide them to their Advisor.
+                            st.error("⚠️ **No Credits Remaining.** Please contact your Financial Advisor to authorize additional Legacy Credits for your account.")
                 else:
-                    st.success(f"Sent! Tracking Number: {draft.get('tracking_number', 'N/A')}")
+                    st.success(f"Physical Copy Sent. Tracking/Ref: {draft.get('tracking_number', 'N/A')}")
 
     st.markdown("<br><br><br>", unsafe_allow_html=True)
-    st.markdown("<div style='text-align: center; color: #888; font-style: italic;'>VerbaPost helps families save voices, stories, and moments—before they’re gone.</div>", unsafe_allow_html=True)
+    st.markdown("<div style='text-align: center; color: #64748b; font-style: italic; border-top: 1px solid #e2e8f0; padding-top: 20px;'>VerbaPost Wealth: Preserving legacy through generations.</div>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     render_dashboard()

@@ -104,7 +104,7 @@ def render_dashboard():
             new_firm = st.text_input("Firm Name", value=advisor.get('firm_name', ''))
             new_addr = st.text_area("Firm Office Address (Return Location)", 
                                     value=advisor.get('address', ''), 
-                                    placeholder="123 Financial Way, Suite 100\nNashville, TN 37203")
+                                    placeholder="123 Financial Way, Suite 100\\nNashville, TN 37203")
             
             if st.form_submit_button("💾 Save Firm Profile"):
                 # Logic to update Advisor table in database
