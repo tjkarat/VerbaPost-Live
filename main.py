@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import logging
 import os
 import sys
@@ -14,6 +15,22 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
+
+# --- 1. OAUTH FRAGMENT BRIDGE (NEW FIX) ---
+# This JS snippet catches '#access_token=...' and turns it into '?access_token=...'
+# so that the Python router can process the login fragment.
+components.html(
+    """
+    <script>
+    var hash = window.parent.location.hash;
+    if (hash && hash.includes('access_token=')) {
+        var newUrl = window.parent.location.pathname + hash.replace('#', '?');
+        window.parent.location.href = newUrl;
+    }
+    </script>
+    """,
+    height=0,
+)
 
 # --- MODULE IMPORTS (COMPLETE & UNREFACTORED) ---
 # Each import is wrapped in an individual try/except to prevent app-wide crashes
@@ -58,6 +75,12 @@ try:
 except ImportError as e: 
     logger.error(f"UI Archive Import Error: {e}")
     ui_archive = None
+
+try: 
+    import ui_heirloom
+except ImportError as e:
+    logger.error(f"UI Heirloom Import Error: {e}")
+    ui_heirloom = None
 
 try: 
     import auth_engine
@@ -127,11 +150,10 @@ def main():
     nav = query_params.get("nav")
     project_id = query_params.get("id")
     
-    # FIX: Captured access_token from URL for Google Auth
-    # This is the 'Handshake' from Supabase/Google back to VerbaPost
+    # Captured access_token from URL for Google Auth (Handled by JS Bridge)
     access_token = query_params.get("access_token")
 
-    # 2. OAUTH VERIFICATION LOGIC
+    # 2. OAUTH VERIFICATION LOGIC (NEW FIX)
     # Intercepts the redirect before any UI is rendered
     if access_token and not st.session_state.get("authenticated"):
         if auth_engine:
@@ -143,7 +165,8 @@ def main():
                 # Perform the full session sync immediately
                 sync_user_session()
                 st.query_params.clear()
-                st.session_state.app_mode = "advisor" # Default to QB Dashboard
+                # Default to Heirloom Dashboard for archive-related logins
+                st.session_state.app_mode = "heirloom" 
                 logger.info(f"OAuth success: {user_email} authenticated.")
                 st.rerun()
             else:
@@ -160,11 +183,15 @@ def main():
     if "draft_id" not in st.session_state:
         st.session_state.draft_id = None
         
-    # 4. INITIALIZE APP MODE ROUTING
+    # 4. INITIALIZE APP MODE ROUTING (FIXED)
     # This defines the "State Machine" that controls the UI
     if "app_mode" not in st.session_state:
         if nav == "archive": 
-            st.session_state.app_mode = "archive"
+            # If a project_id exists, it's a shared vault view
+            if project_id:
+                st.session_state.app_mode = "archive"
+            else:
+                st.session_state.app_mode = "heirloom"
         elif nav == "setup": 
             st.session_state.app_mode = "setup"
         elif nav == "legal":
@@ -208,7 +235,7 @@ def main():
         if st.sidebar.button("🚪 Sign Out", use_container_width=True):
             handle_logout()
 
-    # 6. ROUTER LOGIC: VIEW RENDERING
+    # 6. ROUTER LOGIC: VIEW RENDERING (FIXED)
     mode = st.session_state.app_mode
 
     # A. BACK OFFICE (Restricted to Authenticated Admin)
@@ -227,7 +254,18 @@ def main():
             st.error("Archive module (ui_archive.py) missing.")
         return
 
-    # C. PARENT SETUP (Concierge Scheduling Entry Point)
+    # C. HEIRLOOM DASHBOARD (The Family Archive Dashboard)
+    if mode == "heirloom":
+        if not st.session_state.get("authenticated"):
+            st.session_state.app_mode = "login"
+            st.rerun()
+        if ui_heirloom:
+            ui_heirloom.render_dashboard()
+        else:
+            st.error("Heirloom module (ui_heirloom.py) missing.")
+        return
+
+    # D. PARENT SETUP (Concierge Scheduling Entry Point)
     if mode == "setup":
         if ui_setup: 
             ui_setup.render_parent_setup(project_id)
@@ -235,7 +273,7 @@ def main():
             st.error("Setup module (ui_setup.py) missing.")
         return
 
-    # D. STATIC PAGES (Direct Routing Fix for URLs)
+    # E. STATIC PAGES (Direct Routing Fix for URLs)
     if mode == "legal":
         st.title("⚖️ Legal & Terms of Service")
         st.markdown("VerbaPost Wealth standard terms for Advisors, Clients, and Heirs.")
@@ -252,8 +290,7 @@ def main():
             st.rerun()
         return
 
-    # E. CONSUMER STORE / RETAIL (Preserved Retail Logic)
-    # This state machine handles drafting, workspace, and receipts
+    # F. CONSUMER STORE / RETAIL (Preserved Retail Logic)
     if mode in ["store", "workspace", "review", "receipt"]:
         if ui_main: 
             ui_main.render_main()
@@ -261,7 +298,7 @@ def main():
             st.error("Retail module (ui_main.py) missing.")
         return
 
-    # F. AUTHENTICATION (B2B Entry)
+    # G. AUTHENTICATION (B2B Entry)
     if mode == "login":
         if ui_login: 
             ui_login.render_login_page()
@@ -269,7 +306,7 @@ def main():
             st.error("Login module (ui_login.py) missing.")
         return
 
-    # G. ADVISOR DASHBOARD (Default B2B View)
+    # H. ADVISOR DASHBOARD (Default B2B View)
     if st.session_state.get("authenticated"):
         if ui_advisor:
             ui_advisor.render_dashboard()
@@ -277,7 +314,7 @@ def main():
             st.error("Advisor module (ui_advisor.py) not found.")
         return
 
-    # H. PUBLIC LANDING PAGE (The Splash)
+    # I. PUBLIC LANDING PAGE (The Splash)
     if ui_splash:
         ui_splash.render_splash_page()
     else:

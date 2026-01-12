@@ -1,7 +1,6 @@
 import streamlit as st
 
 def render_splash_page():
-    # --- HERO SECTION ---
     st.markdown("""
         <div style='text-align: center; padding: 40px 0;'>
             <h1 style='font-family: "Helvetica Neue", serif; font-size: 3rem; font-weight: 700; color: #1f2937;'>
@@ -15,21 +14,25 @@ def render_splash_page():
 
     c1, c2, c3 = st.columns([1, 2, 1])
     with c2:
-        st.markdown("""
-        <div style="background: #f8fafc; padding: 20px; border-radius: 10px; border: 1px solid #e2e8f0; text-align: left;">
-            <h3 style="margin-top: 0;"> The Retention Package</h3>
-            <ul style="font-size: 1.1rem; line-height: 1.6;">
-                <li>🎙️ <b>AI-Driven Client Interviews:</b> We capture their family stories & legacy goals.</li>
-                <li>📝 <b>Physical Deliverables:</b> We mail beautiful transcripts to them (and you).</li>
-                <li>🛡️ <b>Compliance First:</b> You approve every word before it prints.</li>
-            </ul>
-        </div>
-        <br>
-        """, unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown("### 🏛️ Advisor Portal")
+            st.write("Secure dashboard for managing client legacy outreach.")
+            if st.button("Login as Advisor", use_container_width=True, type="primary"):
+                st.session_state.app_mode = "login"
+                st.rerun()
 
-        if st.button("🔒 Advisor Login / Portal Access", type="primary", use_container_width=True):
-            st.session_state.app_mode = "login"
-            st.rerun()
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        with st.container(border=True):
+            st.markdown("### 📜 Family Archive")
+            st.write("Preserve family stories through voice-to-letter dictation.")
+            if st.button("Access My Archive", use_container_width=True):
+                st.session_state.app_mode = "heirloom"
+                st.rerun()
 
     st.markdown("<br><br><hr>", unsafe_allow_html=True)
-    st.caption("© 2026 VerbaPost Wealth Management Solutions. Restricted Access.")
+    col_l, col_r = st.columns([4, 1])
+    col_l.caption("© 2026 VerbaPost Wealth Management Solutions.")
+    if col_r.button("⚖️ Legal & Terms", use_container_width=True):
+        st.session_state.app_mode = "legal"
+        st.rerun()

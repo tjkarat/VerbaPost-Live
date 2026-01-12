@@ -1,14 +1,14 @@
 import streamlit as st
 import time
 
-# --- IMPORTS ---
+# --- MODULE IMPORTS ---
 try: import auth_engine
 except ImportError: auth_engine = None
 try: import database
 except ImportError: database = None
 try: import mailer
 except ImportError: mailer = None
-try: import secrets_manager  # <--- Use your existing manager
+try: import secrets_manager 
 except ImportError: secrets_manager = None
 
 def render_login_page():
@@ -60,14 +60,11 @@ def render_login_page():
     # --- GOOGLE AUTHENTICATION BUTTON ---
     if secrets_manager:
         sb_url = secrets_manager.get_secret("SUPABASE_URL")
-        
-        # 1. DETERMINE BASE URL (Production vs Local)
-        # Check secrets/env first, fallback to hardcoded prod
+        # DETERMINE BASE URL (Production vs Local)
         base_url = secrets_manager.get_secret("BASE_URL") or "https://app.verbapost.com"
         
         if sb_url:
-            # 2. CONSTRUCT URL WITH EXPLICIT REDIRECT
-            # This ensures Supabase sends the #hash to the right place
+            # CONSTRUCT URL WITH EXPLICIT REDIRECT
             google_auth_url = f"{sb_url}/auth/v1/authorize?provider=google&redirect_to={base_url}"
             
             if st.link_button("🇬 Continue with Google", google_auth_url, type="primary", use_container_width=True):
@@ -79,15 +76,15 @@ def render_login_page():
                 </div>
             """, unsafe_allow_html=True)
     
-    # CHANGED: "New Account" is now first, making it the default tab
+    # TABS: New Account is default
     tab_signup, tab_login, tab_forgot = st.tabs(["New Account", "Sign In", "Forgot Password"])
 
-    # --- TAB A: SIGN UP (Now Default) ---
+    # --- TAB A: SIGN UP ---
     with tab_signup:
         st.markdown("""
         <div class="auth-explanation">
         <b>Why do we need your address?</b><br>
-        VerbaPost mails physical letters for you. We need a valid <b>Return Address</b> to ensure your mail is accepted by the USPS and can be returned to you if undeliverable.
+        VerbaPost mails physical letters for you. We need a valid <b>Return Address</b> to ensure your mail is accepted by the USPS and can be returned if undeliverable.
         </div>
         """, unsafe_allow_html=True)
 
@@ -99,7 +96,6 @@ def render_login_page():
             st.markdown("---")
             st.caption("Mailing & Config")
             
-            # New Fields
             c_tz, c_country = st.columns(2)
             timezone = c_tz.selectbox("Timezone", ["US/Eastern", "US/Central", "US/Mountain", "US/Pacific", "UTC"], index=1)
             country = c_country.selectbox("Country", ["US", "CA", "UK"], index=0)
@@ -111,11 +107,9 @@ def render_login_page():
             zip_code = c2.text_input("Zip")
 
             if st.form_submit_button("Create Account"):
-                # 1. Validation Step
                 if not addr or not city or not state or not zip_code:
                     st.error("Please complete your full address.")
                 else:
-                    # Validate with PostGrid BEFORE creating auth user
                     is_valid = False
                     details = {}
                     
@@ -130,11 +124,9 @@ def render_login_page():
                             }
                             is_valid, details = mailer.validate_address(address_payload)
                     else:
-                        # Fallback if mailer engine missing (dev mode)
                         is_valid = True 
 
                     if not is_valid:
-                        # --- CRITICAL FIX: SOFT WARNING INSTEAD OF HARD STOP ---
                         error_msg = "Unknown Error"
                         if isinstance(details, dict):
                             error_msg = details.get('error', 'Unknown Error')
@@ -142,16 +134,13 @@ def render_login_page():
                             error_msg = details
                         
                         st.warning(f"⚠️ Address Note: USPS could not verify this exact location ({error_msg}).")
-                        st.caption("We will create your account, but please double-check your address in settings later to ensure delivery.")
-                        # We do NOT return/stop here. We proceed to create the user.
+                        st.caption("Account will be created, but verify your address in settings later.")
                     
-                    # 2. Create User (Runs regardless of validation success)
                     if auth_engine:
                         user, error = auth_engine.sign_up(new_email, new_pass, data={"full_name": full_name})
                         if user:
                             if database:
                                 database.create_user(new_email, full_name)
-                                # Update Profile with Validated Address & Timezone
                                 with database.get_db_session() as db:
                                     p = db.query(database.UserProfile).filter(database.UserProfile.email == new_email).first()
                                     if p:
@@ -163,29 +152,10 @@ def render_login_page():
                                         p.timezone = timezone
                                         db.commit()
                             
-                            # --- AUDIT LOG (NEW) ---
-                            if hasattr(database, "save_audit_log"):
-                                try:
-                                    database.save_audit_log({
-                                        "user_email": new_email,
-                                        "event_type": "USER_SIGNUP",
-                                        "description": "New Account Created (Address Status: " + ("Verified" if is_valid else "Unverified") + ")"
-                                    })
-                                except Exception: pass
-                            # -----------------------
-
                             st.success("✅ Account created!")
                             st.session_state.authenticated = True
                             st.session_state.user_email = new_email
-                            
-                            # --- ROUTING FIX ---
-                            # Logic: If redirect_to is set, use it. Otherwise default to 'heirloom'.
-                            target = st.session_state.get("redirect_to", "heirloom")
-                            
-                            st.session_state.app_mode = target
-                            # Explicitly set the nav parameter to ensure router catches it
-                            st.query_params["nav"] = target
-                            
+                            st.session_state.app_mode = "heirloom"
                             time.sleep(1)
                             st.rerun()
                         else:
@@ -202,32 +172,10 @@ def render_login_page():
                 if auth_engine:
                     user, error = auth_engine.sign_in(email, password)
                     if user:
-                        st.success(f"Welcome back, {email}!")
+                        st.success(f"Welcome back!")
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
-                        
-                        # --- AUDIT LOG ---
-                        if hasattr(database, "save_audit_log"):
-                            try:
-                                database.save_audit_log({
-                                    "user_email": email,
-                                    "event_type": "USER_LOGIN",
-                                    "description": "Successful Login via Auth Engine"
-                                })
-                            except Exception: pass
-                        # -----------------------
-
-                        # --- ROUTING FIX ---
-                        target = st.session_state.get("redirect_to", "heirloom")
-                        
-                        # Fallback: If we lost state, check if we are in 'utility' mode via query params
-                        if st.query_params.get("mode") == "utility":
-                            target = "main"
-
-                        st.session_state.app_mode = target
-                        # Explicitly set the nav parameter to ensure router catches it
-                        st.query_params["nav"] = target
-                        
+                        st.session_state.app_mode = "heirloom"
                         st.rerun()
                     else:
                         st.error(f"Login failed: {error}")
@@ -235,20 +183,18 @@ def render_login_page():
     # --- TAB C: FORGOT PASSWORD ---
     with tab_forgot:
         st.write("Enter your email to receive a password reset link.")
-        
         with st.form("reset_request"):
             reset_email = st.text_input("Email Address")
             if st.form_submit_button("Send Reset Link"):
                 if auth_engine:
                     success, msg = auth_engine.send_password_reset(reset_email)
                     if success:
-                        st.success("✅ Check your email! Click the link inside to reset your password.")
+                        st.success("✅ Check your email!")
                     else:
                         st.error(f"Error: {msg}")
 
         st.divider()
         st.markdown("#### 🔢 Have a code?")
-        
         with st.form("otp_verification"):
             otp_email = st.text_input("Email")
             otp_code = st.text_input("6-Digit Code")
@@ -256,9 +202,8 @@ def render_login_page():
                 if auth_engine:
                     session, error = auth_engine.verify_otp(otp_email, otp_code)
                     if session:
-                        st.success("✅ Code Verified! Redirecting...")
+                        st.success("✅ Code Verified!")
                         st.query_params["type"] = "recovery" 
                         st.rerun()
                     else:
                         st.error(f"Invalid Code: {error}")
-    return ""
