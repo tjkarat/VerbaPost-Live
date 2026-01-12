@@ -20,7 +20,6 @@ def render_dashboard():
     # 2. ADVISOR CONTEXT
     user_email = st.session_state.get("user_email")
     
-    # Sync Advisor Profile
     if database:
         advisor = database.get_or_create_advisor(user_email)
         credits = advisor.get('credits', 0) if advisor else 0
@@ -38,7 +37,7 @@ def render_dashboard():
     
     # 4. KPI CARDS
     c1, c2, c3 = st.columns(3)
-    c1.metric("Retention Credits", credits, help="1 Credit = 1 Client Interview + Letter Package")
+    c1.metric("Retention Credits", credits)
     c2.metric("Active Clients", "0") 
     c3.metric("Pending Approval", "0") 
 
@@ -53,8 +52,8 @@ def render_dashboard():
         # Add Client Form
         with st.expander("➕ Add New Client"):
             with st.form("add_client_form"):
-                c_name = st.text_input("Client Name (e.g. John & Jane Doe)")
-                c_phone = st.text_input("Phone Number (for Interview)")
+                c_name = st.text_input("Client Name")
+                c_phone = st.text_input("Phone Number")
                 c_addr = st.text_input("Mailing Address")
                 c_city = st.text_input("City")
                 col_s, col_z = st.columns(2)
@@ -65,6 +64,13 @@ def render_dashboard():
                     if database:
                         addr_obj = {"street": c_addr, "city": c_city, "state": c_state, "zip": c_zip}
                         if database.add_client(user_email, c_name, c_phone, addr_obj):
+                            # --- AUDIT LOGGING RESTORED ---
+                            database.save_audit_log({
+                                "user_email": user_email,
+                                "event_type": "B2B_ADD_CLIENT",
+                                "description": f"Added client {c_name}",
+                                "details": f"Phone: {c_phone}"
+                            })
                             st.success(f"Added {c_name}")
                             time.sleep(1)
                             st.rerun()
@@ -75,7 +81,7 @@ def render_dashboard():
         if database:
             clients = database.get_clients(user_email)
             if not clients:
-                st.info("No clients found. Add one above to start a Retention Project.")
+                st.info("No clients found.")
             else:
                 for c in clients:
                     with st.container(border=True):
@@ -85,10 +91,8 @@ def render_dashboard():
                             st.caption(f"Phone: {c.get('phone')} | Status: {c.get('status')}")
                         with c2:
                             if st.button("🎙️ Start Interview", key=f"start_{c.get('id')}", use_container_width=True):
-                                # 1. Create Project
                                 proj_id = database.create_project(user_email, c.get('id'))
                                 if proj_id:
-                                    # 2. Trigger Call
                                     if ai_engine:
                                         with st.spinner("Dialing..."):
                                             sid, err = ai_engine.trigger_outbound_call(
@@ -98,19 +102,22 @@ def render_dashboard():
                                                 project_id=proj_id
                                             )
                                             if sid:
+                                                # --- AUDIT LOGGING RESTORED ---
+                                                database.save_audit_log({
+                                                    "user_email": user_email,
+                                                    "event_type": "B2B_INTERVIEW_START",
+                                                    "description": f"Called {c.get('name')}",
+                                                    "details": f"SID: {sid}, ProjID: {proj_id}"
+                                                })
                                                 st.success("Call Initiated!")
                                             else:
                                                 st.error(f"Call Failed: {err}")
                                 else:
                                     st.error("Failed to create project.")
 
-    with tab_approval:
-        st.info("Draft letters awaiting your compliance review will appear here.")
-
     with tab_settings:
         st.text_input("Firm Name", value=advisor.get('firm_name', ''))
-        st.text_input("Full Name (for Script)", value=advisor.get('full_name', ''))
-        st.button("Save Settings") # (Logic not wired yet)
+        st.button("Save Settings")
         
         st.divider()
         if st.button("Sign Out"):
