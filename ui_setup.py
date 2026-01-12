@@ -10,6 +10,7 @@ def render_parent_setup(project_id):
     No login required; secured by the unique Project UUID.
     """
     # 1. FETCH CONTEXT FROM DB
+    # Uses the secure project_id from the URL parameter
     if not project_id:
         st.error("Invalid access link. Please contact your advisor's office.")
         return
@@ -20,7 +21,7 @@ def render_parent_setup(project_id):
         return
 
     # 2. BRANDED HEADER
-    # Uses the firm name and advisor address stored in the database
+    # Fetches the firm name and advisor branding from the DB
     st.markdown(f"""
         <div style='text-align: center; padding-bottom: 20px;'>
             <h1 style='font-family: serif; color: #0f172a;'>The Family Archive</h1>
@@ -30,7 +31,7 @@ def render_parent_setup(project_id):
 
     st.divider()
 
-    # 3. THE "WHY" (Interest Building)
+    # 3. CONTEXTUAL GREETING
     st.markdown(f"### Hello, {project.get('parent_name')} 👋")
     st.write(f"""
         Your advisor at **{project.get('firm_name')}** has authorized a legacy biographer to help 
@@ -44,7 +45,7 @@ def render_parent_setup(project_id):
         st.markdown("#### 📮 1. Delivery Details")
         st.caption(f"Where should we mail the physical keepsakes for {project.get('heir_name')}?")
         
-        # Standardize address entry to prevent shipping errors
+        # Collects the physical mailing address for the heir
         recipient_name = st.text_input("Heir's Full Name", value=project.get('heir_name'))
         street = st.text_input("Street Address")
         c1, c2, c3 = st.columns([2, 1, 1])
@@ -78,7 +79,7 @@ def render_parent_setup(project_id):
                 # Combine date and time for the DB
                 scheduled_dt = datetime.combine(target_date, target_time)
                 
-                # Update project state
+                # Update project state to 'Scheduled'
                 success = database.update_project_details(
                     project_id=project_id,
                     address=address_data,
@@ -102,6 +103,6 @@ def render_parent_setup(project_id):
                 else:
                     st.error("There was an issue saving your details. Please try again.")
 
-    # 6. RETURN ADDRESS BRANDING (Reassurance)
+    # 6. FIRM REASSURANCE
     st.markdown("---")
     st.caption(f"Questions? Contact {project.get('firm_name')} directly.")
