@@ -93,6 +93,18 @@ except ImportError as e:
     ui_heirloom = None
 
 try: 
+    import ui_legal
+except ImportError as e:
+    logger.error(f"UI Legal Import Error: {e}")
+    ui_legal = None
+
+try: 
+    import ui_blog
+except ImportError as e:
+    logger.error(f"UI Blog Import Error: {e}")
+    ui_blog = None
+
+try: 
     import auth_engine
 except ImportError as e: 
     logger.error(f"Auth Engine Import Error: {e}")
@@ -276,20 +288,27 @@ def main():
         return
 
     # E. STATIC PAGES (Direct Routing Fix for URLs)
+    # UPDATED: Now calls respective render functions for Legal and Blog
     if mode == "legal":
-        st.title("⚖️ Legal & Terms of Service")
-        st.markdown("VerbaPost Wealth standard terms for Advisors, Clients, and Heirs.")
-        if st.button("Return to Home"): 
-            st.session_state.app_mode = "splash"
-            st.rerun()
+        if ui_legal:
+            ui_legal.render_legal_page()
+        else:
+            st.title("⚖️ Legal & Terms of Service")
+            st.markdown("VerbaPost Wealth standard terms for Advisors, Clients, and Heirs.")
+            if st.button("Return to Home"): 
+                st.session_state.app_mode = "splash"
+                st.rerun()
         return
 
     if mode == "blog":
-        st.title("🗞️ The VerbaPost Blog")
-        st.markdown("Insights on High-Net-Worth Retention and the $84 Trillion Wealth Transfer.")
-        if st.button("Return to Home"): 
-            st.session_state.app_mode = "splash"
-            st.rerun()
+        if ui_blog:
+            ui_blog.render_blog_page()
+        else:
+            st.title("🗞️ The VerbaPost Blog")
+            st.markdown("Insights on High-Net-Worth Retention and the $84 Trillion Wealth Transfer.")
+            if st.button("Return to Home"): 
+                st.session_state.app_mode = "splash"
+                st.rerun()
         return
 
     # F. CONSUMER STORE / RETAIL (Preserved Retail Logic)
