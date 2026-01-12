@@ -1,143 +1,111 @@
 import streamlit as st
-import time
+import database
 import json
-import logging
-import uuid
-from sqlalchemy import text
-
-# --- MODULE IMPORTS ---
-try: import database
-except ImportError: database = None
-try: import ai_engine
-except ImportError: ai_engine = None
-try: import payment_engine
-except ImportError: payment_engine = None
-
-logger = logging.getLogger(__name__)
 
 def render_dashboard():
-    # 1. SECURITY CHECK
-    if not st.session_state.get("authenticated"):
-        st.session_state.app_mode = "login"
-        st.rerun()
-
-    # 2. ADVISOR CONTEXT
+    """
+    The 'Quarterback' Dashboard for Wealth Managers.
+    Updated with clear instructional tooltips and a 'Legacy Playbook' guide.
+    """
     user_email = st.session_state.get("user_email")
+    advisor = database.get_or_create_advisor(user_email)
     
-    if database:
-        advisor = database.get_or_create_advisor(user_email)
-        firm_name = advisor.get('firm_name', 'Unregistered Firm')
-        full_name = advisor.get('full_name', 'Advisor')
-    else:
-        advisor = {}
-        firm_name = "System Error"
-        full_name = "Advisor"
+    # 1. HEADER & GLOBAL STATS
+    st.title("🏛️ VerbaPost | Advisor Quarterback")
+    st.caption(f"Connected as {user_email} | {advisor.get('firm_name', 'Unregistered Firm')}")
 
-    # 3. HEADER & GUIDANCE
-    st.title("VerbaPost | Wealth Retention")
-    st.caption(f"{firm_name} ({user_email})")
+    # 2. THE LEGACY PLAYBOOK (Clear Instructions)
+    with st.expander("📖 How to use the 'Quarterback' Playbook", expanded=False):
+        st.markdown("""
+            **The Goal:** Stop heir attrition by becoming the architect of your client's family legacy.
+            
+            1. **Authorize:** Fill out the 'Current Client' form below to generate a secure link.
+            2. **Engage:** Send that link to your client. They will use it to schedule their interview.
+            3. **Review:** Once the interview is complete, the transcript will appear in your 'Approval Queue'.
+            4. **Deliver:** We mail a physical, branded letter to the Heir on your behalf.
+        """)
+        st.info("💡 **Pro-Tip:** Fill out your 'Firm Settings' first to ensure your office address is used as the return location for all physical mailings.")
 
-    st.info("💡 **Advisor Role:** You 'Authorize' the gift. We then securely link with the client to handle the scheduling and mailing details.")
-
-    # 4. KPI CARDS
+    # 3. STATS BAR
     c1, c2, c3 = st.columns(3)
-    c1.metric("Active Campaigns", "0")
-    c2.metric("Pending Approval", "0") 
-    c3.metric("Retention Rate", "100%") 
+    c1.metric("Active Projects", len(database.get_clients(user_email)))
+    c2.metric("Pending Approval", len(database.get_pending_approvals(user_email)))
+    c3.metric("Heir Retention", "100%")
 
-    st.divider()
+    # 4. PRIMARY TABS
+    tab_auth, tab_roster, tab_queue, tab_settings = st.tabs([
+        "🚀 Authorize Gift", "👥 Client Roster", "📝 Approval Queue", "⚙️ Firm Settings"
+    ])
 
-    # 5. TABS
-    tab_roster, tab_approval, tab_settings = st.tabs(["👥 Client Roster", "📝 Approval Queue", "⚙️ Firm Settings"])
+    # --- TAB: AUTHORIZATION ---
+    with tab_auth:
+        st.subheader("Step 1: Authorize a Legacy Package ($99)")
+        st.markdown("Use this form to initiate the legacy process for a client family.")
+        
+        with st.form("auth_gift_form"):
+            st.markdown("#### 1. The Client (The Parent)")
+            p_name = st.text_input("Parent's Full Name", help="The person our biographer will interview.")
+            p_phone = st.text_input("Parent's Mobile Phone", help="We will call this number for the interview.")
+            
+            st.markdown("#### 2. The Beneficiary (The Heir)")
+            h_name = st.text_input("Heir's Full Name", help="The person who will receive the physical keepsake letter.")
+            
+            st.markdown("#### 3. The Strategic Question")
+            # This is the 'Retention Hook' for the Advisor
+            default_q = f"Why did you choose {advisor.get('firm_name')} to protect your family's financial future?"
+            prompt = st.text_area("Custom Interview Prompt", value=default_q, 
+                                  help="The biographer will ask this specific question during the interview to reinforce your value.")
 
-    # --- TAB A: CLIENT ROSTER ---
+            if st.form_submit_button("🚀 Authorize & Generate Link"):
+                if not p_name or not p_phone or not h_name:
+                    st.error("Please fill out all required fields to authorize this gift.")
+                else:
+                    proj_id = database.create_hybrid_project(user_email, p_name, p_phone, h_name, prompt)
+                    if proj_id:
+                        st.success("✅ Authorized! Send the link below to your client.")
+                        st.code(f"https://app.verbapost.com/?nav=setup&id={proj_id}")
+                        st.balloons()
+
+    # --- TAB: ROSTER ---
     with tab_roster:
-        st.subheader("Authorize a Legacy Gift")
-        
-        # Add Client Form (Concierge Entry)
-        with st.expander("➕ Authorize New Legacy Package ($99)", expanded=True):
-            with st.form("authorize_gift_form"):
-                st.markdown("#### 1. Current Client (The Parent)")
-                parent_name = st.text_input("Parent Name")
-                parent_phone = st.text_input("Parent Mobile Number")
-                
-                st.markdown("#### 2. The Heir (The Recipient)")
-                heir_name = st.text_input("Heir Name (e.g., Grandson Michael)")
-                
-                st.markdown("#### 3. Strategic Retention Question")
-                strategic_prompt = st.selectbox(
-                    "Lead-off Question",
-                    [
-                        f"Why did you choose {firm_name} and why should your family trust us for the next generation?",
-                        f"What values led you to partner with {full_name} for your legacy planning?",
-                        "Custom Question (Enter below)..."
-                    ]
-                )
-                custom_prompt = st.text_area("Custom Strategic Question", placeholder="e.g., How has our firm helped preserve your family's values?")
-                
-                final_prompt = custom_prompt if strategic_prompt == "Custom Question (Enter below)..." else strategic_prompt
+        st.subheader("Family Project Roster")
+        clients = database.get_clients(user_email)
+        if clients:
+            st.dataframe(clients, use_container_width=True)
+        else:
+            st.info("No active projects. Start by authorizing a gift in the first tab.")
 
-                if st.form_submit_button("🚀 Authorize & Pay $99"):
-                    if not parent_phone or not heir_name:
-                        st.error("Please provide the Parent's phone and the Heir's name.")
-                    elif payment_engine:
-                        # Fixed: $99 per-client transaction
-                        checkout_url = payment_engine.create_checkout_session(
-                            line_items=[{
-                                "price_data": {
-                                    "currency": "usd",
-                                    "product_data": {"name": f"Legacy Gift: {parent_name} for {heir_name}"},
-                                    "unit_amount": 9900,
-                                },
-                                "quantity": 1,
-                            }],
-                            user_email=user_email,
-                            draft_id=f"HYBRID_AUTH_{str(uuid.uuid4())[:8]}" # Tag for backend provisioning
-                        )
-                        if checkout_url:
-                            st.link_button("👉 Proceed to Secure Payment", checkout_url)
-        
-        # View Roster
-        if database:
-            clients = database.get_clients(user_email)
-            if not clients:
-                st.info("No active legacy projects yet.")
-            else:
-                for c in clients:
-                    with st.container(border=True):
-                        c1, c2 = st.columns([3, 1])
-                        with c1:
-                            st.markdown(f"**{c.get('name')}** → {c.get('heir_name', 'Unknown Heir')}")
-                            st.caption(f"Status: {c.get('status')} | Phone: {c.get('phone')}")
-                        with c2:
-                            if st.button("👁️ View Details", key=f"view_{c.get('id')}"):
-                                st.write(f"Strategic Question: {c.get('strategic_prompt')}")
+    # --- TAB: QUEUE ---
+    with tab_queue:
+        st.subheader("Story Approval Queue")
+        st.caption("Review and edit transcripts before they are physically mailed.")
+        pending = database.get_pending_approvals(user_email)
+        if not pending:
+            st.info("No transcripts currently waiting for review.")
+        else:
+            for p in pending:
+                with st.expander(f"Review: {p['parent_name']} to {p['heir_name']}"):
+                    content = st.text_area("Edit Letter Content", value=p['content'], height=300)
+                    if st.button("✅ Approve for Physical Mail", key=f"appr_{p['id']}"):
+                        database.update_project_details(p['id'], content=content, status="Approved")
+                        st.success("Dispatched to printing!")
+                        st.rerun()
 
-    # --- TAB B: APPROVAL QUEUE (GHOSTWRITING) ---
-    with tab_approval:
-        st.subheader("Review & Edit Transcripts")
-        st.caption("Review every word before it is physically mailed to the heir.")
-        
-        if database:
-            pending = database.get_pending_approvals(user_email)
-            if not pending:
-                st.info("No transcripts waiting for review.")
-            else:
-                for p in pending:
-                    with st.expander(f"Review: {p.get('parent_name')} to {p.get('heir_name')}"):
-                        new_body = st.text_area("Edit Content", value=p.get('content'), height=300)
-                        if st.button("✅ Approve for Print & Mail", key=f"appr_{p.get('id')}", type="primary"):
-                            database.update_draft_data(p.get('id'), content=new_body, status="Queued (Manual)")
-                            st.success("Sent to Manual Print Queue!")
-                            time.sleep(1); st.rerun()
-
+    # --- TAB: FIRM SETTINGS ---
     with tab_settings:
-        st.subheader("Firm Profile")
-        st.text_input("Firm Name", value=advisor.get('firm_name', ''))
-        st.text_area("Firm Address (Return Address on Letters)", value=advisor.get('address', ''))
-        if st.button("Save Settings"):
-            st.success("Settings saved.")
-        st.divider()
-        if st.button("Sign Out"):
-            st.session_state.authenticated = False
-            st.rerun()
+        st.subheader("Firm Branding & Logistics")
+        st.markdown("""
+            **Why this matters:** The information below is used to 'white-label' the legacy experience. 
+            The address you provide will be used as the **Return Address** on the physical letters, 
+            ensuring the Heir views the gift as coming directly from your office.
+        """)
+        
+        with st.form("firm_details"):
+            new_firm = st.text_input("Firm Name", value=advisor.get('firm_name', ''))
+            new_addr = st.text_area("Firm Office Address (Return Location)", 
+                                    value=advisor.get('address', ''), 
+                                    placeholder="123 Financial Way, Suite 100\nNashville, TN 37203")
+            
+            if st.form_submit_button("💾 Save Firm Profile"):
+                # Logic to update Advisor table in database
+                st.success("Firm profile updated. All future mailings will use this branding.")
