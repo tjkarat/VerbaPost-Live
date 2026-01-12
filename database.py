@@ -52,7 +52,7 @@ def init_db():
     try:
         _engine = create_engine(url, pool_pre_ping=True)
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
-        # Ensure all tables are created
+        # Ensure all tables (Legacy + B2B) are created
         Base.metadata.create_all(_engine)
         return _engine, _SessionLocal
     except Exception as e:
@@ -61,7 +61,7 @@ def init_db():
 
 @contextmanager
 def get_db_session():
-    """Context manager for handling database sessions."""
+    """Context manager for handling database sessions and transactions."""
     engine, Session = init_db()
     if not Session: raise ConnectionError("Database not initialized.")
     session = Session()
@@ -75,12 +75,12 @@ def get_db_session():
         session.close()
 
 def to_dict(obj):
-    """Converts a SQLAlchemy object to a dictionary."""
+    """Converts a SQLAlchemy object to a dictionary for Streamlit compatibility."""
     if not obj: return None
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 # ==========================================
-# 🏛️ LEGACY MODELS (PRESERVED)
+# 🏛️ LEGACY MODELS (PRESERVED IN FULL)
 # ==========================================
 
 class UserProfile(Base):
@@ -107,10 +107,7 @@ class UserProfile(Base):
     role = Column(String, default="user")
 
 class LetterDraft(Base):
-    """
-    Standard Retail Letter Store Drafts. 
-    Restored recipient_data and sender_data to fix Admin Console crash.
-    """
+    """Standard Retail Letter Store Drafts."""
     __tablename__ = 'letter_drafts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -122,11 +119,11 @@ class LetterDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
-    recipient_data = Column(Text) # RESTORED
-    sender_data = Column(Text)    # RESTORED
+    recipient_data = Column(Text) 
+    sender_data = Column(Text)
 
 class AuditEvent(Base):
-    """Internal system logs."""
+    """Internal system logs for monitoring."""
     __tablename__ = 'audit_events'
     id = Column(Integer, primary_key=True, autoincrement=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -137,13 +134,15 @@ class AuditEvent(Base):
     stripe_session_id = Column(String)
 
 class PromoCode(Base):
-    """Discount codes."""
+    """Discount codes for the Sales Cannon."""
     __tablename__ = 'promo_codes'
     code = Column(String, primary_key=True)
+    active = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True))
     max_uses = Column(BigInteger)
     discount_amount = Column(Float, default=0.0)
+    current_uses = Column(Integer, default=0)
     uses = Column(Integer, default=0)
 
 # ==========================================
@@ -157,39 +156,48 @@ class Advisor(Base):
     firm_name = Column(String, default="New Firm")
     full_name = Column(String)
     address = Column(Text) 
+    stripe_customer_id = Column(String)
+    credits = Column(Integer, default=0)
+    subscription_status = Column(String, default='active')
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Client(Base):
-    """The Advisor's CRM Table."""
+    """The Advisor's permanent Client Roster (CRM)."""
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, autoincrement=True)
     advisor_email = Column(String, ForeignKey('advisors.email'))
     name = Column(String, nullable=False)
     phone = Column(String)
+    email = Column(String)
+    address_json = Column(Text)
     heir_name = Column(String)
     status = Column(String, default='Active')
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Project(Base):
-    """The unique Legacy Gift instance."""
+    """The unique Legacy Gift instance (The "Play")."""
     __tablename__ = 'projects'
+    # UUID primary key provides security for unauthenticated Parent/Heir links
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     advisor_email = Column(String, ForeignKey('advisors.email'), nullable=False)
     client_id = Column(Integer, ForeignKey('clients.id'))
+    project_type = Column(String, default='Heirloom_Interview')
     heir_name = Column(String)
     heir_address_json = Column(Text, default="{}")
     strategic_prompt = Column(Text)
     content = Column(Text) 
-    audio_ref = Column(Text) 
+    audio_ref = Column(Text)
+    tracking_number = Column(String)
     status = Column(String, default='Authorized') 
     scheduled_time = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS (RESTORED)
+# 🛠️ HELPER FUNCTIONS (PRESERVED IN FULL)
 # ==========================================
 
 def get_user_profile(email):
+    """Fetches or creates a retail profile for the Login module."""
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -202,7 +210,20 @@ def get_user_profile(email):
         logger.error(f"Get Profile Error: {e}")
         return {}
 
+def create_user(email, full_name):
+    """Creates a new retail user."""
+    try:
+        with get_db_session() as db:
+            user = UserProfile(email=email, full_name=full_name)
+            db.add(user)
+            db.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Create User Error: {e}")
+        return False
+
 def get_all_users():
+    """Fetches all retail users for Admin provisioning."""
     try:
         with get_db_session() as session:
             users = session.query(UserProfile).all()
@@ -210,6 +231,7 @@ def get_all_users():
     except Exception: return []
 
 def update_user_role(email, role):
+    """Updates user roles for portal access."""
     try:
         with get_db_session() as session:
             user = session.query(UserProfile).filter_by(email=email).first()
@@ -221,13 +243,26 @@ def update_user_role(email, role):
     except Exception: return False
 
 def get_all_orders():
+    """Fetches retail orders for the Admin Console."""
     try:
         with get_db_session() as session:
             drafts = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
             return [to_dict(d) for d in drafts]
     except Exception: return []
 
+def save_audit_log(log_entry):
+    """Saves system events for Admin monitoring."""
+    try:
+        with get_db_session() as session:
+            valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
+            filtered = {k: v for k, v in log_entry.items() if k in valid_keys}
+            session.add(AuditEvent(**filtered))
+            session.commit()
+            return True
+    except Exception: return False
+
 def get_all_promos():
+    """Retrieves all active promo codes."""
     try:
         with get_db_session() as session:
             promos = session.query(PromoCode).all()
@@ -235,6 +270,7 @@ def get_all_promos():
     except Exception: return []
 
 def create_promo_code(code, amount):
+    """Generates a new discount code."""
     try:
         with get_db_session() as session:
             new_p = PromoCode(code=code, discount_amount=amount)
@@ -248,25 +284,40 @@ def create_promo_code(code, amount):
 # ==========================================
 
 def get_or_create_advisor(email):
+    """Scopes advisor access to their authenticated email."""
     try:
         with get_db_session() as session:
             adv = session.query(Advisor).filter_by(email=email).first()
             if not adv:
-                adv = Advisor(email=email, firm_name="Unregistered Firm")
+                legacy = session.query(UserProfile).filter_by(email=email).first()
+                full_name = legacy.full_name if legacy else ""
+                adv = Advisor(email=email, full_name=full_name)
                 session.add(adv)
                 session.commit()
             return to_dict(adv)
     except Exception: return {}
 
 def get_clients(advisor_email):
-    """RESTORED: Fetches clients for the Advisor Roster."""
+    """Fetches clients for the Advisor Roster."""
     try:
         with get_db_session() as session:
             res = session.query(Client).filter_by(advisor_email=advisor_email).order_by(Client.created_at.desc()).all()
             return [to_dict(r) for r in res]
     except Exception: return []
 
+def add_client(advisor_email, name, phone, address_dict=None):
+    """Adds a new client to the advisor's CRM."""
+    try:
+        addr_str = json.dumps(address_dict) if address_dict else "{}"
+        with get_db_session() as session:
+            new_client = Client(advisor_email=advisor_email, name=name, phone=phone, address_json=addr_str)
+            session.add(new_client)
+            session.commit()
+            return True
+    except Exception: return False
+
 def create_hybrid_project(advisor_email, parent_name, parent_phone, heir_name, prompt):
+    """The Quarterback Play: Creates a Client and a unique Project instance."""
     try:
         with get_db_session() as session:
             client = session.query(Client).filter_by(advisor_email=advisor_email, phone=parent_phone).first()
@@ -274,24 +325,16 @@ def create_hybrid_project(advisor_email, parent_name, parent_phone, heir_name, p
                 client = Client(advisor_email=advisor_email, name=parent_name, phone=parent_phone, heir_name=heir_name)
                 session.add(client)
                 session.flush() 
-            
-            new_proj = Project(
-                advisor_email=advisor_email,
-                client_id=client.id,
-                heir_name=heir_name,
-                strategic_prompt=prompt,
-                status="Authorized"
-            )
+            new_proj = Project(advisor_email=advisor_email, client_id=client.id, heir_name=heir_name, strategic_prompt=prompt, status="Authorized")
             session.add(new_proj)
             session.commit()
             return new_proj.id
     except Exception: return None
 
 def get_pending_approvals(advisor_email):
-    """RESTORED: Fetches projects requiring Advisor review."""
+    """Fetches projects requiring Advisor review."""
     try:
         with get_db_session() as session:
-            # We map the Project back to Parent data for the UI
             projs = session.query(Project).filter_by(advisor_email=advisor_email, status="Recorded").all()
             results = []
             for p in projs:
@@ -303,6 +346,7 @@ def get_pending_approvals(advisor_email):
     except Exception: return []
 
 def get_project_by_id(project_id):
+    """Secure lookup for the Parent Portal and Heir Archive."""
     try:
         with get_db_session() as session:
             proj = session.query(Project).filter_by(id=project_id).first()
@@ -316,6 +360,7 @@ def get_project_by_id(project_id):
     except Exception: return None
 
 def update_project_details(project_id, address=None, scheduled_time=None, status=None, content=None):
+    """Updates project status and metadata."""
     try:
         with get_db_session() as session:
             proj = session.query(Project).filter_by(id=project_id).first()
@@ -324,6 +369,20 @@ def update_project_details(project_id, address=None, scheduled_time=None, status
                 if scheduled_time: proj.scheduled_time = scheduled_time
                 if status: proj.status = status
                 if content: proj.content = content
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def update_project_audio(project_id, audio_ref, transcript):
+    """Updates recording details after interview call."""
+    try:
+        with get_db_session() as session:
+            proj = session.query(Project).filter_by(id=project_id).first()
+            if proj:
+                proj.audio_ref = audio_ref
+                proj.content = transcript
+                proj.status = "Recorded"
                 session.commit()
                 return True
             return False
