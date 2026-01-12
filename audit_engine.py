@@ -72,6 +72,9 @@ def get_audit_logs(limit=50):
         logger.error(f"Failed to fetch audit logs: {e}")
         return []
 
-# --- SAFETY ALIAS ---
-# This guarantees that if any older code calls 'get_recent_logs', it still works.
-get_recent_logs = audit_engine.get_audit_logs
+# ==========================================
+# ⚙️ SAFETY ALIAS (RESTORED)
+# ==========================================
+# This ensures that if any older code calls 'get_recent_logs', it still works.
+# FIX: Removed the self-referencing 'audit_engine.' prefix to prevent NameError.
+get_recent_logs = get_audit_logs
