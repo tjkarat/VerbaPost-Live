@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
-# This must remain at the top to prevent Streamlit set_page_config errors.
+# This must remain at the very top to prevent Streamlit set_page_config errors.
 st.set_page_config(
     page_title="VerbaPost Wealth | Family Legacy Retention", 
     page_icon="🏛️", 
@@ -104,6 +104,12 @@ try:
 except ImportError as e:
     logger.error(f"UI Blog Import Error: {e}")
     ui_blog = None
+
+try: 
+    import ui_partner
+except ImportError as e:
+    logger.error(f"UI Partner Import Error: {e}")
+    ui_partner = None
 
 try: 
     import auth_engine
@@ -217,11 +223,13 @@ def main():
         elif nav == "blog": 
             st.session_state.app_mode = "blog"
         elif nav == "partner": 
-            st.session_state.app_mode = "login"
+            st.session_state.app_mode = "partner"
         elif nav == "setup": 
             st.session_state.app_mode = "setup"
         elif nav == "archive":
             st.session_state.app_mode = "archive"
+        elif nav == "login":
+            st.session_state.app_mode = "login"
         else: 
             st.session_state.app_mode = "splash"
 
@@ -252,11 +260,17 @@ def main():
                      st.session_state.app_mode = "store"
                      st.rerun()
                  
+                 # Switch 4: The B2B Partner Portal
+                 if st.button("🤝 Partner Portal", use_container_width=True):
+                     st.session_state.app_mode = "partner"
+                     st.rerun()
+
                  st.sidebar.divider()
 
         # Global Sidebar Navigation
-        if st.sidebar.button("🚪 Sign Out", use_container_width=True):
-            handle_logout()
+        with st.sidebar:
+            if st.button("🚪 Sign Out", use_container_width=True):
+                handle_logout()
 
     # 6. ROUTER LOGIC: VIEW RENDERING (EXPLICIT ROUTE MAP)
     mode = st.session_state.app_mode
@@ -318,13 +332,19 @@ def main():
             st.error("Retail module (ui_main.py) missing.")
         return
 
-    # --- CATEGORY 6: ADVISOR B2B PORTAL ---
-    # Default view for authenticated Advisor accounts
-    if st.session_state.get("authenticated"):
-        if ui_advisor: 
+    # --- CATEGORY 6: ADVISOR & PARTNER PORTALS ---
+    if mode == "advisor":
+        if ui_advisor:
             ui_advisor.render_dashboard()
         else:
-            st.error("Advisor module (ui_advisor.py) not found.")
+            st.error("Advisor module missing.")
+        return
+
+    if mode == "partner":
+        if ui_partner:
+            ui_partner.render_dashboard()
+        else:
+            st.error("Partner module missing.")
         return
 
     # --- CATEGORY 7: AUTHENTICATION GATE ---
