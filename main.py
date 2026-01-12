@@ -174,7 +174,6 @@ def handle_logout():
 
 def main():
     # 1. AUTH INTERCEPTOR (THE GOOGLE LOGIN FIX)
-    # Intercepts the redirect before any UI or defaults are rendered.
     query_params = st.query_params
     url_token = query_params.get("access_token")
     nav = query_params.get("nav")
@@ -188,7 +187,6 @@ def main():
                 if email:
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
-                    # Default to Heirloom Dashboard for archive-related logins
                     st.session_state.app_mode = "heirloom" 
                     sync_user_session()
                     st.query_params.clear()
@@ -199,7 +197,6 @@ def main():
                     st.error(f"Authentication Error: {err}")
 
     # 2. SYSTEM HEALTH PRE-FLIGHT (RESTORED)
-    # Verifies critical third-party engines before allowing the UI to load.
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
@@ -217,7 +214,6 @@ def main():
         
     # 4. INITIALIZE APP MODE ROUTING (STATE MACHINE)
     if "app_mode" not in st.session_state:
-        # Check for nav params from landing page index.html
         if nav == "legal": 
             st.session_state.app_mode = "legal"
         elif nav == "blog": 
@@ -234,40 +230,33 @@ def main():
             st.session_state.app_mode = "splash"
 
     # 5. SIDEBAR: ADMIN MASTER SWITCH (RESTORED IN FULL)
-    # This section is strictly for the Founder/Developer.
     if st.session_state.get("authenticated"):
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
         
-        # Security: Only verify against the hard-coded Admin Email
         if user_email and admin_email and user_email == admin_email:
              with st.sidebar:
                  st.markdown("### 🛠️ Admin Master Switch")
                  st.sidebar.caption("Override current view for internal testing.")
                  
-                 # Switch 1: Back Office Diagnostic Tools
                  if st.button("⚙️ Admin Console (Backend)", use_container_width=True):
                      st.session_state.app_mode = "admin"
                      st.rerun()
                  
-                 # Switch 2: The Portal your Advisors see
                  if st.button("🏛️ Advisor Portal (QB View)", use_container_width=True):
                      st.session_state.app_mode = "advisor"
                      st.rerun()
                      
-                 # Switch 3: The Retail Consumer Store
                  if st.button("📮 Consumer Store", use_container_width=True):
                      st.session_state.app_mode = "store"
                      st.rerun()
                  
-                 # Switch 4: The B2B Partner Portal
                  if st.button("🤝 Partner Portal", use_container_width=True):
                      st.session_state.app_mode = "partner"
                      st.rerun()
 
                  st.sidebar.divider()
 
-        # Global Sidebar Navigation
         with st.sidebar:
             if st.button("🚪 Sign Out", use_container_width=True):
                 handle_logout()
@@ -275,7 +264,6 @@ def main():
     # 6. ROUTER LOGIC: VIEW RENDERING (EXPLICIT ROUTE MAP)
     mode = st.session_state.app_mode
 
-    # --- CATEGORY 1: BACK OFFICE ---
     if mode == "admin":
         if ui_admin: 
             ui_admin.render_admin_page()
@@ -283,7 +271,6 @@ def main():
             st.error("Admin module (ui_admin.py) not found.")
         return
 
-    # --- CATEGORY 2: FAMILY VAULT / SETUP ---
     if mode == "archive":
         if ui_archive: 
             ui_archive.render_heir_vault(project_id)
@@ -298,7 +285,6 @@ def main():
             st.error("Setup module (ui_setup.py) missing.")
         return
 
-    # --- CATEGORY 3: STATIC PAGES ---
     if mode == "legal":
         if ui_legal: 
             ui_legal.render_legal_page()
@@ -313,7 +299,6 @@ def main():
             st.error("Blog module (ui_blog.py) missing.")
         return
 
-    # --- CATEGORY 4: HEIRLOOM DASHBOARD (DASHBOARD) ---
     if mode == "heirloom":
         if not st.session_state.authenticated:
             st.session_state.app_mode = "login"
@@ -324,7 +309,6 @@ def main():
             st.error("Heirloom module (ui_heirloom.py) missing.")
         return
 
-    # --- CATEGORY 5: CONSUMER STORE / WORKSPACE ---
     if mode in ["store", "workspace", "review", "receipt"]:
         if ui_main: 
             ui_main.render_main()
@@ -332,7 +316,6 @@ def main():
             st.error("Retail module (ui_main.py) missing.")
         return
 
-    # --- CATEGORY 6: ADVISOR & PARTNER PORTALS ---
     if mode == "advisor":
         if ui_advisor:
             ui_advisor.render_dashboard()
@@ -347,7 +330,6 @@ def main():
             st.error("Partner module missing.")
         return
 
-    # --- CATEGORY 7: AUTHENTICATION GATE ---
     if mode == "login":
         if ui_login: 
             ui_login.render_login_page()
@@ -355,29 +337,19 @@ def main():
             st.error("Login module (ui_login.py) missing.")
         return
 
-    # --- CATEGORY 8: DEFAULT PUBLIC LANDING ---
     if ui_splash:
         ui_splash.render_splash_page()
     else:
         st.title("VerbaPost Wealth")
         st.write("System failed to initialize. Please check logs.")
 
-# ==========================================
-# 🚀 SYSTEM BOOTSTRAP & ERROR WRAPPER
-# ==========================================
-
 if __name__ == "__main__":
     try:
-        # Pre-flight data sync for authenticated sessions
         if database and st.session_state.get("authenticated"):
              sync_user_session()
-             
-        # Execute Main Application logic
         main()
-        
     except Exception as e:
-        # Final safety net for uncaught system exceptions
         logger.critical(f"FATAL SYSTEM CRASH: {e}", exc_info=True)
-        st.error("A critical system error occurred. Our engineering team has been notified.")
+        st.error("A critical system error occurred.")
         if st.button("🔄 Attempt Emergency Recovery"):
             handle_logout()

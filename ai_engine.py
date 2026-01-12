@@ -23,76 +23,45 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 # ==========================================
-# 📞 HYBRID MODEL TELEPHONY (UPDATED FIX)
+# 📞 B2B TELEPHONY (NEW)
 # ==========================================
 
-def trigger_outbound_call(to_phone, from_number=None, advisor_name=None, firm_name=None, heir_name=None, strategic_prompt=None, project_id=None, parent_name="Client", topic="your favorite memories"):
+def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id):
     """
-    Triggers a Twilio call focusing on the Strategic Endorsement first.
-    B2B FIX: Signature now accepts 'parent_name' and 'topic' to match ui_heirloom.py.
+    Triggers a Twilio call with a dynamic B2B script.
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
-    # Fallback logic for Caller ID
-    caller_id = from_number or get_secret("twilio.from_number") or "+16156567667"
+    from_number = get_secret("twilio.from_number") or "+16156567667"
 
     if not sid or not token:
         logger.error("Twilio Credentials Missing")
         return None, "Missing Credentials"
 
-    # Callback includes project_id for transcription mapping if provided
-    callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}" if project_id else ""
+    # Dynamic TwiML Script (The "Brain" of the call)
+    # We embed the project_id in the callback URL so we know who spoke later.
+    callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}"
     
-    # Sanitization for Advisor Mode
+    # Sanitize inputs to prevent script injection or empty reads
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
-    safe_heir = heir_name or "your family"
-    
-    # Logic: If advisor info is present, use B2B script. Otherwise, use Heirloom script.
-    if advisor_name:
-        safe_prompt = strategic_prompt or f"Why do you trust {safe_firm} for your family's future?"
-        twiml = f"""
-        <Response>
-            <Pause length="1"/>
-            <Say voice="Polly.Joanna-Neural">
-                Hello {parent_name}. This is the Family Archive biographer, calling on behalf of {safe_advisor} at {safe_firm}.
-            </Say>
-            <Pause length="1"/>
-            <Say voice="Polly.Joanna-Neural">
-                {safe_advisor} has sponsored this session as a legacy gift for {safe_heir}. 
-                Before we record your personal stories, {safe_advisor} asked us to start with this question:
-            </Say>
-            <Pause length="1"/>
-            <Say voice="Polly.Joanna-Neural">
-                {safe_prompt}
-            </Say>
-            <Record maxLength="300" finishOnKey="#" action="{callback_url}" />
-            
-            <Say voice="Polly.Joanna-Neural">
-                Thank you. Now, please share a favorite memory from your childhood or a piece of advice for {safe_heir} after the beep.
-            </Say>
-            <Record maxLength="300" finishOnKey="#" action="{callback_url}" />
-            <Say voice="Polly.Joanna-Neural">Thank you. Your legacy stories have been preserved.</Say>
-        </Response>
-        """
-    else:
-        # Standard Heirloom / Family Script
-        twiml = f"""
-        <Response>
-            <Pause length="1"/>
-            <Say voice="Polly.Joanna-Neural">
-                Hello {parent_name}. This is VerbaPost calling to record a story for your family archive.
-            </Say>
-            <Pause length="1"/>
-            <Say voice="Polly.Joanna-Neural">
-                Today, we would love to hear about {topic}. 
-                Please share your memory after the beep. 
-                When you are finished, just hang up or press the pound key.
-            </Say>
-            <Record maxLength="300" finishOnKey="#" />
-            <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved.</Say>
-        </Response>
-        """
+
+    twiml = f"""
+    <Response>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
+        </Say>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
+            Please share a favorite memory from your childhood after the beep. 
+            When you are finished, press the pound key.
+        </Say>
+        <Record maxLength="300" finishOnKey="#" action="{callback_url}" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved.</Say>
+    </Response>
+    """
 
     try:
         from twilio.rest import Client
@@ -101,7 +70,7 @@ def trigger_outbound_call(to_phone, from_number=None, advisor_name=None, firm_na
         call = client.calls.create(
             twiml=twiml,
             to=to_phone,
-            from_=caller_id
+            from_=from_number
         )
         return call.sid, None
     except Exception as e:
@@ -132,7 +101,8 @@ def transcribe_audio(file_path):
 
 def refine_text(text):
     """
-    Legacy 'AI Polish' feature preserved for ui_main.py stability.
+    Legacy 'AI Polish' feature used by Standard Store.
+    Preserved to prevent ui_main.py crashes.
     """
     client = get_openai_client()
     if not client: return text
@@ -167,6 +137,7 @@ def get_all_twilio_recordings(limit=50):
         client = Client(sid, token)
         recordings = client.recordings.list(limit=limit)
         
+        # Serialize to dict to avoid Twilio object issues in Streamlit
         data = []
         for r in recordings:
             data.append({
@@ -174,7 +145,7 @@ def get_all_twilio_recordings(limit=50):
                 "date_created": r.date_created,
                 "duration": r.duration,
                 "status": r.status,
-                "uri": r.uri 
+                "uri": r.uri  # This is usually partial uri
             })
         return data
     except Exception as e:

@@ -51,7 +51,6 @@ def render_dashboard():
             h_name = st.text_input("Heir's Full Name", help="The person who will receive the physical keepsake letter.")
             
             st.markdown("#### 3. The Strategic Question")
-            # This is the 'Retention Hook' for the Advisor
             default_q = f"Why did you choose {advisor.get('firm_name')} to protect your family's financial future?"
             prompt = st.text_area("Custom Interview Prompt", value=default_q, 
                                   help="The biographer will ask this specific question during the interview to reinforce your value.")
@@ -95,8 +94,7 @@ def render_dashboard():
     with tab_settings:
         st.subheader("Firm Branding & Logistics")
         st.markdown("""
-            **Why this matters:** The information below is used to 'white-label' the legacy experience. 
-            The address you provide will be used as the **Return Address** on the physical letters, 
+            **Why this matters:** The address you provide will be used as the **Return Address** on the physical letters, 
             ensuring the Heir views the gift as coming directly from your office.
         """)
         
@@ -107,5 +105,4 @@ def render_dashboard():
                                     placeholder="123 Financial Way, Suite 100\\nNashville, TN 37203")
             
             if st.form_submit_button("💾 Save Firm Profile"):
-                # Logic to update Advisor table in database
                 st.success("Firm profile updated. All future mailings will use this branding.")
