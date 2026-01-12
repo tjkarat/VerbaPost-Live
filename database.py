@@ -271,3 +271,49 @@ def add_client(advisor_email, name, phone, address_dict=None):
     except Exception as e:
         logger.error(f"Add Client Error: {e}")
         return False
+    # ... (Keep all existing code)
+
+# ==========================================
+# 🛠️ PROJECT HELPERS (B2B)
+# ==========================================
+
+def create_project(advisor_email, client_id, project_type="Heirloom_Interview"):
+    try:
+        with get_db_session() as session:
+            # check for active projects to prevent duplicates
+            existing = session.query(Project).filter_by(
+                client_id=client_id, 
+                status='Recording'
+            ).first()
+            
+            if existing:
+                return existing.id
+
+            new_proj = Project(
+                advisor_email=advisor_email,
+                client_id=client_id,
+                project_type=project_type,
+                status='Recording'
+            )
+            session.add(new_proj)
+            session.commit()
+            return new_proj.id
+    except Exception as e:
+        logger.error(f"Create Project Error: {e}")
+        return None
+
+def update_project_audio(project_id, audio_ref, transcript):
+    """Called by AI Engine after the call is done"""
+    try:
+        with get_db_session() as session:
+            proj = session.query(Project).filter_by(id=project_id).first()
+            if proj:
+                proj.audio_ref = audio_ref
+                proj.content = transcript
+                proj.status = "Advisor_Review" # Move to approval queue
+                session.commit()
+                return True
+            return False
+    except Exception as e:
+        logger.error(f"Update Project Error: {e}")
+        return False

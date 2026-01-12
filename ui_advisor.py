@@ -6,6 +6,8 @@ import logging
 # --- MODULE IMPORTS ---
 try: import database
 except ImportError: database = None
+try: import ai_engine
+except ImportError: ai_engine = None
 
 logger = logging.getLogger(__name__)
 
@@ -23,10 +25,12 @@ def render_dashboard():
         advisor = database.get_or_create_advisor(user_email)
         credits = advisor.get('credits', 0) if advisor else 0
         firm_name = advisor.get('firm_name', 'Unregistered Firm')
+        full_name = advisor.get('full_name', 'Advisor')
     else:
         advisor = {}
         credits = 0
         firm_name = "System Error"
+        full_name = "Advisor"
 
     # 3. HEADER
     st.title("VerbaPost | Wealth Retention")
@@ -35,8 +39,8 @@ def render_dashboard():
     # 4. KPI CARDS
     c1, c2, c3 = st.columns(3)
     c1.metric("Retention Credits", credits, help="1 Credit = 1 Client Interview + Letter Package")
-    c2.metric("Active Clients", "0") # Placeholder
-    c3.metric("Pending Approval", "0") # Placeholder
+    c2.metric("Active Clients", "0") 
+    c3.metric("Pending Approval", "0") 
 
     st.divider()
 
@@ -75,18 +79,38 @@ def render_dashboard():
             else:
                 for c in clients:
                     with st.container(border=True):
-                        st.markdown(f"**{c.get('name')}**")
-                        st.caption(f"Phone: {c.get('phone')} | Status: {c.get('status')}")
-                        if st.button("Start Interview", key=f"start_{c.get('id')}"):
-                            st.toast("Interview Logic Coming in Phase 4")
+                        c1, c2 = st.columns([3, 1])
+                        with c1:
+                            st.markdown(f"**{c.get('name')}**")
+                            st.caption(f"Phone: {c.get('phone')} | Status: {c.get('status')}")
+                        with c2:
+                            if st.button("🎙️ Start Interview", key=f"start_{c.get('id')}", use_container_width=True):
+                                # 1. Create Project
+                                proj_id = database.create_project(user_email, c.get('id'))
+                                if proj_id:
+                                    # 2. Trigger Call
+                                    if ai_engine:
+                                        with st.spinner("Dialing..."):
+                                            sid, err = ai_engine.trigger_outbound_call(
+                                                to_phone=c.get('phone'),
+                                                advisor_name=full_name,
+                                                firm_name=firm_name,
+                                                project_id=proj_id
+                                            )
+                                            if sid:
+                                                st.success("Call Initiated!")
+                                            else:
+                                                st.error(f"Call Failed: {err}")
+                                else:
+                                    st.error("Failed to create project.")
 
     with tab_approval:
         st.info("Draft letters awaiting your compliance review will appear here.")
 
     with tab_settings:
         st.text_input("Firm Name", value=advisor.get('firm_name', ''))
-        st.text_input("Compliance Disclaimer", value="Securities offered through...")
-        st.button("Save Settings")
+        st.text_input("Full Name (for Script)", value=advisor.get('full_name', ''))
+        st.button("Save Settings") # (Logic not wired yet)
         
         st.divider()
         if st.button("Sign Out"):
