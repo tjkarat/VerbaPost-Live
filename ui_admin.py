@@ -164,7 +164,7 @@ def render_admin_page():
         "📢 Sales Outreach", "🖨️ Manual Print", "📦 Orders", "🎙️ Recordings", "🎟️ Promos", "👥 Users", "📜 Logs", "🏥 Health"
     ])
 
-    # --- TAB 1: SALES OUTREACH (NEW) ---
+    # --- TAB 1: SALES OUTREACH ---
     with tab_outreach:
         st.subheader("B2B Sales Cannon")
         st.info("Draft a Vintage Letter for manual printing.")
@@ -210,7 +210,6 @@ def render_admin_page():
                     }
                     
                     # 2. Insert into DB as "Queued (Manual)"
-                    # We inject directly into letter_drafts so it appears in Tab 2
                     with database.get_db_session() as db:
                         new_pitch = database.LetterDraft(
                             user_email=admin_email, # Admin owns this draft
@@ -253,9 +252,9 @@ def render_admin_page():
                                 st.caption("Content Preview:")
                                 st.text(item.content[:150] + "...")
                                 
-                                # FIX: Robust Parsing
-                                to_dict = parse_address_data(item.recipient_data or item.to_addr)
-                                from_dict = parse_address_data(item.sender_data or item.from_addr)
+                                # FIX: RESTORED ATTRIBUTE INTEGRITY CHECK
+                                to_dict = parse_address_data(getattr(item, 'recipient_data', None) or item.to_addr)
+                                from_dict = parse_address_data(getattr(item, 'sender_data', None) or item.from_addr)
                                 
                                 if st.button(f"⬇️ Generate PDF for #{item.id}", key=f"pdf_{item.id}"):
                                     if letter_format and address_standard:
@@ -296,7 +295,7 @@ def render_admin_page():
                                     time.sleep(1)
                                     st.rerun()
 
-    # --- TAB 3: REPAIR STATION ---
+    # --- TAB 3: REPAIR STATION (RESERVED) ---
     with tab_orders:
         st.subheader("Order Manager")
         try:
