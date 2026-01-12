@@ -384,3 +384,38 @@ def update_project_audio(project_id, audio_ref, transcript):
                 return True
             return False
     except Exception: return False
+    
+    def get_user_drafts(email):
+    """
+    Fetches all letter drafts for a specific user from the database.
+    Converts SQLAlchemy objects to dictionaries for safe UI rendering.
+    """
+    if not email:
+        return []
+        
+    try:
+        with get_db_session() as session:
+            # Query drafts for this user, ordered by most recent first
+            drafts = session.query(LetterDraft).filter(
+                LetterDraft.user_email == email
+            ).order_by(LetterDraft.created_at.desc()).all()
+            
+            # Convert results to dictionaries immediately
+            # This is critical to prevent "Instance is not bound to a Session" errors
+            return [
+                {
+                    "id": d.id,
+                    "content": d.content,
+                    "status": d.status,
+                    "tier": d.tier,
+                    "created_at": d.created_at.strftime("%Y-%m-%d %H:%M") if d.created_at else "Unknown",
+                    "tracking_number": d.tracking_number,
+                    "recipient_data": d.recipient_data,
+                    "sender_data": d.sender_data
+                } 
+                for d in drafts
+            ]
+    except Exception as e:
+        import logging
+        logging.error(f"Error fetching drafts for {email}: {e}")
+        return []
