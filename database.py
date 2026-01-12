@@ -3,6 +3,7 @@ import streamlit as st
 import logging
 import urllib.parse
 import json
+import uuid
 from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, ForeignKey, BigInteger
 from sqlalchemy.orm import sessionmaker, declarative_base, relationship
 from contextlib import contextmanager
@@ -20,13 +21,14 @@ _engine = None
 _SessionLocal = None
 
 def get_db_url():
+    """Retrieves the database URL from secrets or environment variables."""
     if not secrets_manager:
         return os.environ.get("DATABASE_URL")
     try:
         url = secrets_manager.get_secret("DATABASE_URL")
         if url: return url
         
-        # Fallback to granular secrets
+        # Fallback to granular Supabase secrets
         sb_url = secrets_manager.get_secret("supabase.url")
         sb_key = secrets_manager.get_secret("supabase.key")
         sb_pass = secrets_manager.get_secret("supabase.db_password")
@@ -42,6 +44,7 @@ def get_db_url():
         return None
 
 def init_db():
+    """Initializes the SQLAlchemy engine and creates tables if they don't exist."""
     global _engine, _SessionLocal
     if _engine is not None: return _engine, _SessionLocal
     url = get_db_url()
@@ -49,6 +52,8 @@ def init_db():
     try:
         _engine = create_engine(url, pool_pre_ping=True)
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
+        # Ensure all tables (Legacy + B2B) are created
+        Base.metadata.create_all(_engine)
         return _engine, _SessionLocal
     except Exception as e:
         logger.error(f"DB Init Error: {e}")
@@ -56,6 +61,7 @@ def init_db():
 
 @contextmanager
 def get_db_session():
+    """Context manager for handling database sessions and transactions."""
     engine, Session = init_db()
     if not Session: raise ConnectionError("Database not initialized.")
     session = Session()
@@ -69,14 +75,16 @@ def get_db_session():
         session.close()
 
 def to_dict(obj):
+    """Converts a SQLAlchemy object to a dictionary for Streamlit compatibility."""
     if not obj: return None
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 # ==========================================
-# 🏛️ EXISTING MODELS (PRESERVED)
+# 🏛️ LEGACY MODELS (PRESERVED)
 # ==========================================
 
 class UserProfile(Base):
+    """B2C Retail User Profiles."""
     __tablename__ = 'user_profiles'
     email = Column(String, primary_key=True)
     full_name = Column(String)
@@ -87,17 +95,13 @@ class UserProfile(Base):
     address_zip = Column(String)
     country = Column(String, default="US")
     timezone = Column(String, default="US/Central") 
-    parent_name = Column(String)
-    parent_phone = Column(String)
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
-    last_call_date = Column(DateTime, nullable=True)
     stripe_customer_id = Column(String, nullable=True)
-    stripe_subscription_id = Column(String, nullable=True)
-    subscription_end_date = Column(DateTime, nullable=True)
     is_partner = Column(Boolean, default=False)
 
 class LetterDraft(Base):
+    """Standard Retail Letter Store Drafts."""
     __tablename__ = 'letter_drafts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -105,14 +109,12 @@ class LetterDraft(Base):
     status = Column(String, default="Draft")
     tier = Column(String, default="Standard") 
     price = Column(Float, default=0.0)
-    tracking_number = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
     to_addr = Column(Text)
     from_addr = Column(Text)
-    recipient_data = Column(Text) 
-    sender_data = Column(Text)
 
 class AuditEvent(Base):
+    """Internal system logs for the Admin Console."""
     __tablename__ = 'audit_events'
     id = Column(Integer, primary_key=True, autoincrement=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -120,63 +122,61 @@ class AuditEvent(Base):
     event_type = Column(String)
     details = Column(Text)
     description = Column(Text)
-    stripe_session_id = Column(String)
 
 class PromoCode(Base):
+    """Discount codes for the Sales Cannon."""
     __tablename__ = 'promo_codes'
     code = Column(String, primary_key=True)
-    active = Column(Boolean, default=True)
     is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True))
-    max_uses = Column(BigInteger)
     discount_amount = Column(Float, default=0.0)
-    current_uses = Column(Integer, default=0)
     uses = Column(Integer, default=0)
 
 # ==========================================
-# 🚀 NEW B2B MODELS (ADDITIVE)
+# 🚀 NEW B2B MODELS (HYBRID READY)
 # ==========================================
 
 class Advisor(Base):
+    """Financial Advisor Firm profiles."""
     __tablename__ = 'advisors'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String, unique=True, nullable=False)
-    firm_name = Column(String)
+    email = Column(String, primary_key=True)
+    firm_name = Column(String, default="New Firm")
     full_name = Column(String)
-    stripe_customer_id = Column(String)
-    subscription_status = Column(String, default='active')
-    credits = Column(Integer, default=0)
+    address = Column(Text) # Used for firm return address on letters
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Client(Base):
+    """The Advisor's permanent Client Roster (CRM)."""
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, autoincrement=True)
     advisor_email = Column(String, ForeignKey('advisors.email'))
     name = Column(String, nullable=False)
     phone = Column(String)
-    email = Column(String)
-    address_json = Column(Text)
+    heir_name = Column(String)
     status = Column(String, default='Active')
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Project(Base):
+    """The unique Legacy Gift instance (The "Play")."""
     __tablename__ = 'projects'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    advisor_email = Column(String, nullable=False)
+    # UUID primary key provides security for unauthenticated Parent/Heir links
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    advisor_email = Column(String, ForeignKey('advisors.email'), nullable=False)
     client_id = Column(Integer, ForeignKey('clients.id'))
-    project_type = Column(String, default='Retainer_Letter')
-    status = Column(String, default='Draft')
-    content = Column(Text)
-    audio_ref = Column(Text)
-    tracking_number = Column(String)
+    heir_name = Column(String)
+    heir_address_json = Column(Text, default="{}")
+    strategic_prompt = Column(Text)
+    content = Column(Text) # The interview transcript
+    audio_ref = Column(Text) # Recording link
+    status = Column(String, default='Authorized') 
+    scheduled_time = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS
+# 🛠️ HELPER FUNCTIONS (LEGACY PRESERVED)
 # ==========================================
 
-# --- PRESERVED FOR UI_LOGIN ---
 def get_user_profile(email):
+    """Fetches or creates a retail profile for the Login module."""
     try:
         with get_db_session() as session:
             profile = session.query(UserProfile).filter_by(email=email).first()
@@ -189,131 +189,100 @@ def get_user_profile(email):
         logger.error(f"Get Profile Error: {e}")
         return {}
 
-def create_user(email, full_name):
+def save_audit_log(log_entry):
+    """Saves system events for Admin monitoring."""
     try:
-        with get_db_session() as db:
-            user = UserProfile(email=email, full_name=full_name)
-            db.add(user)
-            db.commit()
+        with get_db_session() as session:
+            valid_keys = {'user_email', 'event_type', 'details', 'description'}
+            filtered = {k: v for k, v in log_entry.items() if k in valid_keys}
+            session.add(AuditEvent(**filtered))
             return True
-    except Exception as e:
-        logger.error(f"Create User Error: {e}")
-        return False
+    except Exception: return False
 
-# --- PRESERVED FOR UI_ADMIN ---
 def get_all_orders():
-    # Only fetches LetterDrafts for now to keep it simple
+    """Fetches retail orders for the Admin Console."""
     try:
         with get_db_session() as session:
             drafts = session.query(LetterDraft).order_by(LetterDraft.created_at.desc()).limit(100).all()
             return [to_dict(d) for d in drafts]
     except Exception: return []
 
-def save_audit_log(log_entry):
-    try:
-        with get_db_session() as session:
-            # Simple filter for allowed keys
-            valid_keys = {'user_email', 'event_type', 'details', 'description', 'stripe_session_id'}
-            filtered = {k: v for k, v in log_entry.items() if k in valid_keys}
-            log = AuditEvent(**filtered)
-            session.add(log)
-            session.commit()
-            return True
-    except Exception: return False
+# ==========================================
+# 🛠️ B2B HELPER FUNCTIONS (HYBRID MODEL)
+# ==========================================
 
-def get_audit_logs(limit=100):
-    try:
-        with get_db_session() as session:
-            logs = session.query(AuditEvent).order_by(AuditEvent.timestamp.desc()).limit(limit).all()
-            return [to_dict(l) for l in logs]
-    except Exception: return []
-
-# --- NEW B2B HELPERS ---
 def get_or_create_advisor(email):
+    """Scopes advisor access to their authenticated email (RLS)."""
     try:
         with get_db_session() as session:
-            advisor = session.query(Advisor).filter_by(email=email).first()
-            if not advisor:
-                # Migrate name from old profile if exists
-                legacy = session.query(UserProfile).filter_by(email=email).first()
-                full_name = legacy.full_name if legacy else ""
-                
-                advisor = Advisor(email=email, full_name=full_name)
-                session.add(advisor)
+            adv = session.query(Advisor).filter_by(email=email).first()
+            if not adv:
+                adv = Advisor(email=email, firm_name="Unregistered Firm")
+                session.add(adv)
                 session.commit()
-            return to_dict(advisor)
-    except Exception as e:
-        logger.error(f"Advisor Get Error: {e}")
-        return None
+            return to_dict(adv)
+    except Exception: return {}
 
-def get_clients(advisor_email):
+def create_hybrid_project(advisor_email, parent_name, parent_phone, heir_name, prompt):
+    """The Quarterback Play: Creates a Client and a unique Project instance."""
     try:
         with get_db_session() as session:
-            clients = session.query(Client).filter_by(advisor_email=advisor_email).order_by(Client.created_at.desc()).all()
-            return [to_dict(c) for c in clients]
-    except Exception as e:
-        logger.error(f"Get Clients Error: {e}")
-        return []
-
-def add_client(advisor_email, name, phone, address_dict=None):
-    try:
-        addr_str = json.dumps(address_dict) if address_dict else "{}"
-        with get_db_session() as session:
-            new_client = Client(
-                advisor_email=advisor_email,
-                name=name,
-                phone=phone,
-                address_json=addr_str
-            )
-            session.add(new_client)
-            session.commit()
-            return True
-    except Exception as e:
-        logger.error(f"Add Client Error: {e}")
-        return False
-    # ... (Keep all existing code)
-
-# ==========================================
-# 🛠️ PROJECT HELPERS (B2B)
-# ==========================================
-
-def create_project(advisor_email, client_id, project_type="Heirloom_Interview"):
-    try:
-        with get_db_session() as session:
-            # check for active projects to prevent duplicates
-            existing = session.query(Project).filter_by(
-                client_id=client_id, 
-                status='Recording'
-            ).first()
+            # 1. Sync CRM (Client table)
+            client = session.query(Client).filter_by(advisor_email=advisor_email, phone=parent_phone).first()
+            if not client:
+                client = Client(advisor_email=advisor_email, name=parent_name, phone=parent_phone, heir_name=heir_name)
+                session.add(client)
+                session.flush() 
             
-            if existing:
-                return existing.id
-
+            # 2. Create Unique Project (Project table)
             new_proj = Project(
                 advisor_email=advisor_email,
-                client_id=client_id,
-                project_type=project_type,
-                status='Recording'
+                client_id=client.id,
+                heir_name=heir_name,
+                strategic_prompt=prompt,
+                status="Authorized"
             )
             session.add(new_proj)
             session.commit()
             return new_proj.id
     except Exception as e:
-        logger.error(f"Create Project Error: {e}")
+        logger.error(f"Hybrid Auth Error: {e}")
         return None
 
-def update_project_audio(project_id, audio_ref, transcript):
-    """Called by AI Engine after the call is done"""
+def get_project_by_id(project_id):
+    """Secure lookup for the Parent Portal and Heir Archive."""
+    try:
+        with get_db_session() as session:
+            proj = session.query(Project).filter_by(id=project_id).first()
+            if not proj: return None
+            
+            adv = session.query(Advisor).filter_by(email=proj.advisor_email).first()
+            client = session.query(Client).filter_by(id=proj.client_id).first()
+            
+            data = to_dict(proj)
+            data['firm_name'] = adv.firm_name if adv else "VerbaPost Partner"
+            data['parent_name'] = client.name if client else "Client"
+            return data
+    except Exception: return None
+
+def get_advisor_projects(advisor_email):
+    """Fetches all legacy projects for the Advisor's Roster."""
+    try:
+        with get_db_session() as session:
+            projs = session.query(Project).filter_by(advisor_email=advisor_email).order_by(Project.created_at.desc()).all()
+            return [to_dict(p) for p in projs]
+    except Exception: return []
+
+def update_project_details(project_id, address=None, scheduled_time=None, status=None, content=None):
+    """Updates the project from the Setup Portal, AI Engine, or Advisor Approval."""
     try:
         with get_db_session() as session:
             proj = session.query(Project).filter_by(id=project_id).first()
             if proj:
-                proj.audio_ref = audio_ref
-                proj.content = transcript
-                proj.status = "Advisor_Review" # Move to approval queue
-                session.commit()
+                if address: proj.heir_address_json = json.dumps(address)
+                if scheduled_time: proj.scheduled_time = scheduled_time
+                if status: proj.status = status
+                if content: proj.content = content
                 return True
             return False
-    except Exception as e:
-        logger.error(f"Update Project Error: {e}")
-        return False
+    except Exception: return False
