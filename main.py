@@ -3,8 +3,7 @@ import sys
 import os
 
 # --- 🏷️ VERSION CONTROL ---
-# Increment this constant at every functional update to this file.
-VERSION = "4.3.8"  # Sidebar Default Collapsed
+VERSION = "4.3.9"  # Seamless Link Injection & Sidebar Collapsed
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
@@ -15,8 +14,6 @@ st.set_page_config(
 )
 
 # --- 2. PATH INJECTION (FIXES KEYERROR: 'DATABASE') ---
-# This ensures that Streamlit can find local modules like database.py and ui_advisor.py
-# especially during production environment transitions or GitHub pulls.
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
@@ -27,9 +24,8 @@ import time
 import json
 
 # ==========================================
-# 🔧 SYSTEM & LOGGING SETUP (RESTORED)
+# 🔧 SYSTEM & LOGGING SETUP
 # ==========================================
-# This block ensures high-resolution logs for production debugging.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -37,10 +33,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 3. SEAMLESS OAUTH FRAGMENT BRIDGE (RESTORED) ---
-# Captures Google tokens from the URL hash fragment (#) and converts them to 
-# query parameters (?) for Python processing. Uses window.parent to bypass 
-# security locks on custom domains like app.verbapost.com.
+# --- 3. SEAMLESS OAUTH BRIDGE (INVISIBLE LINK PATTERN) ---
+# This version creates a hidden anchor tag and simulates a click. 
+# This often bypasses the 'SecurityError' by mimicking a user-driven event.
 components.html(
     """
     <script>
@@ -50,27 +45,34 @@ components.html(
             const hash = parentWin.location.hash;
             
             if (hash && hash.includes('access_token=')) {
-                console.log('VerbaPost: Google Auth token detected in fragment');
-                
                 const params = new URLSearchParams(hash.substring(1));
                 const accessToken = params.get('access_token');
-                const refreshToken = params.get('refresh_token');
-                const tokenType = params.get('token_type');
                 
                 if (accessToken) {
                     const cleanUrl = parentWin.location.origin + parentWin.location.pathname;
                     const finalUrl = cleanUrl + '?access_token=' + encodeURIComponent(accessToken);
                     
-                    if (refreshToken) finalUrl += '&refresh_token=' + encodeURIComponent(refreshToken);
-                    if (tokenType) finalUrl += '&token_type=' + encodeURIComponent(tokenType);
-
-                    // Seamless navigation back to the app with the token loaded
-                    console.log('VerbaPost: Performing seamless top-level redirect');
-                    parentWin.location.replace(finalUrl);
+                    // INVISIBLE LINK INJECTION METHOD
+                    const link = document.createElement('a');
+                    link.href = finalUrl;
+                    link.target = '_top'; // Force parent window navigation
+                    
+                    // Add to DOM temporarily to satisfy certain browser requirements
+                    document.body.appendChild(link);
+                    
+                    // Programmatic click with a tiny delay to bypass race conditions
+                    setTimeout(() => {
+                        try {
+                            link.click();
+                        } catch (e) {
+                            // Fallback if click is also blocked
+                            parentWin.location.replace(finalUrl);
+                        }
+                    }, 10);
                 }
             }
         } catch (e) {
-            console.error('VerbaPost Seamless Bridge Error:', e);
+            console.error('VerbaPost Link Bridge Error:', e);
         }
     })();
     </script>
@@ -79,8 +81,6 @@ components.html(
 )
 
 # --- 4. MODULE IMPORTS (FULL ROBUST WRAPPING) ---
-# Each import is wrapped individually to prevent the entire system from failing 
-# if a single UI or engine file is corrupted or missing.
 try: 
     import ui_splash
 except ImportError as e: 
@@ -175,7 +175,6 @@ except ImportError:
 # ==========================================
 
 def sync_user_session():
-    """Synchronizes Streamlit session state with the database UserProfile."""
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
             email = st.session_state.get("user_email")
@@ -185,13 +184,12 @@ def sync_user_session():
                 st.session_state.user_credits = profile.get("credits", 0)
                 st.session_state.full_name = profile.get("full_name", "")
                 st.session_state.is_partner = (st.session_state.user_role in ["partner", "admin"])
-                logger.info(f"Session Synced for {email} (Role: {st.session_state.user_role})")
+                logger.info(f"Session Synced for {email}")
         except Exception as e:
             logger.error(f"Session Sync Failure: {e}")
 
 def handle_logout():
-    """Clears all application state and triggers a clean restart."""
-    logger.info("Triggering global logout and session clear.")
+    logger.info("Triggering global logout.")
     if auth_engine: 
         auth_engine.sign_out()
     for key in list(st.session_state.keys()):
@@ -227,7 +225,6 @@ def main():
                         except Exception as db_err:
                             logger.error(f"Database sync error: {db_err}")
                     
-                    # Clear query params to prevent re-authentication loops
                     st.query_params.clear()
                     st.rerun()
                 else:
@@ -243,17 +240,14 @@ def main():
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
-            st.error("⚠️ System configuration error. Check Admin logs.")
+            st.error("⚠️ System configuration error. Check logs.")
             st.stop()
         st.session_state.system_verified = True
 
     # --- STEP 3: INITIALIZE SESSION STATE DEFAULTS ---
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    if "user_email" not in st.session_state:
-        st.session_state.user_email = None
-    if "user_role" not in st.session_state:
-        st.session_state.user_role = "user"
+    if "authenticated" not in st.session_state: st.session_state.authenticated = False
+    if "user_email" not in st.session_state: st.session_state.user_email = None
+    if "user_role" not in st.session_state: st.session_state.user_role = "user"
         
     # --- STEP 4: APP MODE ROUTING (STATE MACHINE) ---
     nav = query_params.get("nav")
@@ -296,7 +290,6 @@ def main():
 
     # --- STEP 6: ROUTE TO APPROPRIATE VIEW ---
     mode = st.session_state.app_mode
-
     if mode == "admin" and ui_admin: ui_admin.render_admin_page()
     elif mode == "archive" and ui_archive: ui_archive.render_heir_vault(project_id)
     elif mode == "setup" and ui_setup: ui_setup.render_parent_setup(project_id)
