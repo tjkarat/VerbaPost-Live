@@ -1,14 +1,14 @@
 import streamlit as st
 import time
+import logging
 
 # --- LOGGING SETUP ---
-import logging
 logger = logging.getLogger(__name__)
 
 def render_login_page():
     """
     Renders the Login, Signup, and Password Recovery interface.
-    Now includes Smart Routing for Advisors.
+    Includes Smart Routing for Advisors via URL params (?role=advisor).
     """
     # --- LAZY IMPORT (Fixes Circular Dependency & KeyError) ---
     try:
@@ -20,11 +20,16 @@ def render_login_page():
         st.error(f"System Module Error: {e}")
         return
 
+    # --- 0. DETECT INTENT ---
+    # Check if user came from "Start Retaining Heirs" link (e.g. ?role=advisor)
+    is_advisor_intent = st.query_params.get("role") == "advisor"
+
     st.markdown("""
     <style>
     .stTextInput input { font-size: 16px; padding: 10px; }
     div[data-testid="stForm"] { border: 1px solid #ddd; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
     .auth-explanation { background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 10px; font-size: 0.9rem; color: #0c4a6e; margin-bottom: 15px; }
+    .advisor-badge { background-color: #fef3c7; border: 1px solid #d97706; color: #92400e; padding: 8px; border-radius: 4px; font-weight: bold; text-align: center; margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -107,22 +112,32 @@ def render_login_page():
             st.warning("⚠️ Google Sign-In temporarily unavailable")
     
     # --- TABS ---
+    # If advisor intent is detected, default to "New Account" tab
+    default_tab = 0 if is_advisor_intent else 1
     tab_signup, tab_login, tab_forgot = st.tabs(["New Account", "Sign In", "Forgot Password"])
 
     # --- TAB A: SIGN UP ---
     with tab_signup:
-        st.markdown("""
-        <div class="auth-explanation">
-        <b>Why do we need your address?</b><br>
-        VerbaPost mails physical letters for you. We need a valid <b>Return Address</b> to ensure your mail is accepted by USPS.
-        </div>
-        """, unsafe_allow_html=True)
+        if is_advisor_intent:
+            st.markdown('<div class="advisor-badge">🎓 Creating Professional Advisor Account</div>', unsafe_allow_html=True)
+        else:
+            st.markdown("""
+            <div class="auth-explanation">
+            <b>Why do we need your address?</b><br>
+            VerbaPost mails physical letters for you. We need a valid <b>Return Address</b> to ensure your mail is accepted by USPS.
+            </div>
+            """, unsafe_allow_html=True)
 
         with st.form("signup_form"):
             new_email = st.text_input("Email Address")
             new_pass = st.text_input("Create Password", type="password")
             full_name = st.text_input("Full Name")
             
+            # Show Firm Name only if Advisor
+            firm_name = ""
+            if is_advisor_intent:
+                firm_name = st.text_input("Firm / Practice Name")
+
             st.markdown("---")
             st.caption("Mailing & Config")
             
@@ -176,8 +191,11 @@ def render_login_page():
                         user, error = auth_engine.sign_up(new_email, new_pass, 
                                                          data={"full_name": full_name})
                         if user:
+                            # 1. Create DB Entry
                             if database:
                                 database.create_user(new_email, full_name)
+                                
+                                # 2. Update Role/Details immediately
                                 with database.get_db_session() as db:
                                     p = db.query(database.UserProfile).filter(
                                         database.UserProfile.email == new_email
@@ -189,15 +207,24 @@ def render_login_page():
                                         p.address_zip = zip_code
                                         p.country = country
                                         p.timezone = timezone
+                                        
+                                        # Force Role if Advisor Intent
+                                        if is_advisor_intent:
+                                            p.role = "advisor"
+                                            p.advisor_firm = firm_name
+                                            
                                         db.commit()
                             
                             st.success("✅ Account created!")
                             st.session_state.authenticated = True
                             st.session_state.user_email = new_email
                             
-                            # Default new users to Heirloom
-                            # (Unless we build a specific Advisor Signup toggle later)
-                            st.session_state.app_mode = "heirloom"
+                            # 3. Route based on Role
+                            if is_advisor_intent:
+                                st.session_state.app_mode = "advisor"
+                            else:
+                                st.session_state.app_mode = "heirloom"
+                                
                             time.sleep(1)
                             st.rerun()
                         else:
@@ -221,7 +248,8 @@ def render_login_page():
                         st.session_state.user_email = email
                         
                         # SMART ROUTING: Check role immediately
-                        target_mode = "heirloom"
+                        target_mode = "heirloom" # Default fallback
+                        
                         if database:
                             profile = database.get_user_profile(email)
                             if profile:
