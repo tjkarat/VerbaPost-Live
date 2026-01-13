@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- VERSION CONTROL ---
-VERSION = "4.3.1"  # OAuth Flow - Hardened Bridge Approach
+VERSION = "4.3.2"  # OAuth Debug Build
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
@@ -28,94 +28,109 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. HARDENED OAUTH FRAGMENT BRIDGE ---
-# This JavaScript extracts tokens from URL hash and converts them to query params.
-# It targets 'window.top' to bypass the SecurityError on app.verbapost.com.
+# --- 2. DEBUGGING OAUTH BRIDGE ---
+# This version includes a visual 'Debug Console' inside the iframe to catch SecurityErrors
 components.html(
     """
+    <div id="debug-log" style="font-family:monospace; font-size:10px; color:#ef4444; background:#fee2e2; border:1px solid #f87171; padding:10px; border-radius:4px; display:none;">
+        <strong>VerbaPost Auth Debug:</strong> <span id="debug-msg">Initializing...</span>
+    </div>
     <script>
     (function() {
+        const logger = (msg, isError=false) => {
+            console.log(msg);
+            const el = document.getElementById('debug-log');
+            const msgEl = document.getElementById('debug-msg');
+            el.style.display = 'block';
+            msgEl.innerText = msg;
+            if(isError) el.style.background = '#fecaca';
+        };
+
         try {
             const topWin = window.top;
             const hash = topWin.location.hash;
+            const origin = topWin.location.origin;
             
+            logger("Checking URL Fragment... Origin: " + origin);
+
             if (hash && hash.includes('access_token=')) {
-                console.log('VerbaPost: OAuth token detected in hash');
+                logger("Token detected. Processing redirect...");
                 
-                // Parse hash fragment
                 const params = new URLSearchParams(hash.substring(1));
                 const accessToken = params.get('access_token');
-                const refreshToken = params.get('refresh_token');
                 
                 if (accessToken) {
                     const url = new URL(topWin.location.origin + topWin.location.pathname);
                     url.searchParams.set('access_token', accessToken);
-                    if (refreshToken) url.searchParams.set('refresh_token', refreshToken);
                     
-                    // ATTEMPT SEAMLESS REDIRECT
+                    logger("Attempting Top-Level Navigation to: " + url.pathname);
+                    
                     try {
                         topWin.location.href = url.toString();
-                    } catch (e) {
-                        console.warn("Direct navigation blocked. Triggering fallback UI.");
+                    } catch (navErr) {
+                        logger("REDIRECT BLOCKED BY BROWSER: " + navErr.message, true);
                         document.body.innerHTML = `
                             <div style="font-family:sans-serif; text-align:center; padding-top:10px;">
+                                <div style="color:#ef4444; font-size:12px; margin-bottom:10px;">Security Lock: Click below to enter portal</div>
                                 <a href="${url.toString()}" target="_top" style="
-                                    background-color:#0f172a; color:white; padding:10px 20px; 
+                                    background-color:#0f172a; color:white; padding:12px 24px; 
                                     text-decoration:none; border-radius:6px; font-weight:600; display:inline-block;">
-                                    Complete Secure Login &rarr;
+                                    Confirm & Enter Dashboard &rarr;
                                 </a>
                             </div>
                         `;
                     }
                 }
+            } else {
+                // No token found, but we want to log the state
+                if(hash) logger("Hash present but no token: " + hash.substring(0, 20) + "...");
             }
         } catch (e) {
-            console.error('VerbaPost OAuth Bridge Error:', e);
+            logger("CRITICAL BRIDGE ERROR: " + e.message, true);
         }
     })();
     </script>
     """,
-    height=50,
+    height=80,
 )
 
-# --- 3. MODULE IMPORTS ---
+# --- 3. MODULE IMPORTS (REMAINDER PRESERVED) ---
 try: import ui_splash
-except ImportError as e: logger.error(f"UI Splash Import Error: {e}"); ui_splash = None
+except ImportError as e: logger.error(f"UI Splash Error: {e}"); ui_splash = None
 try: import ui_advisor
-except ImportError as e: logger.error(f"UI Advisor Import Error: {e}"); ui_advisor = None
+except ImportError as e: logger.error(f"UI Advisor Error: {e}"); ui_advisor = None
 try: import ui_login
-except ImportError as e: logger.error(f"UI Login Import Error: {e}"); ui_login = None
+except ImportError as e: logger.error(f"UI Login Error: {e}"); ui_login = None
 try: import ui_admin
-except ImportError as e: logger.error(f"UI Admin Import Error: {e}"); ui_admin = None
+except ImportError as e: logger.error(f"UI Admin Error: {e}"); ui_admin = None
 try: import ui_main
-except ImportError as e: logger.error(f"UI Main Import Error: {e}"); ui_main = None
+except ImportError as e: logger.error(f"UI Main Error: {e}"); ui_main = None
 try: import ui_setup
-except ImportError as e: logger.error(f"UI Setup Import Error: {e}"); ui_setup = None
+except ImportError as e: logger.error(f"UI Setup Error: {e}"); ui_setup = None
 try: import ui_archive
-except ImportError as e: logger.error(f"UI Archive Import Error: {e}"); ui_archive = None
+except ImportError as e: logger.error(f"UI Archive Error: {e}"); ui_archive = None
 try: import ui_heirloom
-except ImportError as e: logger.error(f"UI Heirloom Import Error: {e}"); ui_heirloom = None
+except ImportError as e: logger.error(f"UI Heirloom Error: {e}"); ui_heirloom = None
 try: import ui_legal
-except ImportError as e: logger.error(f"UI Legal Import Error: {e}"); ui_legal = None
+except ImportError as e: logger.error(f"UI Legal Error: {e}"); ui_legal = None
 try: import ui_blog
-except ImportError as e: logger.error(f"UI Blog Import Error: {e}"); ui_blog = None
+except ImportError as e: logger.error(f"UI Blog Error: {e}"); ui_blog = None
 try: import ui_partner
-except ImportError as e: logger.error(f"UI Partner Import Error: {e}"); ui_partner = None
+except ImportError as e: logger.error(f"UI Partner Error: {e}"); ui_partner = None
 try: import auth_engine
-except ImportError as e: logger.error(f"Auth Engine Import Error: {e}"); auth_engine = None
+except ImportError as e: logger.error(f"Auth Engine Error: {e}"); auth_engine = None
 try: import database
-except ImportError as e: logger.error(f"Database Import Error: {e}"); database = None
+except ImportError as e: logger.error(f"Database Error: {e}"); database = None
 try: import secrets_manager
-except ImportError as e: logger.error(f"Secrets Manager Import Error: {e}"); secrets_manager = None
+except ImportError as e: logger.error(f"Secrets Error: {e}"); secrets_manager = None
 try: import module_validator
 except ImportError: module_validator = None
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS
+# 🛠️ HELPER FUNCTIONS (PRESERVED)
 # ==========================================
 
 def sync_user_session():
-    """Synchronizes session state with database UserProfile."""
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
             email = st.session_state.get("user_email")
@@ -129,7 +144,6 @@ def sync_user_session():
             logger.error(f"Session Sync Failure: {e}")
 
 def handle_logout():
-    """Clears all application state and triggers clean restart."""
     if auth_engine: auth_engine.sign_out()
     for key in list(st.session_state.keys()):
         del st.session_state[key]
@@ -140,14 +154,13 @@ def handle_logout():
 # ==========================================
 
 def main():
-    # --- STEP 1: OAUTH TOKEN INTERCEPTOR ---
     query_params = st.query_params
     access_token = query_params.get("access_token")
     
     if access_token and not st.session_state.get("authenticated"):
         if auth_engine:
             logger.info("🔐 OAuth token detected - Processing...")
-            with st.spinner("🔄 Completing Google Sign-In..."):
+            with st.spinner("🔄 Verifying..."):
                 email, err = auth_engine.verify_oauth_token(access_token)
                 if email:
                     st.session_state.authenticated = True
@@ -163,27 +176,24 @@ def main():
                     st.query_params.clear()
                     st.rerun()
                 else:
-                    st.error(f"❌ Authentication Error: {err}")
-                    if st.button("Return to Login"):
+                    st.error(f"❌ Auth Error: {err}")
+                    if st.button("Back to Login"):
                         st.query_params.clear()
                         st.session_state.app_mode = "login"
                         st.rerun()
                     st.stop()
 
-    # --- STEP 2: SYSTEM HEALTH CHECK ---
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
-            st.error("⚠️ System configuration error. Check logs.")
+            st.error("⚠️ System config error. Check logs.")
             st.stop()
         st.session_state.system_verified = True
 
-    # --- STEP 3: INITIALIZE SESSION STATE ---
     if "authenticated" not in st.session_state: st.session_state.authenticated = False
     if "user_email" not in st.session_state: st.session_state.user_email = None
     if "user_role" not in st.session_state: st.session_state.user_role = "user"
         
-    # --- STEP 4: APP MODE ROUTING ---
     nav = query_params.get("nav")
     project_id = query_params.get("id")
     
@@ -196,7 +206,6 @@ def main():
         elif nav == "login": st.session_state.app_mode = "login"
         else: st.session_state.app_mode = "splash"
 
-    # --- STEP 5: SIDEBAR ---
     with st.sidebar:
         st.caption(f"VerbaPost Wealth Build: v{VERSION}")
         st.divider()
@@ -221,7 +230,6 @@ def main():
         with st.sidebar:
             if st.button("🚪 Sign Out", use_container_width=True): handle_logout()
 
-    # --- STEP 6: ROUTE TO VIEW ---
     mode = st.session_state.app_mode
     if mode == "admin" and ui_admin: ui_admin.render_admin_page()
     elif mode == "archive" and ui_archive: ui_archive.render_heir_vault(project_id)
