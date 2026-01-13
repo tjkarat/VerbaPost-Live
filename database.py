@@ -3,7 +3,7 @@ import logging
 import urllib.parse
 import json
 import uuid
-from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, ForeignKey, BigInteger, text
+from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Float, DateTime, ForeignKey, BigInteger, text, Identity
 from sqlalchemy.orm import sessionmaker, declarative_base
 from contextlib import contextmanager
 from datetime import datetime
@@ -84,13 +84,21 @@ def to_dict(obj):
 class UserProfile(Base):
     """Identity management."""
     __tablename__ = 'user_profiles'
-    email = Column(String, primary_key=True)
+    
+    # FIX: Added ID to handle legacy schema requirements
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    
+    email = Column(String, unique=True, nullable=False)
     full_name = Column(String)
     parent_name = Column(String)
     parent_phone = Column(String)
     role = Column(String, default="user") # user, advisor, admin
     created_at = Column(DateTime, default=datetime.utcnow)
     advisor_email = Column(String, nullable=True) 
+    
+    # FIX: Added advisor_firm to prevent AttributeError
+    advisor_firm = Column(String, nullable=True)
+
     # Legacy fields preserved to prevent migration errors
     address_line1 = Column(String)
     address_city = Column(String)
@@ -172,6 +180,7 @@ def get_user_profile(email):
     """Fetches profile, creating one if it doesn't exist."""
     try:
         with get_db_session() as session:
+            # Look up by email since it's unique
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
                 profile = UserProfile(email=email)
@@ -199,6 +208,7 @@ def create_user(email, full_name):
     """Creates a basic user profile (used by signup)."""
     try:
         with get_db_session() as db:
+            # We don't pass ID; we rely on DB autoincrement
             user = UserProfile(email=email, full_name=full_name)
             db.add(user)
             db.commit()
@@ -218,8 +228,11 @@ def get_or_create_advisor(email):
                 # Fallback: Try to get data from UserProfile
                 legacy = session.query(UserProfile).filter_by(email=email).first()
                 full_name = legacy.full_name if legacy else ""
-                firm_name = legacy.advisor_firm if legacy else "Independent Firm"
                 
+                # FIX: Handle potential NoneType for legacy or advisor_firm
+                firm_name = getattr(legacy, 'advisor_firm', "Independent Firm") if legacy else "Independent Firm"
+                if not firm_name: firm_name = "Independent Firm"
+
                 adv = Advisor(email=email, full_name=full_name, firm_name=firm_name)
                 session.add(adv)
                 session.commit()
