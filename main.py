@@ -176,6 +176,31 @@ def main():
     # 1. AUTH INTERCEPTOR (THE GOOGLE LOGIN FIX)
     query_params = st.query_params
     url_token = query_params.get("access_token")
+    # --- 🩺 DIAGNOSTIC DEBUG BLOCK ---
+# Add this immediately after 'url_token = query_params.get("access_token")' in main()
+
+if "access_token" in st.query_params or "nav" in st.query_params:
+    st.sidebar.warning("🛠️ Debug: Auth Traffic Detected")
+    debug_data = {
+        "nav_param": st.query_params.get("nav"),
+        "has_token": "access_token" in st.query_params,
+        "token_len": len(st.query_params.get("access_token", "")) if "access_token" in st.query_params else 0,
+        "session_auth": st.session_state.get("authenticated", False),
+        "url_fragment_detected": "#access_token" in str(st.query_params) # Catching bridge failures
+    }
+    
+    # 1. Console Log for GCP Cloud Logging
+    logger.info(f"🔍 DIAGNOSTIC: {json.dumps(debug_data)}")
+    
+    # 2. On-Screen Display (Visible only to you during testing)
+    with st.sidebar.expander("📝 Diagnostic Details", expanded=True):
+        st.json(debug_data)
+        if debug_data["url_fragment_detected"]:
+            st.error("🚨 Error: Token stuck in URL fragment (#). JavaScript bridge failed.")
+        elif not debug_data["has_token"] and debug_data["nav_param"] == "login":
+            st.error("🚨 Error: No token received from Google/Supabase.")
+# --- END DEBUG BLOCK ---
+
     nav = query_params.get("nav")
     project_id = query_params.get("id")
 
