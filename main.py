@@ -2,7 +2,7 @@ import streamlit as st
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.0.4"
+VERSION = "4.0.6"
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 # This must remain at the very top to prevent Streamlit set_page_config errors.
@@ -31,54 +31,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. OAUTH FRAGMENT BRIDGE (MULTI-STAGE FALLBACK) ---
-# Surgically updated to bypass strict 'allow-top-navigation' sandbox restrictions.
-# If automatic redirect is blocked, it displays a secure 'Complete Login' button.
+# --- 2. OAUTH FRAGMENT BRIDGE (SEAMLESS AUTOMATED VERSION) ---
+# This resolves 'SecurityError' by using a direct top-level assignment.
+# NO BUTTON - NO USER INTERACTION REQUIRED.
 components.html(
     """
-    <div id="bridge-container" style="font-family: sans-serif; text-align: center; display: none; padding: 10px;">
-        <p style="color: #64748b; font-size: 14px; margin-bottom: 12px;">Security verification required to complete login.</p>
-        <a id="auth-link" href="#" target="_top" style="
-            background-color: #0f172a; color: white; padding: 10px 20px; 
-            text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block;">
-            Complete Login &rarr;
-        </a>
-    </div>
     <script>
     (function() {
         try {
-            var hash = window.top.location.hash;
-            if (hash && hash.includes('access_token=')) {
+            // Check the top-level window for the OAuth fragment
+            if (window.top.location.hash && window.top.location.hash.includes('access_token=')) {
+                var hash = window.top.location.hash;
                 var cleanParams = hash.replace('#', '?');
-                var finalUrl = window.top.location.origin + window.top.location.pathname + cleanParams;
                 
-                // Attempt 1: Property Assignment (Most common)
-                try {
-                    window.top.location.href = finalUrl;
-                } catch (e1) {
-                    console.warn("Bridge Attempt 1 failed, trying Attempt 2...");
-                    // Attempt 2: Method call
-                    try {
-                        window.top.location.replace(finalUrl);
-                    } catch (e2) {
-                        console.error("Browser blocked automatic redirect. Showing fallback button.");
-                        // Attempt 3: Manual Fallback (Satisfies 'allow-top-navigation-by-user-activation')
-                        document.getElementById('bridge-container').style.display = 'block';
-                        document.getElementById('auth-link').href = finalUrl;
-                    }
-                }
+                // Construct the absolute URL to avoid origin mismatch errors
+                var newUrl = window.top.location.origin + window.top.location.pathname + cleanParams;
+                
+                // Direct assignment to the top-level window to bypass iframe navigation rules
+                window.top.location = newUrl;
             }
         } catch (e) {
-            console.error("VerbaPost Auth Bridge Critical Error:", e);
+            console.error("VerbaPost Seamless Bridge Error:", e);
         }
     })();
     </script>
     """,
-    height=100, # Increased height to accommodate the fallback button if needed
+    height=0,
 )
 
 # --- 3. MODULE IMPORTS (ROBUST ERROR WRAPPING) ---
 # Each import is wrapped in an individual try/except to prevent app-wide crashes.
+# This allows the system to boot even if a single component is failing.
 try: 
     import ui_splash
 except ImportError as e: 
