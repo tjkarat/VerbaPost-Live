@@ -270,11 +270,31 @@ def render_admin_page():
                                             else:
                                                 std_from = address_standard.StandardAddress(name="VerbaPost", street="123 Main", city="Nashville", state="TN", zip_code="37209")
                                             
+                                            # --- FETCH ADDITIONAL METADATA FOR HEIRLOOM PDF ---
+                                            # Fetch User Profile for Storyteller Name & Firm
+                                            user_profile = database.get_user_profile(item.user_email)
+                                            
+                                            # Construct Metadata Dictionary
+                                            pdf_metadata = {
+                                                # Storyteller: Use user's full name or fallback
+                                                "storyteller": user_profile.get('full_name', 'Family Member'),
+                                                
+                                                # Date: Use creation date
+                                                "interview_date": item.created_at.strftime("%B %d, %Y") if item.created_at else datetime.now().strftime("%B %d, %Y"),
+                                                
+                                                # Question: Retrieve from new column in database
+                                                "question_text": getattr(item, 'question_text', "Shared Memory"),
+                                                
+                                                # Firm Name: Retrieve from user profile (new column)
+                                                "firm_name": user_profile.get('advisor_firm', 'VerbaPost Wealth')
+                                            }
+
                                             pdf_bytes = letter_format.create_pdf(
                                                 item.content,
                                                 std_to,
                                                 std_from,
-                                                tier=item.tier
+                                                tier=item.tier,
+                                                metadata=pdf_metadata # Pass metadata to updated letter_format
                                             )
                                             b64 = base64.b64encode(pdf_bytes).decode()
                                             href = f'<a href="data:application/pdf;base64,{b64}" download="VerbaPost_{item.id}.pdf">Click here to Download PDF</a>'

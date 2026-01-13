@@ -105,6 +105,8 @@ class UserProfile(Base):
     subscription_end_date = Column(DateTime, nullable=True)
     is_partner = Column(Boolean, default=False)
     role = Column(String, default="user")
+    # Added for B2B / Firm association lookup
+    advisor_firm = Column(String, nullable=True)
 
 class LetterDraft(Base):
     """
@@ -124,6 +126,8 @@ class LetterDraft(Base):
     from_addr = Column(Text)
     recipient_data = Column(Text) 
     sender_data = Column(Text)
+    # Added for Heirloom Metadata (Question/Topic)
+    question_text = Column(Text, nullable=True)
 
 class AuditEvent(Base):
     """System auditing for Admin diagnostic tools."""
@@ -411,7 +415,8 @@ def get_user_drafts(email):
                     "created_at": d.created_at.strftime("%Y-%m-%d %H:%M") if d.created_at else "Unknown",
                     "tracking_number": d.tracking_number,
                     "recipient_data": d.recipient_data,
-                    "sender_data": d.sender_data
+                    "sender_data": d.sender_data,
+                    "question_text": d.question_text
                 } 
                 for d in drafts
             ]
@@ -440,7 +445,7 @@ def update_last_call_timestamp(email):
         logging.error(f"Error updating call timestamp for {email}: {e}")
         return False
 
-def update_draft_data(draft_id, content=None, status=None, tier=None, price=None, tracking_number=None):
+def update_draft_data(draft_id, content=None, status=None, tier=None, price=None, tracking_number=None, question_text=None):
     """
     Updates a specific draft's metadata or content.
     """
@@ -453,6 +458,7 @@ def update_draft_data(draft_id, content=None, status=None, tier=None, price=None
                 if tier is not None: draft.tier = tier
                 if price is not None: draft.price = price
                 if tracking_number is not None: draft.tracking_number = tracking_number
+                if question_text is not None: draft.question_text = question_text
                 session.commit()
                 return True
             return False
