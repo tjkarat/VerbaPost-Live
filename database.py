@@ -130,10 +130,7 @@ class Client(Base):
     address_json = Column(Text, default="{}")
 
 class Project(Base):
-    """
-    The Core Unit of Work.
-    Statuses: Authorized -> Recording -> Pending Approval -> Approved -> Sent
-    """
+    """The Core Unit of Work."""
     __tablename__ = 'projects'
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     advisor_email = Column(String, ForeignKey('advisors.email'), nullable=False)
@@ -180,7 +177,6 @@ def get_user_profile(email):
     """Fetches profile, creating one if it doesn't exist."""
     try:
         with get_db_session() as session:
-            # Look up by email since it's unique
             profile = session.query(UserProfile).filter_by(email=email).first()
             if not profile:
                 profile = UserProfile(email=email)
@@ -230,7 +226,7 @@ def get_or_create_advisor(email):
                 full_name = legacy.full_name if legacy else ""
                 
                 # FIX: Handle potential NoneType for legacy or advisor_firm
-                firm_name = getattr(legacy, 'advisor_firm', "Independent Firm") if legacy else "Independent Firm"
+                firm_name = getattr(legacy, 'advisor_firm', "Independent Firm")
                 if not firm_name: firm_name = "Independent Firm"
 
                 adv = Advisor(email=email, full_name=full_name, firm_name=firm_name)
