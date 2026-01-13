@@ -2,7 +2,7 @@ import streamlit as st
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.0.9"
+VERSION = "4.1.0"
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 # This must remain at the very top to prevent Streamlit set_page_config errors.
@@ -31,15 +31,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. OAUTH FRAGMENT BRIDGE (YESTERDAY'S SEAMLESS VERSION) ---
-# This version uses direct property assignment to bypass iframe sandbox limits.
-# NO BUTTON - SEAMLESS REDIRECT.
+# --- 2. OAUTH FRAGMENT BRIDGE (HARDENED SEAMLESS VERSION) ---
+# This version uses a fallback chain to bypass strict Chromium sandboxing.
+# NO BUTTON - 100% AUTOMATED.
 components.html(
     """
     <script>
     (function() {
         try {
-            // Examine the top-level window for the OAuth fragment
             var topWin = window.top;
             var hash = topWin.location.hash;
             
@@ -47,11 +46,23 @@ components.html(
                 var cleanParams = hash.replace('#', '?');
                 var finalUrl = topWin.location.origin + topWin.location.pathname + cleanParams;
                 
-                // Directly assigning to .href is the most permissive cross-origin method
-                topWin.location.href = finalUrl;
+                // FALLBACK 1: Direct href Assignment (Yesterday's Method)
+                try {
+                    topWin.location.href = finalUrl;
+                } catch (e1) {
+                    console.warn("Direct href blocked, trying window.parent fallback...");
+                    // FALLBACK 2: Parent Location Assignment
+                    try {
+                        window.parent.location.assign(finalUrl);
+                    } catch (e2) {
+                        console.warn("Parent assignment blocked, trying Meta-Refresh hack...");
+                        // FALLBACK 3: The 'Self-Navigation' attempt
+                        window.top.location = finalUrl;
+                    }
+                }
             }
         } catch (e) {
-            console.error("VerbaPost Seamless Bridge Error:", e);
+            console.error("VerbaPost Hardened Bridge Error:", e);
         }
     })();
     </script>
@@ -157,7 +168,6 @@ except ImportError:
 def sync_user_session():
     """
     Synchronizes the Streamlit session state with the database UserProfile.
-    Crucial for enforcing 'Partner' vs 'User' roles in the Master Switch.
     """
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
@@ -175,7 +185,6 @@ def sync_user_session():
 def handle_logout():
     """
     Clears all application state and triggers a clean restart.
-    Ensures that OAuth tokens are cleared from the browser session.
     """
     logger.info("Triggering global logout and session clear.")
     if auth_engine: 
@@ -213,11 +222,11 @@ def main():
                     logger.error(f"Auth failed: {err}")
                     st.error(f"Authentication Error: {err}")
 
-    # 2. SYSTEM HEALTH PRE-FLIGHT (RESTORED)
+    # 2. SYSTEM HEALTH PRE-FLIGHT
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
-            st.error("System configuration error. Please check Admin logs for missing API keys.")
+            st.error("System configuration error. Check Admin logs.")
             st.stop()
         st.session_state.system_verified = True
 
@@ -231,20 +240,13 @@ def main():
         
     # 4. INITIALIZE APP MODE ROUTING (STATE MACHINE)
     if "app_mode" not in st.session_state:
-        if nav == "legal": 
-            st.session_state.app_mode = "legal"
-        elif nav == "blog": 
-            st.session_state.app_mode = "blog"
-        elif nav == "partner": 
-            st.session_state.app_mode = "partner"
-        elif nav == "setup": 
-            st.session_state.app_mode = "setup"
-        elif nav == "archive":
-            st.session_state.app_mode = "archive"
-        elif nav == "login":
-            st.session_state.app_mode = "login"
-        else: 
-            st.session_state.app_mode = "splash"
+        if nav == "legal": st.session_state.app_mode = "legal"
+        elif nav == "blog": st.session_state.app_mode = "blog"
+        elif nav == "partner": st.session_state.app_mode = "partner"
+        elif nav == "setup": st.session_state.app_mode = "setup"
+        elif nav == "archive": st.session_state.app_mode = "archive"
+        elif nav == "login": st.session_state.app_mode = "login"
+        else: st.session_state.app_mode = "splash"
 
     # 5. SIDEBAR: MASTER SWITCH & LOGOUT (RESTORED IN FULL)
     with st.sidebar:
@@ -287,83 +289,40 @@ def main():
     mode = st.session_state.app_mode
 
     if mode == "admin":
-        if ui_admin: 
-            ui_admin.render_admin_page()
-        else:
-            st.error("Admin module (ui_admin.py) not found.")
+        if ui_admin: ui_admin.render_admin_page()
         return
-
     if mode == "archive":
-        if ui_archive: 
-            ui_archive.render_heir_vault(project_id)
-        else:
-            st.error("Archive module (ui_archive.py) missing.")
+        if ui_archive: ui_archive.render_heir_vault(project_id)
         return
-        
     if mode == "setup":
-        if ui_setup: 
-            ui_setup.render_parent_setup(project_id)
-        else:
-            st.error("Setup module (ui_setup.py) missing.")
+        if ui_setup: ui_setup.render_parent_setup(project_id)
         return
-
     if mode == "legal":
-        if ui_legal: 
-            ui_legal.render_legal_page()
-        else:
-            st.error("Legal module (ui_legal.py) missing.")
+        if ui_legal: ui_legal.render_legal_page()
         return
-        
     if mode == "blog":
-        if ui_blog: 
-            ui_blog.render_blog_page()
-        else:
-            st.error("Blog module (ui_blog.py) missing.")
+        if ui_blog: ui_blog.render_blog_page()
         return
-
     if mode == "heirloom":
         if not st.session_state.authenticated:
             st.session_state.app_mode = "login"
             st.rerun()
-        if ui_heirloom: 
-            ui_heirloom.render_dashboard()
-        else:
-            st.error("Heirloom module (ui_heirloom.py) missing.")
+        if ui_heirloom: ui_heirloom.render_dashboard()
         return
-
     if mode in ["store", "workspace", "review", "receipt"]:
-        if ui_main: 
-            ui_main.render_main()
-        else:
-            st.error("Retail module (ui_main.py) missing.")
+        if ui_main: ui_main.render_main()
         return
-
     if mode == "advisor":
-        if ui_advisor:
-            ui_advisor.render_dashboard()
-        else:
-            st.error("Advisor module missing.")
+        if ui_advisor: ui_advisor.render_dashboard()
         return
-
     if mode == "partner":
-        if ui_partner:
-            ui_partner.render_dashboard()
-        else:
-            st.error("Partner module missing.")
+        if ui_partner: ui_partner.render_dashboard()
         return
-
     if mode == "login":
-        if ui_login: 
-            ui_login.render_login_page()
-        else:
-            st.error("Login module (ui_login.py) missing.")
+        if ui_login: ui_login.render_login_page()
         return
 
-    if ui_splash:
-        ui_splash.render_splash_page()
-    else:
-        st.title("VerbaPost Wealth")
-        st.write("System failed to initialize. Please check logs.")
+    if ui_splash: ui_splash.render_splash_page()
 
 if __name__ == "__main__":
     try:
