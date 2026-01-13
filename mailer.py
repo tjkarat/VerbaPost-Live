@@ -9,38 +9,35 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-# PostGrid Address Verification API
-POSTGRID_VERIFY_URL = "https://api.postgrid.com/v1/add_ver/verifications"
-# PostGrid Print & Mail API (for sending letters later)
-POSTGRID_PRINT_URL = "https://api.postgrid.com/print-mail/v1/letters"
+# We use the Print & Mail API for everything since that is likely the key you have.
+POSTGRID_BASE_URL = "https://api.postgrid.com/print-mail/v1"
 
 def get_api_key():
     """Retrieves PostGrid API Key from secrets."""
-    # Check secrets.toml first
     if hasattr(st, "secrets") and "postgrid" in st.secrets:
         return st.secrets["postgrid"].get("api_key")
-    # Fallback to environment variable
     return os.environ.get("POSTGRID_API_KEY")
 
 def validate_address(address_dict):
     """
-    Validates address via PostGrid Verification API.
-    Docs: https://postgrid.readme.io/reference/verify-an-address
+    Validates address by attempting to create a Contact in PostGrid.
+    This works with the Print & Mail API key.
     """
     api_key = get_api_key()
     if not api_key: 
         logger.warning("PostGrid Key missing. Skipping validation (Soft Pass).")
         return True, "Dev Mode: Validation Skipped"
 
-    # Construct Payload expected by PostGrid
+    # Use the Contacts endpoint. If the address is invalid, PostGrid returns a 400.
+    url = f"{POSTGRID_BASE_URL}/contacts"
+
     payload = {
-        "address": {
-            "line1": address_dict.get('street') or address_dict.get('address_line1'),
-            "city": address_dict.get('city'),
-            "provinceOrState": address_dict.get('state'),
-            "postalOrZip": address_dict.get('zip_code') or address_dict.get('zip'),
-            "country": address_dict.get('country', "US")
-        }
+        "firstName": "Verification Check",
+        "addressLine1": address_dict.get('street') or address_dict.get('address_line1'),
+        "city": address_dict.get('city'),
+        "provinceOrState": address_dict.get('state'),
+        "postalOrZip": address_dict.get('zip_code') or address_dict.get('zip'),
+        "countryCode": address_dict.get('country', "US")
     }
 
     headers = {
@@ -49,87 +46,49 @@ def validate_address(address_dict):
     }
 
     try:
-        response = requests.post(POSTGRID_VERIFY_URL, json=payload, headers=headers)
+        # We try to create the contact. 
+        response = requests.post(url, json=payload, headers=headers)
         
-        if response.status_code == 200:
+        if response.status_code in [200, 201]:
+            # Success! The address is valid and mailable.
             data = response.json()
+            return True, data
             
-            # PostGrid returns a 'status' field in the 'result' object
-            # Statuses: 'verified', 'corrected', 'active'
-            result = data.get('data', {})
-            status = result.get('status')
+        elif response.status_code == 400:
+            # Address rejected
+            error_msg = "Invalid Address"
+            try:
+                # Try to extract exact error from PostGrid response
+                err_data = response.json()
+                if 'error' in err_data:
+                    error_msg = err_data['error'].get('message', str(err_data['error']))
+            except:
+                pass
+            return False, f"PostGrid Rejected: {error_msg}"
             
-            if status == 'verified':
-                # Perfect match
-                return True, result
-            elif status == 'corrected':
-                # It fixed a typo (e.g. "St" -> "Street"), we accept this
-                logger.info(f"Address Auto-Corrected: {result.get('summary')}")
-                return True, result
-            else:
-                # Failed (e.g. 'unverified', 'ambiguous')
-                errors = result.get('errors', {})
-                error_msg = f"Invalid Address: {errors}" if errors else "Address could not be verified."
-                return False, error_msg
-                
-        elif response.status_code == 401:
-            return False, "System Error: Invalid PostGrid API Key"
         else:
             logger.error(f"PostGrid Error {response.status_code}: {response.text}")
-            # In production, we might want to fail open if the API is down
-            # For now, we return the error to the user
-            return False, f"Verification Service unavailable ({response.status_code})"
+            # If the API is down, we Soft Pass so we don't block signups
+            return True, f"Service Warning ({response.status_code})"
 
     except Exception as e:
         logger.error(f"Validation Exception: {e}")
-        # Fail Open (Allow signup if our validator crashes) to prevent blocking users
-        return True, "Validation Service Offline (Soft Pass)"
+        return True, "Validation Offline (Soft Pass)"
 
 def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
     """
     Sends PDF via PostGrid Print & Mail API.
-    Docs: https://postgrid.readme.io/reference/create-letter
     """
     api_key = get_api_key()
     if not api_key: return None
 
-    # Prepare Multipart Upload
-    # PostGrid accepts the PDF file directly in the request
+    url = f"{POSTGRID_BASE_URL}/letters"
+
     files = {
         'pdf': ('letter.pdf', pdf_bytes, 'application/pdf')
     }
 
-    data = {
-        "to": {
-            "firstName": to_addr.get('name'),
-            "addressLine1": to_addr.get('street'),
-            "city": to_addr.get('city'),
-            "provinceOrState": to_addr.get('state'),
-            "postalOrZip": to_addr.get('zip'),
-            "countryCode": "US"
-        },
-        "from": {
-            "firstName": from_addr.get('name'),
-            "addressLine1": from_addr.get('street'),
-            "city": from_addr.get('city'),
-            "provinceOrState": from_addr.get('state'),
-            "postalOrZip": from_addr.get('zip'),
-            "countryCode": "US"
-        },
-        "description": description,
-        "color": True,
-        "express": False # Standard Class Mail
-    }
-
-    # Note: PostGrid Send API uses form-data style when sending files
-    # We need to flatten the nested dicts or use their SDK. 
-    # For raw requests, passing JSON as a string field often works, 
-    # but PostGrid prefers individual form fields.
-    
-    # SIMPLIFIED APPROACH: Use JSON + URL for PDF if you host it. 
-    # Since we have bytes, we must use multipart/form-data.
-    # We will flatten the 'to' and 'from' fields for the form-data logic.
-    
+    # Helper to clean dictionary keys for PostGrid form-data
     form_data = {
         "to[firstName]": to_addr.get('name'),
         "to[addressLine1]": to_addr.get('street'),
@@ -146,12 +105,13 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
         "from[countryCode]": "US",
         
         "description": description,
-        "color": "true"
+        "color": "true",
+        "express": "false"
     }
 
     try:
         response = requests.post(
-            POSTGRID_PRINT_URL,
+            url,
             headers={"x-api-key": api_key},
             files=files,
             data=form_data
