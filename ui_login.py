@@ -14,7 +14,7 @@ except ImportError: secrets_manager = None
 def render_login_page():
     """
     Renders the Login, Signup, and Password Recovery interface.
-    Now includes streamlined Google OAuth.
+    Now includes streamlined Google OAuth with PKCE.
     """
     st.markdown("""
     <style>
@@ -59,7 +59,9 @@ def render_login_page():
     
     # --- GOOGLE OAUTH BUTTON ---
     if auth_engine:
-        google_url = auth_engine.get_oauth_url("google")
+        # Determine current URL base (localhost vs prod) to ensure redirect works
+        base_url = secrets_manager.get_secret("general.BASE_URL") or "http://localhost:8501"
+        google_url = auth_engine.get_oauth_url("google", redirect_to=base_url)
         
         if google_url:
             st.markdown("""

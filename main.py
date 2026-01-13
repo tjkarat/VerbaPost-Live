@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 # --- 3. HARDENED OAUTH BRIDGE WITH SANDBOX ESCAPE ---
 # Updated to resolve the 'about:srcdoc' sandbox warning from your logs.
+# NOTE: Kept as fallback, but PKCE (Step 0 below) is now the primary method.
 components.html(
     """
     <div id="bridge-debug" style="font-family:monospace; font-size:11px; color:#1e293b; background:#f1f5f9; border:1px solid #cbd5e1; padding:8px; border-radius:4px; display:none; margin-bottom:10px;">
@@ -160,7 +161,43 @@ def handle_logout():
 # ==========================================
 
 def main():
-    # --- STEP 1: OAUTH TOKEN INTERCEPTOR ---
+    # --- STEP 0: PKCE AUTH LISTENER (NEW) ---
+    # Catches the ?code=... from Google/Supabase
+    if "code" in st.query_params:
+        auth_code = st.query_params["code"]
+        
+        # Prevent double-processing
+        if not st.session_state.get("auth_processing"):
+            st.session_state.auth_processing = True
+            
+            with st.spinner("Verifying Google Account..."):
+                if auth_engine:
+                    user, err = auth_engine.exchange_code_for_user(auth_code)
+                    
+                    if user:
+                        logger.info(f"✅ PKCE Success: {user.email}")
+                        st.session_state.authenticated = True
+                        st.session_state.user_email = user.email
+                        st.session_state.app_mode = "heirloom"
+                        
+                        if database:
+                            try:
+                                if not database.get_user_profile(user.email):
+                                    database.create_user(user.email, user.email.split('@')[0])
+                                sync_user_session()
+                            except Exception as db_err:
+                                logger.error(f"Database sync error: {db_err}")
+                        
+                        # Clear URL to prevent refresh loops
+                        st.query_params.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"Login Failed: {err}")
+                        st.session_state.auth_processing = False
+                else:
+                    st.error("Auth Engine Missing")
+
+    # --- STEP 1: OAUTH TOKEN INTERCEPTOR (LEGACY IMPLICIT) ---
     query_params = st.query_params
     access_token = query_params.get("access_token")
     

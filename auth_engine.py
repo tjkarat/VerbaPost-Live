@@ -35,23 +35,45 @@ def get_client():
         logger.error(f"Supabase Init Error: {e}")
         return None
 
-def get_oauth_url(provider="google"):
+def get_oauth_url(provider="google", redirect_to=None):
+    """
+    Generates a Google OAuth URL using PKCE flow.
+    """
+    client = get_client()
+    if not client: return None
+    
     try:
-        if secrets_manager:
-            sb_url = secrets_manager.get_secret("supabase.url")
-            base_url = secrets_manager.get_secret("base.url") or "https://app.verbapost.com"
-        else:
-            sb_url = st.secrets["supabase"]["url"]
-            base_url = st.secrets.get("base_url", "https://app.verbapost.com")
+        if not redirect_to:
+            if secrets_manager:
+                redirect_to = secrets_manager.get_secret("base.url") or "https://app.verbapost.com"
+            else:
+                redirect_to = st.secrets.get("base_url", "https://app.verbapost.com")
             
-        if not sb_url: return None
-            
-        # IMPORTANT: No 'oauth_callback' query param here; fragments (#) handle it
-        oauth_url = f"{sb_url}/auth/v1/authorize?provider={provider}&redirect_to={base_url}"
-        return oauth_url
+        # IMPORTANT: flow_type="pkce" forces a ?code= response instead of #fragment
+        data = client.auth.sign_in_with_oauth({
+            "provider": provider,
+            "options": {
+                "redirect_to": redirect_to,
+                "flow_type": "pkce" 
+            }
+        })
+        return data.url
     except Exception as e:
         logger.error(f"Failed to generate OAuth URL: {e}")
         return None
+
+def exchange_code_for_user(auth_code):
+    """
+    Exchanges the PKCE auth code for a session.
+    """
+    client = get_client()
+    if not client: return None, "Client Missing"
+    try:
+        res = client.auth.exchange_code_for_session({"auth_code": auth_code})
+        return res.user, None
+    except Exception as e:
+        logger.error(f"Auth Exchange Error: {e}")
+        return None, str(e)
 
 def verify_oauth_token(access_token):
     client = get_client()
