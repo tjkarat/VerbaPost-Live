@@ -9,10 +9,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
+# Base URL for PCM Integrations V3
 PCM_BASE_URL = "https://api.pcmintegrations.com/v3" 
 
 def get_api_key():
-    """Retrieves PCM Integrations API Key."""
+    """Retrieves PCM Integrations API Key from secrets."""
     key = None
     if hasattr(st, "secrets") and "pcm" in st.secrets:
         key = st.secrets["pcm"].get("api_key")
@@ -22,14 +23,16 @@ def get_api_key():
 
 def validate_address(address_dict):
     """
-    Validates address via PCM Integrations /recipient/verify endpoint.
+    Validates address via PCM Integrations.
+    Docs: https://docs.pcmintegrations.com/docs/directmail-api/84aca6606cef4-direct-mail-api-v3
     """
     api_key = get_api_key()
-    if not api_key: return False, "Missing API Key"
+    if not api_key: return False, "Missing PCM API Key"
 
+    # NOTE: Check if your endpoint requires a specific path like /address/verify
+    # We use /recipient/verify based on typical V3 patterns, but check docs if 404 persists.
     url = f"{PCM_BASE_URL}/recipient/verify"
     
-    # Map to PCM naming convention if needed, standardizing on typical payload
     payload = {
         "address1": address_dict.get('street') or address_dict.get('address_line1'),
         "address2": address_dict.get('street2') or address_dict.get('address_line2', ""),
@@ -40,51 +43,55 @@ def validate_address(address_dict):
     }
 
     try:
-        resp = requests.post(url, json=payload, headers={"Authorization": f"Bearer {api_key}"})
+        # Bearer Token Auth (Strict Adherence)
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+        
+        resp = requests.post(url, json=payload, headers=headers)
         
         if resp.status_code == 200:
             data = resp.json()
-            # PCM usually returns a 'status' or 'valid' boolean. Adjust based on specific docs.
             if data.get('isValid') or data.get('status') == 'verified':
                 return True, address_dict
             else:
-                return False, "Address not verifiable by carrier."
+                return False, "Address rejected by carrier (USPS)."
         else:
-            logger.error(f"PCM Verification Error: {resp.status_code}")
+            logger.error(f"PCM Error {resp.status_code} at {url}: {resp.text}")
             return False, f"Verification Service Error: {resp.status_code}"
+            
     except Exception as e:
         logger.error(f"Validation Exception: {e}")
-        return False, "Service Unavailable"
+        return False, "Validation Service Unavailable"
 
-def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
+def send_letter(pdf_bytes, to_addr, from_addr):
     """
     Sends PDF via PCM Integrations V3.
     """
     api_key = get_api_key()
     if not api_key: return None
 
-    url = f"{PCM_BASE_URL}/orders/create" # Endpoint placeholder based on V3 structure
+    url = f"{PCM_BASE_URL}/orders/create" 
 
-    # Construct Multipart Upload
     files = {
         'file': ('letter.pdf', pdf_bytes, 'application/pdf')
     }
     
-    # JSON data often needs to be passed as a string field in multipart requests
     metadata = {
         "recipient": {
             "name": to_addr.get('name'),
-            "address1": to_addr.get('street') or to_addr.get('address_line1'),
+            "address1": to_addr.get('street'),
             "city": to_addr.get('city'),
             "state": to_addr.get('state'),
-            "zip": to_addr.get('zip_code') or to_addr.get('zip')
+            "zip": to_addr.get('zip')
         },
         "sender": {
             "name": from_addr.get('name'),
-            "address1": from_addr.get('street') or from_addr.get('address_line1'),
+            "address1": from_addr.get('street'),
             "city": from_addr.get('city'),
             "state": from_addr.get('state'),
-            "zip": from_addr.get('zip_code') or from_addr.get('zip')
+            "zip": from_addr.get('zip')
         },
         "options": {
             "printColor": True,
@@ -93,7 +100,6 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
     }
 
     try:
-        # Note: Implementation may vary depending on if PCM accepts 'data' as form-data string
         resp = requests.post(
             url, 
             headers={"Authorization": f"Bearer {api_key}"},
