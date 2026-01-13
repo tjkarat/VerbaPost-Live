@@ -1,7 +1,7 @@
 import streamlit as st
 
 # --- VERSION CONTROL ---
-VERSION = "4.3.0"  # OAuth Flow Complete Rewrite
+VERSION = "4.3.1"  # OAuth Flow - Streamlit Native Approach
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
@@ -17,6 +17,7 @@ import os
 import sys
 import time
 import json
+import re
 
 # ==========================================
 # 🔧 SYSTEM & LOGGING SETUP
@@ -27,45 +28,6 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
-
-# --- 2. ENHANCED OAUTH FRAGMENT BRIDGE ---
-# This JavaScript extracts tokens from URL hash and converts them to query params
-components.html(
-    """
-    <script>
-    (function() {
-        try {
-            const hash = window.location.hash;
-            
-            if (hash && hash.includes('access_token=')) {
-                console.log('VerbaPost: OAuth token detected in hash');
-                
-                // Parse hash fragment
-                const params = new URLSearchParams(hash.substring(1));
-                const accessToken = params.get('access_token');
-                const refreshToken = params.get('refresh_token');
-                const tokenType = params.get('token_type');
-                
-                if (accessToken) {
-                    // Build new URL with query params instead of hash
-                    const url = new URL(window.location.href.split('#')[0]);
-                    url.searchParams.set('access_token', accessToken);
-                    if (refreshToken) url.searchParams.set('refresh_token', refreshToken);
-                    if (tokenType) url.searchParams.set('token_type', tokenType);
-                    
-                    // Redirect to clean URL with tokens in query params
-                    console.log('VerbaPost: Redirecting to process tokens');
-                    window.location.href = url.toString();
-                }
-            }
-        } catch (e) {
-            console.error('VerbaPost OAuth Bridge Error:', e);
-        }
-    })();
-    </script>
-    """,
-    height=0,
-)
 
 # --- 3. MODULE IMPORTS ---
 try: import ui_splash
@@ -146,6 +108,43 @@ except ImportError:
 # 🛠️ HELPER FUNCTIONS
 # ==========================================
 
+def extract_token_from_url():
+    """
+    Extract access token from URL hash fragment using JavaScript.
+    Returns the token or None.
+    """
+    # Use Streamlit's JavaScript execution to read the hash
+    js_code = """
+    <script>
+        // Get hash from parent window
+        const hash = window.parent.location.hash;
+        
+        if (hash && hash.includes('access_token=')) {
+            const params = new URLSearchParams(hash.substring(1));
+            const token = params.get('access_token');
+            
+            if (token) {
+                // Store in sessionStorage for Python to read
+                window.parent.sessionStorage.setItem('oauth_token', token);
+                
+                // Clear the hash by replacing URL without hash
+                const cleanUrl = window.parent.location.href.split('#')[0];
+                window.parent.history.replaceState(null, '', cleanUrl);
+            }
+        }
+        
+        // Return token if found
+        const storedToken = window.parent.sessionStorage.getItem('oauth_token');
+        if (storedToken) {
+            window.parent.sessionStorage.removeItem('oauth_token');
+        }
+        document.write(storedToken || '');
+    </script>
+    """
+    
+    token_html = components.html(js_code, height=0)
+    return token_html if token_html else None
+
 def sync_user_session():
     """Synchronizes session state with database UserProfile."""
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
@@ -175,10 +174,38 @@ def handle_logout():
 # ==========================================
 
 def main():
+    # --- STEP 0: CHECK FOR HASH FRAGMENT (OAuth Callback) ---
+    # When user returns from Google OAuth, URL will have #access_token=...
+    # We need to detect this and extract the token
+    if not st.session_state.get("authenticated"):
+        # Insert JavaScript to check for hash and extract token
+        token_extractor = components.html(
+            """
+            <script>
+                const parentWindow = window.parent;
+                const hash = parentWindow.location.hash;
+                
+                if (hash && hash.includes('access_token=')) {
+                    const params = new URLSearchParams(hash.substring(1));
+                    const token = params.get('access_token');
+                    
+                    if (token) {
+                        // Build URL with token as query param
+                        const baseUrl = parentWindow.location.origin + parentWindow.location.pathname;
+                        const newUrl = baseUrl + '?access_token=' + encodeURIComponent(token);
+                        
+                        // Redirect parent window (this will trigger Streamlit rerun)
+                        parentWindow.location.href = newUrl;
+                    }
+                }
+            </script>
+            """,
+            height=0
+        )
+    
     # --- STEP 1: OAUTH TOKEN INTERCEPTOR ---
     query_params = st.query_params
     access_token = query_params.get("access_token")
-    oauth_callback = query_params.get("oauth_callback")
     
     # Check if this is an OAuth callback with token
     if access_token and not st.session_state.get("authenticated"):
@@ -212,7 +239,7 @@ def main():
                     # Clear OAuth params and redirect to clean URL
                     st.query_params.clear()
                     logger.info("Redirecting to dashboard...")
-                    time.sleep(0.5)  # Brief delay for user feedback
+                    time.sleep(0.5)
                     st.rerun()
                 else:
                     logger.error(f"OAuth verification failed: {err}")
