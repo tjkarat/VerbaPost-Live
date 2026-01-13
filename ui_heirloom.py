@@ -280,10 +280,11 @@ def render_dashboard():
             help="Each credit = 1 mailed letter (worth $5.99). Your subscription includes 4 credits per month."
         )
 
-    if credits <= 0:
-        st.warning("⚠️ **Out of Credits** - Your subscription will refill on your next billing date.")
-        render_paywall()
-        return
+    # --- B2B UPDATE: PAYWALL DISABLED ---
+    # if credits <= 0:
+    #     st.warning("⚠️ **Out of Credits** - Your subscription will refill on your next billing date.")
+    #     render_paywall()
+    #     return
 
     tab_settings, tab_int, tab_inbox = st.tabs(["⚙️ Settings & Setup", "📞 Start Interview", "📥 Stories (Inbox)"])
 

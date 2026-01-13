@@ -1,21 +1,25 @@
 import streamlit as st
 import time
 
-# --- MODULE IMPORTS ---
-try: import auth_engine
-except ImportError: auth_engine = None
-try: import database
-except ImportError: database = None
-try: import mailer
-except ImportError: mailer = None
-try: import secrets_manager 
-except ImportError: secrets_manager = None
+# --- LOGGING SETUP ---
+import logging
+logger = logging.getLogger(__name__)
 
 def render_login_page():
     """
     Renders the Login, Signup, and Password Recovery interface.
     Now includes Smart Routing for Advisors.
     """
+    # --- LAZY IMPORT (Fixes Circular Dependency & KeyError) ---
+    try:
+        import auth_engine
+        import database
+        import mailer
+        import secrets_manager 
+    except ImportError as e:
+        st.error(f"System Module Error: {e}")
+        return
+
     st.markdown("""
     <style>
     .stTextInput input { font-size: 16px; padding: 10px; }
