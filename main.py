@@ -2,7 +2,7 @@ import streamlit as st
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.1.0"
+VERSION = "4.2.1"  # Seamless OAuth Fix (Top-Level Bridge)
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 # This must remain at the very top to prevent Streamlit set_page_config errors.
@@ -31,38 +31,37 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. OAUTH FRAGMENT BRIDGE (HARDENED SEAMLESS VERSION) ---
-# This version uses a fallback chain to bypass strict Chromium sandboxing.
-# NO BUTTON - 100% AUTOMATED.
+# --- 2. ENHANCED OAUTH FRAGMENT BRIDGE (TOP-LEVEL SEAMLESS) ---
+# Corrected to target window.top. Bypasses SecurityError via direct property assignment.
+# This ensures that tokens detected in the URL hash are converted to query parameters.
 components.html(
     """
     <script>
     (function() {
         try {
-            var topWin = window.top;
-            var hash = topWin.location.hash;
+            const topWin = window.top;
+            const hash = topWin.location.hash;
             
             if (hash && hash.includes('access_token=')) {
-                var cleanParams = hash.replace('#', '?');
-                var finalUrl = topWin.location.origin + topWin.location.pathname + cleanParams;
+                // Parse the hash fragment from the top-level window
+                const params = new URLSearchParams(hash.substring(1));
+                const accessToken = params.get('access_token');
                 
-                // FALLBACK 1: Direct href Assignment (Yesterday's Method)
-                try {
-                    topWin.location.href = finalUrl;
-                } catch (e1) {
-                    console.warn("Direct href blocked, trying window.parent fallback...");
-                    // FALLBACK 2: Parent Location Assignment
-                    try {
-                        window.parent.location.assign(finalUrl);
-                    } catch (e2) {
-                        console.warn("Parent assignment blocked, trying Meta-Refresh hack...");
-                        // FALLBACK 3: The 'Self-Navigation' attempt
-                        window.top.location = finalUrl;
-                    }
+                if (accessToken) {
+                    // Construct the new URL for the top window
+                    const url = new URL(topWin.location.origin + topWin.location.pathname);
+                    url.searchParams.set('access_token', accessToken);
+                    
+                    // Add other useful params if present
+                    const refreshToken = params.get('refresh_token');
+                    if (refreshToken) url.searchParams.set('refresh_token', refreshToken);
+                    
+                    // SEAMLESS REDIRECT: Target the top window specifically via href assignment
+                    topWin.location.href = url.toString();
                 }
             }
         } catch (e) {
-            console.error("VerbaPost Hardened Bridge Error:", e);
+            console.error('VerbaPost OAuth Bridge Error:', e);
         }
     })();
     </script>
@@ -162,7 +161,7 @@ except ImportError:
     module_validator = None
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS (RESTORED IN FULL)
+# 🛠️ HELPER FUNCTIONS
 # ==========================================
 
 def sync_user_session():
@@ -198,35 +197,41 @@ def handle_logout():
 # ==========================================
 
 def main():
-    # 1. AUTH INTERCEPTOR (THE GOOGLE LOGIN FIX)
+    # 1. PRIORITY: HANDLE OAUTH CALLBACK FIRST
+    # We check query params for the access_token passed by the JS bridge.
     query_params = st.query_params
-    url_token = query_params.get("access_token")
+    access_token = query_params.get("access_token")
 
-    nav = query_params.get("nav")
-    project_id = query_params.get("id")
-
-    if url_token and not st.session_state.get("authenticated"):
+    if access_token and not st.session_state.get("authenticated"):
         if auth_engine:
-            logger.info("Access token detected in URL. Verifying...")
-            with st.spinner("Authenticating via Google..."):
-                email, err = auth_engine.verify_oauth_token(url_token)
+            logger.info("🔐 OAuth token detected - Processing...")
+            with st.spinner("🔄 Finalizing Google Login..."):
+                email, err = auth_engine.verify_oauth_token(access_token)
                 if email:
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
                     st.session_state.app_mode = "heirloom" 
-                    sync_user_session()
+                    if database:
+                        try:
+                            if not database.get_user_profile(email):
+                                # Auto-create profile for first-time OAuth users
+                                database.create_user(email, email.split('@')[0])
+                            sync_user_session()
+                        except Exception as db_err:
+                            logger.error(f"Database sync error: {db_err}")
+                    
+                    # Clear query params to prevent re-authentication loops
                     st.query_params.clear()
-                    logger.info(f"OAuth Success: {email}")
                     st.rerun()
                 else:
-                    logger.error(f"Auth failed: {err}")
                     st.error(f"Authentication Error: {err}")
+                    st.stop()
 
     # 2. SYSTEM HEALTH PRE-FLIGHT
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
-            st.error("System configuration error. Check Admin logs.")
+            st.error("System configuration error. Please check Admin logs for missing API keys.")
             st.stop()
         st.session_state.system_verified = True
 
@@ -235,10 +240,11 @@ def main():
         st.session_state.authenticated = False
     if "user_email" not in st.session_state:
         st.session_state.user_email = None
-    if "user_role" not in st.session_state:
-        st.session_state.user_role = "user"
-        
-    # 4. INITIALIZE APP MODE ROUTING (STATE MACHINE)
+    
+    # 4. INITIALIZE APP MODE ROUTING
+    nav = query_params.get("nav")
+    project_id = query_params.get("id")
+    
     if "app_mode" not in st.session_state:
         if nav == "legal": st.session_state.app_mode = "legal"
         elif nav == "blog": st.session_state.app_mode = "blog"
@@ -248,9 +254,8 @@ def main():
         elif nav == "login": st.session_state.app_mode = "login"
         else: st.session_state.app_mode = "splash"
 
-    # 5. SIDEBAR: MASTER SWITCH & LOGOUT (RESTORED IN FULL)
+    # 5. SIDEBAR: MASTER SWITCH & LOGOUT
     with st.sidebar:
-        # Persistent Version Display
         st.caption(f"VerbaPost Wealth Build: v{VERSION}")
         st.divider()
 
@@ -258,27 +263,18 @@ def main():
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
         
+        # Admin-only visibility for the Master Switch
         if user_email and admin_email and user_email == admin_email:
              with st.sidebar:
                  st.markdown("### 🛠️ Admin Master Switch")
-                 st.sidebar.caption("Override current view for internal testing.")
-                 
                  if st.button("⚙️ Admin Console (Backend)", use_container_width=True):
-                     st.session_state.app_mode = "admin"
-                     st.rerun()
-                 
+                     st.session_state.app_mode = "admin"; st.rerun()
                  if st.button("🏛️ Advisor Portal (QB View)", use_container_width=True):
-                     st.session_state.app_mode = "advisor"
-                     st.rerun()
-                     
-                 if st.button("📮 Consumer Store", use_container_width=True):
-                     st.session_state.app_mode = "store"
-                     st.rerun()
-                 
+                     st.session_state.app_mode = "advisor"; st.rerun()
+                 if st.button("🔮 Consumer Store", use_container_width=True):
+                     st.session_state.app_mode = "store"; st.rerun()
                  if st.button("🤝 Partner Portal", use_container_width=True):
-                     st.session_state.app_mode = "partner"
-                     st.rerun()
-
+                     st.session_state.app_mode = "partner"; st.rerun()
                  st.sidebar.divider()
 
         with st.sidebar:
@@ -288,20 +284,20 @@ def main():
     # 6. ROUTER LOGIC: VIEW RENDERING (EXPLICIT ROUTE MAP)
     mode = st.session_state.app_mode
 
-    if mode == "admin":
-        if ui_admin: ui_admin.render_admin_page()
+    if mode == "admin" and ui_admin:
+        ui_admin.render_admin_page()
         return
-    if mode == "archive":
-        if ui_archive: ui_archive.render_heir_vault(project_id)
+    if mode == "archive" and ui_archive:
+        ui_archive.render_heir_vault(project_id)
         return
-    if mode == "setup":
-        if ui_setup: ui_setup.render_parent_setup(project_id)
+    if mode == "setup" and ui_setup:
+        ui_setup.render_parent_setup(project_id)
         return
-    if mode == "legal":
-        if ui_legal: ui_legal.render_legal_page()
+    if mode == "legal" and ui_legal:
+        ui_legal.render_legal_page()
         return
-    if mode == "blog":
-        if ui_blog: ui_blog.render_blog_page()
+    if mode == "blog" and ui_blog:
+        ui_blog.render_blog_page()
         return
     if mode == "heirloom":
         if not st.session_state.authenticated:
@@ -312,17 +308,19 @@ def main():
     if mode in ["store", "workspace", "review", "receipt"]:
         if ui_main: ui_main.render_main()
         return
-    if mode == "advisor":
-        if ui_advisor: ui_advisor.render_dashboard()
+    if mode == "advisor" and ui_advisor:
+        ui_advisor.render_dashboard()
         return
-    if mode == "partner":
-        if ui_partner: ui_partner.render_dashboard()
+    if mode == "partner" and ui_partner:
+        ui_partner.render_dashboard()
         return
-    if mode == "login":
-        if ui_login: ui_login.render_login_page()
+    if mode == "login" and ui_login:
+        ui_login.render_login_page()
         return
 
-    if ui_splash: ui_splash.render_splash_page()
+    # Fallback to splash if no route is explicitly handled
+    if ui_splash: 
+        ui_splash.render_splash_page()
 
 if __name__ == "__main__":
     try:
