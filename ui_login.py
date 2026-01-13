@@ -112,8 +112,6 @@ def render_login_page():
             st.warning("⚠️ Google Sign-In temporarily unavailable")
     
     # --- TABS ---
-    # If advisor intent is detected, default to "New Account" tab
-    default_tab = 0 if is_advisor_intent else 1
     tab_signup, tab_login, tab_forgot = st.tabs(["New Account", "Sign In", "Forgot Password"])
 
     # --- TAB A: SIGN UP ---

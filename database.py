@@ -291,13 +291,18 @@ def get_or_create_advisor(email):
         with get_db_session() as session:
             adv = session.query(Advisor).filter_by(email=email).first()
             if not adv:
+                # Fallback: Try to get data from UserProfile to prepopulate
                 legacy = session.query(UserProfile).filter_by(email=email).first()
                 full_name = legacy.full_name if legacy else ""
-                adv = Advisor(email=email, full_name=full_name)
+                firm_name = legacy.advisor_firm if legacy else "Independent Firm"
+                
+                adv = Advisor(email=email, full_name=full_name, firm_name=firm_name)
                 session.add(adv)
                 session.commit()
             return to_dict(adv)
-    except Exception: return {}
+    except Exception as e: 
+        logger.error(f"Advisor Create Error: {e}")
+        return {}
 
 def get_clients(advisor_email):
     """Fetches firm-specific clients."""
@@ -336,12 +341,14 @@ def get_pending_approvals(advisor_email):
     """Fetches items for Ghostwriting review."""
     try:
         with get_db_session() as session:
+            # Query for projects that are in a 'Recorded' state waiting for approval
             projs = session.query(Project).filter_by(advisor_email=advisor_email, status="Recorded").all()
             results = []
             for p in projs:
                 client = session.query(Client).filter_by(id=p.client_id).first()
                 d = to_dict(p)
                 d['parent_name'] = client.name if client else "Unknown"
+                d['heir_name'] = client.heir_name if client else "Unknown"
                 results.append(d)
             return results
     except Exception: return []
@@ -405,7 +412,6 @@ def get_user_drafts(email):
             ).order_by(LetterDraft.created_at.desc()).all()
             
             # Convert results to dictionaries immediately
-            # This is critical to prevent "Instance is not bound to a Session" errors
             return [
                 {
                     "id": d.id,
@@ -421,14 +427,12 @@ def get_user_drafts(email):
                 for d in drafts
             ]
     except Exception as e:
-        import logging
         logging.error(f"Error fetching drafts for {email}: {e}")
         return []
 
 def update_last_call_timestamp(email):
     """
     Updates the 'last_call_date' for a user to the current UTC time.
-    Used for call frequency limiting and activity tracking.
     """
     if not email:
         return False
@@ -441,7 +445,6 @@ def update_last_call_timestamp(email):
                 return True
             return False
     except Exception as e:
-        import logging
         logging.error(f"Error updating call timestamp for {email}: {e}")
         return False
 
