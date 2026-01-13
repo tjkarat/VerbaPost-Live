@@ -27,17 +27,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. OAUTH FRAGMENT BRIDGE ---
+# --- 2. OAUTH FRAGMENT BRIDGE (HARDENED) ---
 # Converts URL fragments (#access_token) into parameters (?access_token)
-# so that the Python router can process the login fragment.
+# using window.top to bypass iframe navigation security policies.
 components.html(
     """
     <script>
-    var hash = window.parent.location.hash;
-    if (hash && hash.includes('access_token=')) {
-        var newUrl = window.parent.location.pathname + hash.replace('#', '?');
-        window.parent.location.href = newUrl;
-    }
+    (function() {
+        var hash = window.top.location.hash;
+        if (hash && hash.includes('access_token=')) {
+            // 1. Clean the hash and convert to query string format
+            var cleanParams = hash.replace('#', '?');
+            
+            // 2. Build the new destination URL on the top-level window
+            var newUrl = window.top.location.origin + window.top.location.pathname + cleanParams;
+            
+            // 3. Force top-level navigation to refresh page with parameters
+            window.top.location.href = newUrl;
+        }
+    })();
     </script>
     """,
     height=0,
@@ -176,30 +184,6 @@ def main():
     # 1. AUTH INTERCEPTOR (THE GOOGLE LOGIN FIX)
     query_params = st.query_params
     url_token = query_params.get("access_token")
-    # --- 🩺 DIAGNOSTIC DEBUG BLOCK ---
-# Add this immediately after 'url_token = query_params.get("access_token")' in main()
-
-if "access_token" in st.query_params or "nav" in st.query_params:
-    st.sidebar.warning("🛠️ Debug: Auth Traffic Detected")
-    debug_data = {
-        "nav_param": st.query_params.get("nav"),
-        "has_token": "access_token" in st.query_params,
-        "token_len": len(st.query_params.get("access_token", "")) if "access_token" in st.query_params else 0,
-        "session_auth": st.session_state.get("authenticated", False),
-        "url_fragment_detected": "#access_token" in str(st.query_params) # Catching bridge failures
-    }
-    
-    # 1. Console Log for GCP Cloud Logging
-    logger.info(f"🔍 DIAGNOSTIC: {json.dumps(debug_data)}")
-    
-    # 2. On-Screen Display (Visible only to you during testing)
-    with st.sidebar.expander("📝 Diagnostic Details", expanded=True):
-        st.json(debug_data)
-        if debug_data["url_fragment_detected"]:
-            st.error("🚨 Error: Token stuck in URL fragment (#). JavaScript bridge failed.")
-        elif not debug_data["has_token"] and debug_data["nav_param"] == "login":
-            st.error("🚨 Error: No token received from Google/Supabase.")
-# --- END DEBUG BLOCK ---
 
     nav = query_params.get("nav")
     project_id = query_params.get("id")
