@@ -44,7 +44,32 @@ def get_client():
         logger.error(f"Supabase Init Error: {e}")
         return None
 
-# --- OAUTH VERIFICATION (NEW) ---
+def get_oauth_url(provider="google"):
+    """
+    Generate proper OAuth URL with redirect configuration.
+    Returns the full authorization URL.
+    """
+    try:
+        if secrets_manager:
+            sb_url = secrets_manager.get_secret("supabase.url")
+            base_url = secrets_manager.get_secret("base.url") or "http://localhost:8501"
+        elif "supabase" in st.secrets:
+            sb_url = st.secrets["supabase"]["url"]
+            base_url = st.secrets.get("base_url", "http://localhost:8501")
+        else:
+            return None
+            
+        if not sb_url:
+            return None
+            
+        # Construct OAuth URL with proper redirect
+        oauth_url = f"{sb_url}/auth/v1/authorize?provider={provider}&redirect_to={base_url}?oauth_callback=true"
+        logger.info(f"Generated OAuth URL: {oauth_url}")
+        return oauth_url
+        
+    except Exception as e:
+        logger.error(f"Failed to generate OAuth URL: {e}")
+        return None
 
 def verify_oauth_token(access_token):
     """
@@ -56,15 +81,38 @@ def verify_oauth_token(access_token):
     if not client: return None, "Supabase Client Missing"
 
     try:
-        # Verify token by fetching the user object
+        # Set the session using the access token
+        logger.info("Attempting to verify OAuth token...")
         user_response = client.auth.get_user(access_token)
         
         if user_response and user_response.user:
+            logger.info(f"OAuth verification successful for: {user_response.user.email}")
             return user_response.user.email, None
         else:
+            logger.error("Invalid token or user not found")
             return None, "Invalid Token or User not found"
     except Exception as e:
         logger.error(f"Token Verification Failed: {e}")
+        return None, str(e)
+
+def exchange_code_for_session(code):
+    """
+    Exchange authorization code for session (alternative OAuth flow).
+    """
+    client = get_client()
+    if not client: return None, "Client Missing"
+    
+    try:
+        logger.info("Exchanging code for session...")
+        response = client.auth.exchange_code_for_session(code)
+        
+        if response and response.user:
+            logger.info(f"Code exchange successful for: {response.user.email}")
+            return response.user.email, None
+        else:
+            return None, "Failed to exchange code"
+    except Exception as e:
+        logger.error(f"Code exchange failed: {e}")
         return None, str(e)
 
 # --- STANDARD AUTH FLOWS (Existing) ---
@@ -101,7 +149,6 @@ def send_password_reset(email):
     client = get_client()
     if not client: return False, "Client Missing"
     try:
-        # You might need to configure the redirect_to URL in Supabase dashboard
         client.auth.reset_password_for_email(email)
         return True, None
     except Exception as e:
@@ -130,6 +177,7 @@ def update_user_password(new_password):
         return True, None
     except Exception as e:
         return False, str(e)
+
 def sign_out():
     """
     Clears the Supabase session active in the client.
@@ -138,7 +186,7 @@ def sign_out():
     if not client: return
     
     try:
-        # This clears the local session cache in the GoTrue client
         client.auth.sign_out()
+        logger.info("Supabase session cleared")
     except Exception as e:
         logger.warning(f"Supabase SignOut Error: {e}")

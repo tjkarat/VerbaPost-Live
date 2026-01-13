@@ -1,14 +1,12 @@
 import streamlit as st
 
-# --- 🏷️ VERSION CONTROL ---
-# Increment this constant at every functional update to this file.
-VERSION = "4.2.1"  # Seamless OAuth Fix (Top-Level Bridge)
+# --- VERSION CONTROL ---
+VERSION = "4.3.0"  # OAuth Flow Complete Rewrite
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
-# This must remain at the very top to prevent Streamlit set_page_config errors.
 st.set_page_config(
     page_title=f"VerbaPost Wealth v{VERSION}", 
-    page_icon="🏛️", 
+    page_icon="🛡️", 
     layout="centered",
     initial_sidebar_state="expanded" 
 )
@@ -21,9 +19,8 @@ import time
 import json
 
 # ==========================================
-# 🔧 SYSTEM & LOGGING SETUP (PRESERVED)
+# 🔧 SYSTEM & LOGGING SETUP
 # ==========================================
-# This block ensures high-resolution logs for production debugging.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -31,33 +28,34 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. ENHANCED OAUTH FRAGMENT BRIDGE (TOP-LEVEL SEAMLESS) ---
-# Corrected to target window.top. Bypasses SecurityError via direct property assignment.
-# This ensures that tokens detected in the URL hash are converted to query parameters.
+# --- 2. ENHANCED OAUTH FRAGMENT BRIDGE ---
+# This JavaScript extracts tokens from URL hash and converts them to query params
 components.html(
     """
     <script>
     (function() {
         try {
-            const topWin = window.top;
-            const hash = topWin.location.hash;
+            const hash = window.location.hash;
             
             if (hash && hash.includes('access_token=')) {
-                // Parse the hash fragment from the top-level window
+                console.log('VerbaPost: OAuth token detected in hash');
+                
+                // Parse hash fragment
                 const params = new URLSearchParams(hash.substring(1));
                 const accessToken = params.get('access_token');
+                const refreshToken = params.get('refresh_token');
+                const tokenType = params.get('token_type');
                 
                 if (accessToken) {
-                    // Construct the new URL for the top window
-                    const url = new URL(topWin.location.origin + topWin.location.pathname);
+                    // Build new URL with query params instead of hash
+                    const url = new URL(window.location.href.split('#')[0]);
                     url.searchParams.set('access_token', accessToken);
-                    
-                    // Add other useful params if present
-                    const refreshToken = params.get('refresh_token');
                     if (refreshToken) url.searchParams.set('refresh_token', refreshToken);
+                    if (tokenType) url.searchParams.set('token_type', tokenType);
                     
-                    // SEAMLESS REDIRECT: Target the top window specifically via href assignment
-                    topWin.location.href = url.toString();
+                    // Redirect to clean URL with tokens in query params
+                    console.log('VerbaPost: Redirecting to process tokens');
+                    window.location.href = url.toString();
                 }
             }
         } catch (e) {
@@ -69,107 +67,87 @@ components.html(
     height=0,
 )
 
-# --- 3. MODULE IMPORTS (ROBUST ERROR WRAPPING) ---
-# Each import is wrapped in an individual try/except to prevent app-wide crashes.
-# This allows the system to boot even if a single component is failing.
-try: 
-    import ui_splash
+# --- 3. MODULE IMPORTS ---
+try: import ui_splash
 except ImportError as e: 
     logger.error(f"UI Splash Import Error: {e}")
     ui_splash = None
 
-try: 
-    import ui_advisor
+try: import ui_advisor
 except ImportError as e: 
     logger.error(f"UI Advisor Import Error: {e}")
     ui_advisor = None
 
-try: 
-    import ui_login
+try: import ui_login
 except ImportError as e: 
     logger.error(f"UI Login Import Error: {e}")
     ui_login = None
 
-try: 
-    import ui_admin
+try: import ui_admin
 except ImportError as e: 
     logger.error(f"UI Admin Import Error: {e}")
     ui_admin = None
 
-try: 
-    import ui_main
+try: import ui_main
 except ImportError as e: 
     logger.error(f"UI Main Import Error: {e}")
     ui_main = None
 
-try: 
-    import ui_setup
+try: import ui_setup
 except ImportError as e: 
     logger.error(f"UI Setup Import Error: {e}")
     ui_setup = None
 
-try: 
-    import ui_archive
+try: import ui_archive
 except ImportError as e: 
     logger.error(f"UI Archive Import Error: {e}")
     ui_archive = None
 
-try: 
-    import ui_heirloom
+try: import ui_heirloom
 except ImportError as e:
     logger.error(f"UI Heirloom Import Error: {e}")
     ui_heirloom = None
 
-try: 
-    import ui_legal
+try: import ui_legal
 except ImportError as e:
     logger.error(f"UI Legal Import Error: {e}")
     ui_legal = None
 
-try: 
-    import ui_blog
+try: import ui_blog
 except ImportError as e:
     logger.error(f"UI Blog Import Error: {e}")
     ui_blog = None
 
-try: 
-    import ui_partner
+try: import ui_partner
 except ImportError as e:
     logger.error(f"UI Partner Import Error: {e}")
     ui_partner = None
 
-try: 
-    import auth_engine
+try: import auth_engine
 except ImportError as e: 
     logger.error(f"Auth Engine Import Error: {e}")
     auth_engine = None
 
-try: 
-    import database
+try: import database
 except ImportError as e: 
     logger.error(f"Database Import Error: {e}")
     database = None
 
-try: 
-    import secrets_manager
+try: import secrets_manager
 except ImportError as e: 
     logger.error(f"Secrets Manager Import Error: {e}")
     secrets_manager = None
 
-try: 
-    import module_validator
+try: import module_validator
 except ImportError: 
     module_validator = None
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS (RESTORED IN FULL)
+# 🛠️ HELPER FUNCTIONS
 # ==========================================
 
 def sync_user_session():
-    """
-    Synchronizes the Streamlit session state with the database UserProfile.
-    Crucial for enforcing 'Partner' vs 'User' roles in the Master Switch.
-    """
+    """Synchronizes session state with database UserProfile."""
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
             email = st.session_state.get("user_email")
@@ -184,10 +162,7 @@ def sync_user_session():
             logger.error(f"Session Sync Failure: {e}")
 
 def handle_logout():
-    """
-    Clears all application state and triggers a clean restart.
-    Ensures that OAuth tokens are cleared from the browser session.
-    """
+    """Clears all application state and triggers clean restart."""
     logger.info("Triggering global logout and session clear.")
     if auth_engine: 
         auth_engine.sign_out()
@@ -196,55 +171,71 @@ def handle_logout():
     st.rerun()
 
 # ==========================================
-# 🚀 MAIN APPLICATION ENTRY POINT (ROUTER)
+# 🚀 MAIN APPLICATION ENTRY POINT
 # ==========================================
 
 def main():
-    # 1. AUTH INTERCEPTOR (THE GOOGLE LOGIN FIX)
-    # We check query params for the access_token passed by the JS bridge.
+    # --- STEP 1: OAUTH TOKEN INTERCEPTOR ---
     query_params = st.query_params
     access_token = query_params.get("access_token")
-
-    nav = query_params.get("nav")
-    project_id = query_params.get("id")
-
+    oauth_callback = query_params.get("oauth_callback")
+    
+    # Check if this is an OAuth callback with token
     if access_token and not st.session_state.get("authenticated"):
         if auth_engine:
-            logger.info("🔐 OAuth token detected - Processing...")
-            with st.spinner("🔄 Finalizing Google Login..."):
+            logger.info("🔐 OAuth token detected - Processing authentication...")
+            
+            with st.spinner("🔄 Completing Google Sign-In..."):
                 email, err = auth_engine.verify_oauth_token(access_token)
+                
                 if email:
+                    logger.info(f"✅ OAuth Success: {email}")
+                    
+                    # Set session state
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
-                    st.session_state.app_mode = "heirloom" 
+                    st.session_state.app_mode = "heirloom"
+                    
+                    # Create/sync user profile
                     if database:
                         try:
-                            if not database.get_user_profile(email):
-                                # Auto-create profile for first-time OAuth users
+                            profile = database.get_user_profile(email)
+                            if not profile:
                                 logger.info(f"Creating new profile for OAuth user: {email}")
-                                database.create_user(email, email.split('@')[0])
+                                # Extract name from email if available
+                                display_name = email.split('@')[0]
+                                database.create_user(email, display_name)
                             sync_user_session()
                         except Exception as db_err:
                             logger.error(f"Database sync error: {db_err}")
                     
-                    # Clear query params to prevent re-authentication loops
+                    # Clear OAuth params and redirect to clean URL
                     st.query_params.clear()
-                    logger.info(f"OAuth Success: {email}")
+                    logger.info("Redirecting to dashboard...")
+                    time.sleep(0.5)  # Brief delay for user feedback
                     st.rerun()
                 else:
-                    logger.error(f"Auth failed: {err}")
-                    st.error(f"Authentication Error: {err}")
+                    logger.error(f"OAuth verification failed: {err}")
+                    st.error(f"❌ Authentication Error: {err}")
+                    st.info("Please try signing in again.")
+                    if st.button("Return to Login"):
+                        st.query_params.clear()
+                        st.session_state.app_mode = "login"
+                        st.rerun()
                     st.stop()
-
-    # 2. SYSTEM HEALTH PRE-FLIGHT (RESTORED)
+        else:
+            st.error("Auth engine not available")
+            st.stop()
+    
+    # --- STEP 2: SYSTEM HEALTH CHECK ---
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
-            st.error("System configuration error. Please check Admin logs for missing API keys.")
+            st.error("⚠️ System configuration error. Check logs for missing API keys.")
             st.stop()
         st.session_state.system_verified = True
 
-    # 3. INITIALIZE SESSION STATE DEFAULTS
+    # --- STEP 3: INITIALIZE SESSION STATE ---
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     if "user_email" not in st.session_state:
@@ -252,7 +243,10 @@ def main():
     if "user_role" not in st.session_state:
         st.session_state.user_role = "user"
         
-    # 4. INITIALIZE APP MODE ROUTING (STATE MACHINE)
+    # --- STEP 4: APP MODE ROUTING ---
+    nav = query_params.get("nav")
+    project_id = query_params.get("id")
+    
     if "app_mode" not in st.session_state:
         if nav == "legal": 
             st.session_state.app_mode = "legal"
@@ -269,9 +263,8 @@ def main():
         else: 
             st.session_state.app_mode = "splash"
 
-    # 5. SIDEBAR: MASTER SWITCH & LOGOUT (RESTORED IN FULL)
+    # --- STEP 5: SIDEBAR ---
     with st.sidebar:
-        # Persistent Version Display
         st.caption(f"VerbaPost Wealth Build: v{VERSION}")
         st.divider()
 
@@ -279,20 +272,21 @@ def main():
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
         
+        # Admin Master Switch
         if user_email and admin_email and user_email == admin_email:
              with st.sidebar:
                  st.markdown("### 🛠️ Admin Master Switch")
                  st.sidebar.caption("Override current view for internal testing.")
                  
-                 if st.button("⚙️ Admin Console (Backend)", use_container_width=True):
+                 if st.button("⚙️ Admin Console", use_container_width=True):
                      st.session_state.app_mode = "admin"
                      st.rerun()
                  
-                 if st.button("🏛️ Advisor Portal (QB View)", use_container_width=True):
+                 if st.button("🛡️ Advisor Portal", use_container_width=True):
                      st.session_state.app_mode = "advisor"
                      st.rerun()
                      
-                 if st.button("📮 Consumer Store", use_container_width=True):
+                 if st.button("🔮 Consumer Store", use_container_width=True):
                      st.session_state.app_mode = "store"
                      st.rerun()
                  
@@ -302,46 +296,47 @@ def main():
 
                  st.sidebar.divider()
 
+        # Logout Button
         with st.sidebar:
             if st.button("🚪 Sign Out", use_container_width=True):
                 handle_logout()
 
-    # 6. ROUTER LOGIC: VIEW RENDERING (EXPLICIT ROUTE MAP)
+    # --- STEP 6: ROUTE TO APPROPRIATE VIEW ---
     mode = st.session_state.app_mode
 
     if mode == "admin":
         if ui_admin: 
             ui_admin.render_admin_page()
         else:
-            st.error("Admin module (ui_admin.py) not found.")
+            st.error("Admin module not found.")
         return
 
     if mode == "archive":
         if ui_archive: 
             ui_archive.render_heir_vault(project_id)
         else:
-            st.error("Archive module (ui_archive.py) missing.")
+            st.error("Archive module missing.")
         return
         
     if mode == "setup":
         if ui_setup: 
             ui_setup.render_parent_setup(project_id)
         else:
-            st.error("Setup module (ui_setup.py) missing.")
+            st.error("Setup module missing.")
         return
 
     if mode == "legal":
         if ui_legal: 
             ui_legal.render_legal_page()
         else:
-            st.error("Legal module (ui_legal.py) missing.")
+            st.error("Legal module missing.")
         return
         
     if mode == "blog":
         if ui_blog: 
             ui_blog.render_blog_page()
         else:
-            st.error("Blog module (ui_blog.py) missing.")
+            st.error("Blog module missing.")
         return
 
     if mode == "heirloom":
@@ -351,14 +346,14 @@ def main():
         if ui_heirloom: 
             ui_heirloom.render_dashboard()
         else:
-            st.error("Heirloom module (ui_heirloom.py) missing.")
+            st.error("Heirloom module missing.")
         return
 
     if mode in ["store", "workspace", "review", "receipt"]:
         if ui_main: 
             ui_main.render_main()
         else:
-            st.error("Retail module (ui_main.py) missing.")
+            st.error("Retail module missing.")
         return
 
     if mode == "advisor":
@@ -379,14 +374,15 @@ def main():
         if ui_login: 
             ui_login.render_login_page()
         else:
-            st.error("Login module (ui_login.py) missing.")
+            st.error("Login module missing.")
         return
 
+    # Default: Splash page
     if ui_splash:
         ui_splash.render_splash_page()
     else:
         st.title("VerbaPost Wealth")
-        st.write("System failed to initialize. Please check logs.")
+        st.write("System initialization failed. Check logs.")
 
 if __name__ == "__main__":
     try:

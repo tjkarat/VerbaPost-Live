@@ -14,7 +14,7 @@ except ImportError: secrets_manager = None
 def render_login_page():
     """
     Renders the Login, Signup, and Password Recovery interface.
-    Includes Address Validation on Signup to ensure return addresses are valid.
+    Now includes streamlined Google OAuth.
     """
     st.markdown("""
     <style>
@@ -24,7 +24,7 @@ def render_login_page():
     </style>
     """, unsafe_allow_html=True)
 
-    # --- 1. HANDLE RECOVERY LINK (Redirect from Email) ---
+    # --- 1. HANDLE RECOVERY LINK ---
     params = st.query_params
     if params.get("type") == "recovery":
         st.info("🔓 Verified! Please set your new password below.")
@@ -54,29 +54,53 @@ def render_login_page():
             st.rerun()
         return
 
-    # --- 2. STANDARD LOGIN/SIGNUP UI ---
+    # --- 2. MAIN LOGIN UI ---
     st.markdown("## 🔐 Access VerbaPost")
     
-    # --- GOOGLE AUTHENTICATION BUTTON ---
-    if secrets_manager:
-        sb_url = secrets_manager.get_secret("SUPABASE_URL")
-        # DETERMINE BASE URL (Production vs Local)
-        base_url = secrets_manager.get_secret("BASE_URL") or "https://app.verbapost.com"
+    # --- GOOGLE OAUTH BUTTON ---
+    if auth_engine:
+        google_url = auth_engine.get_oauth_url("google")
         
-        if sb_url:
-            # CONSTRUCT URL WITH EXPLICIT REDIRECT
-            google_auth_url = f"{sb_url}/auth/v1/authorize?provider=google&redirect_to={base_url}"
+        if google_url:
+            st.markdown("""
+                <style>
+                .google-btn {
+                    display: block;
+                    width: 100%;
+                    padding: 12px;
+                    background: white;
+                    border: 1px solid #dadce0;
+                    border-radius: 4px;
+                    color: #3c4043;
+                    font-size: 14px;
+                    font-weight: 500;
+                    text-align: center;
+                    text-decoration: none;
+                    transition: background 0.2s;
+                    margin-bottom: 20px;
+                }
+                .google-btn:hover {
+                    background: #f8f9fa;
+                    border-color: #dadce0;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                }
+                </style>
+            """, unsafe_allow_html=True)
             
-            if st.link_button("🇬 Continue with Google", google_auth_url, type="primary", use_container_width=True):
-                pass
+            st.markdown(
+                f'<a href="{google_url}" class="google-btn">🇬 Continue with Google</a>',
+                unsafe_allow_html=True
+            )
             
             st.markdown("""
                 <div style="text-align: center; color: #666; font-size: 0.8rem; margin: 15px 0;">
                     — OR —
                 </div>
             """, unsafe_allow_html=True)
+        else:
+            st.warning("⚠️ Google Sign-In temporarily unavailable")
     
-    # TABS: New Account is default
+    # --- TABS ---
     tab_signup, tab_login, tab_forgot = st.tabs(["New Account", "Sign In", "Forgot Password"])
 
     # --- TAB A: SIGN UP ---
@@ -84,7 +108,7 @@ def render_login_page():
         st.markdown("""
         <div class="auth-explanation">
         <b>Why do we need your address?</b><br>
-        VerbaPost mails physical letters for you. We need a valid <b>Return Address</b> to ensure your mail is accepted by the USPS and can be returned if undeliverable.
+        VerbaPost mails physical letters for you. We need a valid <b>Return Address</b> to ensure your mail is accepted by USPS.
         </div>
         """, unsafe_allow_html=True)
 
@@ -97,7 +121,9 @@ def render_login_page():
             st.caption("Mailing & Config")
             
             c_tz, c_country = st.columns(2)
-            timezone = c_tz.selectbox("Timezone", ["US/Eastern", "US/Central", "US/Mountain", "US/Pacific", "UTC"], index=1)
+            timezone = c_tz.selectbox("Timezone", 
+                ["US/Eastern", "US/Central", "US/Mountain", "US/Pacific", "UTC"], 
+                index=1)
             country = c_country.selectbox("Country", ["US", "CA", "UK"], index=0)
 
             addr = st.text_input("Street Address")
@@ -106,10 +132,13 @@ def render_login_page():
             state = c1.text_input("State")
             zip_code = c2.text_input("Zip")
 
-            if st.form_submit_button("Create Account"):
-                if not addr or not city or not state or not zip_code:
+            if st.form_submit_button("Create Account", type="primary"):
+                if not new_email or not new_pass:
+                    st.error("Email and password are required.")
+                elif not addr or not city or not state or not zip_code:
                     st.error("Please complete your full address.")
                 else:
+                    # Validate address if mailer available
                     is_valid = False
                     details = {}
                     
@@ -133,16 +162,20 @@ def render_login_page():
                         elif isinstance(details, str):
                             error_msg = details
                         
-                        st.warning(f"⚠️ Address Note: USPS could not verify this exact location ({error_msg}).")
-                        st.caption("Account will be created, but verify your address in settings later.")
+                        st.warning(f"⚠️ Address Note: USPS verification issue ({error_msg}).")
+                        st.caption("Account will be created. Please verify address in settings.")
                     
+                    # Create account
                     if auth_engine:
-                        user, error = auth_engine.sign_up(new_email, new_pass, data={"full_name": full_name})
+                        user, error = auth_engine.sign_up(new_email, new_pass, 
+                                                         data={"full_name": full_name})
                         if user:
                             if database:
                                 database.create_user(new_email, full_name)
                                 with database.get_db_session() as db:
-                                    p = db.query(database.UserProfile).filter(database.UserProfile.email == new_email).first()
+                                    p = db.query(database.UserProfile).filter(
+                                        database.UserProfile.email == new_email
+                                    ).first()
                                     if p:
                                         p.address_line1 = addr
                                         p.address_city = city
@@ -169,7 +202,9 @@ def render_login_page():
             submit = st.form_submit_button("Sign In", type="primary")
             
             if submit:
-                if auth_engine:
+                if not email or not password:
+                    st.error("Please enter both email and password.")
+                elif auth_engine:
                     user, error = auth_engine.sign_in(email, password)
                     if user:
                         st.success(f"Welcome back!")
@@ -186,20 +221,24 @@ def render_login_page():
         with st.form("reset_request"):
             reset_email = st.text_input("Email Address")
             if st.form_submit_button("Send Reset Link"):
-                if auth_engine:
+                if not reset_email:
+                    st.error("Please enter your email address.")
+                elif auth_engine:
                     success, msg = auth_engine.send_password_reset(reset_email)
                     if success:
-                        st.success("✅ Check your email!")
+                        st.success("✅ Check your email for reset instructions!")
                     else:
                         st.error(f"Error: {msg}")
 
         st.divider()
-        st.markdown("#### 🔢 Have a code?")
+        st.markdown("#### 📢 Have a code?")
         with st.form("otp_verification"):
             otp_email = st.text_input("Email")
             otp_code = st.text_input("6-Digit Code")
             if st.form_submit_button("Verify Code"):
-                if auth_engine:
+                if not otp_email or not otp_code:
+                    st.error("Please enter both email and code.")
+                elif auth_engine:
                     session, error = auth_engine.verify_otp(otp_email, otp_code)
                     if session:
                         st.success("✅ Code Verified!")
