@@ -71,6 +71,7 @@ components.html(
 
 # --- 3. MODULE IMPORTS (ROBUST ERROR WRAPPING) ---
 # Each import is wrapped in an individual try/except to prevent app-wide crashes.
+# This allows the system to boot even if a single component is failing.
 try: 
     import ui_splash
 except ImportError as e: 
@@ -161,12 +162,13 @@ except ImportError:
     module_validator = None
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS
+# 🛠️ HELPER FUNCTIONS (RESTORED IN FULL)
 # ==========================================
 
 def sync_user_session():
     """
     Synchronizes the Streamlit session state with the database UserProfile.
+    Crucial for enforcing 'Partner' vs 'User' roles in the Master Switch.
     """
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
@@ -184,6 +186,7 @@ def sync_user_session():
 def handle_logout():
     """
     Clears all application state and triggers a clean restart.
+    Ensures that OAuth tokens are cleared from the browser session.
     """
     logger.info("Triggering global logout and session clear.")
     if auth_engine: 
@@ -197,10 +200,13 @@ def handle_logout():
 # ==========================================
 
 def main():
-    # 1. PRIORITY: HANDLE OAUTH CALLBACK FIRST
+    # 1. AUTH INTERCEPTOR (THE GOOGLE LOGIN FIX)
     # We check query params for the access_token passed by the JS bridge.
     query_params = st.query_params
     access_token = query_params.get("access_token")
+
+    nav = query_params.get("nav")
+    project_id = query_params.get("id")
 
     if access_token and not st.session_state.get("authenticated"):
         if auth_engine:
@@ -215,6 +221,7 @@ def main():
                         try:
                             if not database.get_user_profile(email):
                                 # Auto-create profile for first-time OAuth users
+                                logger.info(f"Creating new profile for OAuth user: {email}")
                                 database.create_user(email, email.split('@')[0])
                             sync_user_session()
                         except Exception as db_err:
@@ -222,12 +229,14 @@ def main():
                     
                     # Clear query params to prevent re-authentication loops
                     st.query_params.clear()
+                    logger.info(f"OAuth Success: {email}")
                     st.rerun()
                 else:
+                    logger.error(f"Auth failed: {err}")
                     st.error(f"Authentication Error: {err}")
                     st.stop()
 
-    # 2. SYSTEM HEALTH PRE-FLIGHT
+    # 2. SYSTEM HEALTH PRE-FLIGHT (RESTORED)
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
@@ -240,22 +249,29 @@ def main():
         st.session_state.authenticated = False
     if "user_email" not in st.session_state:
         st.session_state.user_email = None
-    
-    # 4. INITIALIZE APP MODE ROUTING
-    nav = query_params.get("nav")
-    project_id = query_params.get("id")
-    
+    if "user_role" not in st.session_state:
+        st.session_state.user_role = "user"
+        
+    # 4. INITIALIZE APP MODE ROUTING (STATE MACHINE)
     if "app_mode" not in st.session_state:
-        if nav == "legal": st.session_state.app_mode = "legal"
-        elif nav == "blog": st.session_state.app_mode = "blog"
-        elif nav == "partner": st.session_state.app_mode = "partner"
-        elif nav == "setup": st.session_state.app_mode = "setup"
-        elif nav == "archive": st.session_state.app_mode = "archive"
-        elif nav == "login": st.session_state.app_mode = "login"
-        else: st.session_state.app_mode = "splash"
+        if nav == "legal": 
+            st.session_state.app_mode = "legal"
+        elif nav == "blog": 
+            st.session_state.app_mode = "blog"
+        elif nav == "partner": 
+            st.session_state.app_mode = "partner"
+        elif nav == "setup": 
+            st.session_state.app_mode = "setup"
+        elif nav == "archive":
+            st.session_state.app_mode = "archive"
+        elif nav == "login":
+            st.session_state.app_mode = "login"
+        else: 
+            st.session_state.app_mode = "splash"
 
-    # 5. SIDEBAR: MASTER SWITCH & LOGOUT
+    # 5. SIDEBAR: MASTER SWITCH & LOGOUT (RESTORED IN FULL)
     with st.sidebar:
+        # Persistent Version Display
         st.caption(f"VerbaPost Wealth Build: v{VERSION}")
         st.divider()
 
@@ -263,18 +279,27 @@ def main():
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
         
-        # Admin-only visibility for the Master Switch
         if user_email and admin_email and user_email == admin_email:
              with st.sidebar:
                  st.markdown("### 🛠️ Admin Master Switch")
+                 st.sidebar.caption("Override current view for internal testing.")
+                 
                  if st.button("⚙️ Admin Console (Backend)", use_container_width=True):
-                     st.session_state.app_mode = "admin"; st.rerun()
+                     st.session_state.app_mode = "admin"
+                     st.rerun()
+                 
                  if st.button("🏛️ Advisor Portal (QB View)", use_container_width=True):
-                     st.session_state.app_mode = "advisor"; st.rerun()
-                 if st.button("🔮 Consumer Store", use_container_width=True):
-                     st.session_state.app_mode = "store"; st.rerun()
+                     st.session_state.app_mode = "advisor"
+                     st.rerun()
+                     
+                 if st.button("📮 Consumer Store", use_container_width=True):
+                     st.session_state.app_mode = "store"
+                     st.rerun()
+                 
                  if st.button("🤝 Partner Portal", use_container_width=True):
-                     st.session_state.app_mode = "partner"; st.rerun()
+                     st.session_state.app_mode = "partner"
+                     st.rerun()
+
                  st.sidebar.divider()
 
         with st.sidebar:
@@ -284,43 +309,84 @@ def main():
     # 6. ROUTER LOGIC: VIEW RENDERING (EXPLICIT ROUTE MAP)
     mode = st.session_state.app_mode
 
-    if mode == "admin" and ui_admin:
-        ui_admin.render_admin_page()
+    if mode == "admin":
+        if ui_admin: 
+            ui_admin.render_admin_page()
+        else:
+            st.error("Admin module (ui_admin.py) not found.")
         return
-    if mode == "archive" and ui_archive:
-        ui_archive.render_heir_vault(project_id)
+
+    if mode == "archive":
+        if ui_archive: 
+            ui_archive.render_heir_vault(project_id)
+        else:
+            st.error("Archive module (ui_archive.py) missing.")
         return
-    if mode == "setup" and ui_setup:
-        ui_setup.render_parent_setup(project_id)
+        
+    if mode == "setup":
+        if ui_setup: 
+            ui_setup.render_parent_setup(project_id)
+        else:
+            st.error("Setup module (ui_setup.py) missing.")
         return
-    if mode == "legal" and ui_legal:
-        ui_legal.render_legal_page()
+
+    if mode == "legal":
+        if ui_legal: 
+            ui_legal.render_legal_page()
+        else:
+            st.error("Legal module (ui_legal.py) missing.")
         return
-    if mode == "blog" and ui_blog:
-        ui_blog.render_blog_page()
+        
+    if mode == "blog":
+        if ui_blog: 
+            ui_blog.render_blog_page()
+        else:
+            st.error("Blog module (ui_blog.py) missing.")
         return
+
     if mode == "heirloom":
         if not st.session_state.authenticated:
             st.session_state.app_mode = "login"
             st.rerun()
-        if ui_heirloom: ui_heirloom.render_dashboard()
-        return
-    if mode in ["store", "workspace", "review", "receipt"]:
-        if ui_main: ui_main.render_main()
-        return
-    if mode == "advisor" and ui_advisor:
-        ui_advisor.render_dashboard()
-        return
-    if mode == "partner" and ui_partner:
-        ui_partner.render_dashboard()
-        return
-    if mode == "login" and ui_login:
-        ui_login.render_login_page()
+        if ui_heirloom: 
+            ui_heirloom.render_dashboard()
+        else:
+            st.error("Heirloom module (ui_heirloom.py) missing.")
         return
 
-    # Fallback to splash if no route is explicitly handled
-    if ui_splash: 
+    if mode in ["store", "workspace", "review", "receipt"]:
+        if ui_main: 
+            ui_main.render_main()
+        else:
+            st.error("Retail module (ui_main.py) missing.")
+        return
+
+    if mode == "advisor":
+        if ui_advisor:
+            ui_advisor.render_dashboard()
+        else:
+            st.error("Advisor module missing.")
+        return
+
+    if mode == "partner":
+        if ui_partner:
+            ui_partner.render_dashboard()
+        else:
+            st.error("Partner module missing.")
+        return
+
+    if mode == "login":
+        if ui_login: 
+            ui_login.render_login_page()
+        else:
+            st.error("Login module (ui_login.py) missing.")
+        return
+
+    if ui_splash:
         ui_splash.render_splash_page()
+    else:
+        st.title("VerbaPost Wealth")
+        st.write("System failed to initialize. Please check logs.")
 
 if __name__ == "__main__":
     try:
