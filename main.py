@@ -5,7 +5,7 @@ import logging
 import time
 
 # --- 🏷️ VERSION CONTROL ---
-VERSION = "5.0.4" # Added Google-to-DB Sync Fix
+VERSION = "5.0.5" # Strict Mode: Forced Sign-Up for Advisors
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -78,36 +78,40 @@ def main():
         ui_archive.render_heir_vault(pid)
         return
 
-    # 2. GOOGLE AUTH (PKCE)
+    # 2. GOOGLE AUTH (PKCE) - STRICT MODE
     if "code" in params:
         code = params["code"]
-        if auth_engine:
+        if auth_engine and database:
             user, err = auth_engine.exchange_code_for_user(code)
+            
             if user:
-                # --- DB SYNC FIX: Ensure User Exists in Public Table ---
-                if database:
-                    # 1. Try to fetch profile
-                    profile = database.get_user_profile(user.email)
-                    
-                    # 2. If profile is missing or has no name (fresh auto-create), update it
-                    if not profile.get('full_name'):
-                        google_name = user.user_metadata.get('full_name', 'Google User')
-                        # We force update the name to ensure the record is complete
-                        # Since get_user_profile auto-creates, we just need to ensure details are there
-                        # But explicit create is safer if the row was just deleted
-                        database.create_user(user.email, google_name)
-
-                st.session_state.authenticated = True
-                st.session_state.user_email = user.email
-                
-                # Smart Route: Check if advisor
+                # 🛑 STRICT CHECK: Does this user exist in our DB?
+                # We check 'full_name' because get_user_profile() might return a 
+                # blank skeleton record. Real users ALWAYS have a name from Sign-Up.
                 profile = database.get_user_profile(user.email)
-                if profile.get('role') == 'advisor':
-                    st.session_state.app_mode = "advisor"
+                
+                if not profile.get('full_name'):
+                    # REJECT LOGIN: This prevents Advisors from bypassing the setup form.
+                    st.error("⚠️ Account not found.")
+                    st.warning("Please use the 'Sign Up' form first to set up your Advisor Firm or Family Account.")
+                    time.sleep(5)
+                    st.session_state.app_mode = "login"
+                    st.query_params.clear()
+                    st.rerun()
+                
                 else:
-                    st.session_state.app_mode = "heirloom"
-                st.query_params.clear()
-                st.rerun()
+                    # ALLOW LOGIN: User exists and has data.
+                    st.session_state.authenticated = True
+                    st.session_state.user_email = user.email
+                    
+                    # Smart Route: Check role
+                    if profile.get('role') == 'advisor':
+                        st.session_state.app_mode = "advisor"
+                    else:
+                        st.session_state.app_mode = "heirloom"
+                    
+                    st.query_params.clear()
+                    st.rerun()
 
     # 3. STRIPE PAYMENT RETURN
     if "session_id" in params:
