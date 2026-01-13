@@ -5,7 +5,7 @@ import logging
 import time
 
 # --- 🏷️ VERSION CONTROL ---
-VERSION = "5.0.2" # B2B Payment Integration
+VERSION = "5.0.2-DEBUG" # Debug Mode enabled for ui_legal
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -30,8 +30,12 @@ try: import ui_advisor
 except ImportError: ui_advisor = None
 try: import ui_admin
 except ImportError: ui_admin = None
-try: import ui_legal
-except ImportError: ui_legal = None
+
+# --- 🐞 DEBUG SECTION: FORCE IMPORT UI_LEGAL ---
+# We removed the try/except here. If ui_legal.py has an error, 
+# the app will now CRASH and show you the traceback.
+import ui_legal 
+
 try: import ui_blog
 except ImportError: ui_blog = None
 try: import ui_partner
@@ -111,8 +115,6 @@ def main():
                         
                         # 3. Credit the Advisor
                         if user_email:
-                            # We assume the metadata contains intent='advisor_credit' or similar
-                            # For B2B, we blindly credit 1 unit per successful session for now
                             database.add_advisor_credit(user_email, 1) 
                             database.record_stripe_fulfillment(session_id, "Advisor Credit", user_email)
                             
