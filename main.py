@@ -4,7 +4,7 @@ import os
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.4.5"  # Hidden Auth Bridge & Smart Advisor Routing
+VERSION = "4.5.1"  # Restored Auth Bridge + QR Fix
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # --- 3. HARDENED OAUTH BRIDGE WITH SANDBOX ESCAPE ---
 # Updated to resolve the 'about:srcdoc' sandbox warning from your logs.
-# FIX: 'log' function no longer auto-shows the debug div to keep UI clean.
+# NOTE: Kept as fallback, but PKCE (Step 0 below) is now the primary method.
 components.html(
     """
     <div id="bridge-debug" style="font-family:monospace; font-size:11px; color:#1e293b; background:#f1f5f9; border:1px solid #cbd5e1; padding:8px; border-radius:4px; display:none; margin-bottom:10px;">
@@ -47,16 +47,18 @@ components.html(
     (function() {
         const log = (msg) => {
             console.log("VerbaPost Bridge:", msg);
-            // VISIBILITY FIX: We no longer auto-show this div. 
-            // Only un-comment the line below if deep debugging is needed.
-            // document.getElementById('bridge-debug').style.display = 'block';
-            document.getElementById('debug-msg').innerText = msg;
+            const el = document.getElementById('bridge-debug');
+            const msgEl = document.getElementById('debug-msg');
+            el.style.display = 'block';
+            msgEl.innerText = msg;
         };
 
         // Safety Timeout: If nothing happens in 3 seconds, show a manual recovery link
         setTimeout(() => {
-            // We only log to console now to avoid cluttering the UI
-            log("Bridge Active. Monitoring for tokens...");
+            const el = document.getElementById('bridge-debug');
+            if (el.style.display === 'none') {
+                log("Bridge Timeout. If you are stuck, please refresh the page.");
+            }
         }, 3000);
 
         try {
@@ -94,7 +96,7 @@ components.html(
     })();
     </script>
     """,
-    height=0, # Reduced height to 0 to effectively hide the component area
+    height=100,
 )
 
 # --- 4. MODULE IMPORTS (FULL ROBUST WRAPPING) ---
@@ -138,13 +140,12 @@ def sync_user_session():
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
             email = st.session_state.get("user_email")
-            if database:
-                profile = database.get_user_profile(email)
-                if profile:
-                    st.session_state.user_role = profile.get("role", "user")
-                    st.session_state.user_credits = profile.get("credits", 0)
-                    st.session_state.full_name = profile.get("full_name", "")
-                    st.session_state.is_partner = (st.session_state.user_role in ["partner", "admin"])
+            profile = database.get_user_profile(email)
+            if profile:
+                st.session_state.user_role = profile.get("role", "user")
+                st.session_state.user_credits = profile.get("credits", 0)
+                st.session_state.full_name = profile.get("full_name", "")
+                st.session_state.is_partner = (st.session_state.user_role in ["partner", "admin"])
         except Exception as e:
             logger.error(f"Session Sync Failure: {e}")
 
@@ -160,10 +161,12 @@ def handle_logout():
 # ==========================================
 
 def main():
-    # --- STEP 0: PKCE AUTH LISTENER (SMART ROUTING) ---
+    # --- STEP 0: PKCE AUTH LISTENER (NEW) ---
+    # Catches the ?code=... from Google/Supabase
     if "code" in st.query_params:
         auth_code = st.query_params["code"]
         
+        # Prevent double-processing
         if not st.session_state.get("auth_processing"):
             st.session_state.auth_processing = True
             
@@ -175,8 +178,8 @@ def main():
                         logger.info(f"✅ PKCE Success: {user.email}")
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.email
+                        st.session_state.app_mode = "heirloom"
                         
-                        # Database Sync & Role Check
                         if database:
                             try:
                                 if not database.get_user_profile(user.email):
@@ -185,15 +188,7 @@ def main():
                             except Exception as db_err:
                                 logger.error(f"Database sync error: {db_err}")
                         
-                        # Smart Routing based on Role
-                        role = st.session_state.get("user_role", "user")
-                        if role == "advisor":
-                            st.session_state.app_mode = "advisor"
-                        elif role == "partner":
-                            st.session_state.app_mode = "partner"
-                        else:
-                            st.session_state.app_mode = "heirloom"
-                        
+                        # Clear URL to prevent refresh loops
                         st.query_params.clear()
                         st.rerun()
                     else:
@@ -202,7 +197,7 @@ def main():
                 else:
                     st.error("Auth Engine Missing")
 
-    # --- STEP 1: OAUTH TOKEN INTERCEPTOR (SMART ROUTING) ---
+    # --- STEP 1: OAUTH TOKEN INTERCEPTOR (LEGACY IMPLICIT) ---
     query_params = st.query_params
     access_token = query_params.get("access_token")
     
@@ -216,6 +211,7 @@ def main():
                     logger.info(f"✅ OAuth Success: {email}")
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
+                    st.session_state.app_mode = "heirloom"
                     
                     if database:
                         try:
@@ -224,15 +220,6 @@ def main():
                             sync_user_session()
                         except Exception as db_err:
                             logger.error(f"Database sync error: {db_err}")
-                    
-                    # Smart Routing based on Role
-                    role = st.session_state.get("user_role", "user")
-                    if role == "advisor":
-                        st.session_state.app_mode = "advisor"
-                    elif role == "partner":
-                        st.session_state.app_mode = "partner"
-                    else:
-                        st.session_state.app_mode = "heirloom"
                     
                     st.query_params.clear()
                     st.rerun()
@@ -258,17 +245,31 @@ def main():
     if "user_email" not in st.session_state: st.session_state.user_email = None
     if "user_role" not in st.session_state: st.session_state.user_role = "user"
         
-    # --- STEP 4: APP MODE ROUTING ---
+    # --- STEP 4: APP MODE ROUTING (UPDATED FOR QR) ---
     nav = query_params.get("nav")
     project_id = query_params.get("id")
     
+    # 🔥 QR CODE HANDLER 🔥
+    # Captures '?play=XYZ' from QR codes and routes to the player
+    play_id = query_params.get("play")
+    
     if "app_mode" not in st.session_state:
-        if nav == "legal": st.session_state.app_mode = "legal"
+        if play_id:
+            # QR Code Scanned -> Go to Public Player
+            st.session_state.app_mode = "archive"
+            project_id = play_id # Pass the play ID as the project ID
+            
+        elif nav == "archive":
+            # Direct link to player (likely requires ID)
+            st.session_state.app_mode = "archive"
+        
+        elif nav == "legal": st.session_state.app_mode = "legal"
         elif nav == "blog": st.session_state.app_mode = "blog"
         elif nav == "partner": st.session_state.app_mode = "partner"
         elif nav == "setup": st.session_state.app_mode = "setup"
         elif nav == "archive": st.session_state.app_mode = "archive"
         elif nav == "login": st.session_state.app_mode = "login"
+        elif nav == "heirloom": st.session_state.app_mode = "heirloom"
         else: st.session_state.app_mode = "splash"
 
     # --- STEP 5: SIDEBAR MASTER SWITCH ---
@@ -280,10 +281,6 @@ def main():
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
         
-        # Determine current user role for sidebar rendering
-        current_role = st.session_state.get("user_role", "user")
-        
-        # Admin gets everything
         if user_email and admin_email and user_email == admin_email:
              with st.sidebar:
                  st.markdown("### 🛠️ Admin Master Switch")
@@ -296,12 +293,6 @@ def main():
                  if st.button("🤝 Partner Portal", use_container_width=True):
                      st.session_state.app_mode = "partner"; st.rerun()
                  st.sidebar.divider()
-        
-        # Advisors get Advisor Portal button
-        elif current_role == "advisor":
-            with st.sidebar:
-                if st.button("🛡️ Advisor Dashboard", use_container_width=True):
-                    st.session_state.app_mode = "advisor"; st.rerun()
 
         with st.sidebar:
             if st.button("🚪 Sign Out", use_container_width=True): handle_logout()
@@ -309,13 +300,19 @@ def main():
     # --- STEP 6: ROUTE TO VIEW ---
     mode = st.session_state.app_mode
     if mode == "admin" and ui_admin: ui_admin.render_admin_page()
+    
+    # 🔥 QR CODE VIEWER 🔥
+    # Passes 'project_id' (which is the Play ID) to the archive viewer
     elif mode == "archive" and ui_archive: ui_archive.render_heir_vault(project_id)
+    
     elif mode == "setup" and ui_setup: ui_setup.render_parent_setup(project_id)
     elif mode == "legal" and ui_legal: ui_legal.render_legal_page()
     elif mode == "blog" and ui_blog: ui_blog.render_blog_page()
+    
     elif mode == "heirloom":
         if not st.session_state.authenticated: st.session_state.app_mode = "login"; st.rerun()
         if ui_heirloom: ui_heirloom.render_dashboard()
+        
     elif mode in ["store", "workspace", "review", "receipt"]:
         if ui_main: ui_main.render_main()
     elif mode == "advisor" and ui_advisor: ui_advisor.render_dashboard()
