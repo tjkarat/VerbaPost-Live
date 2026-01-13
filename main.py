@@ -5,7 +5,7 @@ import logging
 import time
 
 # --- 🏷️ VERSION CONTROL ---
-VERSION = "5.0.2-DEBUG" # Debug Mode enabled for ui_legal
+VERSION = "5.0.3" # Added ?nav= Routing for Marketing Site
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -31,16 +31,15 @@ except ImportError: ui_advisor = None
 try: import ui_admin
 except ImportError: ui_admin = None
 
-# --- 🐞 DEBUG SECTION: FORCE IMPORT UI_LEGAL ---
-# We removed the try/except here. If ui_legal.py has an error, 
-# the app will now CRASH and show you the traceback.
-import ui_legal 
-
+# Static Pages
+try: import ui_legal
+except ImportError: ui_legal = None
 try: import ui_blog
 except ImportError: ui_blog = None
 try: import ui_partner
 except ImportError: ui_partner = None
 
+# Engines
 try: import auth_engine
 except ImportError: auth_engine = None
 try: import database
@@ -128,6 +127,27 @@ def main():
                             st.rerun()
                     else:
                         st.error("Payment verification failed.")
+
+    # 4. LANDING PAGE ROUTING (?nav=...)
+    # This connects your index.html buttons to the Streamlit views
+    if "nav" in params:
+        nav_target = params["nav"]
+        
+        # We process this once to set the mode, then clear params
+        if "nav_processed" not in st.session_state:
+            if nav_target == "login":
+                st.session_state.app_mode = "login"
+            elif nav_target == "archive":
+                # Heirs go to login, then auto-routed to heirloom logic
+                st.session_state.app_mode = "login" 
+            elif nav_target == "legal":
+                st.session_state.app_mode = "legal"
+            elif nav_target == "blog":
+                st.session_state.app_mode = "blog"
+            
+            st.session_state.nav_processed = True
+            st.query_params.clear() # Clean the URL
+            st.rerun()
 
     # D. SIDEBAR NAV
     if st.session_state.authenticated:
