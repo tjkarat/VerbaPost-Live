@@ -2,7 +2,7 @@ import streamlit as st
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.0.6"
+VERSION = "4.0.9"
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 # This must remain at the very top to prevent Streamlit set_page_config errors.
@@ -31,24 +31,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. OAUTH FRAGMENT BRIDGE (SEAMLESS AUTOMATED VERSION) ---
-# This resolves 'SecurityError' by using a direct top-level assignment.
-# NO BUTTON - NO USER INTERACTION REQUIRED.
+# --- 2. OAUTH FRAGMENT BRIDGE (YESTERDAY'S SEAMLESS VERSION) ---
+# This version uses direct property assignment to bypass iframe sandbox limits.
+# NO BUTTON - SEAMLESS REDIRECT.
 components.html(
     """
     <script>
     (function() {
         try {
-            // Check the top-level window for the OAuth fragment
-            if (window.top.location.hash && window.top.location.hash.includes('access_token=')) {
-                var hash = window.top.location.hash;
+            // Examine the top-level window for the OAuth fragment
+            var topWin = window.top;
+            var hash = topWin.location.hash;
+            
+            if (hash && hash.includes('access_token=')) {
                 var cleanParams = hash.replace('#', '?');
+                var finalUrl = topWin.location.origin + topWin.location.pathname + cleanParams;
                 
-                // Construct the absolute URL to avoid origin mismatch errors
-                var newUrl = window.top.location.origin + window.top.location.pathname + cleanParams;
-                
-                // Direct assignment to the top-level window to bypass iframe navigation rules
-                window.top.location = newUrl;
+                // Directly assigning to .href is the most permissive cross-origin method
+                topWin.location.href = finalUrl;
             }
         } catch (e) {
             console.error("VerbaPost Seamless Bridge Error:", e);
@@ -61,7 +61,6 @@ components.html(
 
 # --- 3. MODULE IMPORTS (ROBUST ERROR WRAPPING) ---
 # Each import is wrapped in an individual try/except to prevent app-wide crashes.
-# This allows the system to boot even if a single component is failing.
 try: 
     import ui_splash
 except ImportError as e: 
