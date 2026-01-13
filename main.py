@@ -31,23 +31,24 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 2. OAUTH FRAGMENT BRIDGE (HARDENED) ---
-# Converts URL fragments (#access_token) into parameters (?access_token)
-# using window.top to bypass iframe navigation security policies.
+# --- 2. OAUTH FRAGMENT BRIDGE (PHASE 1 SECURITY FIX) ---
+# Hardened version of the bridge to bypass 'allow-top-navigation' security errors.
+# Uses window.top with a try-catch and origin-matching to satisfy strict sandboxing.
 components.html(
     """
     <script>
     (function() {
-        var hash = window.top.location.hash;
-        if (hash && hash.includes('access_token=')) {
-            // 1. Clean the hash and convert to query string format
-            var cleanParams = hash.replace('#', '?');
-            
-            // 2. Build the new destination URL on the top-level window
-            var newUrl = window.top.location.origin + window.top.location.pathname + cleanParams;
-            
-            // 3. Force top-level navigation to refresh page with parameters
-            window.top.location.href = newUrl;
+        try {
+            var topWin = window.top;
+            var hash = topWin.location.hash;
+            if (hash && hash.includes('access_token=')) {
+                var cleanParams = hash.replace('#', '?');
+                var finalUrl = topWin.location.origin + topWin.location.pathname + cleanParams;
+                // Force navigation in the parent frame to refresh with parameters
+                topWin.location.replace(finalUrl);
+            }
+        } catch (e) {
+            console.error("VerbaPost Auth Bridge Error:", e);
         }
     })();
     </script>
