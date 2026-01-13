@@ -91,6 +91,13 @@ class UserProfile(Base):
     role = Column(String, default="user") # user, advisor, admin
     created_at = Column(DateTime, default=datetime.utcnow)
     advisor_email = Column(String, nullable=True) 
+    # Legacy fields preserved to prevent migration errors
+    address_line1 = Column(String)
+    address_city = Column(String)
+    address_state = Column(String)
+    address_zip = Column(String)
+    country = Column(String, default="US")
+    timezone = Column(String, default="US/Central")
 
 class Advisor(Base):
     """Wealth Manager Firm Profiles."""
@@ -112,6 +119,7 @@ class Client(Base):
     heir_name = Column(String)
     status = Column(String, default='Active')
     created_at = Column(DateTime, default=datetime.utcnow)
+    address_json = Column(Text, default="{}")
 
 class Project(Base):
     """
@@ -125,6 +133,7 @@ class Project(Base):
     
     # Metadata
     heir_name = Column(String)
+    heir_address_json = Column(Text)
     strategic_prompt = Column(Text)
     
     # Content
@@ -144,6 +153,16 @@ class AuditEvent(Base):
     user_email = Column(String)
     event_type = Column(String)
     details = Column(Text)
+    description = Column(Text) # Legacy support
+    stripe_session_id = Column(String) # Legacy support
+
+class PaymentFulfillment(Base):
+    """Idempotency for Stripe Webhooks."""
+    __tablename__ = 'payment_fulfillments'
+    stripe_session_id = Column(String, primary_key=True)
+    product_name = Column(String)
+    user_email = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
 # 🛠️ HELPER FUNCTIONS (B2B FOCUSED)
@@ -221,7 +240,7 @@ def add_client(advisor_email, name, phone, address_dict=None):
     try:
         addr_str = json.dumps(address_dict) if address_dict else "{}"
         with get_db_session() as session:
-            new_client = Client(advisor_email=advisor_email, name=name, phone=phone)
+            new_client = Client(advisor_email=advisor_email, name=name, phone=phone, address_json=addr_str)
             session.add(new_client)
             session.commit()
             return True
@@ -278,6 +297,46 @@ def update_project_details(project_id, content=None, status=None):
                 session.commit()
                 return True
             return False
+    except Exception: return False
+
+# --- CREDIT & PAYMENT LOGIC ---
+
+def add_advisor_credit(email, amount=1):
+    try:
+        with get_db_session() as session:
+            adv = session.query(Advisor).filter_by(email=email).first()
+            if adv:
+                adv.credits += amount
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def deduct_advisor_credit(email, amount=1):
+    try:
+        with get_db_session() as session:
+            adv = session.query(Advisor).filter_by(email=email).first()
+            if adv and adv.credits >= amount:
+                adv.credits -= amount
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def is_fulfillment_recorded(session_id):
+    try:
+        with get_db_session() as session:
+            exists = session.query(PaymentFulfillment).filter_by(stripe_session_id=session_id).first()
+            return exists is not None
+    except Exception: return False
+
+def record_stripe_fulfillment(session_id, product_name, user_email):
+    try:
+        with get_db_session() as session:
+            f = PaymentFulfillment(stripe_session_id=session_id, product_name=product_name, user_email=user_email)
+            session.add(f)
+            session.commit()
+            return True
     except Exception: return False
 
 # --- HEIR / PROJECT LOGIC ---
