@@ -90,7 +90,6 @@ class UserProfile(Base):
     parent_phone = Column(String)
     role = Column(String, default="user") # user, advisor, admin
     created_at = Column(DateTime, default=datetime.utcnow)
-    # B2B Link: Which advisor invited this user?
     advisor_email = Column(String, nullable=True) 
 
 class Advisor(Base):
@@ -117,4 +116,230 @@ class Client(Base):
 class Project(Base):
     """
     The Core Unit of Work.
-    Statuses
+    Statuses: Authorized -> Recording -> Pending Approval -> Approved -> Sent
+    """
+    __tablename__ = 'projects'
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    advisor_email = Column(String, ForeignKey('advisors.email'), nullable=False)
+    client_id = Column(Integer, ForeignKey('clients.id'))
+    
+    # Metadata
+    heir_name = Column(String)
+    strategic_prompt = Column(Text)
+    
+    # Content
+    content = Column(Text) 
+    audio_ref = Column(Text)
+    
+    # State
+    status = Column(String, default='Authorized') 
+    scheduled_time = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class AuditEvent(Base):
+    """System Logs."""
+    __tablename__ = 'audit_events'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    user_email = Column(String)
+    event_type = Column(String)
+    details = Column(Text)
+
+# ==========================================
+# 🛠️ HELPER FUNCTIONS (B2B FOCUSED)
+# ==========================================
+
+def get_user_profile(email):
+    """Fetches profile, creating one if it doesn't exist."""
+    try:
+        with get_db_session() as session:
+            profile = session.query(UserProfile).filter_by(email=email).first()
+            if not profile:
+                profile = UserProfile(email=email)
+                session.add(profile)
+                session.commit()
+            return to_dict(profile)
+    except Exception as e:
+        logger.error(f"Get Profile Error: {e}")
+        return {}
+
+def update_heirloom_settings(email, parent_name, parent_phone):
+    """Updates the user's interview target."""
+    try:
+        with get_db_session() as session:
+            u = session.query(UserProfile).filter_by(email=email).first()
+            if u:
+                u.parent_name = parent_name
+                u.parent_phone = parent_phone
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def create_user(email, full_name):
+    """Creates a basic user profile (used by signup)."""
+    try:
+        with get_db_session() as db:
+            user = UserProfile(email=email, full_name=full_name)
+            db.add(user)
+            db.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Create User Error: {e}")
+        return False
+
+# --- ADVISOR / B2B LOGIC ---
+
+def get_or_create_advisor(email):
+    """Enforces Advisor access boundaries."""
+    try:
+        with get_db_session() as session:
+            adv = session.query(Advisor).filter_by(email=email).first()
+            if not adv:
+                # Fallback: Try to get data from UserProfile
+                legacy = session.query(UserProfile).filter_by(email=email).first()
+                full_name = legacy.full_name if legacy else ""
+                firm_name = legacy.advisor_firm if legacy else "Independent Firm"
+                
+                adv = Advisor(email=email, full_name=full_name, firm_name=firm_name)
+                session.add(adv)
+                session.commit()
+            return to_dict(adv)
+    except Exception as e: 
+        logger.error(f"Advisor Create Error: {e}")
+        return {}
+
+def get_clients(advisor_email):
+    """Fetches firm-specific clients."""
+    try:
+        with get_db_session() as session:
+            res = session.query(Client).filter_by(advisor_email=advisor_email).order_by(Client.created_at.desc()).all()
+            return [to_dict(r) for r in res]
+    except Exception: return []
+
+def add_client(advisor_email, name, phone, address_dict=None):
+    try:
+        addr_str = json.dumps(address_dict) if address_dict else "{}"
+        with get_db_session() as session:
+            new_client = Client(advisor_email=advisor_email, name=name, phone=phone)
+            session.add(new_client)
+            session.commit()
+            return True
+    except Exception: return False
+
+def create_hybrid_project(advisor_email, parent_name, parent_phone, heir_name, prompt):
+    """Creates relational link between Firm, Client, and Legacy Project."""
+    try:
+        with get_db_session() as session:
+            # Check if client exists, else create
+            client = session.query(Client).filter_by(advisor_email=advisor_email, phone=parent_phone).first()
+            if not client:
+                client = Client(advisor_email=advisor_email, name=parent_name, phone=parent_phone, heir_name=heir_name)
+                session.add(client)
+                session.flush() 
+            
+            new_proj = Project(
+                advisor_email=advisor_email, 
+                client_id=client.id, 
+                heir_name=heir_name, 
+                strategic_prompt=prompt, 
+                status="Authorized"
+            )
+            session.add(new_proj)
+            session.commit()
+            return new_proj.id
+    except Exception as e: 
+        logger.error(f"Create Project Error: {e}")
+        return None
+
+def get_pending_approvals(advisor_email):
+    """Fetches items for Ghostwriting review."""
+    try:
+        with get_db_session() as session:
+            projs = session.query(Project).filter_by(advisor_email=advisor_email, status="Pending Approval").all()
+            results = []
+            for p in projs:
+                client = session.query(Client).filter_by(id=p.client_id).first()
+                d = to_dict(p)
+                d['parent_name'] = client.name if client else "Unknown"
+                d['heir_name'] = client.heir_name if client else "Unknown"
+                results.append(d)
+            return results
+    except Exception: return []
+
+def update_project_details(project_id, content=None, status=None):
+    """Global update hook for Project state changes."""
+    try:
+        with get_db_session() as session:
+            proj = session.query(Project).filter_by(id=project_id).first()
+            if proj:
+                if status: proj.status = status
+                if content: proj.content = content
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+# --- HEIR / PROJECT LOGIC ---
+
+def get_heir_projects(heir_email):
+    """
+    Fetches all projects linked to this Heir's email via the Client table.
+    """
+    try:
+        with get_db_session() as session:
+            # 1. Find Client ID matching this email
+            client = session.query(Client).filter_by(email=heir_email).first()
+            if not client:
+                return []
+            
+            # 2. Find Projects for this Client
+            projects = session.query(Project).filter_by(client_id=client.id).order_by(Project.created_at.desc()).all()
+            
+            # 3. Enrich with Advisor Info (Firm Name)
+            results = []
+            for p in projects:
+                d = to_dict(p)
+                adv = session.query(Advisor).filter_by(email=p.advisor_email).first()
+                d['firm_name'] = adv.firm_name if adv else "VerbaPost"
+                results.append(d)
+            return results
+    except Exception as e:
+        logger.error(f"Get Projects Error: {e}")
+        return []
+
+def update_project_content(project_id, content):
+    """Heir editing the transcript."""
+    try:
+        with get_db_session() as session:
+            p = session.query(Project).filter_by(id=project_id).first()
+            if p and p.status in ['Recording', 'Authorized']:
+                p.content = content
+                if p.status == 'Authorized': p.status = 'Recording'
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def submit_project(project_id):
+    """
+    Heir submits story to Advisor. 
+    Moves status: Recording -> Pending Approval
+    """
+    try:
+        with get_db_session() as session:
+            p = session.query(Project).filter_by(id=project_id).first()
+            if p:
+                p.status = "Pending Approval"
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def log_event(user_email, event_type, details=""):
+    try:
+        with get_db_session() as session:
+            evt = AuditEvent(user_email=user_email, event_type=event_type, details=str(details))
+            session.add(evt)
+            session.commit()
+    except Exception: pass
