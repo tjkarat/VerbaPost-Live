@@ -4,7 +4,7 @@ import os
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.4.1"  # Full Restoration & Hash-to-Query Bridge
+VERSION = "4.4.2"  # Full Restore with Visual Debug Console
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
@@ -15,8 +15,7 @@ st.set_page_config(
 )
 
 # --- 2. PATH INJECTION (FIXES KEYERROR: 'DATABASE') ---
-# This ensures that Streamlit can find local modules like database.py and ui_advisor.py
-# especially during production environment transitions or GitHub pulls.
+# Ensures local modules are visible even during production environment transitions.
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
@@ -29,7 +28,6 @@ import json
 # ==========================================
 # 🔧 SYSTEM & LOGGING SETUP (RESTORED)
 # ==========================================
-# This block ensures high-resolution logs for production debugging.
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -37,137 +35,109 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- 3. SEAMLESS OAUTH BRIDGE (HASH-TO-QUERY) ---
-# Simple hash-to-query converter that works with Streamlit's sandbox.
-# It converts #access_token=... into ?access_token=... within the same context.
+# --- 3. HARDENED OAUTH BRIDGE WITH VISUAL DEBUGGER ---
+# This version includes a visible console at the top to track token processing.
+# Fixed the 'TypeError' by using 'let' instead of 'const' for URL assembly.
 components.html(
     """
+    <div id="bridge-debug" style="font-family:monospace; font-size:11px; color:#1e293b; background:#f1f5f9; border:1px solid #cbd5e1; padding:8px; border-radius:4px; display:none; margin-bottom:10px;">
+        <strong>Auth Bridge Status:</strong> <span id="debug-msg">Initializing...</span>
+    </div>
     <script>
     (function() {
-        const hash = window.location.hash;
-        
-        if (hash && hash.includes('access_token=')) {
-            console.log('VerbaPost: Token found in hash, processing...');
+        const log = (msg) => {
+            console.log("VerbaPost Bridge:", msg);
+            const el = document.getElementById('bridge-debug');
+            const msgEl = document.getElementById('debug-msg');
+            el.style.display = 'block';
+            msgEl.innerText = msg;
+        };
+
+        try {
+            const parentWin = window.parent;
+            const hash = parentWin.location.hash;
             
-            // Extract just the access_token
-            const params = new URLSearchParams(hash.substring(1));
-            const token = params.get('access_token');
-            
-            if (token) {
-                // Construct new URL with token as query param
-                const newUrl = window.location.origin + 
-                              window.location.pathname + 
-                              '?access_token=' + encodeURIComponent(token);
+            if (hash && hash.includes('access_token=')) {
+                log("Token detected in URL fragment. Processing...");
                 
-                // Replace current URL (doesn't add to history)
-                // This bypasses the sandboxed top-level navigation block.
-                window.location.replace(newUrl);
+                const params = new URLSearchParams(hash.substring(1));
+                const accessToken = params.get('access_token');
+                const refreshToken = params.get('refresh_token');
+                
+                if (accessToken) {
+                    const cleanUrl = parentWin.location.origin + parentWin.location.pathname;
+                    // FIX: Using 'let' instead of 'const' to allow parameter appending
+                    let finalUrl = cleanUrl + '?access_token=' + encodeURIComponent(accessToken);
+                    
+                    if (refreshToken) finalUrl += '&refresh_token=' + encodeURIComponent(refreshToken);
+
+                    log("Attempting seamless redirect to top-level window...");
+                    
+                    try {
+                        parentWin.location.replace(finalUrl);
+                    } catch (navErr) {
+                        log("BROWSER BLOCKED REDIRECT: " + navErr.message);
+                        // Manual fallback if seamless fails
+                        document.body.innerHTML = `
+                            <div style="text-align:center; padding-top:5px; font-family:sans-serif;">
+                                <a href="${finalUrl}" target="_top" style="
+                                    background-color:#0f172a; color:white; padding:10px 20px; 
+                                    text-decoration:none; border-radius:6px; font-weight:600; display:inline-block;">
+                                    Confirm Secure Login &rarr;
+                                </a>
+                            </div>
+                        `;
+                    }
+                }
+            } else {
+                log("No token found in fragment. Standing by.");
             }
+        } catch (e) {
+            log("CRITICAL ERROR: " + e.message);
         }
     })();
     </script>
     """,
-    height=0,
+    height=80,
 )
 
 # --- 4. MODULE IMPORTS (FULL ROBUST WRAPPING) ---
-# Each import is wrapped individually to prevent the entire system from failing 
-# if a single UI or engine file is corrupted or missing.
-try: 
-    import ui_splash
-except ImportError as e: 
-    logger.error(f"UI Splash Import Error: {e}")
-    ui_splash = None
-
-try: 
-    import ui_advisor
-except ImportError as e: 
-    logger.error(f"UI Advisor Import Error: {e}")
-    ui_advisor = None
-
-try: 
-    import ui_login
-except ImportError as e: 
-    logger.error(f"UI Login Import Error: {e}")
-    ui_login = None
-
-try: 
-    import ui_admin
-except ImportError as e: 
-    logger.error(f"UI Admin Import Error: {e}")
-    ui_admin = None
-
-try: 
-    import ui_main
-except ImportError as e: 
-    logger.error(f"UI Main Import Error: {e}")
-    ui_main = None
-
-try: 
-    import ui_setup
-except ImportError as e: 
-    logger.error(f"UI Setup Import Error: {e}")
-    ui_setup = None
-
-try: 
-    import ui_archive
-except ImportError as e: 
-    logger.error(f"UI Archive Import Error: {e}")
-    ui_archive = None
-
-try: 
-    import ui_heirloom
-except ImportError as e:
-    logger.error(f"UI Heirloom Import Error: {e}")
-    ui_heirloom = None
-
-try: 
-    import ui_legal
-except ImportError as e:
-    logger.error(f"UI Legal Import Error: {e}")
-    ui_legal = None
-
-try: 
-    import ui_blog
-except ImportError as e:
-    logger.error(f"UI Blog Import Error: {e}")
-    ui_blog = None
-
-try: 
-    import ui_partner
-except ImportError as e:
-    logger.error(f"UI Partner Import Error: {e}")
-    ui_partner = None
-
-try: 
-    import auth_engine
-except ImportError as e: 
-    logger.error(f"Auth Engine Import Error: {e}")
-    auth_engine = None
-
-try: 
-    import database
-except ImportError as e: 
-    logger.error(f"Database Import Error: {e}")
-    database = None
-
-try: 
-    import secrets_manager
-except ImportError as e: 
-    logger.error(f"Secrets Manager Import Error: {e}")
-    secrets_manager = None
-
-try: 
-    import module_validator
-except ImportError: 
-    module_validator = None
+try: import ui_splash
+except ImportError as e: logger.error(f"UI Splash Error: {e}"); ui_splash = None
+try: import ui_advisor
+except ImportError as e: logger.error(f"UI Advisor Error: {e}"); ui_advisor = None
+try: import ui_login
+except ImportError as e: logger.error(f"UI Login Error: {e}"); ui_login = None
+try: import ui_admin
+except ImportError as e: logger.error(f"UI Admin Error: {e}"); ui_admin = None
+try: import ui_main
+except ImportError as e: logger.error(f"UI Main Error: {e}"); ui_main = None
+try: import ui_setup
+except ImportError as e: logger.error(f"UI Setup Error: {e}"); ui_setup = None
+try: import ui_archive
+except ImportError as e: logger.error(f"UI Archive Error: {e}"); ui_archive = None
+try: import ui_heirloom
+except ImportError as e: logger.error(f"UI Heirloom Error: {e}"); ui_heirloom = None
+try: import ui_legal
+except ImportError as e: logger.error(f"UI Legal Error: {e}"); ui_legal = None
+try: import ui_blog
+except ImportError as e: logger.error(f"UI Blog Error: {e}"); ui_blog = None
+try: import ui_partner
+except ImportError as e: logger.error(f"UI Partner Error: {e}"); ui_partner = None
+try: import auth_engine
+except ImportError as e: logger.error(f"Auth Engine Error: {e}"); auth_engine = None
+try: import database
+except ImportError as e: logger.error(f"Database Error: {e}"); database = None
+try: import secrets_manager
+except ImportError as e: logger.error(f"Secrets Error: {e}"); secrets_manager = None
+try: import module_validator
+except ImportError: module_validator = None
 
 # ==========================================
 # 🛠️ HELPER FUNCTIONS (FULL RESTORATION)
 # ==========================================
 
 def sync_user_session():
-    """Synchronizes Streamlit session state with the database UserProfile."""
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
             email = st.session_state.get("user_email")
@@ -177,15 +147,11 @@ def sync_user_session():
                 st.session_state.user_credits = profile.get("credits", 0)
                 st.session_state.full_name = profile.get("full_name", "")
                 st.session_state.is_partner = (st.session_state.user_role in ["partner", "admin"])
-                logger.info(f"Session Synced for {email} (Role: {st.session_state.user_role})")
         except Exception as e:
             logger.error(f"Session Sync Failure: {e}")
 
 def handle_logout():
-    """Clears all application state and triggers a clean restart."""
-    logger.info("Triggering global logout and session clear.")
-    if auth_engine: 
-        auth_engine.sign_out()
+    if auth_engine: auth_engine.sign_out()
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.rerun()
@@ -219,12 +185,10 @@ def main():
                         except Exception as db_err:
                             logger.error(f"Database sync error: {db_err}")
                     
-                    # Clear query params to prevent re-authentication loops
                     st.query_params.clear()
                     st.rerun()
                 else:
-                    logger.error(f"OAuth verification failed: {err}")
-                    st.error(f"❌ Authentication Error: {err}")
+                    st.error(f"❌ Auth Error: {err}")
                     if st.button("Return to Login"):
                         st.query_params.clear()
                         st.session_state.app_mode = "login"
@@ -240,14 +204,11 @@ def main():
         st.session_state.system_verified = True
 
     # --- STEP 3: INITIALIZE SESSION STATE DEFAULTS ---
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    if "user_email" not in st.session_state:
-        st.session_state.user_email = None
-    if "user_role" not in st.session_state:
-        st.session_state.user_role = "user"
+    if "authenticated" not in st.session_state: st.session_state.authenticated = False
+    if "user_email" not in st.session_state: st.session_state.user_email = None
+    if "user_role" not in st.session_state: st.session_state.user_role = "user"
         
-    # --- STEP 4: APP MODE ROUTING (STATE MACHINE) ---
+    # --- STEP 4: APP MODE ROUTING ---
     nav = query_params.get("nav")
     project_id = query_params.get("id")
     
@@ -283,21 +244,17 @@ def main():
                  st.sidebar.divider()
 
         with st.sidebar:
-            if st.button("🚪 Sign Out", use_container_width=True):
-                handle_logout()
+            if st.button("🚪 Sign Out", use_container_width=True): handle_logout()
 
-    # --- STEP 6: ROUTE TO APPROPRIATE VIEW ---
+    # --- STEP 6: ROUTE TO VIEW ---
     mode = st.session_state.app_mode
-
     if mode == "admin" and ui_admin: ui_admin.render_admin_page()
     elif mode == "archive" and ui_archive: ui_archive.render_heir_vault(project_id)
     elif mode == "setup" and ui_setup: ui_setup.render_parent_setup(project_id)
     elif mode == "legal" and ui_legal: ui_legal.render_legal_page()
     elif mode == "blog" and ui_blog: ui_blog.render_blog_page()
     elif mode == "heirloom":
-        if not st.session_state.authenticated:
-            st.session_state.app_mode = "login"
-            st.rerun()
+        if not st.session_state.authenticated: st.session_state.app_mode = "login"; st.rerun()
         if ui_heirloom: ui_heirloom.render_dashboard()
     elif mode in ["store", "workspace", "review", "receipt"]:
         if ui_main: ui_main.render_main()
@@ -308,11 +265,9 @@ def main():
 
 if __name__ == "__main__":
     try:
-        if database and st.session_state.get("authenticated"):
-             sync_user_session()
+        if database and st.session_state.get("authenticated"): sync_user_session()
         main()
     except Exception as e:
         logger.critical(f"FATAL SYSTEM CRASH: {e}", exc_info=True)
         st.error("A critical system error occurred.")
-        if st.button("🔄 Attempt Emergency Recovery"):
-            handle_logout()
+        if st.button("🔄 Emergency Recovery"): handle_logout()
