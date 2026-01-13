@@ -1,9 +1,13 @@
 import streamlit as st
 
+# --- 🏷️ VERSION CONTROL ---
+# Increment this constant at every functional update to this file.
+VERSION = "4.0.4"
+
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 # This must remain at the very top to prevent Streamlit set_page_config errors.
 st.set_page_config(
-    page_title="VerbaPost Wealth | Family Legacy Retention", 
+    page_title=f"VerbaPost Wealth v{VERSION}", 
     page_icon="🏛️", 
     layout="centered",
     initial_sidebar_state="expanded" 
@@ -238,7 +242,12 @@ def main():
         else: 
             st.session_state.app_mode = "splash"
 
-    # 5. SIDEBAR: ADMIN MASTER SWITCH (RESTORED IN FULL)
+    # 5. SIDEBAR: MASTER SWITCH & LOGOUT (RESTORED IN FULL)
+    with st.sidebar:
+        # Persistent Version Display
+        st.caption(f"VerbaPost Wealth Build: v{VERSION}")
+        st.divider()
+
     if st.session_state.get("authenticated"):
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
