@@ -14,7 +14,7 @@ except ImportError: secrets_manager = None
 def render_login_page():
     """
     Renders the Login, Signup, and Password Recovery interface.
-    Now includes streamlined Google OAuth with PKCE.
+    Now includes Smart Routing for Advisors.
     """
     st.markdown("""
     <style>
@@ -190,6 +190,9 @@ def render_login_page():
                             st.success("✅ Account created!")
                             st.session_state.authenticated = True
                             st.session_state.user_email = new_email
+                            
+                            # Default new users to Heirloom
+                            # (Unless we build a specific Advisor Signup toggle later)
                             st.session_state.app_mode = "heirloom"
                             time.sleep(1)
                             st.rerun()
@@ -212,7 +215,17 @@ def render_login_page():
                         st.success(f"Welcome back!")
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
-                        st.session_state.app_mode = "heirloom"
+                        
+                        # SMART ROUTING: Check role immediately
+                        target_mode = "heirloom"
+                        if database:
+                            profile = database.get_user_profile(email)
+                            if profile:
+                                role = profile.get("role", "user")
+                                if role == "advisor": target_mode = "advisor"
+                                elif role == "partner": target_mode = "partner"
+                        
+                        st.session_state.app_mode = target_mode
                         st.rerun()
                     else:
                         st.error(f"Login failed: {error}")

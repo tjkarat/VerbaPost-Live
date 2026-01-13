@@ -4,7 +4,7 @@ import os
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.4.4"  # Explicit Sandbox Escape & Timeout Fallback
+VERSION = "4.4.5"  # Hidden Auth Bridge & Smart Advisor Routing
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 # --- 3. HARDENED OAUTH BRIDGE WITH SANDBOX ESCAPE ---
 # Updated to resolve the 'about:srcdoc' sandbox warning from your logs.
-# NOTE: Kept as fallback, but PKCE (Step 0 below) is now the primary method.
+# FIX: 'log' function no longer auto-shows the debug div to keep UI clean.
 components.html(
     """
     <div id="bridge-debug" style="font-family:monospace; font-size:11px; color:#1e293b; background:#f1f5f9; border:1px solid #cbd5e1; padding:8px; border-radius:4px; display:none; margin-bottom:10px;">
@@ -47,18 +47,16 @@ components.html(
     (function() {
         const log = (msg) => {
             console.log("VerbaPost Bridge:", msg);
-            const el = document.getElementById('bridge-debug');
-            const msgEl = document.getElementById('debug-msg');
-            el.style.display = 'block';
-            msgEl.innerText = msg;
+            // VISIBILITY FIX: We no longer auto-show this div. 
+            // Only un-comment the line below if deep debugging is needed.
+            // document.getElementById('bridge-debug').style.display = 'block';
+            document.getElementById('debug-msg').innerText = msg;
         };
 
         // Safety Timeout: If nothing happens in 3 seconds, show a manual recovery link
         setTimeout(() => {
-            const el = document.getElementById('bridge-debug');
-            if (el.style.display === 'none') {
-                log("Bridge Timeout. If you are stuck, please refresh the page.");
-            }
+            // We only log to console now to avoid cluttering the UI
+            log("Bridge Active. Monitoring for tokens...");
         }, 3000);
 
         try {
@@ -96,7 +94,7 @@ components.html(
     })();
     </script>
     """,
-    height=100,
+    height=0, # Reduced height to 0 to effectively hide the component area
 )
 
 # --- 4. MODULE IMPORTS (FULL ROBUST WRAPPING) ---
@@ -140,12 +138,13 @@ def sync_user_session():
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
             email = st.session_state.get("user_email")
-            profile = database.get_user_profile(email)
-            if profile:
-                st.session_state.user_role = profile.get("role", "user")
-                st.session_state.user_credits = profile.get("credits", 0)
-                st.session_state.full_name = profile.get("full_name", "")
-                st.session_state.is_partner = (st.session_state.user_role in ["partner", "admin"])
+            if database:
+                profile = database.get_user_profile(email)
+                if profile:
+                    st.session_state.user_role = profile.get("role", "user")
+                    st.session_state.user_credits = profile.get("credits", 0)
+                    st.session_state.full_name = profile.get("full_name", "")
+                    st.session_state.is_partner = (st.session_state.user_role in ["partner", "admin"])
         except Exception as e:
             logger.error(f"Session Sync Failure: {e}")
 
@@ -161,12 +160,10 @@ def handle_logout():
 # ==========================================
 
 def main():
-    # --- STEP 0: PKCE AUTH LISTENER (NEW) ---
-    # Catches the ?code=... from Google/Supabase
+    # --- STEP 0: PKCE AUTH LISTENER (SMART ROUTING) ---
     if "code" in st.query_params:
         auth_code = st.query_params["code"]
         
-        # Prevent double-processing
         if not st.session_state.get("auth_processing"):
             st.session_state.auth_processing = True
             
@@ -178,8 +175,8 @@ def main():
                         logger.info(f"✅ PKCE Success: {user.email}")
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.email
-                        st.session_state.app_mode = "heirloom"
                         
+                        # Database Sync & Role Check
                         if database:
                             try:
                                 if not database.get_user_profile(user.email):
@@ -188,7 +185,15 @@ def main():
                             except Exception as db_err:
                                 logger.error(f"Database sync error: {db_err}")
                         
-                        # Clear URL to prevent refresh loops
+                        # Smart Routing based on Role
+                        role = st.session_state.get("user_role", "user")
+                        if role == "advisor":
+                            st.session_state.app_mode = "advisor"
+                        elif role == "partner":
+                            st.session_state.app_mode = "partner"
+                        else:
+                            st.session_state.app_mode = "heirloom"
+                        
                         st.query_params.clear()
                         st.rerun()
                     else:
@@ -197,7 +202,7 @@ def main():
                 else:
                     st.error("Auth Engine Missing")
 
-    # --- STEP 1: OAUTH TOKEN INTERCEPTOR (LEGACY IMPLICIT) ---
+    # --- STEP 1: OAUTH TOKEN INTERCEPTOR (SMART ROUTING) ---
     query_params = st.query_params
     access_token = query_params.get("access_token")
     
@@ -211,7 +216,6 @@ def main():
                     logger.info(f"✅ OAuth Success: {email}")
                     st.session_state.authenticated = True
                     st.session_state.user_email = email
-                    st.session_state.app_mode = "heirloom"
                     
                     if database:
                         try:
@@ -220,6 +224,15 @@ def main():
                             sync_user_session()
                         except Exception as db_err:
                             logger.error(f"Database sync error: {db_err}")
+                    
+                    # Smart Routing based on Role
+                    role = st.session_state.get("user_role", "user")
+                    if role == "advisor":
+                        st.session_state.app_mode = "advisor"
+                    elif role == "partner":
+                        st.session_state.app_mode = "partner"
+                    else:
+                        st.session_state.app_mode = "heirloom"
                     
                     st.query_params.clear()
                     st.rerun()
@@ -267,6 +280,10 @@ def main():
         user_email = st.session_state.get("user_email")
         admin_email = secrets_manager.get_secret("admin.email") if secrets_manager else None
         
+        # Determine current user role for sidebar rendering
+        current_role = st.session_state.get("user_role", "user")
+        
+        # Admin gets everything
         if user_email and admin_email and user_email == admin_email:
              with st.sidebar:
                  st.markdown("### 🛠️ Admin Master Switch")
@@ -279,6 +296,12 @@ def main():
                  if st.button("🤝 Partner Portal", use_container_width=True):
                      st.session_state.app_mode = "partner"; st.rerun()
                  st.sidebar.divider()
+        
+        # Advisors get Advisor Portal button
+        elif current_role == "advisor":
+            with st.sidebar:
+                if st.button("🛡️ Advisor Dashboard", use_container_width=True):
+                    st.session_state.app_mode = "advisor"; st.rerun()
 
         with st.sidebar:
             if st.button("🚪 Sign Out", use_container_width=True): handle_logout()
