@@ -245,15 +245,18 @@ def render_login_page():
                         st.session_state.authenticated = True
                         st.session_state.user_email = email
                         
-                        # SMART ROUTING: Check role immediately
-                        target_mode = "heirloom" # Default fallback
+                        # --- SMART B2B REDIRECT ---
+                        # Check if they are an advisor based on the DB profile
+                        target_mode = "heirloom" # Default fallback for Heirs
                         
                         if database:
                             profile = database.get_user_profile(email)
                             if profile:
                                 role = profile.get("role", "user")
-                                if role == "advisor": target_mode = "advisor"
-                                elif role == "partner": target_mode = "partner"
+                                if role == "advisor": 
+                                    target_mode = "advisor"
+                                elif role == "admin":
+                                    target_mode = "admin"
                         
                         st.session_state.app_mode = target_mode
                         st.rerun()

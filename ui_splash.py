@@ -30,12 +30,15 @@ def render_splash_page():
             st.markdown("### 📜 Family Archive")
             st.write("Preserve family stories through voice-to-letter dictation.")
             if st.button("Access My Archive", use_container_width=True):
-                st.session_state.app_mode = "heirloom"
+                # Heirs go directly to login, defaulting to heirloom mode upon success
+                st.session_state.app_mode = "login"
                 st.rerun()
 
     st.markdown("<br><br><hr>", unsafe_allow_html=True)
     col_l, col_r = st.columns([4, 1])
     col_l.caption("© 2026 VerbaPost Wealth Management Solutions.")
-    if col_r.button("⚖️ Legal & Terms", use_container_width=True):
+    
+    # Using a unique key to prevent ID collisions if used elsewhere
+    if col_r.button("⚖️ Legal & Terms", key="splash_legal_btn", use_container_width=True):
         st.session_state.app_mode = "legal"
         st.rerun()
