@@ -17,7 +17,10 @@ def render_splash_page():
         with st.container(border=True):
             st.markdown("### 🏛️ Advisor Portal")
             st.write("Secure dashboard for managing client legacy outreach.")
+            
+            # --- FIX: Set Intent to 'advisor' before routing ---
             if st.button("Login as Advisor", use_container_width=True, type="primary"):
+                st.query_params["role"] = "advisor"  # <--- Triggers Smart Routing in ui_login
                 st.session_state.app_mode = "login"
                 st.rerun()
 
