@@ -15,3 +15,8 @@ __pycache__/
 .DS_Store
 venv/
 .venv/
+# Prevent zip bloat
+*.zip
+
+# Prevent test junk
+test_*.py
