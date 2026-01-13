@@ -11,16 +11,31 @@ except ImportError: secrets_manager = None
 def render_dashboard():
     """
     The 'Quarterback' Dashboard for Wealth Managers.
-    Includes Payment Gating: Advisors must have credits to authorize gifts.
+    Includes Payment Gating and Onboarding Tips.
     """
     user_email = st.session_state.get("user_email")
     advisor = database.get_or_create_advisor(user_email)
     
-    credits = advisor.get('credits', 0)
+    # Default to 0 if None
+    credits = advisor.get('credits') or 0
+    firm_name = advisor.get('firm_name', 'Unregistered Firm')
     
-    # 1. HEADER & GLOBAL STATS
+    # 1. HEADER
     st.title("🏛️ VerbaPost | Advisor Quarterback")
-    st.caption(f"Connected as {user_email} | {advisor.get('firm_name', 'Unregistered Firm')}")
+    st.caption(f"Connected as {user_email} | {firm_name}")
+
+    # --- 💡 HOW-TO TIP (NEW) ---
+    with st.expander("🏁 Quick Start Guide: Read this first!", expanded=(firm_name == "New Firm")):
+        st.markdown("""
+        **Welcome to your Legacy Command Center.** follow these 3 steps to launch your first gift:
+        
+        1.  **🏷️ Set Your Firm Name (Crucial):** * *Why?* This name appears on the **Heir's Login Screen** ("Sponsored by [Your Firm]") and the **Physical Letter Footer**.
+            * *Action:* Go to the **"⚙️ Firm Settings"** tab right now to update this from "New Firm" to your practice name.
+        
+        2.  **💳 Purchase Credits:** * You need **1 Credit** to authorize a legacy package. If your balance is 0, the authorization form will be hidden.
+            
+        3.  **🚀 Authorize a Client:** * Once you have a credit, the form in the **"Authorize Gift"** tab will unlock. Enter your client's details to generate their invite link.
+        """)
 
     # 2. STATS BAR
     clients = database.get_clients(user_email)
@@ -46,7 +61,7 @@ def render_dashboard():
             st.warning("⚠️ Insufficient Credits. You need 1 Credit ($99) to activate a new family project.")
             
             st.markdown("""
-            <div style="background-color: #f9fafb; padding: 20px; border-radius: 10px; border: 1px solid #e5e7eb; text-align: center;">
+            <div style="background-color: #f9fafb; padding: 20px; border-radius: 10px; border: 1px solid #e5e7eb; text-align: center; margin-bottom: 20px;">
                 <h3 style="color: #1f2937; margin:0;">Purchase Client Activation</h3>
                 <p style="color: #6b7280;">Includes Concierge Interview, Transcription, Hosting, and 1 Physical Keepsake.</p>
                 <h2 style="color: #059669; font-size: 40px; margin: 10px 0;">$99</h2>
@@ -55,8 +70,7 @@ def render_dashboard():
             
             if st.button("💳 Purchase Credit ($99)", type="primary", use_container_width=True):
                 if payment_engine:
-                    # FIX: Use a B2B Price ID or dynamic Amount
-                    # Assuming standard checkout session logic
+                    # Create Stripe Session
                     url = payment_engine.create_checkout_session(
                         line_items=[{
                             "price_data": {
@@ -68,14 +82,14 @@ def render_dashboard():
                         }],
                         user_email=user_email,
                         mode="payment",
-                        draft_id="ADVISOR_CREDIT" # Metadata flag
+                        draft_id="ADVISOR_CREDIT"
                     )
                     if url: st.link_button("👉 Proceed to Secure Checkout", url)
-                    else: st.error("Payment Error.")
+                    else: st.error("Payment Error: Could not generate link.")
                 else:
-                    st.error("Payment Engine Missing.")
+                    st.error("System Error: Payment Engine Missing.")
             
-            st.info("Once purchased, you will be redirected here to enter client details.")
+            st.info("Once purchased, you will be automatically redirected here to enter client details.")
             
         else:
             # --- THE AUTHORIZATION FORM (Only shown if Credit > 0) ---
@@ -107,12 +121,10 @@ def render_dashboard():
                             
                             if proj_id:
                                 st.success("✅ Authorized! Send this link to the heir:")
-                                # Simplified link logic; assumes user will login with heir email
-                                st.code(f"https://app.verbapost.com/?role=heir") 
+                                st.code(f"https://app.verbapost.com/?nav=login") 
                                 st.info(f"Tell them to log in with: {h_email}")
                                 st.balloons()
-                                # Refresh to update credit counter
-                                # st.rerun() 
+                                st.rerun() 
                         else:
                             st.error("Transaction Error: Could not deduct credit.")
 
@@ -148,7 +160,22 @@ def render_dashboard():
     # --- TAB: FIRM SETTINGS ---
     with tab_settings:
         st.subheader("Firm Branding")
+        st.info("This name will appear on all client letters and login screens.")
+        
         with st.form("firm_details"):
-            new_firm = st.text_input("Firm Name", value=advisor.get('firm_name', ''))
+            new_firm = st.text_input("Firm / Practice Name", value=advisor.get('firm_name', ''))
+            
             if st.form_submit_button("💾 Save Profile"):
-                 st.info("Feature coming soon.")
+                # We need a quick DB update here.
+                # Assuming simple direct update for now since database.update_advisor_firm isn't explicitly defined yet.
+                # In a real scenario, add the function to database.py
+                if database:
+                    with database.get_db_session() as session:
+                        adv_record = session.query(database.Advisor).filter_by(email=user_email).first()
+                        if adv_record:
+                            adv_record.firm_name = new_firm
+                            session.commit()
+                            st.success("Firm Name Updated!")
+                            st.rerun()
+                        else:
+                            st.error("Advisor record not found.")
