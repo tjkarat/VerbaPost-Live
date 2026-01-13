@@ -5,7 +5,7 @@ import logging
 import time
 
 # --- 🏷️ VERSION CONTROL ---
-VERSION = "5.0.3" # Added ?nav= Routing for Marketing Site
+VERSION = "5.0.4" # Added Google-to-DB Sync Fix
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -84,8 +84,22 @@ def main():
         if auth_engine:
             user, err = auth_engine.exchange_code_for_user(code)
             if user:
+                # --- DB SYNC FIX: Ensure User Exists in Public Table ---
+                if database:
+                    # 1. Try to fetch profile
+                    profile = database.get_user_profile(user.email)
+                    
+                    # 2. If profile is missing or has no name (fresh auto-create), update it
+                    if not profile.get('full_name'):
+                        google_name = user.user_metadata.get('full_name', 'Google User')
+                        # We force update the name to ensure the record is complete
+                        # Since get_user_profile auto-creates, we just need to ensure details are there
+                        # But explicit create is safer if the row was just deleted
+                        database.create_user(user.email, google_name)
+
                 st.session_state.authenticated = True
                 st.session_state.user_email = user.email
+                
                 # Smart Route: Check if advisor
                 profile = database.get_user_profile(user.email)
                 if profile.get('role') == 'advisor':
@@ -138,7 +152,6 @@ def main():
             if nav_target == "login":
                 st.session_state.app_mode = "login"
             elif nav_target == "archive":
-                # Heirs go to login, then auto-routed to heirloom logic
                 st.session_state.app_mode = "login" 
             elif nav_target == "legal":
                 st.session_state.app_mode = "legal"
