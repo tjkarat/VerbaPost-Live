@@ -1,153 +1,158 @@
 import streamlit as st
 import time
-from datetime import datetime
+import logging
 
-# --- MODULE IMPORTS ---
-try: import database
-except ImportError: database = None
-try: import ai_engine
-except ImportError: ai_engine = None
-try: import heirloom_engine
-except ImportError: heirloom_engine = None
-try: import audit_engine
-except ImportError: audit_engine = None
-try: import letter_format
-except ImportError: letter_format = None
-try: import mailer
-except ImportError: mailer = None
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- LAZY IMPORTS ---
+# We use lazy imports inside functions to prevent "KeyError" / Circular Loops
+def get_db():
+    import database
+    return database
 
 def render_dashboard():
     """
-    The Family Archive Portal (Heir View).
-    Streamlined for B2B: Edit -> Submit -> Wait for Advisor.
+    The Heir's Interface: View stories, edit transcripts, and submit to advisor.
     """
-    if not st.session_state.get("authenticated"):
-        st.warning("Please log in."); return
-
+    # 1. SETUP & AUTH CHECK
+    db = get_db()
     user_email = st.session_state.get("user_email")
+    if not user_email:
+        st.error("Authentication lost. Please log in again.")
+        st.stop()
+
+    # 2. GET USER DATA
+    # We fetch the client profile to see who their Advisor is
+    client_profile = None
+    advisor_firm = "VerbaPost" # Default
     
-    # 1. HEADER: BRANDING
-    # We fetch projects to see who the advisor is
-    projects = []
-    if database:
-        projects = database.get_heir_projects(user_email)
+    # Try to find the client record linked to this email
+    # (In the B2B model, the Heir is listed in the 'clients' table)
+    # We need a helper for this in database.py, but for now we look up projects directly.
     
-    firm_name = projects[0].get('firm_name') if projects else "VerbaPost"
+    projects = db.get_heir_projects(user_email)
     
-    col_logo, col_title = st.columns([1, 4])
-    with col_title:
-        st.title("The Family Archive")
-        st.caption(f"Sponsored by {firm_name} | Preserving your family legacy.")
+    # If projects exist, grab the firm name from the first one for branding
+    if projects:
+        advisor_firm = projects[0].get('firm_name', 'VerbaPost')
+
+    # 3. HEADER WITH BRANDING
+    st.title("📂 Family Legacy Archive")
+    st.markdown(f"**Sponsored by {advisor_firm}**")
+    st.caption(f"Logged in as: {user_email}")
 
     st.divider()
 
-    # 2. TABS
-    tab_inbox, tab_setup = st.tabs(["📥 Story Inbox", "⚙️ Setup & Interview"])
+    # 4. MAIN CONTENT TABS
+    tab_inbox, tab_vault, tab_setup = st.tabs(["📥 Story Inbox", "🏛️ The Vault", "⚙️ Setup & Interview"])
 
-    # --- TAB A: INBOX (THE WORKFLOW) ---
+    # --- TAB: INBOX (Active Transcripts) ---
     with tab_inbox:
-        if not projects:
-            st.info("No stories found yet. Use the 'Setup' tab to start an interview.")
+        st.subheader("Pending Stories")
         
-        for p in projects:
+        # Filter for active projects
+        active_projects = [p for p in projects if p.get('status') in ['Authorized', 'Recording', 'Pending Approval']]
+        
+        if not active_projects:
+            st.info("No active stories pending review.")
+            st.markdown("""
+            **How it works:**
+            1. We call your parent/senior.
+            2. The audio is transcribed.
+            3. It appears here for you to edit.
+            4. You submit it to your Advisor for printing.
+            """)
+        
+        for p in active_projects:
             pid = p.get('id')
-            status = p.get('status', 'Recording')
-            date_str = p.get('created_at', 'Unknown Date')
-            content = p.get('content', '')
+            status = p.get('status')
+            content = p.get('content') or ""
+            prompt = p.get('strategic_prompt') or "No prompt set."
             
-            # Status Badge Logic
-            if status == "Pending Approval":
-                icon = "⏳"
-                badge_color = "orange"
-                label = "Waiting for Advisor Review"
-            elif status == "Approved" or status == "Sent":
-                icon = "✅"
-                badge_color = "green"
-                label = "Preserved & Mailed"
-            else:
-                icon = "🎙️"
-                badge_color = "blue"
-                label = "Draft (Needs Editing)"
+            with st.expander(f"Draft: {prompt[:50]}...", expanded=True):
+                # Status Badge
+                if status == "Authorized":
+                    st.info("📞 Status: Ready for Interview Call")
+                elif status == "Recording":
+                    st.warning("🎙️ Status: Drafting / Needs Edit")
+                elif status == "Pending Approval":
+                    st.warning("⏳ Status: Waiting for Advisor Review")
 
-            with st.expander(f"{icon} {date_str} | {label}", expanded=(status=='Recording')):
+                st.markdown(f"**Interview Question:** *{prompt}*")
                 
-                # STATUS BANNER
-                st.markdown(f":{badge_color}[**Status: {label}**]")
-                
-                # EDITING AREA (Only editable if not yet approved)
-                is_editable = (status == "Recording" or status == "Authorized")
+                # Editing Interface
+                # If it's already submitted, make it read-only
+                is_locked = (status == "Pending Approval")
                 
                 new_text = st.text_area(
-                    "Transcript", 
+                    "Transcript Edit", 
                     value=content, 
-                    height=250, 
-                    key=f"txt_{pid}",
-                    disabled=not is_editable
+                    height=300, 
+                    disabled=is_locked,
+                    key=f"txt_{pid}"
                 )
                 
-                if is_editable:
-                    col_save, col_submit = st.columns([1, 2])
+                if not is_locked:
+                    c1, c2 = st.columns(2)
+                    if c1.button("💾 Save Draft", key=f"save_{pid}"):
+                        if db.update_project_content(pid, new_text):
+                            st.toast("Draft Saved!")
+                            time.sleep(1)
+                            st.rerun()
                     
-                    with col_save:
-                        if st.button("💾 Save Draft", key=f"sav_{pid}", use_container_width=True):
-                            if database: database.update_project_content(pid, new_text)
-                            st.toast("Draft saved.")
-                    
-                    with col_submit:
-                        st.markdown("**Ready to print?**")
-                        if st.button("✨ Submit to Advisor", key=f"sub_{pid}", type="primary", use_container_width=True):
-                            # 1. Save final text first
-                            if database: 
-                                database.update_project_content(pid, new_text)
-                                # 2. Update status
-                                success = database.submit_project(pid)
-                                if success:
-                                    if audit_engine: 
-                                        audit_engine.log_event(user_email, "PROJECT_SUBMITTED", pid)
-                                    st.balloons()
-                                    st.success("Submitted! Your advisor has been notified.")
-                                    time.sleep(2)
-                                    st.rerun()
-                                else:
-                                    st.error("Submission failed.")
-                else:
-                    st.info("This story has been submitted/archived and is now read-only.")
+                    if c2.button("✨ Submit to Advisor", type="primary", key=f"sub_{pid}"):
+                        if db.submit_project(pid):
+                            st.balloons()
+                            st.success("Sent to Advisor for final print approval!")
+                            time.sleep(2)
+                            st.rerun()
 
-    # --- TAB B: SETUP (RETAINED FOR SELF-SERVICE CALLS) ---
+    # --- TAB: VAULT (Completed) ---
+    with tab_vault:
+        st.subheader("Preserved Memories")
+        completed = [p for p in projects if p.get('status') in ['Approved', 'Sent']]
+        
+        if not completed:
+            st.caption("No completed letters yet.")
+        
+        for p in completed:
+            pid = p.get('id')
+            prompt = p.get('strategic_prompt')
+            date_str = str(p.get('created_at'))[:10]
+            
+            with st.expander(f"✅ {date_str} - {prompt[:40]}..."):
+                st.markdown(p.get('content'))
+                st.download_button("⬇️ Download PDF", data=p.get('content'), file_name="letter.txt")
+
+    # --- TAB: SETUP ---
     with tab_setup:
-        st.subheader("Start a New Interview")
+        st.subheader("Interview Settings")
+        st.info("These settings control the automated interviews.")
         
-        # Load profile for defaults
-        profile = database.get_user_profile(user_email) if database else {}
-        curr_p_name = profile.get("parent_name", "")
-        curr_p_phone = profile.get("parent_phone", "")
+        # Fetch current profile data
+        profile = db.get_user_profile(user_email)
         
-        with st.form("interview_target"):
-            st.markdown("Who are we interviewing?")
-            p_name = st.text_input("Name", value=curr_p_name)
-            p_phone = st.text_input("Phone Number", value=curr_p_phone)
+        with st.form("settings_form"):
+            p_name = st.text_input("Parent Name", value=profile.get('parent_name', ''))
+            p_phone = st.text_input("Parent Phone", value=profile.get('parent_phone', ''))
             
-            if st.form_submit_button("Save Settings"):
-                if database:
-                    database.update_heirloom_settings(user_email, p_name, p_phone)
-                    st.success("Saved.")
+            if st.form_submit_button("Update Settings"):
+                if db.update_heirloom_settings(user_email, p_name, p_phone):
+                    st.success("Settings Updated")
                     st.rerun()
-        
-        st.divider()
-        
-        if p_phone:
-            st.markdown(f"#### 📞 Call {p_name or 'Parent'}")
-            topic = st.text_input("Topic / Question", placeholder="e.g. Tell me about your first car.")
-            
-            if st.button("Trigger Call Now", type="primary"):
-                if ai_engine:
-                    with st.spinner("Connecting..."):
-                        # Uses the hardened AI engine with Prep-SMS
-                        sid, err = ai_engine.trigger_outbound_call(p_phone, "your advisor", firm_name)
-                        if sid:
-                            st.success("Calling now! Pick up the phone.")
-                        else:
-                            st.error(f"Call failed: {err}")
 
-if __name__ == "__main__":
-    render_dashboard()
+        st.divider()
+        st.markdown("#### 🔴 Danger Zone")
+        if st.button("Trigger Test Call Now"):
+            st.warning("System: Initiating outbound call sequence...")
+            # We would import telephony_engine here if needed
+            try:
+                import telephony_engine
+                if telephony_engine.initiate_interview(user_email):
+                    st.success("Call dispatched! Phone should ring in 30s.")
+                else:
+                    st.error("Call failed to initiate.")
+            except ImportError:
+                st.error("Telephony module missing.")
