@@ -23,12 +23,38 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 # ==========================================
-# 📞 B2B TELEPHONY (NEW)
+# 📞 B2B TELEPHONY (HARDENED)
 # ==========================================
 
-def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id):
+def send_prep_sms(to_phone, advisor_name):
     """
-    Triggers a Twilio call with a dynamic B2B script.
+    Sends a 'Warm Up' SMS so the user knows the call is coming.
+    Prevents 'Spam Risk' rejection.
+    """
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    from_number = get_secret("twilio.from_number") or "+16156567667"
+
+    if not sid or not token: return False, "Missing Credentials"
+    
+    msg_body = f"Hello. This is the automated interview service for {advisor_name or 'your advisor'}. We will call you in about 2 minutes to record your family story. Please pick up!"
+
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        message = client.messages.create(
+            body=msg_body,
+            from_=from_number,
+            to=to_phone
+        )
+        return True, message.sid
+    except Exception as e:
+        logger.error(f"SMS Error: {e}")
+        return False, str(e)
+
+def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
+    """
+    Triggers a Twilio call with Answering Machine Detection (AMD).
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
@@ -39,10 +65,9 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id):
         return None, "Missing Credentials"
 
     # Dynamic TwiML Script (The "Brain" of the call)
-    # We embed the project_id in the callback URL so we know who spoke later.
-    callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}"
+    # Note: We removed the 'action' URL because we are using Polling (heirloom_engine)
+    # to find the recording later. This prevents 404 errors if you don't have a webhook server.
     
-    # Sanitize inputs to prevent script injection or empty reads
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
 
@@ -58,8 +83,8 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id):
             Please share a favorite memory from your childhood after the beep. 
             When you are finished, press the pound key.
         </Say>
-        <Record maxLength="300" finishOnKey="#" action="{callback_url}" />
-        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved.</Say>
+        <Record maxLength="300" finishOnKey="#" playBeep="true" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved. Goodbye.</Say>
     </Response>
     """
 
@@ -70,7 +95,10 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id):
         call = client.calls.create(
             twiml=twiml,
             to=to_phone,
-            from_=from_number
+            from_=from_number,
+            # --- RED TEAM: ANSWERING MACHINE DETECTION ---
+            machine_detection='DetectMessageEnd', 
+            # If a machine answers, Twilio hangs up. We don't want to record voicemails.
         )
         return call.sid, None
     except Exception as e:
@@ -101,8 +129,7 @@ def transcribe_audio(file_path):
 
 def refine_text(text):
     """
-    Legacy 'AI Polish' feature used by Standard Store.
-    Preserved to prevent ui_main.py crashes.
+    Legacy 'AI Polish' feature.
     """
     client = get_openai_client()
     if not client: return text
@@ -121,7 +148,7 @@ def refine_text(text):
         return text
 
 # ==========================================
-# ⚙️ ADMIN UTILITIES (PRESERVED)
+# ⚙️ ADMIN UTILITIES
 # ==========================================
 
 def get_all_twilio_recordings(limit=50):
@@ -137,7 +164,6 @@ def get_all_twilio_recordings(limit=50):
         client = Client(sid, token)
         recordings = client.recordings.list(limit=limit)
         
-        # Serialize to dict to avoid Twilio object issues in Streamlit
         data = []
         for r in recordings:
             data.append({
@@ -145,7 +171,7 @@ def get_all_twilio_recordings(limit=50):
                 "date_created": r.date_created,
                 "duration": r.duration,
                 "status": r.status,
-                "uri": r.uri  # This is usually partial uri
+                "uri": r.uri 
             })
         return data
     except Exception as e:

@@ -46,6 +46,8 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import module_validator
 except ImportError: module_validator = None
+try: import ui_archive # Hook for QR codes
+except ImportError: ui_archive = None
 
 # --- 4. LOGGING ---
 logging.basicConfig(level=logging.INFO)
@@ -66,7 +68,13 @@ def main():
     # C. URL PARAMS & AUTH CALLBACKS
     params = st.query_params
     
-    # PKCE Callback (Google Auth)
+    # 1. QR CODE SCAN (Archive View)
+    if ("project_id" in params or "id" in params) and ui_archive:
+        pid = params.get("project_id") or params.get("id")
+        ui_archive.render_heir_vault(pid)
+        return # Stop processing to show only the vault
+
+    # 2. PKCE Callback (Google Auth)
     if "code" in params:
         code = params["code"]
         if auth_engine:

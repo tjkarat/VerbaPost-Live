@@ -11,6 +11,10 @@ try: import heirloom_engine
 except ImportError: heirloom_engine = None
 try: import audit_engine
 except ImportError: audit_engine = None
+try: import letter_format
+except ImportError: letter_format = None
+try: import mailer
+except ImportError: mailer = None
 
 def render_dashboard():
     """
@@ -45,9 +49,6 @@ def render_dashboard():
         if not projects:
             st.info("No stories found yet. Use the 'Setup' tab to start an interview.")
         
-        # Sort: Pending/Recording first, then Sent
-        # Simple lambda sort logic if needed, but DB usually handles order
-        
         for p in projects:
             pid = p.get('id')
             status = p.get('status', 'Recording')
@@ -81,3 +82,72 @@ def render_dashboard():
                     value=content, 
                     height=250, 
                     key=f"txt_{pid}",
+                    disabled=not is_editable
+                )
+                
+                if is_editable:
+                    col_save, col_submit = st.columns([1, 2])
+                    
+                    with col_save:
+                        if st.button("💾 Save Draft", key=f"sav_{pid}", use_container_width=True):
+                            if database: database.update_project_content(pid, new_text)
+                            st.toast("Draft saved.")
+                    
+                    with col_submit:
+                        st.markdown("**Ready to print?**")
+                        if st.button("✨ Submit to Advisor", key=f"sub_{pid}", type="primary", use_container_width=True):
+                            # 1. Save final text first
+                            if database: 
+                                database.update_project_content(pid, new_text)
+                                # 2. Update status
+                                success = database.submit_project(pid)
+                                if success:
+                                    if audit_engine: 
+                                        audit_engine.log_event(user_email, "PROJECT_SUBMITTED", pid)
+                                    st.balloons()
+                                    st.success("Submitted! Your advisor has been notified.")
+                                    time.sleep(2)
+                                    st.rerun()
+                                else:
+                                    st.error("Submission failed.")
+                else:
+                    st.info("This story has been submitted/archived and is now read-only.")
+
+    # --- TAB B: SETUP (RETAINED FOR SELF-SERVICE CALLS) ---
+    with tab_setup:
+        st.subheader("Start a New Interview")
+        
+        # Load profile for defaults
+        profile = database.get_user_profile(user_email) if database else {}
+        curr_p_name = profile.get("parent_name", "")
+        curr_p_phone = profile.get("parent_phone", "")
+        
+        with st.form("interview_target"):
+            st.markdown("Who are we interviewing?")
+            p_name = st.text_input("Name", value=curr_p_name)
+            p_phone = st.text_input("Phone Number", value=curr_p_phone)
+            
+            if st.form_submit_button("Save Settings"):
+                if database:
+                    database.update_heirloom_settings(user_email, p_name, p_phone)
+                    st.success("Saved.")
+                    st.rerun()
+        
+        st.divider()
+        
+        if p_phone:
+            st.markdown(f"#### 📞 Call {p_name or 'Parent'}")
+            topic = st.text_input("Topic / Question", placeholder="e.g. Tell me about your first car.")
+            
+            if st.button("Trigger Call Now", type="primary"):
+                if ai_engine:
+                    with st.spinner("Connecting..."):
+                        # Uses the hardened AI engine with Prep-SMS
+                        sid, err = ai_engine.trigger_outbound_call(p_phone, "your advisor", firm_name)
+                        if sid:
+                            st.success("Calling now! Pick up the phone.")
+                        else:
+                            st.error(f"Call failed: {err}")
+
+if __name__ == "__main__":
+    render_dashboard()
