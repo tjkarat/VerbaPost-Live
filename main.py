@@ -4,14 +4,14 @@ import os
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.3.7"  # Full Restoration & Seamless Auth
+VERSION = "4.3.8"  # Sidebar Default Collapsed
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
     page_title=f"VerbaPost Wealth v{VERSION}", 
     page_icon="🛡️", 
     layout="centered",
-    initial_sidebar_state="expanded" 
+    initial_sidebar_state="collapsed" 
 )
 
 # --- 2. PATH INJECTION (FIXES KEYERROR: 'DATABASE') ---
