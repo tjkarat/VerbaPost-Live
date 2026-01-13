@@ -4,7 +4,7 @@ import os
 
 # --- 🏷️ VERSION CONTROL ---
 # Increment this constant at every functional update to this file.
-VERSION = "4.4.2"  # Full Restore with Visual Debug Console
+VERSION = "4.4.3"  # Fixed White-Screen Silence & Auth Bridge Fallback
 
 # --- 1. CRITICAL: CONFIG MUST BE THE FIRST COMMAND ---
 st.set_page_config(
@@ -36,8 +36,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- 3. HARDENED OAUTH BRIDGE WITH VISUAL DEBUGGER ---
-# This version includes a visible console at the top to track token processing.
-# Fixed the 'TypeError' by using 'let' instead of 'const' for URL assembly.
+# This bridge extracts tokens from the URL fragment (#) and moves them to query params (?)
+# so that the Python backend can actually read them.
 components.html(
     """
     <div id="bridge-debug" style="font-family:monospace; font-size:11px; color:#1e293b; background:#f1f5f9; border:1px solid #cbd5e1; padding:8px; border-radius:4px; display:none; margin-bottom:10px;">
@@ -66,7 +66,6 @@ components.html(
                 
                 if (accessToken) {
                     const cleanUrl = parentWin.location.origin + parentWin.location.pathname;
-                    // FIX: Using 'let' instead of 'const' to allow parameter appending
                     let finalUrl = cleanUrl + '?access_token=' + encodeURIComponent(accessToken);
                     
                     if (refreshToken) finalUrl += '&refresh_token=' + encodeURIComponent(refreshToken);
@@ -74,10 +73,10 @@ components.html(
                     log("Attempting seamless redirect to top-level window...");
                     
                     try {
+                        // Using _top to ensure we break out of the streamlit iframe
                         parentWin.location.replace(finalUrl);
                     } catch (navErr) {
                         log("BROWSER BLOCKED REDIRECT: " + navErr.message);
-                        // Manual fallback if seamless fails
                         document.body.innerHTML = `
                             <div style="text-align:center; padding-top:5px; font-family:sans-serif;">
                                 <a href="${finalUrl}" target="_top" style="
@@ -138,6 +137,7 @@ except ImportError: module_validator = None
 # ==========================================
 
 def sync_user_session():
+    """Updates session state with profile data from database."""
     if st.session_state.get("authenticated") and st.session_state.get("user_email"):
         try:
             email = st.session_state.get("user_email")
@@ -151,6 +151,7 @@ def sync_user_session():
             logger.error(f"Session Sync Failure: {e}")
 
 def handle_logout():
+    """Clears session and redirects to splash."""
     if auth_engine: auth_engine.sign_out()
     for key in list(st.session_state.keys()):
         del st.session_state[key]
@@ -196,10 +197,13 @@ def main():
                     st.stop()
 
     # --- STEP 2: SYSTEM HEALTH PRE-FLIGHT ---
+    # Fixed white screen: If pre-flight fails, we now show EXACTLY what failed
+    # instead of just calling st.stop() silently.
     if module_validator and not st.session_state.get("system_verified"):
         health = module_validator.run_preflight_checks()
         if not health["status"]:
-            st.error("⚠️ System configuration error. Check Admin logs.")
+            st.error("⚠️ System configuration error. See Details Below.")
+            st.json(health.get("details", {"error": "Missing critical secrets or modules."}))
             st.stop()
         st.session_state.system_verified = True
 
@@ -262,6 +266,12 @@ def main():
     elif mode == "partner" and ui_partner: ui_partner.render_dashboard()
     elif mode == "login" and ui_login: ui_login.render_login_page()
     elif ui_splash: ui_splash.render_splash_page()
+    else:
+        # Fallback to ensure we never have a white screen
+        st.warning("Routing ambiguity detected. Returning home...")
+        if st.button("🏠 Home"):
+            st.session_state.app_mode = "splash"
+            st.rerun()
 
 if __name__ == "__main__":
     try:
