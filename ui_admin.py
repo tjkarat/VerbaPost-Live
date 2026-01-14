@@ -5,6 +5,7 @@ import base64
 import os
 import requests
 from datetime import datetime
+from sqlalchemy import text  # <--- CRITICAL FIX
 
 # --- MODULE IMPORTS ---
 try: import database
@@ -17,6 +18,8 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 try: import ai_engine
 except ImportError: ai_engine = None
+try: import email_engine
+except ImportError: email_engine = None
 
 # --- HELPER FUNCTIONS ---
 
@@ -33,9 +36,9 @@ def get_orphaned_calls():
     # 2. Fetch from DB
     try:
         with database.get_db_session() as session:
-            # Execute raw SQL to get all known SIDs
-            result = session.execute("SELECT call_sid FROM letter_drafts WHERE call_sid IS NOT NULL")
-            # Flatten list of known SIDs
+            # FIX: Wrapped in text()
+            sql = text("SELECT call_sid FROM letter_drafts WHERE call_sid IS NOT NULL")
+            result = session.execute(sql)
             known_sids = [row[0] for row in result.fetchall()]
     except Exception as e:
         st.error(f"DB Error: {e}")
@@ -56,11 +59,9 @@ def manual_credit_grant(advisor_email, amount):
     if not database: return False
     try:
         with database.get_db_session() as session:
-            # Check if advisor exists
-            result = session.execute(
-                "SELECT credits FROM advisors WHERE email = :email", 
-                {"email": advisor_email}
-            ).fetchone()
+            # FIX: Wrapped in text()
+            sql_check = text("SELECT credits FROM advisors WHERE email = :email")
+            result = session.execute(sql_check, {"email": advisor_email}).fetchone()
             
             if not result:
                 return False, "Advisor not found."
@@ -69,41 +70,27 @@ def manual_credit_grant(advisor_email, amount):
             new_total = current_credits + amount
             
             # Update
-            session.execute(
-                "UPDATE advisors SET credits = :new_val WHERE email = :email",
-                {"new_val": new_total, "email": advisor_email}
-            )
+            # FIX: Wrapped in text()
+            sql_update = text("UPDATE advisors SET credits = :new_val WHERE email = :email")
+            session.execute(sql_update, {"new_val": new_total, "email": advisor_email})
             session.commit()
             return True, new_total
     except Exception as e:
         return False, str(e)
 
 def check_service_health():
-    """Diagnoses connection to critical B2B services."""
     health_report = []
-
-    # 1. DATABASE CHECK
     try:
         if database and database.get_db_session():
-            health_report.append(("✅", "Database (Supabase)", "Connected"))
+            health_report.append(("✅", "Database", "Connected"))
         else:
             health_report.append(("❌", "Database", "Connection Failed"))
     except Exception as e:
         health_report.append(("❌", "Database", f"Error: {str(e)}"))
 
-    # 2. OPENAI CHECK
     api_key = secrets_manager.get_secret("openai.api_key") if secrets_manager else os.environ.get("OPENAI_API_KEY")
-    if api_key:
-        health_report.append(("✅", "OpenAI", "Key Present"))
-    else:
-        health_report.append(("⚠️", "OpenAI", "Key Missing"))
-
-    # 3. TWILIO CHECK
-    sid = secrets_manager.get_secret("twilio.account_sid") if secrets_manager else os.environ.get("TWILIO_ACCOUNT_SID")
-    if sid:
-        health_report.append(("✅", "Twilio", "Key Present"))
-    else:
-        health_report.append(("❌", "Twilio", "Key Missing"))
+    if api_key: health_report.append(("✅", "OpenAI", "Key Present"))
+    else: health_report.append(("⚠️", "OpenAI", "Key Missing"))
 
     return health_report
 
@@ -114,10 +101,10 @@ def render_admin_page():
     
     # NAVIGATION
     tabs = st.tabs([
-        "🖨️ Manual Print", 
-        "📢 Marketing Studio", 
+        "🖨️ Fulfillment", 
+        "📢 Marketing", 
         "👻 Ghost Calls", 
-        "💰 Grant Credits",
+        "💰 Credits", 
         "❤️ Health"
     ])
 
@@ -125,11 +112,10 @@ def render_admin_page():
     with tabs[0]:
         st.subheader("Fulfillment Queue")
         st.info("Pending letters that need manual printing.")
-        # (Placeholder for existing logic if you have it, otherwise just a header)
         if st.button("Refresh Queue"):
             st.toast("Queue refreshed")
 
-    # --- TAB 2: MARKETING STUDIO (New) ---
+    # --- TAB 2: MARKETING STUDIO (The 'Missing' Feature) ---
     with tabs[1]:
         st.subheader("📢 Direct Marketing Writer")
         st.markdown("Create a one-off letter using the **Vintage TrueType** font engine.")
@@ -146,9 +132,7 @@ def render_admin_page():
         
         if st.button("📄 Generate PDF Preview", type="primary"):
             if letter_format:
-                # Structure inputs for the engine
                 to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "ST", "zip": "00000"} 
-                # (Simple parsing for preview)
                 from_obj = {"name": "VerbaPost", "address_line1": m_from}
                 
                 pdf_bytes = letter_format.create_pdf(
@@ -164,10 +148,9 @@ def render_admin_page():
             else:
                 st.error("Letter Format Engine missing.")
 
-    # --- TAB 3: GHOST CALLS (New) ---
+    # --- TAB 3: GHOST CALLS ---
     with tabs[2]:
         st.subheader("👻 Orphaned Recording Scanner")
-        st.markdown("Finds Twilio recordings that **do not** have a matching draft in the database.")
         
         if st.button("🔍 Scan Twilio Logs"):
             with st.spinner("Comparing Twilio Logs vs Database..."):
@@ -177,21 +160,15 @@ def render_admin_page():
                     st.success("✅ No orphans found! All calls are accounted for.")
                 else:
                     st.warning(f"⚠️ Found {len(orphans)} orphaned recordings.")
-                    
                     for o in orphans:
                         with st.expander(f"Orphan: {o['date_created']} ({o['duration']}s)"):
                             st.write(f"**SID:** `{o['sid']}`")
-                            st.write(f"**Status:** {o['status']}")
-                            # Audio Player
-                            # Note: Twilio URIs often require auth, but we can try rendering the .mp3 version
-                            media_url = f"https://api.twilio.com{o['uri'].replace('.json', '.mp3')}"
-                            st.audio(media_url)
-                            
-                            st.markdown("To fix: Manually create a draft with this SID.")
+                            st.audio(f"https://api.twilio.com{o['uri'].replace('.json', '.mp3')}")
 
-    # --- TAB 4: GRANT CREDITS (New) ---
+    # --- TAB 4: GRANT CREDITS (The 'Missing' Feature) ---
     with tabs[3]:
         st.subheader("💰 The Central Bank")
+        st.markdown("Manually inject credits into an Advisor's account.")
         
         c_email = st.text_input("Advisor Email")
         c_amount = st.number_input("Credits to Add", min_value=1, value=1, step=1)
@@ -200,7 +177,8 @@ def render_admin_page():
             success, msg = manual_credit_grant(c_email, int(c_amount))
             if success:
                 st.success(f"SUCCESS! New Balance: {msg}")
-                audit_engine.log_event("admin", "manual_credit_grant", metadata={"target": c_email, "amount": c_amount})
+                if audit_engine:
+                    audit_engine.log_event("admin", "manual_credit_grant", metadata={"target": c_email, "amount": c_amount})
             else:
                 st.error(f"Failed: {msg}")
 
@@ -208,7 +186,6 @@ def render_admin_page():
     with tabs[4]:
         st.subheader("System Diagnostics")
         if st.button("Run Health Check"):
-            with st.spinner("Pinging services..."):
-                results = check_service_health()
-                for status, service, msg in results:
-                    st.markdown(f"**{status} {service}**: {msg}")
+            results = check_service_health()
+            for status, service, msg in results:
+                st.markdown(f"**{status} {service}**: {msg}")

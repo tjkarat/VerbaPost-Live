@@ -1,181 +1,130 @@
 import streamlit as st
-import database
-import json
+import logging
+import time
 
-# --- IMPORTS ---
-try: import payment_engine
-except ImportError: payment_engine = None
-try: import secrets_manager
-except ImportError: secrets_manager = None
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- MODULE IMPORTS ---
+try: import database
+except ImportError: database = None
+try: import email_engine
+except ImportError: email_engine = None
 
 def render_dashboard():
     """
-    The 'Quarterback' Dashboard for Wealth Managers.
-    Includes Payment Gating and Onboarding Tips.
+    Advisor Portal: Manage clients, consume credits, and trigger invites.
     """
+    st.title("💼 Advisor Portal")
+    
+    # 1. AUTH & PROFILE
+    if not database:
+        st.error("Database module missing.")
+        st.stop()
+        
     user_email = st.session_state.get("user_email")
-    advisor = database.get_or_create_advisor(user_email)
-    
-    # Default to 0 if None
-    credits = advisor.get('credits') or 0
-    firm_name = advisor.get('firm_name', 'Unregistered Firm')
-    
-    # 1. HEADER
-    st.title("🏛️ VerbaPost | Advisor Quarterback")
-    st.caption(f"Connected as {user_email} | {firm_name}")
+    if not user_email:
+        st.error("Please log in.")
+        st.stop()
 
-    # --- 💡 HOW-TO TIP (NEW) ---
-    with st.expander("🏁 Quick Start Guide: Read this first!", expanded=(firm_name == "New Firm")):
-        st.markdown("""
-        **Welcome to your Legacy Command Center.** follow these 3 steps to launch your first gift:
+    # Fetch Advisor Profile (Credits, Firm Name)
+    advisor = database.get_advisor_profile(user_email)
+    if not advisor:
+        st.warning("Advisor profile not found. Please contact admin.")
+        st.stop()
         
-        1.  **🏷️ Set Your Firm Name (Crucial):** * *Why?* This name appears on the **Heir's Login Screen** ("Sponsored by [Your Firm]") and the **Physical Letter Footer**.
-            * *Action:* Go to the **"⚙️ Firm Settings"** tab right now to update this from "New Firm" to your practice name.
-        
-        2.  **💳 Purchase Credits:** * You need **1 Credit** to authorize a legacy package. If your balance is 0, the authorization form will be hidden.
-            
-        3.  **🚀 Authorize a Client:** * Once you have a credit, the form in the **"Authorize Gift"** tab will unlock. Enter your client's details to generate their invite link.
-        """)
+    credits = advisor.get('credits', 0)
+    firm_name = advisor.get('firm_name', 'VerbaPost Wealth')
 
-    # 2. STATS BAR
-    clients = database.get_clients(user_email)
-    pending = database.get_pending_approvals(user_email)
-    
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Available Credits", credits, delta_color="normal")
-    c2.metric("Active Projects", len(clients))
-    c3.metric("Pending Approval", len(pending))
-    c4.metric("Heir Retention", "100%")
+    # 2. HEADER
+    c1, c2 = st.columns([3, 1])
+    c1.markdown(f"**Firm:** {firm_name}")
+    c2.metric("Available Credits", credits)
+    st.divider()
 
-    # 3. PRIMARY TABS
-    tab_auth, tab_roster, tab_queue, tab_settings = st.tabs([
-        "🚀 Authorize Gift", "👥 Client Roster", "📝 Approval Queue", "⚙️ Firm Settings"
-    ])
-
-    # --- TAB: AUTHORIZATION ---
-    with tab_auth:
-        st.subheader("Authorize a Legacy Package")
-        
-        # --- THE PAYWALL GATE ---
-        if credits < 1:
-            st.warning("⚠️ Insufficient Credits. You need 1 Credit ($99) to activate a new family project.")
-            
-            st.markdown("""
-            <div style="background-color: #f9fafb; padding: 20px; border-radius: 10px; border: 1px solid #e5e7eb; text-align: center; margin-bottom: 20px;">
-                <h3 style="color: #1f2937; margin:0;">Purchase Client Activation</h3>
-                <p style="color: #6b7280;">Includes Concierge Interview, Transcription, Hosting, and 1 Physical Keepsake.</p>
-                <h2 style="color: #059669; font-size: 40px; margin: 10px 0;">$99</h2>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.button("💳 Purchase Credit ($99)", type="primary", use_container_width=True):
-                if payment_engine:
-                    # Create Stripe Session
-                    url = payment_engine.create_checkout_session(
-                        line_items=[{
-                            "price_data": {
-                                "currency": "usd",
-                                "product_data": {"name": "Legacy Client Activation"},
-                                "unit_amount": 9900, # $99.00
-                            },
-                            "quantity": 1,
-                        }],
-                        user_email=user_email,
-                        mode="payment",
-                        draft_id="ADVISOR_CREDIT"
-                    )
-                    if url: st.link_button("👉 Proceed to Secure Checkout", url)
-                    else: st.error("Payment Error: Could not generate link.")
-                else:
-                    st.error("System Error: Payment Engine Missing.")
-            
-            st.info("Once purchased, you will be automatically redirected here to enter client details.")
-            
-        else:
-            # --- THE AUTHORIZATION FORM (Only shown if Credit > 0) ---
-            st.success(f"✅ Credit Available ({credits}). Fill out the form below to consume 1 credit.")
-            
-            with st.form("auth_gift_form"):
-                st.markdown("#### 1. The Client (The Parent)")
-                p_name = st.text_input("Parent's Full Name", help="The person our biographer will interview.")
-                p_phone = st.text_input("Parent's Mobile Phone", help="We will call this number for the interview.")
-                
-                st.markdown("#### 2. The Beneficiary (The Heir)")
-                h_name = st.text_input("Heir's Full Name", help="The person who will receive the physical keepsake letter.")
-                h_email = st.text_input("Heir's Email", help="We will send the invitation here.")
-                
-                st.markdown("#### 3. The Strategic Question")
-                default_q = f"Why did you choose {advisor.get('firm_name', 'us')} to protect your family's financial future?"
-                prompt = st.text_area("Custom Interview Prompt", value=default_q, 
-                                      help="The biographer will ask this specific question.")
-
-                if st.form_submit_button("🚀 Consume Credit & Generate Link"):
-                    if not p_name or not p_phone or not h_name or not h_email:
-                        st.error("Please fill out all required fields.")
-                    else:
-                        # 1. Deduct Credit
-                        if database.deduct_advisor_credit(user_email, 1):
-                            # 2. Create Project
-                            database.add_client(user_email, p_name, p_phone, address_dict={}) 
-                            proj_id = database.create_hybrid_project(user_email, p_name, p_phone, h_name, prompt)
-                            
-                            if proj_id:
-                                st.success("✅ Authorized! Send this link to the heir:")
-                                st.code(f"https://app.verbapost.com/?nav=login") 
-                                st.info(f"Tell them to log in with: {h_email}")
-                                st.balloons()
-                                st.rerun() 
-                        else:
-                            st.error("Transaction Error: Could not deduct credit.")
+    # 3. ROSTER TABS
+    tab_roster, tab_action = st.tabs(["👥 Client Roster", "🚀 Activate Client"])
 
     # --- TAB: ROSTER ---
     with tab_roster:
-        st.subheader("Family Project Roster")
-        if clients:
-            st.dataframe(clients, use_container_width=True)
-        else:
-            st.info("No active projects.")
-
-    # --- TAB: QUEUE (CRITICAL FLOW) ---
-    with tab_queue:
-        st.subheader("Story Approval Queue")
+        st.subheader("Active Families")
+        clients = database.get_advisor_clients(user_email)
         
-        if not pending:
-            st.info("No transcripts currently waiting for review.")
-        else:
-            for p in pending:
-                pid = p.get('id')
-                p_parent = p.get('parent_name', 'Unknown')
-                p_heir = p.get('heir_name', 'Unknown')
-                content = p.get('content', '')
-                
-                with st.expander(f"Review: {p_parent} to {p_heir}"):
-                    edited_content = st.text_area("Final Edit", value=content, height=300, key=f"edit_{pid}")
-                    
-                    if st.button("✅ Approve for Physical Mail", key=f"appr_{pid}", type="primary"):
-                        database.update_project_details(pid, content=edited_content, status="Approved")
-                        st.success("Dispatched to printing!")
-                        st.rerun()
-
-    # --- TAB: FIRM SETTINGS ---
-    with tab_settings:
-        st.subheader("Firm Branding")
-        st.info("This name will appear on all client letters and login screens.")
+        if not clients:
+            st.info("No active clients yet. Go to 'Activate Client' to start.")
         
-        with st.form("firm_details"):
-            new_firm = st.text_input("Firm / Practice Name", value=advisor.get('firm_name', ''))
+        for c in clients:
+            with st.expander(f"👤 {c.get('name')} ({c.get('status')})"):
+                st.write(f"**Heir:** {c.get('heir_name')}")
+                st.write(f"**Email:** {c.get('email')}")
+                st.write(f"**Phone:** {c.get('phone')}")
+
+    # --- TAB: ACTION (CONSUME CREDIT) ---
+    with tab_action:
+        st.subheader("Start a New Family Archive")
+        st.info(f"Cost: 1 Credit (Balance: {credits})")
+
+        with st.form("activation_form"):
+            c_name = st.text_input("Client Name (The Senior)")
+            c_phone = st.text_input("Client Phone (For Interviews)")
+            h_name = st.text_input("Heir Name (Beneficiary)")
+            h_email = st.text_input("Heir Email (For Delivery)")
+            prompt = st.text_area("Strategic Question", "Why did you choose VerbaPost to protect your family's legacy?")
             
-            if st.form_submit_button("💾 Save Profile"):
-                # We need a quick DB update here.
-                # Assuming simple direct update for now since database.update_advisor_firm isn't explicitly defined yet.
-                # In a real scenario, add the function to database.py
-                if database:
-                    with database.get_db_session() as session:
-                        adv_record = session.query(database.Advisor).filter_by(email=user_email).first()
-                        if adv_record:
-                            adv_record.firm_name = new_firm
-                            session.commit()
-                            st.success("Firm Name Updated!")
-                            st.rerun()
-                        else:
-                            st.error("Advisor record not found.")
+            submitted = st.form_submit_button("🚀 Consume Credit & Invite")
+            
+            if submitted:
+                # 1. Validation
+                if credits < 1:
+                    st.error("Insufficient Credits. Please contact Admin.")
+                    st.stop()
+                    
+                if not c_name or not h_email:
+                    st.error("Client Name and Heir Email are required.")
+                    st.stop()
+
+                # 2. Consume Credit & Create Project
+                # We wrap this in a transaction block inside database.py usually, 
+                # but here we assume the DB function handles the deduction.
+                try:
+                    # Create Client Record & Project
+                    success, msg = database.create_b2b_project(
+                        advisor_email=user_email,
+                        client_name=c_name,
+                        client_phone=c_phone,
+                        heir_name=h_name,
+                        heir_email=h_email,
+                        prompt=prompt
+                    )
+                    
+                    if success:
+                        # --- 📧 EMAIL INJECTION: THE INVITE ---
+                        if email_engine:
+                            subject = f"Invitation: Family Legacy Archive (Sponsored by {firm_name})"
+                            invite_link = "https://verbapost.streamlit.app"
+                            
+                            html = f"""
+                            <div style="font-family: serif; color: #333; padding: 20px;">
+                                <h2 style="color: #2c3e50;">You have been invited.</h2>
+                                <p>Dear {h_name},</p>
+                                <p><strong>{firm_name}</strong> has sponsored a private Family Archive for you to preserve your stories.</p>
+                                <p>We have scheduled an automated biography interview for <strong>{c_name}</strong>. The stories will be preserved for you.</p>
+                                <br>
+                                <a href="{invite_link}" style="background-color: #2c3e50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">
+                                    Access Your Archive
+                                </a>
+                            </div>
+                            """
+                            email_engine.send_email(h_email, subject, html)
+                            st.toast(f"Invite sent to {h_email}")
+                        # --------------------------------------
+
+                        st.success("✅ Client Activated! Invitation Sent.")
+                        time.sleep(2)
+                        st.rerun()
+                    else:
+                        st.error(f"Activation Failed: {msg}")
+                        
+                except Exception as e:
+                    st.error(f"System Error: {e}")

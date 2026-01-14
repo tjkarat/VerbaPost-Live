@@ -6,14 +6,16 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- LAZY IMPORTS ---
-def get_db():
-    import database
-    return database
+# --- MODULE IMPORTS ---
+try: import database
+except ImportError: database = None
+try: import ai_engine
+except ImportError: ai_engine = None
+try: import email_engine
+except ImportError: email_engine = None
 
-def get_ai():
-    import ai_engine
-    return ai_engine
+def get_db():
+    return database
 
 def render_dashboard():
     """
@@ -21,38 +23,30 @@ def render_dashboard():
     """
     # 1. SETUP & AUTH CHECK
     db = get_db()
+    if not db: 
+        st.error("Database unavailable.")
+        st.stop()
+        
     user_email = st.session_state.get("user_email")
     if not user_email:
         st.error("Authentication lost. Please log in again.")
         st.stop()
 
     # 2. GET USER DATA & ACCESS CONTROL
-    # We fetch the profile to check status ('Active', 'Pending', etc.)
     profile = db.get_user_profile(user_email)
-    
-    # --- SECURITY GATE: BLOCK NON-PAYING USERS ---
-    # If the user wasn't activated by an Advisor (no credit spent), block access.
-    # We assume the 'status' column in your 'clients' table handles this.
     user_status = profile.get('status', 'Pending') 
     
+    # Paywall / Access Gate
     if user_status != 'Active':
         st.warning("🔒 Account Not Active")
         st.markdown(f"""
         **Access Restricted**
-        
-        Your Family Archive has not been activated yet. 
-        
-        This service requires a sponsorship credit from your Financial Advisor to cover 
-        telephony, transcription, and archival mailing costs.
-        
+        This service requires a sponsorship credit from your Financial Advisor.
         **Current Status:** `{user_status}`
-        
-        Please contact your advisor to activate your vault.
         """)
-        st.stop() # <--- Halts execution here. Safe.
+        st.stop()
 
-    # 3. BRANDING & HEADER
-    # Fetch branding based on the linked advisor
+    # 3. BRANDING
     advisor_firm = "VerbaPost" 
     projects = db.get_heir_projects(user_email)
     
@@ -64,41 +58,31 @@ def render_dashboard():
     st.title("📂 Family Legacy Archive")
     st.markdown(f"**Sponsored by {advisor_firm}**")
     st.caption(f"Logged in as: {user_email}")
-
     st.divider()
 
-    # 4. MAIN CONTENT TABS
+    # 4. TABS
     tab_inbox, tab_vault, tab_setup = st.tabs(["📥 Story Inbox", "🏛️ The Vault", "⚙️ Setup & Interview"])
 
     # --- TAB: INBOX ---
     with tab_inbox:
         st.subheader("Pending Stories")
-        
-        # Filter for active drafts
         active_projects = [p for p in projects if p.get('status') in ['Authorized', 'Recording', 'Pending Approval']]
         
         if not active_projects:
             st.info("No active stories pending review.")
-            st.markdown("""
-            **How it works:**
-            1. We call your parent/senior.
-            2. The audio is transcribed.
-            3. It appears here for you to edit.
-            4. You submit it to your Advisor for printing.
-            """)
         
         for p in active_projects:
             pid = p.get('id')
             status = p.get('status')
             content = p.get('content') or ""
             prompt = p.get('strategic_prompt') or "No prompt set."
-            call_sid = p.get('call_sid') # Useful for debugging
+            advisor_email = p.get('advisor_email') # Needed for email alert
             
             with st.expander(f"Draft: {prompt[:50]}...", expanded=True):
                 if status == "Authorized":
                     st.info("📞 Status: Ready for Interview Call")
                 elif status == "Recording":
-                    st.warning(f"🎙️ Status: Drafting / Needs Edit (Call SID: {call_sid})")
+                    st.warning("🎙️ Status: Drafting / Needs Edit")
                 elif status == "Pending Approval":
                     st.warning("⏳ Status: Waiting for Advisor Review")
 
@@ -124,6 +108,18 @@ def render_dashboard():
                     
                     if c2.button("✨ Submit to Advisor", type="primary", key=f"sub_{pid}"):
                         if db.submit_project(pid):
+                            
+                            # --- 📧 EMAIL INJECTION: THE ALERT ---
+                            if email_engine and advisor_email:
+                                subject = f"Action Required: {user_email} submitted a story"
+                                html = f"""
+                                <h3>Draft Submitted for Review</h3>
+                                <p>Your client <strong>{user_email}</strong> has finished editing a story.</p>
+                                <p>Please log in to the Advisor Portal to review and approve it for printing.</p>
+                                """
+                                email_engine.send_email(advisor_email, subject, html)
+                            # -------------------------------------
+
                             st.balloons()
                             st.success("Sent to Advisor for final print approval!")
                             time.sleep(2)
@@ -161,17 +157,14 @@ def render_dashboard():
         
         if st.button("Trigger Test Call Now"):
             st.warning("System: Initiating outbound call sequence...")
-            
             target_phone = profile.get('parent_phone')
             
             if not target_phone:
-                st.error("❌ No Parent Phone found. Please save settings above first.")
+                st.error("❌ No Parent Phone found.")
             else:
                 try:
-                    ai = get_ai()
-                    
-                    # 1. TRIGGER THE CALL
-                    sid, error = ai.trigger_outbound_call(
+                    # Trigger Call
+                    sid, error = ai_engine.trigger_outbound_call(
                         to_phone=target_phone,
                         advisor_name="Your Advisor",
                         firm_name=advisor_firm
@@ -179,11 +172,8 @@ def render_dashboard():
                     
                     if sid:
                         st.success(f"✅ Call dispatched! SID: {sid}")
-                        
-                        # 2. SAVE THE RECEIPT (Fixes 'Lost Story' Issue)
-                        # We immediately create a draft linked to this SID so the database expects it.
+                        # TRACK IN DB
                         try:
-                            # Note: Ensure create_draft exists in database.py or use create_project
                             db.create_draft(
                                 user_email=user_email,
                                 content="", 
@@ -191,16 +181,10 @@ def render_dashboard():
                                 call_sid=sid,
                                 tier="Heirloom"
                             )
-                            st.info("📝 Database record created. Check 'Inbox' tab.")
-                        except AttributeError:
-                            st.warning("⚠️ Call sent, but could not save draft record (Database method missing).")
+                            st.info("📝 Database record created.")
                         except Exception as db_e:
-                            st.error(f"⚠️ Call sent, but DB save failed: {db_e}")
-                            
+                            st.error(f"⚠️ DB Save Failed: {db_e}")
                     else:
                         st.error(f"❌ Call Failed: {error}")
-                        
-                except ImportError as e:
-                    st.error(f"❌ Import Error: {e}")
                 except Exception as e:
-                    st.error(f"❌ System Error: {e}")
+                    st.error(f"System Error: {e}")
