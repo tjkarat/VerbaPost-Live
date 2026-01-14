@@ -4,7 +4,6 @@ import time
 import base64
 import os
 import requests
-from datetime import datetime
 from sqlalchemy import text  # <--- CRITICAL FIX
 
 # --- MODULE IMPORTS ---
@@ -36,9 +35,10 @@ def get_orphaned_calls():
     # 2. Fetch from DB
     try:
         with database.get_db_session() as session:
-            # FIX: Wrapped in text()
+            # FIX: Wrap string in text()
             sql = text("SELECT call_sid FROM letter_drafts WHERE call_sid IS NOT NULL")
             result = session.execute(sql)
+            # Flatten list of known SIDs
             known_sids = [row[0] for row in result.fetchall()]
     except Exception as e:
         st.error(f"DB Error: {e}")
@@ -59,7 +59,8 @@ def manual_credit_grant(advisor_email, amount):
     if not database: return False
     try:
         with database.get_db_session() as session:
-            # FIX: Wrapped in text()
+            # Check if advisor exists
+            # FIX: Wrap string in text()
             sql_check = text("SELECT credits FROM advisors WHERE email = :email")
             result = session.execute(sql_check, {"email": advisor_email}).fetchone()
             
@@ -70,7 +71,7 @@ def manual_credit_grant(advisor_email, amount):
             new_total = current_credits + amount
             
             # Update
-            # FIX: Wrapped in text()
+            # FIX: Wrap string in text()
             sql_update = text("UPDATE advisors SET credits = :new_val WHERE email = :email")
             session.execute(sql_update, {"new_val": new_total, "email": advisor_email})
             session.commit()
@@ -79,18 +80,31 @@ def manual_credit_grant(advisor_email, amount):
         return False, str(e)
 
 def check_service_health():
+    """Diagnoses connection to critical B2B services."""
     health_report = []
+
+    # 1. DATABASE CHECK
     try:
         if database and database.get_db_session():
-            health_report.append(("✅", "Database", "Connected"))
+            health_report.append(("✅", "Database (Supabase)", "Connected"))
         else:
             health_report.append(("❌", "Database", "Connection Failed"))
     except Exception as e:
         health_report.append(("❌", "Database", f"Error: {str(e)}"))
 
+    # 2. OPENAI CHECK
     api_key = secrets_manager.get_secret("openai.api_key") if secrets_manager else os.environ.get("OPENAI_API_KEY")
-    if api_key: health_report.append(("✅", "OpenAI", "Key Present"))
-    else: health_report.append(("⚠️", "OpenAI", "Key Missing"))
+    if api_key:
+        health_report.append(("✅", "OpenAI", "Key Present"))
+    else:
+        health_report.append(("⚠️", "OpenAI", "Key Missing"))
+
+    # 3. TWILIO CHECK
+    sid = secrets_manager.get_secret("twilio.account_sid") if secrets_manager else os.environ.get("TWILIO_ACCOUNT_SID")
+    if sid:
+        health_report.append(("✅", "Twilio", "Key Present"))
+    else:
+        health_report.append(("❌", "Twilio", "Key Missing"))
 
     return health_report
 
@@ -108,14 +122,64 @@ def render_admin_page():
         "❤️ Health"
     ])
 
-    # --- TAB 1: MANUAL PRINT QUEUE ---
+    # --- TAB 1: MANUAL FULFILLMENT ---
     with tabs[0]:
-        st.subheader("Fulfillment Queue")
-        st.info("Pending letters that need manual printing.")
-        if st.button("Refresh Queue"):
-            st.toast("Queue refreshed")
+        st.subheader("Ready for Print")
+        if st.button("Refresh Queue"): st.rerun()
+        
+        if database:
+            try:
+                # Raw SQL to fetch printable items
+                with database.get_db_session() as session:
+                    sql = text("""
+                        SELECT id, user_email, content, status 
+                        FROM letter_drafts 
+                        WHERE status IN ('Pending Approval', 'Approved')
+                    """)
+                    items = session.execute(sql).fetchall()
+                
+                if not items:
+                    st.info("Queue is empty.")
+                
+                for item in items:
+                    with st.expander(f"🖨️ {item.user_email} - {item.status}"):
+                        st.write(item.content)
+                        
+                        # Generate PDF Button
+                        if st.button("⬇️ Generate PDF", key=f"pdf_{item.id}"):
+                            if letter_format:
+                                pdf_bytes = letter_format.create_pdf(item.content, {}, {}, "Standard")
+                                b64 = base64.b64encode(pdf_bytes).decode('latin-1')
+                                href = f'<a href="data:application/pdf;base64,{b64}" download="letter.pdf">Download PDF</a>'
+                                st.markdown(href, unsafe_allow_html=True)
+                        
+                        # Mark Sent Button
+                        if st.button("✅ Mark as Mailed", key=f"sent_{item.id}"):
+                             with database.get_db_session() as session:
+                                 # Update Status
+                                 upd_sql = text("UPDATE letter_drafts SET status = 'Sent' WHERE id = :id")
+                                 session.execute(upd_sql, {"id": item.id})
+                                 session.commit()
+                                 
+                                 # --- 📧 EMAIL INJECTION: THE RECEIPT ---
+                                 if email_engine:
+                                     subject = "Your Keepsake has been mailed!"
+                                     html = f"""
+                                     <p>Great news! Your family story has been printed and mailed.</p>
+                                     <p>Look for it in your mailbox soon.</p>
+                                     """
+                                     email_engine.send_email(item.user_email, subject, html)
+                                     st.toast(f"Shipping alert sent to {item.user_email}")
+                                 # ---------------------------------------
+                                 
+                                 st.success("Order Closed.")
+                                 time.sleep(1)
+                                 st.rerun()
 
-    # --- TAB 2: MARKETING STUDIO (The 'Missing' Feature) ---
+            except Exception as e:
+                st.error(f"Queue Error: {e}")
+
+    # --- TAB 2: MARKETING STUDIO ---
     with tabs[1]:
         st.subheader("📢 Direct Marketing Writer")
         st.markdown("Create a one-off letter using the **Vintage TrueType** font engine.")
@@ -163,12 +227,12 @@ def render_admin_page():
                     for o in orphans:
                         with st.expander(f"Orphan: {o['date_created']} ({o['duration']}s)"):
                             st.write(f"**SID:** `{o['sid']}`")
-                            st.audio(f"https://api.twilio.com{o['uri'].replace('.json', '.mp3')}")
+                            media_url = f"https://api.twilio.com{o['uri'].replace('.json', '.mp3')}"
+                            st.audio(media_url)
 
-    # --- TAB 4: GRANT CREDITS (The 'Missing' Feature) ---
+    # --- TAB 4: GRANT CREDITS ---
     with tabs[3]:
         st.subheader("💰 The Central Bank")
-        st.markdown("Manually inject credits into an Advisor's account.")
         
         c_email = st.text_input("Advisor Email")
         c_amount = st.number_input("Credits to Add", min_value=1, value=1, step=1)
@@ -186,6 +250,7 @@ def render_admin_page():
     with tabs[4]:
         st.subheader("System Diagnostics")
         if st.button("Run Health Check"):
-            results = check_service_health()
-            for status, service, msg in results:
-                st.markdown(f"**{status} {service}**: {msg}")
+            with st.spinner("Pinging services..."):
+                results = check_service_health()
+                for status, service, msg in results:
+                    st.markdown(f"**{status} {service}**: {msg}")

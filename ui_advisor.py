@@ -85,10 +85,7 @@ def render_dashboard():
                     st.stop()
 
                 # 2. Consume Credit & Create Project
-                # We wrap this in a transaction block inside database.py usually, 
-                # but here we assume the DB function handles the deduction.
                 try:
-                    # Create Client Record & Project
                     success, msg = database.create_b2b_project(
                         advisor_email=user_email,
                         client_name=c_name,
