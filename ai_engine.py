@@ -1,7 +1,24 @@
 import os
 import logging
 import openai
+import streamlit as st # Added for GUI Toast
 from datetime import datetime
+
+# ==========================================
+# 🚨 BOOT VERIFICATION SIGNAL 🚨
+# ==========================================
+print("\n" + "="*50)
+print("👉 AI ENGINE V999 (DEBUG) IS LOADING ... 👈")
+print("="*50 + "\n")
+
+# Try to verify imports immediately on boot
+try:
+    import twilio
+    print(f"✅ BOOT CHECK: Twilio is installed. Version: {twilio.__version__}")
+except ImportError as e:
+    print(f"❌ BOOT CHECK: Twilio is MISSING. Error: {e}")
+
+# ==========================================
 
 # --- IMPORTS ---
 try: import secrets_manager
@@ -26,17 +43,15 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 # ==========================================
-# 📞 B2B TELEPHONY (HARDENED & DEBUGGED)
+# 📞 B2B TELEPHONY (LOUD DEBUGGER)
 # ==========================================
 
 def send_prep_sms(to_phone, advisor_name):
     """
-    Sends a 'Warm Up' SMS so the user knows the call is coming.
-    Prevents 'Spam Risk' rejection.
+    Sends a 'Warm Up' SMS.
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
-    # Use the verified number from your screenshot or secret
     from_number = get_secret("twilio.from_number") or "+16156567667"
 
     if not sid or not token: return False, "Missing Credentials"
@@ -54,7 +69,7 @@ def send_prep_sms(to_phone, advisor_name):
         return True, message.sid
     except ImportError:
         logger.error("Twilio Module Missing (ImportError)")
-        return False, "Telephony module missing (ImportError)"
+        return False, "ERROR 999: Import Failed in SMS"
     except Exception as e:
         logger.error(f"SMS Error: {e}")
         return False, str(e)
@@ -75,12 +90,30 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
         return None, "ERROR 999: Missing Credentials"
 
     # 2. TwiML
-    twiml = "<Response><Say>Test call.</Say></Response>"
+    safe_advisor = advisor_name or "your financial advisor"
+    safe_firm = firm_name or "their firm"
+
+    twiml = f"""
+    <Response>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
+        </Say>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
+            Please share a favorite memory from your childhood after the beep. 
+            When you are finished, press the pound key.
+        </Say>
+        <Record maxLength="300" finishOnKey="#" playBeep="true" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved. Goodbye.</Say>
+    </Response>
+    """
 
     # 3. Import & Execute (The Failure Point)
     try:
         # Check if library exists
-        import importlib
+        import importlib.util
         twilio_spec = importlib.util.find_spec("twilio")
         if twilio_spec is None:
              return None, "ERROR 999: Twilio Package NOT FOUND on Server"
@@ -93,7 +126,9 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
         call = client.calls.create(
             twiml=twiml,
             to=to_phone,
-            from_=from_number
+            from_=from_number,
+            # --- RED TEAM: ANSWERING MACHINE DETECTION ---
+            machine_detection='DetectMessageEnd', 
         )
         return call.sid, None
 
@@ -105,99 +140,6 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
     except Exception as e:
         logger.error(f"API Error: {e}")
         return None, f"ERROR 999: API Error -> {e}"
-
-    # 2. TwiML Generation
-    safe_advisor = advisor_name or "your financial advisor"
-    safe_firm = firm_name or "their firm"
-
-    twiml = f"""
-    <Response>
-        <Pause length="1"/>
-        <Say voice="Polly.Joanna-Neural">
-            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
-        </Say>
-        <Pause length="1"/>
-        <Say voice="Polly.Joanna-Neural">
-            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
-            Please share a favorite memory from your childhood after the beep. 
-            When you are finished, press the pound key.
-        </Say>
-        <Record maxLength="300" finishOnKey="#" playBeep="true" />
-        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved. Goodbye.</Say>
-    </Response>
-    """
-
-    # 3. Execution & Import (UNMASKED)
-    try:
-        # We perform the import HERE to catch the specific error
-        from twilio.rest import Client
-        
-        client = Client(sid, token)
-        call = client.calls.create(
-            twiml=twiml,
-            to=to_phone,
-            from_=from_number,
-            machine_detection='DetectMessageEnd', 
-        )
-        return call.sid, None
-
-    except ImportError as e:
-        # 🔴 CHANGED: Return the REAL error, not a generic message
-        logger.error(f"Twilio Import Failed: {e}")
-        return None, f"Import Logic Error: {e}"
-        
-    except Exception as e:
-        logger.error(f"Twilio API Error: {e}")
-        return None, f"Twilio API Error: {e}"
-
-    # 2. TwiML Generation (The "Brain" of the call)
-    safe_advisor = advisor_name or "your financial advisor"
-    safe_firm = firm_name or "their firm"
-
-    twiml = f"""
-    <Response>
-        <Pause length="1"/>
-        <Say voice="Polly.Joanna-Neural">
-            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
-        </Say>
-        <Pause length="1"/>
-        <Say voice="Polly.Joanna-Neural">
-            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
-            Please share a favorite memory from your childhood after the beep. 
-            When you are finished, press the pound key.
-        </Say>
-        <Record maxLength="300" finishOnKey="#" playBeep="true" />
-        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved. Goodbye.</Say>
-    </Response>
-    """
-
-    # 3. Execution & Import
-    try:
-        print("📞 DEBUG: Importing Twilio Client...")
-        from twilio.rest import Client
-        
-        print("📞 DEBUG: Initializing Client...")
-        client = Client(sid, token)
-
-        print("📞 DEBUG: Sending API Request...")
-        call = client.calls.create(
-            twiml=twiml,
-            to=to_phone,
-            from_=from_number,
-            # --- RED TEAM: ANSWERING MACHINE DETECTION ---
-            machine_detection='DetectMessageEnd', 
-            # If a machine answers, Twilio handles it (status will be 'completed' but 'AnsweredBy' machine)
-        )
-        print(f"✅ DEBUG: Call Success! SID: {call.sid}")
-        return call.sid, None
-
-    except ImportError:
-        print("❌ DEBUG: Twilio Library NOT installed in environment.")
-        return None, "Telephony module missing (ImportError)"
-    except Exception as e:
-        print(f"❌ DEBUG: Twilio API Failure: {e}")
-        logger.error(f"Twilio Error: {e}")
-        return None, str(e)
 
 # ==========================================
 # 🎤 TRANSCRIPTION & POLISHING (PRESERVED)
