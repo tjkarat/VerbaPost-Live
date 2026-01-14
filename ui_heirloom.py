@@ -7,7 +7,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- LAZY IMPORTS ---
-# We use lazy imports inside functions to prevent "KeyError" / Circular Loops
 def get_db():
     import database
     return database
@@ -24,21 +23,15 @@ def render_dashboard():
         st.stop()
 
     # 2. GET USER DATA
-    # We fetch the client profile to see who their Advisor is
     client_profile = None
     advisor_firm = "VerbaPost" # Default
     
-    # Try to find the client record linked to this email
-    # (In the B2B model, the Heir is listed in the 'clients' table)
-    # We need a helper for this in database.py, but for now we look up projects directly.
-    
     projects = db.get_heir_projects(user_email)
     
-    # If projects exist, grab the firm name from the first one for branding
     if projects:
         advisor_firm = projects[0].get('firm_name', 'VerbaPost')
 
-    # 3. HEADER WITH BRANDING
+    # 3. HEADER
     st.title("📂 Family Legacy Archive")
     st.markdown(f"**Sponsored by {advisor_firm}**")
     st.caption(f"Logged in as: {user_email}")
@@ -48,11 +41,9 @@ def render_dashboard():
     # 4. MAIN CONTENT TABS
     tab_inbox, tab_vault, tab_setup = st.tabs(["📥 Story Inbox", "🏛️ The Vault", "⚙️ Setup & Interview"])
 
-    # --- TAB: INBOX (Active Transcripts) ---
+    # --- TAB: INBOX ---
     with tab_inbox:
         st.subheader("Pending Stories")
-        
-        # Filter for active projects
         active_projects = [p for p in projects if p.get('status') in ['Authorized', 'Recording', 'Pending Approval']]
         
         if not active_projects:
@@ -72,7 +63,6 @@ def render_dashboard():
             prompt = p.get('strategic_prompt') or "No prompt set."
             
             with st.expander(f"Draft: {prompt[:50]}...", expanded=True):
-                # Status Badge
                 if status == "Authorized":
                     st.info("📞 Status: Ready for Interview Call")
                 elif status == "Recording":
@@ -82,8 +72,6 @@ def render_dashboard():
 
                 st.markdown(f"**Interview Question:** *{prompt}*")
                 
-                # Editing Interface
-                # If it's already submitted, make it read-only
                 is_locked = (status == "Pending Approval")
                 
                 new_text = st.text_area(
@@ -109,7 +97,7 @@ def render_dashboard():
                             time.sleep(2)
                             st.rerun()
 
-    # --- TAB: VAULT (Completed) ---
+    # --- TAB: VAULT ---
     with tab_vault:
         st.subheader("Preserved Memories")
         completed = [p for p in projects if p.get('status') in ['Approved', 'Sent']]
@@ -118,11 +106,8 @@ def render_dashboard():
             st.caption("No completed letters yet.")
         
         for p in completed:
-            pid = p.get('id')
-            prompt = p.get('strategic_prompt')
             date_str = str(p.get('created_at'))[:10]
-            
-            with st.expander(f"✅ {date_str} - {prompt[:40]}..."):
+            with st.expander(f"✅ {date_str}"):
                 st.markdown(p.get('content'))
                 st.download_button("⬇️ Download PDF", data=p.get('content'), file_name="letter.txt")
 
@@ -131,7 +116,6 @@ def render_dashboard():
         st.subheader("Interview Settings")
         st.info("These settings control the automated interviews.")
         
-        # Fetch current profile data
         profile = db.get_user_profile(user_email)
         
         with st.form("settings_form"):
@@ -145,14 +129,33 @@ def render_dashboard():
 
         st.divider()
         st.markdown("#### 🔴 Danger Zone")
+        
         if st.button("Trigger Test Call Now"):
             st.warning("System: Initiating outbound call sequence...")
-            # We would import telephony_engine here if needed
-            try:
-                import telephony_engine
-                if telephony_engine.initiate_interview(user_email):
-                    st.success("Call dispatched! Phone should ring in 30s.")
-                else:
-                    st.error("Call failed to initiate.")
-            except ImportError:
-                st.error("Telephony module missing.")
+            
+            # --- FIX: Retrieve phone from profile ---
+            target_phone = profile.get('parent_phone')
+            
+            if not target_phone:
+                st.error("❌ No Parent Phone found. Please save settings above first.")
+            else:
+                try:
+                    # --- FIX: Import the CORRECT engine ---
+                    import ai_engine
+                    
+                    # --- FIX: Call the correct function ---
+                    sid, error = ai_engine.trigger_outbound_call(
+                        to_phone=target_phone,
+                        advisor_name="Your Advisor",
+                        firm_name=advisor_firm
+                    )
+                    
+                    if sid:
+                        st.success(f"✅ Call dispatched! SID: {sid}")
+                    else:
+                        st.error(f"❌ Call Failed: {error}")
+                        
+                except ImportError as e:
+                    st.error(f"❌ Import Error: {e}")
+                except Exception as e:
+                    st.error(f"❌ System Error: {e}")
