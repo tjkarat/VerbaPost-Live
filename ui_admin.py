@@ -4,7 +4,7 @@ import time
 import base64
 import os
 import requests
-from sqlalchemy import text  # <--- CRITICAL FIX
+from sqlalchemy import text
 
 # --- MODULE IMPORTS ---
 try: import database
@@ -24,7 +24,7 @@ except ImportError: email_engine = None
 
 def get_orphaned_calls():
     """
-    Compares Twilio logs vs Database Drafts to find missing stories.
+    Compares Twilio logs vs Database (Drafts AND Projects) to find missing stories.
     """
     if not ai_engine or not database: return []
     
@@ -32,14 +32,20 @@ def get_orphaned_calls():
     twilio_calls = ai_engine.get_all_twilio_recordings(limit=50)
     if not twilio_calls: return []
     
-    # 2. Fetch from DB
+    # 2. Fetch from DB (Check BOTH tables)
+    known_sids = []
     try:
         with database.get_db_session() as session:
-            # FIX: Wrap string in text()
-            sql = text("SELECT call_sid FROM letter_drafts WHERE call_sid IS NOT NULL")
-            result = session.execute(sql)
-            # Flatten list of known SIDs
-            known_sids = [row[0] for row in result.fetchall()]
+            # Check Standard Drafts
+            sql_drafts = text("SELECT call_sid FROM letter_drafts WHERE call_sid IS NOT NULL")
+            res_drafts = session.execute(sql_drafts).fetchall()
+            known_sids.extend([row[0] for row in res_drafts])
+
+            # Check Heirloom Projects
+            sql_projects = text("SELECT call_sid FROM projects WHERE call_sid IS NOT NULL")
+            res_projects = session.execute(sql_projects).fetchall()
+            known_sids.extend([row[0] for row in res_projects])
+            
     except Exception as e:
         st.error(f"DB Error: {e}")
         return []
@@ -60,7 +66,6 @@ def manual_credit_grant(advisor_email, amount):
     try:
         with database.get_db_session() as session:
             # Check if advisor exists
-            # FIX: Wrap string in text()
             sql_check = text("SELECT credits FROM advisors WHERE email = :email")
             result = session.execute(sql_check, {"email": advisor_email}).fetchone()
             
@@ -71,7 +76,6 @@ def manual_credit_grant(advisor_email, amount):
             new_total = current_credits + amount
             
             # Update
-            # FIX: Wrap string in text()
             sql_update = text("UPDATE advisors SET credits = :new_val WHERE email = :email")
             session.execute(sql_update, {"new_val": new_total, "email": advisor_email})
             session.commit()
