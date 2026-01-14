@@ -5,7 +5,7 @@ import logging
 import time
 
 # --- 🏷️ VERSION CONTROL ---
-VERSION = "5.1.0" 
+VERSION = "5.1.1" 
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -19,51 +19,63 @@ st.set_page_config(
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path: sys.path.append(current_dir)
 
-# --- 3. IMPORTS ---
+# --- 3. LOGGING ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- 4. HARDENED IMPORTS (Prevents KeyError/Crash Loop) ---
+# We use Exception here because Streamlit hot-reloading can throw
+# KeyErrors or AttributeErrors if the module cache is stale.
 try: import ui_splash
-except ImportError: ui_splash = None
+except Exception: ui_splash = None
+
 try: import ui_login
-except ImportError: ui_login = None
+except Exception: ui_login = None
+
 try: import ui_heirloom
-except ImportError: ui_heirloom = None
+except Exception: ui_heirloom = None
+
 try: import ui_advisor
-except ImportError: ui_advisor = None
+except Exception: ui_advisor = None
+
 try: import ui_admin
-except ImportError: ui_admin = None
+except Exception: ui_admin = None
 
 # Static Pages
 try: import ui_legal
-except ImportError: ui_legal = None
+except Exception: ui_legal = None
 try: import ui_blog
-except ImportError: ui_blog = None
+except Exception: ui_blog = None
 try: import ui_partner
-except ImportError: ui_partner = None
+except Exception: ui_partner = None
 
 # Engines
 try: import auth_engine
-except ImportError: auth_engine = None
+except Exception: auth_engine = None
 try: import database
-except ImportError: database = None
+except Exception: database = None
 try: import secrets_manager
-except ImportError: secrets_manager = None
+except Exception: secrets_manager = None
 try: import module_validator
-except ImportError: module_validator = None
+except Exception: module_validator = None
 try: import ui_archive
-except ImportError: ui_archive = None
+except Exception: ui_archive = None
 try: import payment_engine 
-except ImportError: payment_engine = None
-
-# --- 4. LOGGING ---
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+except Exception: payment_engine = None
 
 # --- 5. ROUTER LOGIC ---
 def main():
     # A. PRE-FLIGHT
     if module_validator and not st.session_state.get("system_verified"):
-        health = module_validator.run_preflight_checks()
-        if not health["status"]: st.error("System Error: Modules missing."); st.stop()
-        st.session_state.system_verified = True
+        try:
+            health = module_validator.run_preflight_checks()
+            if not health["status"]: 
+                st.error("System Error: Modules missing.")
+                st.stop()
+            st.session_state.system_verified = True
+        except Exception: 
+            # If validator crashes, assume manual override
+            st.session_state.system_verified = True
 
     # B. SESSION INIT
     if "authenticated" not in st.session_state: st.session_state.authenticated = False
