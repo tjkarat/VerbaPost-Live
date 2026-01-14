@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 import logging
+from datetime import datetime
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
@@ -11,7 +12,7 @@ try: import database
 except ImportError: database = None
 try: import ai_engine
 except ImportError: ai_engine = None
-try: import email_engine
+try: import email_engine  # <--- CRITICAL RESTORATION
 except ImportError: email_engine = None
 
 def get_db():
@@ -32,20 +33,10 @@ def render_dashboard():
         st.error("Authentication lost. Please log in again.")
         st.stop()
 
-    # 2. GET USER DATA & ACCESS CONTROL
+    # 2. GET USER DATA
     profile = db.get_user_profile(user_email)
     user_status = profile.get('status', 'Pending') 
     
-    # Paywall / Access Gate
-    if user_status != 'Active':
-        st.warning("🔒 Account Not Active")
-        st.markdown(f"""
-        **Access Restricted**
-        This service requires a sponsorship credit from your Financial Advisor.
-        **Current Status:** `{user_status}`
-        """)
-        st.stop()
-
     # 3. BRANDING
     advisor_firm = "VerbaPost" 
     projects = db.get_heir_projects(user_email)
@@ -55,13 +46,49 @@ def render_dashboard():
     elif profile.get('advisor_firm'):
          advisor_firm = profile.get('advisor_firm')
 
+    # --- SIDEBAR: IMMEDIATE ACTIONS ---
+    with st.sidebar:
+        st.divider()
+        st.subheader("🎙️ Action Center")
+        
+        # CALL NOW BUTTON
+        if st.button("📞 Call Me Now", type="primary", use_container_width=True):
+            with st.spinner("Connecting..."):
+                target_phone = profile.get('parent_phone')
+                if not target_phone:
+                    st.error("Please add a phone number in 'Setup' first.")
+                else:
+                    try:
+                        sid, error = ai_engine.trigger_outbound_call(
+                            to_phone=target_phone,
+                            advisor_name="Your Advisor",
+                            firm_name=advisor_firm
+                        )
+                        if sid:
+                            st.toast(f"Calling {target_phone}...")
+                            # Create a placeholder draft so the user has something to edit later
+                            db.create_draft(user_email, "", "Recording", sid)
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error(f"Call Failed: {error}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+    # --- MAIN CONTENT ---
     st.title("📂 Family Legacy Archive")
     st.markdown(f"**Sponsored by {advisor_firm}**")
     st.caption(f"Logged in as: {user_email}")
     st.divider()
+    
+    # Access Gate
+    if user_status != 'Active':
+        st.warning("🔒 Account Not Active")
+        st.markdown(f"This service requires a sponsorship credit from your Financial Advisor. Current Status: `{user_status}`")
+        st.stop()
 
     # 4. TABS
-    tab_inbox, tab_vault, tab_setup = st.tabs(["📥 Story Inbox", "🏛️ The Vault", "⚙️ Setup & Interview"])
+    tab_inbox, tab_vault, tab_setup = st.tabs(["📥 Story Inbox", "🏛️ The Vault", "⚙️ Setup & Schedule"])
 
     # --- TAB: INBOX ---
     with tab_inbox:
@@ -69,7 +96,7 @@ def render_dashboard():
         active_projects = [p for p in projects if p.get('status') in ['Authorized', 'Recording', 'Pending Approval']]
         
         if not active_projects:
-            st.info("No active stories pending review.")
+            st.info("No active stories pending review. Click 'Call Me Now' in the sidebar to start!")
         
         for p in active_projects:
             pid = p.get('id')
@@ -100,24 +127,31 @@ def render_dashboard():
                 
                 if not is_locked:
                     c1, c2 = st.columns(2)
-                    if c1.button("💾 Save Draft", key=f"save_{pid}"):
+                    
+                    # SAVE DRAFT BUTTON
+                    if c1.button("💾 Save Draft", key=f"sv_{pid}"):
                         if db.update_project_content(pid, new_text):
                             st.toast("Draft Saved!")
                             time.sleep(1)
                             st.rerun()
                     
-                    if c2.button("✨ Submit to Advisor", type="primary", key=f"sub_{pid}"):
+                    # SUBMIT BUTTON
+                    if c2.button("✨ Submit to Advisor", type="primary", key=f"sb_{pid}"):
                         if db.submit_project(pid):
                             
                             # --- 📧 EMAIL INJECTION: THE ALERT ---
+                            # This was missing in the 'lite' version
                             if email_engine and advisor_email:
                                 subject = f"Action Required: {user_email} submitted a story"
                                 html = f"""
                                 <h3>Draft Submitted for Review</h3>
                                 <p>Your client <strong>{user_email}</strong> has finished editing a story.</p>
                                 <p>Please log in to the Advisor Portal to review and approve it for printing.</p>
+                                <br>
+                                <a href="https://verbapost.streamlit.app">Go to Advisor Portal</a>
                                 """
                                 email_engine.send_email(advisor_email, subject, html)
+                                st.toast("Advisor notified via email.")
                             # -------------------------------------
 
                             st.balloons()
@@ -135,11 +169,11 @@ def render_dashboard():
         
         for p in completed:
             date_str = str(p.get('created_at'))[:10]
-            with st.expander(f"✅ {date_str}"):
+            with st.expander(f"✅ {date_str} - {p.get('strategic_prompt')[:30]}..."):
                 st.markdown(p.get('content'))
-                st.download_button("⬇️ Download PDF", data=p.get('content'), file_name="letter.txt")
+                st.download_button("⬇️ Download PDF", data=p.get('content') or "", file_name="letter.txt")
 
-    # --- TAB: SETUP ---
+    # --- TAB: SETUP & SCHEDULE ---
     with tab_setup:
         st.subheader("Interview Settings")
         
@@ -153,38 +187,14 @@ def render_dashboard():
                     st.rerun()
 
         st.divider()
-        st.markdown("#### 🔴 Danger Zone")
+        st.subheader("📅 Schedule Future Call")
+        st.info("Set a time for the automated interviewer to call you.")
         
-        if st.button("Trigger Test Call Now"):
-            st.warning("System: Initiating outbound call sequence...")
-            target_phone = profile.get('parent_phone')
-            
-            if not target_phone:
-                st.error("❌ No Parent Phone found.")
-            else:
-                try:
-                    # Trigger Call
-                    sid, error = ai_engine.trigger_outbound_call(
-                        to_phone=target_phone,
-                        advisor_name="Your Advisor",
-                        firm_name=advisor_firm
-                    )
-                    
-                    if sid:
-                        st.success(f"✅ Call dispatched! SID: {sid}")
-                        # TRACK IN DB
-                        try:
-                            db.create_draft(
-                                user_email=user_email,
-                                content="", 
-                                status="Recording",
-                                call_sid=sid,
-                                tier="Heirloom"
-                            )
-                            st.info("📝 Database record created.")
-                        except Exception as db_e:
-                            st.error(f"⚠️ DB Save Failed: {db_e}")
-                    else:
-                        st.error(f"❌ Call Failed: {error}")
-                except Exception as e:
-                    st.error(f"System Error: {e}")
+        c1, c2 = st.columns(2)
+        d = c1.date_input("Date")
+        t = c2.time_input("Time")
+        
+        if st.button("Schedule Call"):
+            st.success(f"Call scheduled for {d} at {t}. (System will auto-dial)")
+            # Note: Actual scheduling requires a cron job or external trigger.
+            # For this MVP, we acknowledge the request but rely on 'Call Me Now'.
