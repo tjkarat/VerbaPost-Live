@@ -33,6 +33,13 @@ def render_dashboard():
         st.error("Authentication lost. Please log in again.")
         st.stop()
 
+    # 🛑 NUCLEAR FIX: Purge duplicate client records & force active status
+    # This checks for ghost records and deletes them immediately.
+    try:
+        db.fix_heir_account(user_email)
+    except Exception as e:
+        logger.error(f"Auto-fix failed: {e}")
+
     # 2. GET USER DATA
     profile = db.get_user_profile(user_email)
     user_status = profile.get('status', 'Pending') 

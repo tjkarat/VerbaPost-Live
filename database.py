@@ -89,19 +89,13 @@ class UserProfile(Base):
     parent_phone = Column(String)
     role = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Address Fields
     address_line1 = Column(String)
     address_city = Column(String)
     address_state = Column(String)
     address_zip = Column(String)
     country = Column(String)
     timezone = Column(String)
-    
-    # Advisor Fields
     advisor_firm = Column(String)
-    
-    # The Wallet
     credits = Column(Integer, default=0)
 
 class Advisor(Base):
@@ -130,24 +124,18 @@ class Client(Base):
 class Project(Base):
     __tablename__ = 'projects'
     id = Column(Integer, primary_key=True, autoincrement=True) 
-    
     advisor_email = Column(String, nullable=False)
     client_id = Column(Integer, ForeignKey('clients.id'))
-    
     project_type = Column(String, default='Retainer_Letter')
     status = Column(String, default='Draft')
     content = Column(Text)
     audio_ref = Column(Text)
     tracking_number = Column(String)
-    
     heir_name = Column(String)
     heir_address_json = Column(Text)
-    
-    # Features
     strategic_prompt = Column(Text)
     call_sid = Column(String)
     scheduled_time = Column(DateTime, nullable=True)
-    
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LetterDraft(Base):
@@ -180,10 +168,39 @@ class PaymentFulfillment(Base):
 # 🛠️ HELPER FUNCTIONS
 # ==========================================
 
+def fix_heir_account(email):
+    """
+    NUCLEAR OPTION: Purges duplicate client records, keeps the newest, and forces it Active.
+    """
+    email = email.strip().lower()
+    try:
+        with get_db_session() as session:
+            clients = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).all()
+            if not clients: return False
+            
+            # Keep newest
+            winner = clients[0]
+            if winner.status != 'Active':
+                winner.status = 'Active'
+                session.add(winner)
+            
+            # Delete stale duplicates
+            if len(clients) > 1:
+                for loser in clients[1:]:
+                    session.delete(loser)
+                    logger.warning(f"Purged stale client record ID {loser.id} for {email}")
+            
+            # Ensure Profile Role
+            u = session.query(UserProfile).filter_by(email=email).first()
+            if u: u.role = 'heir'
+                
+            session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Fix Account Error: {e}")
+        return False
+
 def create_user(email, full_name, role='user'):
-    """
-    Creates a new base UserProfile.
-    """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
@@ -200,8 +217,8 @@ def create_user(email, full_name, role='user'):
 
 def get_user_profile(email):
     """
-    Fetches User Profile. 
-    CRITICAL FIX: Orders clients by created_at DESC to grab the LATEST invitation.
+    Fetches User Profile.
+    CRITICAL FIX: Overrides status to 'Active' if a client record exists.
     """
     email = email.strip().lower()
     try:
@@ -209,14 +226,16 @@ def get_user_profile(email):
             profile_obj = session.query(UserProfile).filter_by(email=email).first()
             p = to_dict(profile_obj) if profile_obj else {"email": email}
 
-            # Check if Heir (Get the NEWEST client record)
             client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
             
             if client:
                 adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
                 firm = adv.firm_name if adv else "VerbaPost"
                 p["role"] = "heir"
-                p["status"] = client.status
+                
+                # 🛑 FORCE UNBLOCK: If they have a client record, they are Active.
+                p["status"] = "Active" 
+                
                 p["advisor_firm"] = firm
                 p["advisor_email"] = client.advisor_email
                 if client.name: p["parent_name"] = client.name
@@ -281,19 +300,11 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
     except Exception as e: return False, str(e)
 
 def get_heir_projects(heir_email):
-    """
-    Fetches projects for the Heir.
-    CRITICAL FIX: Orders clients by created_at DESC to grab the LATEST invitation.
-    """
     heir_email = heir_email.strip().lower()
     try:
         with get_db_session() as session:
-            # Find the NEWEST client record for this email
             client = session.query(Client).filter_by(email=heir_email).order_by(Client.created_at.desc()).first()
-            
             if not client: return []
-            
-            # Find projects linked to THAT specific client ID
             projects = session.query(Project).filter_by(client_id=client.id).all()
             results = []
             for p in projects:
@@ -308,7 +319,6 @@ def update_heirloom_settings(email, parent_name, parent_phone, addr1=None, city=
     email = email.strip().lower()
     try:
         with get_db_session() as session:
-            # Update LATEST client record
             client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
             if client:
                 client.name = parent_name
@@ -330,7 +340,6 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
     user_email = user_email.strip().lower()
     try:
         with get_db_session() as session:
-            # Link to LATEST client record
             client = session.query(Client).filter_by(email=user_email).order_by(Client.created_at.desc()).first()
             if client:
                 new_proj = Project(
