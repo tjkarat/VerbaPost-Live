@@ -78,12 +78,12 @@ def to_dict(obj):
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 # ==========================================
-# 🏛️ MODELS (Strictly Aligned with SQL)
+# 🏛️ MODELS
 # ==========================================
 
 class UserProfile(Base):
     """
-    Matches 'create table public.user_profiles'
+    Standard User Table (Matches your provided schema).
     """
     __tablename__ = 'user_profiles'
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -92,10 +92,6 @@ class UserProfile(Base):
     parent_name = Column(String)
     parent_phone = Column(String)
     role = Column(String)
-    
-    # B2B Fields from your provided schema
-    advisor_email = Column(String)
-    advisor_firm = Column(String)
     
     # Address Fields
     address_line1 = Column(String)
@@ -109,13 +105,9 @@ class UserProfile(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Advisor(Base):
-    """
-    Matches 'create table public.advisors'
-    PK is ID, Email is Unique.
-    """
     __tablename__ = 'advisors'
-    id = Column(Integer, primary_key=True, autoincrement=True) # SQL: id serial not null
-    email = Column(String, unique=True, nullable=False)        # SQL: email text not null
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    email = Column(String, unique=True, nullable=False)
     firm_name = Column(String)
     full_name = Column(String)
     stripe_customer_id = Column(String)
@@ -124,12 +116,8 @@ class Advisor(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Client(Base):
-    """
-    Matches 'create table public.clients'
-    """
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    # Foreign Key points to advisors(email) per your SQL constraint
     advisor_email = Column(String, ForeignKey('advisors.email')) 
     name = Column(String, nullable=False) # Parent Name
     phone = Column(String)
@@ -140,22 +128,33 @@ class Client(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Project(Base):
+    """
+    The main work unit. Uses Integer ID to match DB Schema.
+    """
     __tablename__ = 'projects'
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    advisor_email = Column(String, ForeignKey('advisors.email'), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True) 
+    
+    advisor_email = Column(String, nullable=False)
     client_id = Column(Integer, ForeignKey('clients.id'))
+    
+    project_type = Column(String, default='Retainer_Letter')
+    status = Column(String, default='Draft')
+    content = Column(Text)
+    audio_ref = Column(Text)
+    tracking_number = Column(String)
+    
     heir_name = Column(String)
     heir_address_json = Column(Text)
+    
+    # Features
     strategic_prompt = Column(Text)
-    content = Column(Text) 
-    audio_ref = Column(Text)
-    status = Column(String, default='Authorized') 
     call_sid = Column(String)
     scheduled_time = Column(DateTime, nullable=True)
+    
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LetterDraft(Base):
-    """Legacy Table for Store"""
+    """Legacy Table for Store / One-off Letters"""
     __tablename__ = 'letter_drafts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -251,7 +250,7 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
             # 1. Check Credits
             adv = session.query(Advisor).filter_by(email=advisor_email).first()
             if not adv:
-                # Auto-create advisor if missing (Safety net for admin testing)
+                # Auto-create advisor (Safety net for admin testing)
                 adv = Advisor(email=advisor_email, firm_name="VerbaPost Wealth", credits=10)
                 session.add(adv)
                 session.flush()
@@ -272,9 +271,8 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
             session.flush() # Get ID
             
             # 3. Create Project
-            pid = str(uuid.uuid4())
+            # Note: We do NOT pass 'id' here. DB handles it (Serial).
             new_proj = Project(
-                id=pid,
                 advisor_email=advisor_email,
                 client_id=new_client.id,
                 heir_name=heir_name,
@@ -331,11 +329,10 @@ def update_heirloom_settings(email, parent_name, parent_phone):
 def create_draft(user_email, content, status="Recording", call_sid=None, tier="Heirloom"):
     try:
         with get_db_session() as session:
+            # Try to link to B2B Client first
             client = session.query(Client).filter_by(email=user_email).first()
             if client:
-                pid = str(uuid.uuid4())
                 new_proj = Project(
-                    id=pid,
                     advisor_email=client.advisor_email,
                     client_id=client.id,
                     heir_name=client.heir_name,
@@ -347,6 +344,8 @@ def create_draft(user_email, content, status="Recording", call_sid=None, tier="H
                 session.add(new_proj)
                 session.commit()
                 return True
+            
+            # Fallback to Legacy Draft
             draft = LetterDraft(user_email=user_email, content=content, status=status, call_sid=call_sid)
             session.add(draft)
             session.commit()
@@ -385,12 +384,21 @@ def add_advisor_credit(email, amount=1):
 def update_project_content(pid, new_text):
     try:
         with get_db_session() as session:
+            # Check projects table
             p = session.query(Project).filter_by(id=pid).first()
             if p:
                 p.content = new_text
                 if p.status == 'Authorized': p.status = 'Recording'
                 session.commit()
                 return True
+            # Check legacy table
+            try:
+                l = session.query(LetterDraft).filter_by(id=int(pid)).first()
+                if l:
+                    l.content = new_text
+                    session.commit()
+                    return True
+            except: pass
         return False
     except Exception: return False
 
@@ -404,3 +412,44 @@ def submit_project(pid):
                 return True
         return False
     except Exception: return False
+
+def get_pending_approvals(advisor_email):
+    """
+    Fetches items that need Advisor Review.
+    """
+    try:
+        with get_db_session() as session:
+            projs = session.query(Project).filter_by(advisor_email=advisor_email, status="Pending Approval").all()
+            results = []
+            for p in projs:
+                client = session.query(Client).filter_by(id=p.client_id).first()
+                d = to_dict(p)
+                d['parent_name'] = client.name if client else "Unknown"
+                d['heir_name'] = client.heir_name if client else "Unknown"
+                results.append(d)
+            return results
+    except Exception: return []
+
+def update_project_details(project_id, content=None, status=None):
+    """
+    Admin override / Legacy update
+    """
+    try:
+        with get_db_session() as session:
+            proj = session.query(Project).filter_by(id=project_id).first()
+            if proj:
+                if status: proj.status = status
+                if content: proj.content = content
+                session.commit()
+                return True
+            return False
+    except Exception: return False
+
+def log_event(user_email, event_type, metadata=None):
+    try:
+        details_str = json.dumps(metadata) if metadata else ""
+        with get_db_session() as session:
+            evt = AuditEvent(user_email=user_email, event_type=event_type, details=details_str)
+            session.add(evt)
+            session.commit()
+    except Exception: pass
