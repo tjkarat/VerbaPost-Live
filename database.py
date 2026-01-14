@@ -180,10 +180,43 @@ class PaymentFulfillment(Base):
 # 🛠️ HELPER FUNCTIONS
 # ==========================================
 
+def fix_heir_account(email):
+    """
+    NUCLEAR OPTION: Purges duplicate client records, keeps the newest, and forces it Active.
+    Called by ui_heirloom.py on load.
+    """
+    email = email.strip().lower()
+    try:
+        with get_db_session() as session:
+            # 1. Fetch all clients for this email, ordered newest first
+            clients = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).all()
+            
+            if not clients: return False # No client record found
+            
+            # 2. Keep the newest (first one)
+            winner = clients[0]
+            if winner.status != 'Active':
+                winner.status = 'Active' # Force Active in DB
+                session.add(winner) # Ensure update
+            
+            # 3. Delete the losers (stale duplicates)
+            if len(clients) > 1:
+                for loser in clients[1:]:
+                    session.delete(loser)
+                    logger.warning(f"Purged stale client record ID {loser.id} for {email}")
+            
+            # 4. Ensure Profile Role
+            u = session.query(UserProfile).filter_by(email=email).first()
+            if u:
+                u.role = 'heir'
+                
+            session.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Fix Account Error: {e}")
+        return False
+
 def create_user(email, full_name, role='user'):
-    """
-    Creates a new base UserProfile.
-    """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
@@ -199,36 +232,25 @@ def create_user(email, full_name, role='user'):
         return False
 
 def get_user_profile(email):
-    """
-    Fetches User Profile.
-    CRITICAL FIX: If a Client record is found, we FORCE status='Active'.
-    This prevents users being locked out by stale 'Pending' records in the DB.
-    """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
             profile_obj = session.query(UserProfile).filter_by(email=email).first()
             p = to_dict(profile_obj) if profile_obj else {"email": email}
 
-            # Check if Heir (Get the NEWEST client record)
             client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
             
             if client:
                 adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
                 firm = adv.firm_name if adv else "VerbaPost"
-                
                 p["role"] = "heir"
-                # 🛑 FORCE UNBLOCK: If a client record exists, they are Active.
-                p["status"] = "Active" 
+                p["status"] = "Active" # Force Active in dict return
                 p["advisor_firm"] = firm
                 p["advisor_email"] = client.advisor_email
                 if client.name: p["parent_name"] = client.name
                 if client.phone: p["parent_phone"] = client.phone
             
-            # Default fallback for B2C users
             if "role" not in p: p["role"] = "user"
-            if "status" not in p: p["status"] = "Active" if (p.get('credits', 0) > 0) else "Pending"
-            
             return p
     except Exception: return {}
 
@@ -290,12 +312,8 @@ def get_heir_projects(heir_email):
     heir_email = heir_email.strip().lower()
     try:
         with get_db_session() as session:
-            # Find the NEWEST client record for this email
             client = session.query(Client).filter_by(email=heir_email).order_by(Client.created_at.desc()).first()
-            
             if not client: return []
-            
-            # Find projects linked to THAT specific client ID
             projects = session.query(Project).filter_by(client_id=client.id).all()
             results = []
             for p in projects:
