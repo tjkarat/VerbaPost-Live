@@ -307,25 +307,33 @@ def get_heir_projects(heir_email):
             return results
     except Exception: return []
 
-def update_heirloom_settings(email, parent_name, parent_phone):
+def update_heirloom_settings(email, parent_name, parent_phone, addr1=None, city=None, state=None, zip_code=None):
+    """
+    Updates Heir profile settings including Shipping Address.
+    """
     try:
         with get_db_session() as session:
-            # Check Client Table
+            # Check Client Table (For Parent info)
             client = session.query(Client).filter_by(email=email).first()
             if client:
                 client.name = parent_name
                 client.phone = parent_phone
-                session.commit()
-                return True
-            # Check User Table
+            
+            # Check User Profile (For Shipping Address)
             u = session.query(UserProfile).filter_by(email=email).first()
             if u:
                 u.parent_name = parent_name
                 u.parent_phone = parent_phone
-                session.commit()
-                return True
+                if addr1: u.address_line1 = addr1
+                if city: u.address_city = city
+                if state: u.address_state = state
+                if zip_code: u.address_zip = zip_code
+            
+            session.commit()
+            return True
+    except Exception as e: 
+        logger.error(f"Update Settings Error: {e}")
         return False
-    except Exception: return False
 
 def create_draft(user_email, content, status="Recording", call_sid=None, tier="Heirloom"):
     try:
@@ -427,13 +435,14 @@ def get_pending_approvals(advisor_email):
                 d = to_dict(p)
                 d['parent_name'] = client.name if client else "Unknown"
                 d['heir_name'] = client.heir_name if client else "Unknown"
+                d['heir_email'] = client.email if client else None
                 results.append(d)
             return results
     except Exception: return []
 
 def update_project_details(project_id, content=None, status=None):
     """
-    Admin override / Legacy update
+    Admin override / Legacy update / Advisor Approval
     """
     try:
         with get_db_session() as session:
@@ -445,6 +454,23 @@ def update_project_details(project_id, content=None, status=None):
                 return True
             return False
     except Exception: return False
+
+def get_project_by_id(pid):
+    """
+    Fetches a single project by ID (Used for Playback/Public View)
+    """
+    try:
+        with get_db_session() as session:
+            proj = session.query(Project).filter_by(id=pid).first()
+            if proj:
+                d = to_dict(proj)
+                client = session.query(Client).filter_by(id=proj.client_id).first()
+                if client:
+                    d['parent_name'] = client.name
+                    d['heir_name'] = client.heir_name
+                return d
+            return None
+    except Exception: return None
 
 def log_event(user_email, event_type, metadata=None):
     try:

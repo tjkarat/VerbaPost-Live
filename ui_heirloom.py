@@ -12,7 +12,7 @@ try: import database
 except ImportError: database = None
 try: import ai_engine
 except ImportError: ai_engine = None
-try: import email_engine  # <--- CRITICAL RESTORATION
+try: import email_engine
 except ImportError: email_engine = None
 
 def get_db():
@@ -140,7 +140,6 @@ def render_dashboard():
                         if db.submit_project(pid):
                             
                             # --- 📧 EMAIL INJECTION: THE ALERT ---
-                            # This was missing in the 'lite' version
                             if email_engine and advisor_email:
                                 subject = f"Action Required: {user_email} submitted a story"
                                 html = f"""
@@ -152,8 +151,7 @@ def render_dashboard():
                                 """
                                 email_engine.send_email(advisor_email, subject, html)
                                 st.toast("Advisor notified via email.")
-                            # -------------------------------------
-
+                            
                             st.balloons()
                             st.success("Sent to Advisor for final print approval!")
                             time.sleep(2)
@@ -171,6 +169,8 @@ def render_dashboard():
             date_str = str(p.get('created_at'))[:10]
             with st.expander(f"✅ {date_str} - {p.get('strategic_prompt')[:30]}..."):
                 st.markdown(p.get('content'))
+                if p.get('audio_ref'):
+                    st.audio(p.get('audio_ref'))
                 st.download_button("⬇️ Download PDF", data=p.get('content') or "", file_name="letter.txt")
 
     # --- TAB: SETUP & SCHEDULE ---
@@ -178,12 +178,25 @@ def render_dashboard():
         st.subheader("Interview Settings")
         
         with st.form("settings_form"):
+            st.markdown("### 👨‍👩‍👧 Family Details")
             p_name = st.text_input("Parent Name", value=profile.get('parent_name', ''))
             p_phone = st.text_input("Parent Phone", value=profile.get('parent_phone', ''))
             
+            st.divider()
+            st.markdown("### 📬 Shipping Address")
+            st.caption("Where should the physical keepsake letter be mailed?")
+            
+            c_str, c_city = st.columns([2, 1])
+            addr1 = c_str.text_input("Street Address", value=profile.get('address_line1', ''))
+            city = c_city.text_input("City", value=profile.get('address_city', ''))
+            
+            c_st, c_zip = st.columns(2)
+            state = c_st.text_input("State", value=profile.get('address_state', ''))
+            zip_code = c_zip.text_input("Zip Code", value=profile.get('address_zip', ''))
+
             if st.form_submit_button("Update Settings"):
-                if db.update_heirloom_settings(user_email, p_name, p_phone):
-                    st.success("Settings Updated")
+                if db.update_heirloom_settings(user_email, p_name, p_phone, addr1, city, state, zip_code):
+                    st.success("Settings & Shipping Address Updated")
                     st.rerun()
 
         st.divider()
@@ -196,5 +209,3 @@ def render_dashboard():
         
         if st.button("Schedule Call"):
             st.success(f"Call scheduled for {d} at {t}. (System will auto-dial)")
-            # Note: Actual scheduling requires a cron job or external trigger.
-            # For this MVP, we acknowledge the request but rely on 'Call Me Now'.

@@ -72,13 +72,20 @@ def main():
     # C. URL PARAMS & CALLBACKS
     params = st.query_params
     
-    # 1. QR CODE SCAN (Archive View)
+    # 1. PLAYBACK GATE (QR CODE)
+    if "play" in params:
+        pid = params.get("play")
+        if ui_archive:
+            ui_archive.render_heir_vault(pid)
+            return
+
+    # 2. QR CODE SCAN (Archive View - Legacy)
     if ("project_id" in params or "id" in params) and ui_archive:
         pid = params.get("project_id") or params.get("id")
         ui_archive.render_heir_vault(pid)
         return
 
-    # 2. GOOGLE AUTH (PKCE)
+    # 3. GOOGLE AUTH (PKCE)
     if "code" in params:
         code = params["code"]
         if auth_engine and database:
@@ -88,15 +95,10 @@ def main():
                 # STRICT CHECK: Does this user exist?
                 profile = database.get_user_profile(user.email)
                 
-                # If profile is empty/new, we typically block or redirect to signup.
-                # For now, we allow login but check roles below.
-                
                 st.session_state.authenticated = True
                 st.session_state.user_email = user.email
                 
                 # Smart Route: Check role
-                # If they are an advisor, go to advisor portal
-                # If they are a client/heir, go to heirloom
                 if profile.get('role') == 'advisor':
                     st.session_state.app_mode = "advisor"
                 else:
@@ -105,7 +107,7 @@ def main():
                 st.query_params.clear()
                 st.rerun()
 
-    # 3. STRIPE PAYMENT RETURN
+    # 4. STRIPE PAYMENT RETURN
     if "session_id" in params:
         session_id = params["session_id"]
         if payment_engine and database:
@@ -131,7 +133,7 @@ def main():
                             st.query_params.clear()
                             st.rerun()
 
-    # 4. LANDING PAGE ROUTING (?nav=...)
+    # 5. LANDING PAGE ROUTING (?nav=...)
     if "nav" in params:
         nav_target = params["nav"]
         if "nav_processed" not in st.session_state:
@@ -143,7 +145,7 @@ def main():
             st.query_params.clear()
             st.rerun()
 
-    # D. SIDEBAR NAV (UPDATED FOR ADMIN ACCESS)
+    # D. SIDEBAR NAV
     if st.session_state.authenticated:
         with st.sidebar:
             st.caption(f"VerbaPost v{VERSION}")
@@ -156,8 +158,7 @@ def main():
             # 2. Admin Super-Controls
             user = st.session_state.get("user_email", "")
             
-            # Check if user is admin (via secrets or simple string check for dev)
-            # We hardcode your email here for absolute safety during dev
+            # Check if user is admin
             is_admin = "admin" in user or \
                        (secrets_manager and user == secrets_manager.get_secret("admin.email")) or \
                        user == "tjkarat@gmail.com"
@@ -176,7 +177,7 @@ def main():
                     st.session_state.app_mode = "advisor"
                     st.rerun()
                     
-                # View 3: The End User View (Heirloom) <--- NEW
+                # View 3: The End User View (Heirloom)
                 if st.button("📂 Family Archive"): 
                     st.session_state.app_mode = "heirloom"
                     st.rerun()

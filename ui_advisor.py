@@ -44,7 +44,7 @@ def render_dashboard():
     st.divider()
 
     # 3. ROSTER TABS
-    tab_roster, tab_action = st.tabs(["👥 Client Roster", "🚀 Activate Client"])
+    tab_roster, tab_approve, tab_action = st.tabs(["👥 Client Roster", "✅ Approvals", "🚀 Activate Client"])
 
     # --- TAB: ROSTER ---
     with tab_roster:
@@ -59,6 +59,56 @@ def render_dashboard():
                 st.write(f"**Heir:** {c.get('heir_name')}")
                 st.write(f"**Email:** {c.get('email')}")
                 st.write(f"**Phone:** {c.get('phone')}")
+
+    # --- TAB: APPROVALS (RELEASE GATE) ---
+    with tab_approve:
+        st.subheader("Pending Review")
+        st.caption("Approve drafts to unlock audio for the family and send for printing.")
+        
+        pending = database.get_pending_approvals(user_email)
+        
+        if not pending:
+            st.info("No drafts waiting for review.")
+            
+        for p in pending:
+            pid = p.get('id')
+            heir_name = p.get('heir_name')
+            heir_email = p.get('heir_email')
+            
+            with st.container(border=True):
+                st.markdown(f"**Draft from {heir_name}**")
+                st.text_area("Content", p.get('content'), height=150, disabled=True, key=f"rev_{pid}")
+                
+                if st.button("✅ Approve & Release Audio", key=f"app_{pid}", type="primary"):
+                    if database.update_project_details(pid, status="Approved"):
+                        
+                        # --- 📧 EMAIL INJECTION: RELEASE NOTIFICATION ---
+                        if email_engine and heir_email:
+                            subject = f"Legacy Letter Approved: Audio Unlocked 🔓"
+                            
+                            # Build Play Link
+                            # Assuming audio_ref is stored, or we use project_id to lookup
+                            play_link = f"https://verbapost.streamlit.app/?play={pid}"
+                            
+                            html = f"""
+                            <div style="font-family: sans-serif; padding: 20px; color: #333;">
+                                <h2 style="color: #2c3e50;">Great news, {heir_name}</h2>
+                                <p>Your advisor, <strong>{firm_name}</strong>, has approved your family story for printing.</p>
+                                <p><strong>The audio recording has been unlocked.</strong></p>
+                                <p>You can listen to the original voice recording by scanning the QR code on your physical letter, or by clicking below:</p>
+                                <br>
+                                <a href="{play_link}" style="background-color: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+                                    🎧 Listen to Story
+                                </a>
+                            </div>
+                            """
+                            email_engine.send_email(heir_email, subject, html)
+                            st.toast(f"Release email sent to {heir_email}")
+                        # -----------------------------------------------
+                        
+                        st.success("Project Approved! Audio Unlocked.")
+                        time.sleep(2)
+                        st.rerun()
 
     # --- TAB: ACTION (CONSUME CREDIT) ---
     with tab_action:
