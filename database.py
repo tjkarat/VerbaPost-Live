@@ -78,13 +78,12 @@ def to_dict(obj):
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 # ==========================================
-# 🏛️ MODELS (Refactored to match provided Schema)
+# 🏛️ MODELS (Strictly Aligned with SQL)
 # ==========================================
 
 class UserProfile(Base):
     """
-    Clean Identity Table. 
-    Removed: advisor_firm, advisor_email, address_* (Calculated dynamically)
+    Matches 'create table public.user_profiles'
     """
     __tablename__ = 'user_profiles'
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -92,32 +91,53 @@ class UserProfile(Base):
     full_name = Column(String)
     parent_name = Column(String)
     parent_phone = Column(String)
-    role = Column(String, default="user") 
-    created_at = Column(DateTime, default=datetime.utcnow)
+    role = Column(String)
     
-    # We keep credits as it was in your provided schema
-    credits = Column(Integer, default=0) 
+    # B2B Fields from your provided schema
+    advisor_email = Column(String)
+    advisor_firm = Column(String)
+    
+    # Address Fields
+    address_line1 = Column(String)
+    address_city = Column(String)
+    address_state = Column(String)
+    address_zip = Column(String)
+    country = Column(String)
+    timezone = Column(String)
+    
+    credits = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class Advisor(Base):
+    """
+    Matches 'create table public.advisors'
+    PK is ID, Email is Unique.
+    """
     __tablename__ = 'advisors'
-    email = Column(String, primary_key=True)
-    firm_name = Column(String, default="New Firm")
+    id = Column(Integer, primary_key=True, autoincrement=True) # SQL: id serial not null
+    email = Column(String, unique=True, nullable=False)        # SQL: email text not null
+    firm_name = Column(String)
     full_name = Column(String)
+    stripe_customer_id = Column(String)
+    subscription_status = Column(String, default='active')
     credits = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Client(Base):
-    """Links an Heir (User) to an Advisor."""
+    """
+    Matches 'create table public.clients'
+    """
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, autoincrement=True)
-    advisor_email = Column(String, ForeignKey('advisors.email'))
-    name = Column(String) # Parent Name
-    phone = Column(String) 
+    # Foreign Key points to advisors(email) per your SQL constraint
+    advisor_email = Column(String, ForeignKey('advisors.email')) 
+    name = Column(String, nullable=False) # Parent Name
+    phone = Column(String)
     email = Column(String) # Heir Email
-    heir_name = Column(String)
+    address_json = Column(Text)
     status = Column(String, default='Active')
+    heir_name = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
-    address_json = Column(Text, default="{}")
 
 class Project(Base):
     __tablename__ = 'projects'
@@ -167,45 +187,42 @@ class PaymentFulfillment(Base):
 
 def get_user_profile(email):
     """
-    DYNAMIC PROFILE BUILDER
-    Instead of expecting 'advisor_firm' to be a column in the user table,
-    we look it up in the 'clients' table and merge it into the result.
+    Fetches User Profile.
+    If the user is an Heir (Client), we dynamically enrich the profile with Advisor info.
     """
     try:
         with get_db_session() as session:
-            # 1. Fetch Basic Profile
+            # 1. Try to find user in user_profiles
             profile_obj = session.query(UserProfile).filter_by(email=email).first()
-            if not profile_obj:
-                # If no profile exists, create a skeleton (Safe Fallback)
-                return {"email": email, "role": "user", "status": "New"}
-            
-            profile_dict = to_dict(profile_obj)
+            if profile_obj:
+                p = to_dict(profile_obj)
+                # Ensure status is set
+                if not p.get('status'):
+                    p['status'] = "Active" if (p.get('credits', 0) > 0) else "Pending"
+                return p
 
-            # 2. Check for B2B Linkage (The "Yesterday" Logic)
-            client_record = session.query(Client).filter_by(email=email).first()
-            
-            if client_record:
-                # This user is an Heir managed by an Advisor
-                adv = session.query(Advisor).filter_by(email=client_record.advisor_email).first()
-                firm_name = adv.firm_name if adv else "VerbaPost"
+            # 2. If not in user_profiles, check if they are a Client (Heir)
+            client = session.query(Client).filter_by(email=email).first()
+            if client:
+                # Build a virtual profile from the Client record
+                adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
+                firm = adv.firm_name if adv else "VerbaPost"
                 
-                # Inject B2B data into the dictionary
-                profile_dict["role"] = "heir"
-                profile_dict["status"] = client_record.status
-                profile_dict["advisor_firm"] = firm_name
-                profile_dict["advisor_email"] = client_record.advisor_email
-                # Use client record parent details if available
-                if client_record.name: profile_dict["parent_name"] = client_record.name
-                if client_record.phone: profile_dict["parent_phone"] = client_record.phone
+                return {
+                    "email": email,
+                    "role": "heir",
+                    "status": client.status,
+                    "parent_name": client.name,
+                    "parent_phone": client.phone,
+                    "full_name": client.heir_name,
+                    "advisor_firm": firm,
+                    "advisor_email": client.advisor_email,
+                    "type": "B2B"
+                }
 
-            else:
-                # Legacy / Direct Consumer
-                profile_dict["advisor_firm"] = None
-                profile_dict["advisor_email"] = None
-                profile_dict["status"] = "Active" if (profile_obj.credits and profile_obj.credits > 0) else "Pending"
-
-            return profile_dict
-
+            # 3. New User
+            return {"email": email, "role": "user", "status": "New"}
+            
     except Exception as e:
         logger.error(f"Get Profile Error: {e}")
         return {}
@@ -228,11 +245,18 @@ def get_advisor_clients(email):
     except Exception: return []
 
 def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir_email, prompt):
+    """Consumes credit and creates client/project records."""
     try:
         with get_db_session() as session:
             # 1. Check Credits
             adv = session.query(Advisor).filter_by(email=advisor_email).first()
-            if not adv or adv.credits < 1:
+            if not adv:
+                # Auto-create advisor if missing (Safety net for admin testing)
+                adv = Advisor(email=advisor_email, firm_name="VerbaPost Wealth", credits=10)
+                session.add(adv)
+                session.flush()
+
+            if adv.credits < 1:
                 return False, "Insufficient Credits"
             
             # 2. Create Client
@@ -287,12 +311,14 @@ def get_heir_projects(heir_email):
 def update_heirloom_settings(email, parent_name, parent_phone):
     try:
         with get_db_session() as session:
+            # Check Client Table
             client = session.query(Client).filter_by(email=email).first()
             if client:
                 client.name = parent_name
                 client.phone = parent_phone
                 session.commit()
                 return True
+            # Check User Table
             u = session.query(UserProfile).filter_by(email=email).first()
             if u:
                 u.parent_name = parent_name
