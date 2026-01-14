@@ -260,7 +260,14 @@ def render_dashboard():
                 else:
                     st.warning("🔒 Audio Archive Locked")
                     st.caption(f"The audio recording is currently held in the {advisor_firm} secure vault. Contact your advisor to request release.")
-                st.download_button("⬇️ Download PDF", data=p.get('content') or "", file_name="letter.txt")
+                
+                # FIX: Added unique key using project ID to prevent DuplicateElementId error
+                st.download_button(
+                    "⬇️ Download PDF", 
+                    data=p.get('content') or "", 
+                    file_name="letter.txt",
+                    key=f"vault_dl_{p.get('id')}" 
+                )
 
     # --- TAB: SETUP & SCHEDULE ---
     with tab_setup:
