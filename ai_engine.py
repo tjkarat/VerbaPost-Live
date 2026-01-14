@@ -1,30 +1,14 @@
 import os
 import logging
 import openai
-import streamlit as st # Added for GUI Toast
 from datetime import datetime
 
-# ==========================================
-# 🚨 BOOT VERIFICATION SIGNAL 🚨
-# ==========================================
-print("\n" + "="*50)
-print("👉 AI ENGINE V999 (DEBUG) IS LOADING ... 👈")
-print("="*50 + "\n")
-
-# Try to verify imports immediately on boot
-try:
-    import twilio
-    print(f"✅ BOOT CHECK: Twilio is installed. Version: {twilio.__version__}")
-except ImportError as e:
-    print(f"❌ BOOT CHECK: Twilio is MISSING. Error: {e}")
-
-# ==========================================
+# --- LOGGING SETUP ---
+logger = logging.getLogger(__name__)
 
 # --- IMPORTS ---
 try: import secrets_manager
 except ImportError: secrets_manager = None
-
-logger = logging.getLogger(__name__)
 
 # --- CONFIG ---
 def get_secret(key):
@@ -43,12 +27,13 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 # ==========================================
-# 📞 B2B TELEPHONY (LOUD DEBUGGER)
+# 📞 B2B TELEPHONY
 # ==========================================
 
 def send_prep_sms(to_phone, advisor_name):
     """
-    Sends a 'Warm Up' SMS.
+    Sends a 'Warm Up' SMS so the user knows the call is coming.
+    Prevents 'Spam Risk' rejection.
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
@@ -69,27 +54,25 @@ def send_prep_sms(to_phone, advisor_name):
         return True, message.sid
     except ImportError:
         logger.error("Twilio Module Missing (ImportError)")
-        return False, "ERROR 999: Import Failed in SMS"
+        return False, "Twilio library not installed."
     except Exception as e:
         logger.error(f"SMS Error: {e}")
         return False, str(e)
 
 def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
     """
-    DEBUG VERSION: If you don't see "ERROR 999" in the UI, 
-    this code is NOT running.
+    Triggers a Twilio call with Answering Machine Detection (AMD).
     """
-    logger.info(f"📞 DEBUG: Starting call to {to_phone}")
-
-    # 1. Config
+    # 1. Credential Check
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
     from_number = get_secret("twilio.from_number") or "+16156567667"
 
     if not sid or not token:
-        return None, "ERROR 999: Missing Credentials"
+        logger.error("Twilio Credentials Missing")
+        return None, "Missing Credentials"
 
-    # 2. TwiML
+    # 2. TwiML Generation
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
 
@@ -110,39 +93,29 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
     </Response>
     """
 
-    # 3. Import & Execute (The Failure Point)
+    # 3. Execution
     try:
-        # Check if library exists
-        import importlib.util
-        twilio_spec = importlib.util.find_spec("twilio")
-        if twilio_spec is None:
-             return None, "ERROR 999: Twilio Package NOT FOUND on Server"
-        
-        # Check if submodule exists
         from twilio.rest import Client
-        
-        # Attempt Call
         client = Client(sid, token)
+
         call = client.calls.create(
             twiml=twiml,
             to=to_phone,
             from_=from_number,
-            # --- RED TEAM: ANSWERING MACHINE DETECTION ---
             machine_detection='DetectMessageEnd', 
         )
+        logger.info(f"Call Dispatched: {call.sid}")
         return call.sid, None
 
     except ImportError as e:
-        # THIS IS THE KEY: We print the real error 'e'
-        logger.error(f"Import Failed: {e}")
-        return None, f"ERROR 999: Import Failed -> {e}"
-        
+        logger.error(f"Twilio Import Failed: {e}")
+        return None, f"Twilio Library Missing: {e}"
     except Exception as e:
-        logger.error(f"API Error: {e}")
-        return None, f"ERROR 999: API Error -> {e}"
+        logger.error(f"Twilio API Error: {e}")
+        return None, str(e)
 
 # ==========================================
-# 🎤 TRANSCRIPTION & POLISHING (PRESERVED)
+# 🎤 TRANSCRIPTION & POLISHING
 # ==========================================
 
 def transcribe_audio(file_path):
