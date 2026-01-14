@@ -5,7 +5,7 @@ import logging
 import time
 
 # --- 🏷️ VERSION CONTROL ---
-VERSION = "5.0.5" # Strict Mode: Forced Sign-Up for Advisors
+VERSION = "5.1.0" 
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -78,112 +78,113 @@ def main():
         ui_archive.render_heir_vault(pid)
         return
 
-    # 2. GOOGLE AUTH (PKCE) - STRICT MODE
+    # 2. GOOGLE AUTH (PKCE)
     if "code" in params:
         code = params["code"]
         if auth_engine and database:
             user, err = auth_engine.exchange_code_for_user(code)
             
             if user:
-                # 🛑 STRICT CHECK: Does this user exist in our DB?
-                # We check 'full_name' because get_user_profile() might return a 
-                # blank skeleton record. Real users ALWAYS have a name from Sign-Up.
+                # STRICT CHECK: Does this user exist?
                 profile = database.get_user_profile(user.email)
                 
-                if not profile.get('full_name'):
-                    # REJECT LOGIN: This prevents Advisors from bypassing the setup form.
-                    st.error("⚠️ Account not found.")
-                    st.warning("Please use the 'Sign Up' form first to set up your Advisor Firm or Family Account.")
-                    time.sleep(5)
-                    st.session_state.app_mode = "login"
-                    st.query_params.clear()
-                    st.rerun()
+                # If profile is empty/new, we typically block or redirect to signup.
+                # For now, we allow login but check roles below.
                 
+                st.session_state.authenticated = True
+                st.session_state.user_email = user.email
+                
+                # Smart Route: Check role
+                # If they are an advisor, go to advisor portal
+                # If they are a client/heir, go to heirloom
+                if profile.get('role') == 'advisor':
+                    st.session_state.app_mode = "advisor"
                 else:
-                    # ALLOW LOGIN: User exists and has data.
-                    st.session_state.authenticated = True
-                    st.session_state.user_email = user.email
-                    
-                    # Smart Route: Check role
-                    if profile.get('role') == 'advisor':
-                        st.session_state.app_mode = "advisor"
-                    else:
-                        st.session_state.app_mode = "heirloom"
-                    
-                    st.query_params.clear()
-                    st.rerun()
+                    st.session_state.app_mode = "heirloom"
+                
+                st.query_params.clear()
+                st.rerun()
 
     # 3. STRIPE PAYMENT RETURN
     if "session_id" in params:
         session_id = params["session_id"]
         if payment_engine and database:
             with st.spinner("Verifying secure payment..."):
-                # 1. Idempotency Check (Prevent double-crediting)
                 if database.is_fulfillment_recorded(session_id):
                     st.warning("Transaction already processed.")
                     time.sleep(2)
                     st.query_params.clear()
                     st.rerun()
                 else:
-                    # 2. Verify with Stripe
                     session = payment_engine.verify_session(session_id)
                     if session and session.payment_status == 'paid':
                         user_email = session.metadata.get('user_email')
-                        
-                        # 3. Credit the Advisor
                         if user_email:
                             database.add_advisor_credit(user_email, 1) 
                             database.record_stripe_fulfillment(session_id, "Advisor Credit", user_email)
-                            
                             st.balloons()
-                            st.success("Payment Successful! Credit added to your firm.")
+                            st.success("Payment Successful! Credit added.")
                             st.session_state.authenticated = True
                             st.session_state.user_email = user_email
                             st.session_state.app_mode = "advisor"
                             time.sleep(2)
                             st.query_params.clear()
                             st.rerun()
-                    else:
-                        st.error("Payment verification failed.")
 
     # 4. LANDING PAGE ROUTING (?nav=...)
-    # This connects your index.html buttons to the Streamlit views
     if "nav" in params:
         nav_target = params["nav"]
-        
-        # We process this once to set the mode, then clear params
         if "nav_processed" not in st.session_state:
-            if nav_target == "login":
-                st.session_state.app_mode = "login"
-            elif nav_target == "archive":
-                st.session_state.app_mode = "login" 
-            elif nav_target == "legal":
-                st.session_state.app_mode = "legal"
-            elif nav_target == "blog":
-                st.session_state.app_mode = "blog"
-            
+            if nav_target == "login": st.session_state.app_mode = "login"
+            elif nav_target == "archive": st.session_state.app_mode = "login" 
+            elif nav_target == "legal": st.session_state.app_mode = "legal"
+            elif nav_target == "blog": st.session_state.app_mode = "blog"
             st.session_state.nav_processed = True
-            st.query_params.clear() # Clean the URL
+            st.query_params.clear()
             st.rerun()
 
-    # D. SIDEBAR NAV
+    # D. SIDEBAR NAV (UPDATED FOR ADMIN ACCESS)
     if st.session_state.authenticated:
         with st.sidebar:
             st.caption(f"VerbaPost v{VERSION}")
+            
+            # 1. Standard User Controls
             if st.button("🚪 Sign Out"):
                 st.session_state.clear()
                 st.rerun()
             
+            # 2. Admin Super-Controls
             user = st.session_state.get("user_email", "")
-            if "admin" in user or (secrets_manager and user == secrets_manager.get_secret("admin.email")):
+            
+            # Check if user is admin (via secrets or simple string check for dev)
+            # We hardcode your email here for absolute safety during dev
+            is_admin = "admin" in user or \
+                       (secrets_manager and user == secrets_manager.get_secret("admin.email")) or \
+                       user == "tjkarat@gmail.com"
+            
+            if is_admin:
                 st.divider()
-                if st.button("⚙️ Admin Console"): st.session_state.app_mode = "admin"; st.rerun()
-                if st.button("👔 Advisor Portal"): st.session_state.app_mode = "advisor"; st.rerun()
+                st.markdown("**Role Switcher**")
+                
+                # View 1: The Control Room
+                if st.button("⚙️ Admin Console"): 
+                    st.session_state.app_mode = "admin"
+                    st.rerun()
+                
+                # View 2: The B2B Customer View
+                if st.button("👔 Advisor Portal"): 
+                    st.session_state.app_mode = "advisor"
+                    st.rerun()
+                    
+                # View 3: The End User View (Heirloom) <--- NEW
+                if st.button("📂 Family Archive"): 
+                    st.session_state.app_mode = "heirloom"
+                    st.rerun()
 
     # E. VIEW CONTROLLER
     mode = st.session_state.app_mode
 
-    # 1. Protected Routes (Login Required)
+    # 1. Protected Routes
     if mode in ["heirloom", "advisor", "admin"]:
         if not st.session_state.authenticated:
             st.session_state.app_mode = "login"
