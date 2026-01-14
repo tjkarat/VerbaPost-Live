@@ -84,15 +84,6 @@ def _safe_get(obj, key, default=""):
 def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text="", audio_url=None, metadata=None):
     """
     Generates the final PDF bytes for the letter.
-    
-    Args:
-        body_text (str): The main content.
-        to_addr (dict): Unused in Heirloom layout (no window envelopes).
-        from_addr (dict): Unused in Heirloom layout.
-        tier (str): Determines font style and footer.
-        signature_text (str): Optional signature block.
-        audio_url (str): Link for the QR code.
-        metadata (dict): Required for Heirloom headers (storyteller, date, question, firm_name).
     """
     if metadata is None: metadata = {}
     
@@ -128,62 +119,98 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
         pdf.add_page()
 
         # ---------------------------------------------------------
-        # 5. HEADER CONTENT (Heirloom / Standard Layout)
-        #    Note: Window Envelopes removed. Using Full Page Header.
+        # 5. HEADER CONTENT (Logic Branching)
         # ---------------------------------------------------------
         pdf.set_text_color(0, 0, 0)
         
-        # --- A. TOP RIGHT: Export Date (CST) ---
-        pdf.set_font("Helvetica", size=10)
-        export_date_str = f"Exported: {get_cst_time()}"
-        
-        # Capture starting Y position to align left and right columns
-        start_y = pdf.get_y()
-        
-        # Move to right side for date
-        pdf.cell(0, 5, export_date_str, align='R', ln=1)
-        
-        # --- B. TOP LEFT: Storyteller Metadata ---
-        # Reset Y to align with the date line
-        pdf.set_y(start_y)
-        
-        storyteller = _sanitize_text(metadata.get('storyteller', 'Unknown Storyteller'))
-        interview_date = _sanitize_text(metadata.get('interview_date', ''))
-        question = _sanitize_text(metadata.get('question_text', ''))
-
-        # Line 1: Storyteller Name
-        pdf.set_font(font_family, 'B', 11)
-        pdf.cell(0, 5, f"Storyteller: {storyteller}", ln=1)
-        
-        # Line 2: Recorded Date (if available)
-        if interview_date:
-            pdf.set_font(font_family, '', 11)
-            pdf.cell(0, 5, f"Recorded:    {interview_date}", ln=1)
+        if tier == "Heirloom":
+            # --- LAYOUT A: THE FAMILY STORY (Metadata Driven) ---
             
-        # Line 3: Topic / Question
-        # This might be long, so we use multi_cell with a calculated width
-        if question:
-            pdf.ln(2)
+            # Top Right: Date
+            pdf.set_font("Helvetica", size=10)
+            export_date_str = f"Exported: {get_cst_time()}"
+            start_y = pdf.get_y()
+            pdf.cell(0, 5, export_date_str, align='R', ln=1)
+            
+            # Top Left: Storyteller Metadata
+            pdf.set_y(start_y) # Reset Y to same line as date
+            
+            storyteller = _sanitize_text(metadata.get('storyteller', 'Unknown Storyteller'))
+            interview_date = _sanitize_text(metadata.get('interview_date', ''))
+            question = _sanitize_text(metadata.get('question_text', ''))
+
             pdf.set_font(font_family, 'B', 11)
-            # Print label
-            pdf.cell(15, 5, "Topic: ", ln=0)
+            pdf.cell(0, 5, f"Storyteller: {storyteller}", ln=1)
             
-            # Print Question Body
-            pdf.set_font(font_family, 'I', 11)
-            # Calculate remaining width (Page Width - Margins - Label Width)
-            remaining_w = PAGE_WIDTH_MM - (MARGIN_MM * 2) - 15
-            pdf.multi_cell(remaining_w, 5, question)
-        
-        # --- C. SEPARATOR LINE ---
-        pdf.ln(5)
-        line_y = pdf.get_y()
-        # Draw line from left margin to right margin
-        pdf.line(MARGIN_MM, line_y, PAGE_WIDTH_MM - MARGIN_MM, line_y)
-        
-        # Spacing before body content
-        pdf.ln(10)
+            if interview_date:
+                pdf.set_font(font_family, '', 11)
+                pdf.cell(0, 5, f"Recorded:    {interview_date}", ln=1)
+                
+            if question:
+                pdf.ln(2)
+                pdf.set_font(font_family, 'B', 11)
+                pdf.cell(15, 5, "Topic: ", ln=0)
+                pdf.set_font(font_family, 'I', 11)
+                remaining_w = PAGE_WIDTH_MM - (MARGIN_MM * 2) - 15
+                pdf.multi_cell(remaining_w, 5, question)
+            
+            # Separator
+            pdf.ln(5)
+            line_y = pdf.get_y()
+            pdf.line(MARGIN_MM, line_y, PAGE_WIDTH_MM - MARGIN_MM, line_y)
+            pdf.ln(10)
 
-        # 6. Render Letter Body
+        else:
+            # --- LAYOUT B: STANDARD / VINTAGE / MARKETING (Address Driven) ---
+            # Used for Admin Marketing Studio & Store Letters
+            
+            # 1. Date (Right Aligned)
+            pdf.set_font(font_family, size=11)
+            pdf.cell(0, 5, get_cst_time(), align='R', ln=1)
+            
+            # 2. From Address (Top Left)
+            pdf.set_y(MARGIN_MM) # Reset to top margin
+            
+            from_name = _sanitize_text(_safe_get(from_addr, 'name'))
+            from_street = _sanitize_text(_safe_get(from_addr, 'address_line1') or _safe_get(from_addr, 'street'))
+            # Admin console packs everything into 'address_line1' often, which is fine
+            
+            if from_name or from_street:
+                pdf.set_font(font_family, size=10)
+                pdf.multi_cell(100, 5, f"{from_name}\n{from_street}")
+            
+            # 3. Spacing for Recipient
+            pdf.ln(15)
+            
+            # 4. To Address
+            to_name = _sanitize_text(_safe_get(to_addr, 'name'))
+            to_street = _sanitize_text(_safe_get(to_addr, 'street') or _safe_get(to_addr, 'address_line1'))
+            to_city = _sanitize_text(_safe_get(to_addr, 'city'))
+            to_state = _sanitize_text(_safe_get(to_addr, 'state'))
+            to_zip = _sanitize_text(_safe_get(to_addr, 'zip'))
+            
+            # Combine city/state/zip if present, or rely on street if it contains them (Admin Console)
+            to_block = f"{to_name}\n{to_street}"
+            if to_city and to_state:
+                to_block += f"\n{to_city}, {to_state} {to_zip}"
+                
+            pdf.set_font(font_family, size=12)
+            pdf.multi_cell(0, 6, to_block)
+            
+            # 5. Divider Line (Optional styling for Vintage)
+            pdf.ln(10)
+            if tier == "Vintage":
+                 y = pdf.get_y()
+                 pdf.set_draw_color(150, 150, 150)
+                 pdf.line(MARGIN_MM, y, PAGE_WIDTH_MM - MARGIN_MM, y)
+                 pdf.set_draw_color(0, 0, 0) # Reset
+                 pdf.ln(10)
+            else:
+                 pdf.ln(5)
+
+        # ---------------------------------------------------------
+        # 6. BODY CONTENT
+        # ---------------------------------------------------------
         pdf.set_font(font_family, size=12)
         safe_body = _sanitize_text(body_text)
         if not safe_body.strip(): safe_body = "[No Content Provided]"
@@ -196,7 +223,8 @@ def create_pdf(body_text, to_addr, from_addr, tier="Standard", signature_text=""
              pdf.set_font(font_family, 'I', 14) 
              pdf.cell(0, 10, _sanitize_text(signature_text), ln=1)
 
-        # 8. AUDIO QR CODE (Heirloom)
+        # 8. AUDIO QR CODE (Heirloom Only)
+        # We generally only show QR codes for Heirloom tier, but if audio_url exists we print it.
         if audio_url:
             try:
                 # Check vertical space. If near bottom, add page.
