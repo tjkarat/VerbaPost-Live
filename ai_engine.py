@@ -61,18 +61,50 @@ def send_prep_sms(to_phone, advisor_name):
 
 def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
     """
-    Triggers a Twilio call with Answering Machine Detection (AMD).
+    DEBUG VERSION: If you don't see "ERROR 999" in the UI, 
+    this code is NOT running.
     """
-    logger.info(f"📞 DEBUG: Attempting call to {to_phone}")
+    logger.info(f"📞 DEBUG: Starting call to {to_phone}")
 
-    # 1. Credential Check
+    # 1. Config
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
     from_number = get_secret("twilio.from_number") or "+16156567667"
 
     if not sid or not token:
-        logger.error("Twilio Credentials Missing")
-        return None, "Missing Credentials"
+        return None, "ERROR 999: Missing Credentials"
+
+    # 2. TwiML
+    twiml = "<Response><Say>Test call.</Say></Response>"
+
+    # 3. Import & Execute (The Failure Point)
+    try:
+        # Check if library exists
+        import importlib
+        twilio_spec = importlib.util.find_spec("twilio")
+        if twilio_spec is None:
+             return None, "ERROR 999: Twilio Package NOT FOUND on Server"
+        
+        # Check if submodule exists
+        from twilio.rest import Client
+        
+        # Attempt Call
+        client = Client(sid, token)
+        call = client.calls.create(
+            twiml=twiml,
+            to=to_phone,
+            from_=from_number
+        )
+        return call.sid, None
+
+    except ImportError as e:
+        # THIS IS THE KEY: We print the real error 'e'
+        logger.error(f"Import Failed: {e}")
+        return None, f"ERROR 999: Import Failed -> {e}"
+        
+    except Exception as e:
+        logger.error(f"API Error: {e}")
+        return None, f"ERROR 999: API Error -> {e}"
 
     # 2. TwiML Generation
     safe_advisor = advisor_name or "your financial advisor"
