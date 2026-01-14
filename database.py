@@ -183,15 +183,12 @@ class PaymentFulfillment(Base):
 def create_user(email, full_name, role='user'):
     """
     Creates a new base UserProfile.
-    Required for ui_login.py signup flow.
     """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
-            # Check if exists
             existing = session.query(UserProfile).filter_by(email=email).first()
-            if existing:
-                return True # Idempotent success
+            if existing: return True 
             
             u = UserProfile(email=email, full_name=full_name, role=role)
             session.add(u)
@@ -203,8 +200,9 @@ def create_user(email, full_name, role='user'):
 
 def get_user_profile(email):
     """
-    Fetches User Profile. Merges data from Client table if they are an Heir.
-    Updated to fetch the NEWEST client record if duplicates exist.
+    Fetches User Profile.
+    CRITICAL FIX: If a Client record is found, we FORCE status='Active'.
+    This prevents users being locked out by stale 'Pending' records in the DB.
     """
     email = email.strip().lower()
     try:
@@ -214,17 +212,23 @@ def get_user_profile(email):
 
             # Check if Heir (Get the NEWEST client record)
             client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
+            
             if client:
                 adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
                 firm = adv.firm_name if adv else "VerbaPost"
+                
                 p["role"] = "heir"
-                p["status"] = client.status
+                # 🛑 FORCE UNBLOCK: If a client record exists, they are Active.
+                p["status"] = "Active" 
                 p["advisor_firm"] = firm
                 p["advisor_email"] = client.advisor_email
                 if client.name: p["parent_name"] = client.name
                 if client.phone: p["parent_phone"] = client.phone
             
+            # Default fallback for B2C users
             if "role" not in p: p["role"] = "user"
+            if "status" not in p: p["status"] = "Active" if (p.get('credits', 0) > 0) else "Pending"
+            
             return p
     except Exception: return {}
 
@@ -262,7 +266,7 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
                 advisor_email=advisor_email,
                 name=client_name,
                 phone=client_phone,
-                email=heir_email,
+                email=heir_email, 
                 heir_name=heir_name,
                 status='Active'
             )
@@ -283,15 +287,15 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
     except Exception as e: return False, str(e)
 
 def get_heir_projects(heir_email):
-    """
-    Fetches projects for the Heir.
-    Updated to link to the LATEST client record to fix connection issues.
-    """
     heir_email = heir_email.strip().lower()
     try:
         with get_db_session() as session:
+            # Find the NEWEST client record for this email
             client = session.query(Client).filter_by(email=heir_email).order_by(Client.created_at.desc()).first()
+            
             if not client: return []
+            
+            # Find projects linked to THAT specific client ID
             projects = session.query(Project).filter_by(client_id=client.id).all()
             results = []
             for p in projects:
@@ -306,7 +310,6 @@ def update_heirloom_settings(email, parent_name, parent_phone, addr1=None, city=
     email = email.strip().lower()
     try:
         with get_db_session() as session:
-            # Update LATEST client record
             client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
             if client:
                 client.name = parent_name
@@ -328,7 +331,6 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
     user_email = user_email.strip().lower()
     try:
         with get_db_session() as session:
-            # Link to LATEST client record
             client = session.query(Client).filter_by(email=user_email).order_by(Client.created_at.desc()).first()
             if client:
                 new_proj = Project(
