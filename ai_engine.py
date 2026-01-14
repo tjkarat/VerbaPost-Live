@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIG ---
 def get_secret(key):
+    """
+    Retrieves secret from secrets_manager or environment variables.
+    """
     if secrets_manager: return secrets_manager.get_secret(key)
     # Fallback to os.environ for Cloud Run / Local
     val = os.environ.get(key)
@@ -23,7 +26,7 @@ def get_openai_client():
     return openai.OpenAI(api_key=api_key)
 
 # ==========================================
-# 📞 B2B TELEPHONY (HARDENED)
+# 📞 B2B TELEPHONY (HARDENED & DEBUGGED)
 # ==========================================
 
 def send_prep_sms(to_phone, advisor_name):
@@ -33,6 +36,7 @@ def send_prep_sms(to_phone, advisor_name):
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
+    # Use the verified number from your screenshot or secret
     from_number = get_secret("twilio.from_number") or "+16156567667"
 
     if not sid or not token: return False, "Missing Credentials"
@@ -48,6 +52,9 @@ def send_prep_sms(to_phone, advisor_name):
             to=to_phone
         )
         return True, message.sid
+    except ImportError:
+        logger.error("Twilio Module Missing (ImportError)")
+        return False, "Telephony module missing (ImportError)"
     except Exception as e:
         logger.error(f"SMS Error: {e}")
         return False, str(e)
@@ -55,19 +62,25 @@ def send_prep_sms(to_phone, advisor_name):
 def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
     """
     Triggers a Twilio call with Answering Machine Detection (AMD).
+    Includes Verbose Debugging for Cloud Run.
     """
+    print(f"📞 DEBUG: Attempting call to {to_phone}")
+
+    # 1. Credential Check
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
+    # Default matches your screenshot: +16156567667
     from_number = get_secret("twilio.from_number") or "+16156567667"
+
+    print(f"📞 DEBUG: Credentials found? SID={bool(sid)}, Token={bool(token)}")
+    print(f"📞 DEBUG: Using From Number: {from_number}")
 
     if not sid or not token:
         logger.error("Twilio Credentials Missing")
+        print("❌ DEBUG: Missing Credentials")
         return None, "Missing Credentials"
 
-    # Dynamic TwiML Script (The "Brain" of the call)
-    # Note: We removed the 'action' URL because we are using Polling (heirloom_engine)
-    # to find the recording later. This prevents 404 errors if you don't have a webhook server.
-    
+    # 2. TwiML Generation (The "Brain" of the call)
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
 
@@ -88,20 +101,31 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
     </Response>
     """
 
+    # 3. Execution & Import
     try:
+        print("📞 DEBUG: Importing Twilio Client...")
         from twilio.rest import Client
+        
+        print("📞 DEBUG: Initializing Client...")
         client = Client(sid, token)
 
+        print("📞 DEBUG: Sending API Request...")
         call = client.calls.create(
             twiml=twiml,
             to=to_phone,
             from_=from_number,
             # --- RED TEAM: ANSWERING MACHINE DETECTION ---
             machine_detection='DetectMessageEnd', 
-            # If a machine answers, Twilio hangs up. We don't want to record voicemails.
+            # If a machine answers, Twilio handles it (status will be 'completed' but 'AnsweredBy' machine)
         )
+        print(f"✅ DEBUG: Call Success! SID: {call.sid}")
         return call.sid, None
+
+    except ImportError:
+        print("❌ DEBUG: Twilio Library NOT installed in environment.")
+        return None, "Telephony module missing (ImportError)"
     except Exception as e:
+        print(f"❌ DEBUG: Twilio API Failure: {e}")
         logger.error(f"Twilio Error: {e}")
         return None, str(e)
 
