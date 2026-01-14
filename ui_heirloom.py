@@ -11,6 +11,10 @@ def get_db():
     import database
     return database
 
+def get_ai():
+    import ai_engine
+    return ai_engine
+
 def render_dashboard():
     """
     The Heir's Interface: View stories, edit transcripts, and submit to advisor.
@@ -22,16 +26,41 @@ def render_dashboard():
         st.error("Authentication lost. Please log in again.")
         st.stop()
 
-    # 2. GET USER DATA
-    client_profile = None
-    advisor_firm = "VerbaPost" # Default
+    # 2. GET USER DATA & ACCESS CONTROL
+    # We fetch the profile to check status ('Active', 'Pending', etc.)
+    profile = db.get_user_profile(user_email)
     
+    # --- SECURITY GATE: BLOCK NON-PAYING USERS ---
+    # If the user wasn't activated by an Advisor (no credit spent), block access.
+    # We assume the 'status' column in your 'clients' table handles this.
+    user_status = profile.get('status', 'Pending') 
+    
+    if user_status != 'Active':
+        st.warning("🔒 Account Not Active")
+        st.markdown(f"""
+        **Access Restricted**
+        
+        Your Family Archive has not been activated yet. 
+        
+        This service requires a sponsorship credit from your Financial Advisor to cover 
+        telephony, transcription, and archival mailing costs.
+        
+        **Current Status:** `{user_status}`
+        
+        Please contact your advisor to activate your vault.
+        """)
+        st.stop() # <--- Halts execution here. Safe.
+
+    # 3. BRANDING & HEADER
+    # Fetch branding based on the linked advisor
+    advisor_firm = "VerbaPost" 
     projects = db.get_heir_projects(user_email)
     
     if projects:
         advisor_firm = projects[0].get('firm_name', 'VerbaPost')
+    elif profile.get('advisor_firm'):
+         advisor_firm = profile.get('advisor_firm')
 
-    # 3. HEADER
     st.title("📂 Family Legacy Archive")
     st.markdown(f"**Sponsored by {advisor_firm}**")
     st.caption(f"Logged in as: {user_email}")
@@ -44,6 +73,8 @@ def render_dashboard():
     # --- TAB: INBOX ---
     with tab_inbox:
         st.subheader("Pending Stories")
+        
+        # Filter for active drafts
         active_projects = [p for p in projects if p.get('status') in ['Authorized', 'Recording', 'Pending Approval']]
         
         if not active_projects:
@@ -61,12 +92,13 @@ def render_dashboard():
             status = p.get('status')
             content = p.get('content') or ""
             prompt = p.get('strategic_prompt') or "No prompt set."
+            call_sid = p.get('call_sid') # Useful for debugging
             
             with st.expander(f"Draft: {prompt[:50]}...", expanded=True):
                 if status == "Authorized":
                     st.info("📞 Status: Ready for Interview Call")
                 elif status == "Recording":
-                    st.warning("🎙️ Status: Drafting / Needs Edit")
+                    st.warning(f"🎙️ Status: Drafting / Needs Edit (Call SID: {call_sid})")
                 elif status == "Pending Approval":
                     st.warning("⏳ Status: Waiting for Advisor Review")
 
@@ -114,9 +146,6 @@ def render_dashboard():
     # --- TAB: SETUP ---
     with tab_setup:
         st.subheader("Interview Settings")
-        st.info("These settings control the automated interviews.")
-        
-        profile = db.get_user_profile(user_email)
         
         with st.form("settings_form"):
             p_name = st.text_input("Parent Name", value=profile.get('parent_name', ''))
@@ -133,18 +162,16 @@ def render_dashboard():
         if st.button("Trigger Test Call Now"):
             st.warning("System: Initiating outbound call sequence...")
             
-            # --- FIX: Retrieve phone from profile ---
             target_phone = profile.get('parent_phone')
             
             if not target_phone:
                 st.error("❌ No Parent Phone found. Please save settings above first.")
             else:
                 try:
-                    # --- FIX: Import the CORRECT engine ---
-                    import ai_engine
+                    ai = get_ai()
                     
-                    # --- FIX: Call the correct function ---
-                    sid, error = ai_engine.trigger_outbound_call(
+                    # 1. TRIGGER THE CALL
+                    sid, error = ai.trigger_outbound_call(
                         to_phone=target_phone,
                         advisor_name="Your Advisor",
                         firm_name=advisor_firm
@@ -152,6 +179,24 @@ def render_dashboard():
                     
                     if sid:
                         st.success(f"✅ Call dispatched! SID: {sid}")
+                        
+                        # 2. SAVE THE RECEIPT (Fixes 'Lost Story' Issue)
+                        # We immediately create a draft linked to this SID so the database expects it.
+                        try:
+                            # Note: Ensure create_draft exists in database.py or use create_project
+                            db.create_draft(
+                                user_email=user_email,
+                                content="", 
+                                status="Recording",
+                                call_sid=sid,
+                                tier="Heirloom"
+                            )
+                            st.info("📝 Database record created. Check 'Inbox' tab.")
+                        except AttributeError:
+                            st.warning("⚠️ Call sent, but could not save draft record (Database method missing).")
+                        except Exception as db_e:
+                            st.error(f"⚠️ Call sent, but DB save failed: {db_e}")
+                            
                     else:
                         st.error(f"❌ Call Failed: {error}")
                         
