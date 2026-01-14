@@ -19,9 +19,6 @@ def get_db():
     return database
 
 def render_dashboard():
-    """
-    The Heir's Interface: View stories, edit transcripts, and send for print.
-    """
     # 1. SETUP & AUTH CHECK
     db = get_db()
     if not db: 
@@ -40,7 +37,6 @@ def render_dashboard():
     profile = db.get_user_profile(user_email)
     user_status = profile.get('status', 'Pending') 
     
-    # 3. BRANDING
     advisor_firm = "VerbaPost" 
     projects = db.get_heir_projects(user_email)
     
@@ -49,17 +45,14 @@ def render_dashboard():
     elif profile.get('advisor_firm'):
          advisor_firm = profile.get('advisor_firm')
 
-    # --- SIDEBAR: IMMEDIATE ACTIONS ---
     with st.sidebar:
         st.divider()
         st.subheader("🎙️ Action Center")
         
-        # 1. CALL BUTTON (Now smarter)
+        # 1. CALL BUTTON
         if st.button("📞 Call Me Now", type="primary", use_container_width=True):
             with st.spinner("Connecting..."):
                 target_phone = profile.get('parent_phone')
-                
-                # Find the prompt from the latest active project
                 active_p = next((p for p in projects if p.get('status') in ['Authorized', 'Recording']), None)
                 prompt_text = active_p.get('strategic_prompt') if active_p else "Please share a memory."
                 
@@ -67,7 +60,6 @@ def render_dashboard():
                     st.error("Please add a phone number in 'Setup' first.")
                 else:
                     try:
-                        # PASSING THE PROMPT HERE FIXES ISSUE #2
                         sid, error = ai_engine.trigger_outbound_call(
                             to_phone=target_phone,
                             advisor_name="Your Advisor",
@@ -84,23 +76,18 @@ def render_dashboard():
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        # 2. REFRESH BUTTON (FIXES ISSUE #1: MISSING TRANSCRIPT)
+        # 2. REFRESH BUTTON (UPDATED WITH EMAIL ALERT)
         st.markdown("---")
         if st.button("🔄 Check for New Stories", use_container_width=True):
             with st.spinner("Downloading from phone system..."):
-                # Find projects that are "Recording" but have no text
                 recording_projects = [p for p in projects if p.get('status') == 'Recording' and p.get('call_sid')]
-                
                 found_new = False
                 for p in recording_projects:
                     sid = p.get('call_sid')
                     pid = p.get('id')
-                    
-                    # Fetch from AI Engine
                     text, audio_url, err = ai_engine.fetch_and_transcribe(sid)
                     
                     if text:
-                        # Update Database
                         with db.get_db_session() as session:
                             proj = session.query(db.Project).filter_by(id=pid).first()
                             if proj:
@@ -108,15 +95,22 @@ def render_dashboard():
                                 proj.audio_ref = audio_url
                                 session.commit()
                         found_new = True
+                        
+                        # TRIGGER EMAIL TO HEIR
+                        if email_engine:
+                            email_engine.send_email(
+                                user_email,
+                                "New Story Recorded! 🎙️",
+                                f"<p>A new story has been recorded and transcribed.</p><p><strong>Preview:</strong> {text[:100]}...</p><p>Log in to edit and save it.</p>"
+                            )
                 
                 if found_new:
-                    st.success("New story transcribed!")
+                    st.success("New story transcribed! Email sent.")
                     time.sleep(1)
                     st.rerun()
                 else:
                     st.info("No new completed recordings found.")
 
-    # --- MAIN CONTENT ---
     st.title("📂 Family Legacy Archive")
     st.markdown(f"**Sponsored by {advisor_firm}**")
     st.caption(f"Logged in as: {user_email}")
@@ -129,7 +123,6 @@ def render_dashboard():
 
     tab_inbox, tab_vault, tab_setup = st.tabs(["📥 Story Inbox", "🏛️ The Vault", "⚙️ Setup & Schedule"])
 
-    # --- TAB: INBOX ---
     with tab_inbox:
         st.subheader("Pending Stories")
         active_projects = [p for p in projects if p.get('status') in ['Authorized', 'Recording', 'Pending Approval']]
@@ -144,34 +137,21 @@ def render_dashboard():
             prompt = p.get('strategic_prompt') or "No prompt set."
             
             with st.expander(f"Draft: {prompt[:50]}...", expanded=True):
-                if status == "Authorized":
-                    st.info("📞 Status: Ready for Interview Call")
+                if status == "Authorized": st.info("📞 Status: Ready for Interview Call")
                 elif status == "Recording":
-                    if not content:
-                        st.warning("🎙️ Status: Waiting for Recording... (Click 'Check for New Stories' in sidebar)")
-                    else:
-                        st.success("📝 Status: Transcribed / Ready to Edit")
+                    if not content: st.warning("🎙️ Status: Waiting for Recording... (Click 'Check for New Stories')")
+                    else: st.success("📝 Status: Transcribed / Ready to Edit")
 
                 st.markdown(f"**Interview Question:** *{prompt}*")
-                
-                # Editable Text
-                new_text = st.text_area(
-                    "Transcript Edit", 
-                    value=content, 
-                    height=300, 
-                    key=f"txt_{pid}"
-                )
+                new_text = st.text_area("Transcript Edit", value=content, height=300, key=f"txt_{pid}")
                 
                 c1, c2, c3 = st.columns([1, 1, 2])
-                
-                # 1. SAVE DRAFT
                 if c1.button("💾 Save Draft", key=f"sv_{pid}"):
                     if db.update_project_content(pid, new_text):
                         st.toast("Draft Saved!")
                         time.sleep(1)
                         st.rerun()
 
-                # 2. AI POLISH
                 if c2.button("✨ AI Polish", key=f"ai_{pid}"):
                     with st.spinner("Polishing transcript..."):
                         if ai_engine:
@@ -181,10 +161,8 @@ def render_dashboard():
                                 st.success("Polished! Reloading...")
                                 time.sleep(1)
                                 st.rerun()
-                        else:
-                            st.error("AI Engine missing.")
+                        else: st.error("AI Engine missing.")
 
-                # 3. SEND LETTER (SELF-FULFILLMENT)
                 if c3.button("📮 Mail Letter", type="primary", key=f"sb_{pid}"):
                     if db.finalize_heir_project(pid, new_text):
                         st.balloons()
@@ -192,61 +170,40 @@ def render_dashboard():
                         time.sleep(2)
                         st.rerun()
 
-    # --- TAB: VAULT ---
     with tab_vault:
         st.subheader("Preserved Memories")
         completed = [p for p in projects if p.get('status') in ['Approved', 'Sent']]
-        
-        if not completed:
-            st.caption("No completed letters yet.")
-        
+        if not completed: st.caption("No completed letters yet.")
         for p in completed:
             date_str = str(p.get('created_at'))[:10]
             with st.expander(f"✅ {date_str} - {p.get('strategic_prompt')[:30]}..."):
                 st.markdown(p.get('content'))
                 st.divider()
-                
-                # AUDIO LOCK CHECK
                 if p.get('audio_released'):
                     if p.get('audio_ref'):
                         st.success("🔓 Audio Unlocked by Advisor")
                         st.audio(p.get('audio_ref'))
-                    else:
-                        st.info("Audio available but file missing.")
+                    else: st.info("Audio available but file missing.")
                 else:
                     st.warning("🔒 Audio Archive Locked")
-                    st.caption(f"The audio recording is currently held in the {advisor_firm} secure vault. Contact your advisor to request release.")
-
+                    st.caption(f"The audio recording is currently held in the {advisor_firm} secure vault.")
                 st.download_button("⬇️ Download PDF", data=p.get('content') or "", file_name="letter.txt")
 
-    # --- TAB: SETUP & SCHEDULE ---
     with tab_setup:
         st.subheader("Interview Settings")
-        
         with st.form("settings_form"):
             st.markdown("### 👨‍👩‍👧 Family Details")
             p_name = st.text_input("Parent Name", value=profile.get('parent_name', ''))
             p_phone = st.text_input("Parent Phone", value=profile.get('parent_phone', ''))
-            
             st.divider()
             st.markdown("### 📬 Shipping Address")
             c_str, c_city = st.columns([2, 1])
             addr1 = c_str.text_input("Street Address", value=profile.get('address_line1', ''))
             city = c_city.text_input("City", value=profile.get('address_city', ''))
-            
             c_st, c_zip = st.columns(2)
             state = c_st.text_input("State", value=profile.get('address_state', ''))
             zip_code = c_zip.text_input("Zip Code", value=profile.get('address_zip', ''))
-
             if st.form_submit_button("Update Settings"):
                 if db.update_heirloom_settings(user_email, p_name, p_phone, addr1, city, state, zip_code):
                     st.success("Settings Updated")
                     st.rerun()
-
-        st.divider()
-        st.subheader("📅 Schedule Future Call")
-        c1, c2 = st.columns(2)
-        d = c1.date_input("Date")
-        t = c2.time_input("Time")
-        if st.button("Schedule Call"):
-            st.success(f"Call scheduled for {d} at {t}.")

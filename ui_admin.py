@@ -23,71 +23,43 @@ except ImportError: email_engine = None
 # --- HELPER FUNCTIONS ---
 
 def get_orphaned_calls():
-    """
-    Compares Twilio logs vs Database (Drafts AND Projects) to find missing stories.
-    """
     if not ai_engine or not database: return []
-    
-    # 1. Fetch from Twilio
     twilio_calls = ai_engine.get_all_twilio_recordings(limit=50)
     if not twilio_calls: return []
-    
-    # 2. Fetch from DB (Check BOTH tables)
     known_sids = []
     try:
         with database.get_db_session() as session:
-            # Check Standard Drafts
             sql_drafts = text("SELECT call_sid FROM letter_drafts WHERE call_sid IS NOT NULL")
             res_drafts = session.execute(sql_drafts).fetchall()
             known_sids.extend([row[0] for row in res_drafts])
-
-            # Check Heirloom Projects
             sql_projects = text("SELECT call_sid FROM projects WHERE call_sid IS NOT NULL")
             res_projects = session.execute(sql_projects).fetchall()
             known_sids.extend([row[0] for row in res_projects])
-            
     except Exception as e:
         st.error(f"DB Error: {e}")
         return []
-
-    # 3. Find Orphans
     orphans = []
     for call in twilio_calls:
-        if call['sid'] not in known_sids:
-            orphans.append(call)
-            
+        if call['sid'] not in known_sids: orphans.append(call)
     return orphans
 
 def manual_credit_grant(advisor_email, amount):
-    """
-    Manually adds credits to an advisor.
-    """
     if not database: return False
     try:
         with database.get_db_session() as session:
-            # Check if advisor exists
             sql_check = text("SELECT credits FROM advisors WHERE email = :email")
             result = session.execute(sql_check, {"email": advisor_email}).fetchone()
-            
-            if not result:
-                return False, "Advisor not found."
-            
+            if not result: return False, "Advisor not found."
             current_credits = result[0] or 0
             new_total = current_credits + amount
-            
-            # Update
             sql_update = text("UPDATE advisors SET credits = :new_val WHERE email = :email")
             session.execute(sql_update, {"new_val": new_total, "email": advisor_email})
             session.commit()
             return True, new_total
-    except Exception as e:
-        return False, str(e)
+    except Exception as e: return False, str(e)
 
 def check_service_health():
-    """Diagnoses connection to critical B2B services."""
     health_report = []
-
-    # 1. DATABASE CHECK
     try:
         if database and database.get_db_session():
             health_report.append(("✅", "Database (Supabase)", "Connected"))
@@ -95,68 +67,40 @@ def check_service_health():
             health_report.append(("❌", "Database", "Connection Failed"))
     except Exception as e:
         health_report.append(("❌", "Database", f"Error: {str(e)}"))
-
-    # 2. OPENAI CHECK
     api_key = secrets_manager.get_secret("openai.api_key") if secrets_manager else os.environ.get("OPENAI_API_KEY")
-    if api_key:
-        health_report.append(("✅", "OpenAI", "Key Present"))
-    else:
-        health_report.append(("⚠️", "OpenAI", "Key Missing"))
-
-    # 3. TWILIO CHECK
+    if api_key: health_report.append(("✅", "OpenAI", "Key Present"))
+    else: health_report.append(("⚠️", "OpenAI", "Key Missing"))
     sid = secrets_manager.get_secret("twilio.account_sid") if secrets_manager else os.environ.get("TWILIO_ACCOUNT_SID")
-    if sid:
-        health_report.append(("✅", "Twilio", "Key Present"))
-    else:
-        health_report.append(("❌", "Twilio", "Key Missing"))
-
+    if sid: health_report.append(("✅", "Twilio", "Key Present"))
+    else: health_report.append(("❌", "Twilio", "Key Missing"))
     return health_report
 
 # --- MAIN RENDER ---
 
 def render_admin_page():
     st.title("⚙️ Admin Console (B2B)")
-    
-    # NAVIGATION
-    tabs = st.tabs([
-        "🖨️ Master Queue", 
-        "📢 Marketing", 
-        "👻 Ghost Calls", 
-        "💰 Credits", 
-        "❤️ Health"
-    ])
+    tabs = st.tabs(["🖨️ Master Queue", "📢 Marketing", "👻 Ghost Calls", "💰 Credits", "❤️ Health"])
 
-    # --- TAB 1: MASTER FULFILLMENT QUEUE ---
+    # --- TAB 1: MASTER QUEUE ---
     with tabs[0]:
         st.subheader("Ready for Print")
         if st.button("Refresh Queue"): st.rerun()
-        
         if database:
             try:
                 queue_items = []
-                
                 with database.get_db_session() as session:
-                    # 1. Fetch Store Orders (Standard)
-                    sql_store = text("""
-                        SELECT id, user_email, content, status 
-                        FROM letter_drafts 
-                        WHERE status IN ('Pending Approval', 'Approved')
-                    """)
+                    # 1. Store Items
+                    sql_store = text("SELECT id, user_email, content, status FROM letter_drafts WHERE status IN ('Pending Approval', 'Approved')")
                     store_items = session.execute(sql_store).fetchall()
                     for item in store_items:
                         queue_items.append({
-                            "type": "Store",
-                            "id": item.id,
-                            "email": item.user_email,
-                            "content": item.content,
-                            "status": item.status,
-                            "meta": {} 
+                            "type": "Store", "id": item.id, "email": item.user_email, "content": item.content,
+                            "status": item.status, "meta": {} 
                         })
 
-                    # 2. Fetch B2B Projects (Heirloom)
-                    # We join with Clients to get the Storyteller Name for the PDF Header
+                    # 2. Heirloom Projects (UPDATED: Fetch created_at)
                     sql_b2b = text("""
-                        SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, c.name as parent_name, a.firm_name
+                        SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, p.created_at, c.name as parent_name, a.firm_name
                         FROM projects p
                         JOIN clients c ON p.client_id = c.id
                         JOIN advisors a ON p.advisor_email = a.email
@@ -164,144 +108,91 @@ def render_admin_page():
                     """)
                     b2b_items = session.execute(sql_b2b).fetchall()
                     for item in b2b_items:
+                        # Format Date
+                        date_str = item.created_at.strftime("%B %d, %Y") if item.created_at else "Undated"
+                        
                         queue_items.append({
-                            "type": "Heirloom",
-                            "id": item.id,
-                            "email": f"{item.heir_name} (via {item.advisor_email})",
-                            "content": item.content,
-                            "status": item.status,
+                            "type": "Heirloom", "id": item.id, "email": f"{item.heir_name} (via {item.advisor_email})",
+                            "content": item.content, "status": item.status,
                             "meta": {
-                                "storyteller": item.parent_name,
-                                "firm_name": item.firm_name,
-                                "heir_name": item.heir_name,
-                                "interview_date": "Undated" # Could pull created_at if needed
+                                "storyteller": item.parent_name, "firm_name": item.firm_name,
+                                "heir_name": item.heir_name, "interview_date": date_str # <-- Passed to PDF
                             }
                         })
                 
-                if not queue_items:
-                    st.info("Queue is empty. No letters waiting.")
+                if not queue_items: st.info("Queue is empty.")
                 
                 for item in queue_items:
-                    # Visual distinction
                     icon = "🏰" if item['type'] == "Heirloom" else "🛒"
-                    
                     with st.expander(f"{icon} {item['type']} | {item['email']}"):
-                        st.text_area("Content Preview", item['content'], height=100, disabled=True)
-                        
+                        st.text_area("Content", item['content'], height=100, disabled=True)
                         c1, c2 = st.columns(2)
-                        
-                        # Generate PDF Button
                         if c1.button("⬇️ Generate PDF", key=f"pdf_{item['type']}_{item['id']}"):
                             if letter_format:
-                                # Determine Tier and Metadata
                                 tier = "Heirloom" if item['type'] == "Heirloom" else "Standard"
-                                metadata = item['meta']
-                                
-                                # Generate
                                 pdf_bytes = letter_format.create_pdf(
-                                    body_text=item['content'],
-                                    to_addr={}, # Address isn't on PDF anymore, it's on the envelope
-                                    from_addr={},
-                                    tier=tier,
-                                    metadata=metadata,
-                                    audio_url=str(item['id']) if tier == "Heirloom" else None
+                                    body_text=item['content'], to_addr={}, from_addr={}, tier=tier,
+                                    metadata=item['meta'], audio_url=str(item['id']) if tier == "Heirloom" else None
                                 )
-                                
                                 b64 = base64.b64encode(pdf_bytes).decode('latin-1')
                                 href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{item["id"]}.pdf">Download Print File</a>'
                                 st.markdown(href, unsafe_allow_html=True)
                         
-                        # Mark Sent Button
                         if c2.button("✅ Mark as Mailed", key=f"sent_{item['type']}_{item['id']}"):
                              with database.get_db_session() as session:
-                                 # Execute Update on Correct Table
-                                 if item['type'] == "Heirloom":
-                                     upd_sql = text("UPDATE projects SET status = 'Sent' WHERE id = :id")
-                                 else:
-                                     upd_sql = text("UPDATE letter_drafts SET status = 'Sent' WHERE id = :id")
-                                     
+                                 table = "projects" if item['type'] == "Heirloom" else "letter_drafts"
+                                 upd_sql = text(f"UPDATE {table} SET status = 'Sent' WHERE id = :id")
                                  session.execute(upd_sql, {"id": item['id']})
                                  session.commit()
-                                 
                                  st.success("Order Closed.")
                                  time.sleep(1)
                                  st.rerun()
+            except Exception as e: st.error(f"Queue Error: {e}")
 
-            except Exception as e:
-                st.error(f"Queue Error: {e}")
-
-    # --- TAB 2: MARKETING STUDIO ---
+    # --- TAB 2: MARKETING ---
     with tabs[1]:
         st.subheader("📢 Direct Marketing Writer")
-        st.markdown("Create a one-off letter using the **Vintage TrueType** font engine.")
-        
         c1, c2 = st.columns(2)
         with c1:
             m_name = st.text_input("Recipient Name", "Future Client")
             m_addr = st.text_area("Recipient Address", "123 Wealth Way\nNashville, TN 37203")
         with c2:
-            m_from = st.text_area("Return Address", "VerbaPost HQ\n123 Innovation Dr\nFranklin, TN")
-            m_tier = st.selectbox("Style / Font", ["Vintage", "Standard", "Civic"])
-            
-        m_body = st.text_area("Letter Body", height=300, value="Dear Client,\n\nWe would like to invite you...")
-        
-        if st.button("📄 Generate PDF Preview", type="primary"):
+            m_from = st.text_area("Return Address", "VerbaPost HQ\nFranklin, TN")
+            m_tier = st.selectbox("Style", ["Vintage", "Standard"])
+        m_body = st.text_area("Letter Body", height=300, value="Dear Client...")
+        if st.button("Generate Preview"):
             if letter_format:
-                to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "ST", "zip": "00000"} 
+                to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "TN", "zip": "00000"} 
                 from_obj = {"name": "VerbaPost", "address_line1": m_from}
-                
-                pdf_bytes = letter_format.create_pdf(
-                    body_text=m_body,
-                    to_addr=to_obj,
-                    from_addr=from_obj,
-                    tier=m_tier
-                )
-                
+                pdf_bytes = letter_format.create_pdf(m_body, to_obj, from_obj, m_tier)
                 b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
+                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>'
                 st.markdown(pdf_display, unsafe_allow_html=True)
-            else:
-                st.error("Letter Format Engine missing.")
 
-    # --- TAB 3: GHOST CALLS ---
+    # --- TAB 3: GHOSTS ---
     with tabs[2]:
-        st.subheader("👻 Orphaned Recording Scanner")
-        
+        st.subheader("👻 Orphaned Recordings")
         if st.button("🔍 Scan Twilio Logs"):
-            with st.spinner("Comparing Twilio Logs vs Database..."):
-                orphans = get_orphaned_calls()
-                
-                if not orphans:
-                    st.success("✅ No orphans found! All calls are accounted for.")
-                else:
-                    st.warning(f"⚠️ Found {len(orphans)} orphaned recordings.")
-                    for o in orphans:
-                        with st.expander(f"Orphan: {o['date_created']} ({o['duration']}s)"):
-                            st.write(f"**SID:** `{o['sid']}`")
-                            media_url = f"https://api.twilio.com{o['uri'].replace('.json', '.mp3')}"
-                            st.audio(media_url)
+            orphans = get_orphaned_calls()
+            if not orphans: st.success("✅ All calls accounted for.")
+            else:
+                for o in orphans:
+                    with st.expander(f"Orphan: {o['date_created']}"):
+                        st.write(f"SID: {o['sid']}")
+                        st.audio(f"https://api.twilio.com{o['uri'][:-5]}.mp3")
 
-    # --- TAB 4: GRANT CREDITS ---
+    # --- TAB 4: CREDITS ---
     with tabs[3]:
         st.subheader("💰 The Central Bank")
-        
         c_email = st.text_input("Advisor Email")
-        c_amount = st.number_input("Credits to Add", min_value=1, value=1, step=1)
-        
-        if st.button("💸 Inject Credits"):
+        c_amount = st.number_input("Credits to Add", 1)
+        if st.button("💸 Inject"):
             success, msg = manual_credit_grant(c_email, int(c_amount))
-            if success:
-                st.success(f"SUCCESS! New Balance: {msg}")
-                if audit_engine:
-                    audit_engine.log_event("admin", "manual_credit_grant", metadata={"target": c_email, "amount": c_amount})
-            else:
-                st.error(f"Failed: {msg}")
+            if success: st.success(f"New Balance: {msg}")
+            else: st.error(f"Failed: {msg}")
 
     # --- TAB 5: HEALTH ---
     with tabs[4]:
-        st.subheader("System Diagnostics")
-        if st.button("Run Health Check"):
-            with st.spinner("Pinging services..."):
-                results = check_service_health()
-                for status, service, msg in results:
-                    st.markdown(f"**{status} {service}**: {msg}")
+        st.subheader("Diagnostics")
+        if st.button("Run Check"):
+            for s, n, m in check_service_health(): st.markdown(f"**{s} {n}**: {m}")

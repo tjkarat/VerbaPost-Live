@@ -106,6 +106,7 @@ class Client(Base):
     address_json = Column(Text)
     status = Column(String, default='Active')
     heir_name = Column(String)
+    parent_email = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Project(Base):
@@ -123,7 +124,6 @@ class Project(Base):
     strategic_prompt = Column(Text)
     call_sid = Column(String)
     scheduled_time = Column(DateTime, nullable=True)
-    # NEW: Audio Release Gate
     audio_released = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -225,9 +225,10 @@ def get_advisor_clients(email):
             return [to_dict(r) for r in res]
     except Exception: return []
 
-def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir_email, prompt):
+def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir_email, prompt, parent_email=None):
     advisor_email = advisor_email.strip().lower()
     heir_email = heir_email.strip().lower()
+    if parent_email: parent_email = parent_email.strip().lower()
     try:
         with get_db_session() as session:
             adv = session.query(Advisor).filter_by(email=advisor_email).first()
@@ -242,6 +243,7 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
                 name=client_name,
                 phone=client_phone,
                 email=heir_email, 
+                parent_email=parent_email,
                 heir_name=heir_name,
                 status='Active'
             )
@@ -352,7 +354,6 @@ def update_project_content(pid, new_text):
             p = session.query(Project).filter_by(id=pid).first()
             if p:
                 p.content = new_text
-                # Keep status as recording if they are just saving
                 session.commit()
                 return True
             try:
@@ -366,26 +367,18 @@ def update_project_content(pid, new_text):
     except Exception: return False
 
 def finalize_heir_project(pid, content):
-    """
-    HEIR ACTION: Finalize text and send for printing.
-    Status -> 'Approved' (triggers Admin Queue).
-    Audio remains locked (Advisor control).
-    """
     try:
         with get_db_session() as session:
             p = session.query(Project).filter_by(id=pid).first()
             if p:
                 p.content = content
-                p.status = 'Approved' # Ready for print
+                p.status = 'Approved' 
                 session.commit()
                 return True
         return False
     except Exception: return False
 
 def toggle_media_release(pid, release=True):
-    """
-    ADVISOR ACTION: Unlock audio.
-    """
     try:
         with get_db_session() as session:
             p = session.query(Project).filter_by(id=pid).first()
@@ -397,13 +390,9 @@ def toggle_media_release(pid, release=True):
     except Exception: return False
 
 def get_advisor_projects_for_media(advisor_email):
-    """
-    Fetches all projects for the advisor to manage media locks.
-    """
     advisor_email = advisor_email.strip().lower()
     try:
         with get_db_session() as session:
-            # Get all projects from this advisor
             projects = session.query(Project).filter_by(advisor_email=advisor_email).all()
             results = []
             for p in projects:
@@ -437,6 +426,14 @@ def get_project_by_id(pid):
                 if client:
                     d['parent_name'] = client.name
                     d['heir_name'] = client.heir_name
+                
+                # FIX: Fetch Firm Name from Advisor table
+                adv = session.query(Advisor).filter_by(email=proj.advisor_email).first()
+                if adv:
+                    d['firm_name'] = adv.firm_name
+                else:
+                    d['firm_name'] = "VerbaPost Wealth"
+                    
                 return d
             return None
     except Exception: return None
