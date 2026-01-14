@@ -62,23 +62,61 @@ def send_prep_sms(to_phone, advisor_name):
 def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
     """
     Triggers a Twilio call with Answering Machine Detection (AMD).
-    Includes Verbose Debugging for Cloud Run.
     """
-    print(f"📞 DEBUG: Attempting call to {to_phone}")
+    logger.info(f"📞 DEBUG: Attempting call to {to_phone}")
 
     # 1. Credential Check
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
-    # Default matches your screenshot: +16156567667
     from_number = get_secret("twilio.from_number") or "+16156567667"
-
-    print(f"📞 DEBUG: Credentials found? SID={bool(sid)}, Token={bool(token)}")
-    print(f"📞 DEBUG: Using From Number: {from_number}")
 
     if not sid or not token:
         logger.error("Twilio Credentials Missing")
-        print("❌ DEBUG: Missing Credentials")
         return None, "Missing Credentials"
+
+    # 2. TwiML Generation
+    safe_advisor = advisor_name or "your financial advisor"
+    safe_firm = firm_name or "their firm"
+
+    twiml = f"""
+    <Response>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
+        </Say>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
+            Please share a favorite memory from your childhood after the beep. 
+            When you are finished, press the pound key.
+        </Say>
+        <Record maxLength="300" finishOnKey="#" playBeep="true" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved. Goodbye.</Say>
+    </Response>
+    """
+
+    # 3. Execution & Import (UNMASKED)
+    try:
+        # We perform the import HERE to catch the specific error
+        from twilio.rest import Client
+        
+        client = Client(sid, token)
+        call = client.calls.create(
+            twiml=twiml,
+            to=to_phone,
+            from_=from_number,
+            machine_detection='DetectMessageEnd', 
+        )
+        return call.sid, None
+
+    except ImportError as e:
+        # 🔴 CHANGED: Return the REAL error, not a generic message
+        logger.error(f"Twilio Import Failed: {e}")
+        return None, f"Import Logic Error: {e}"
+        
+    except Exception as e:
+        logger.error(f"Twilio API Error: {e}")
+        return None, f"Twilio API Error: {e}"
 
     # 2. TwiML Generation (The "Brain" of the call)
     safe_advisor = advisor_name or "your financial advisor"
