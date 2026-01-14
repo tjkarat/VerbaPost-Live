@@ -119,62 +119,109 @@ def render_admin_page():
     
     # NAVIGATION
     tabs = st.tabs([
-        "🖨️ Fulfillment", 
+        "🖨️ Master Queue", 
         "📢 Marketing", 
         "👻 Ghost Calls", 
         "💰 Credits", 
         "❤️ Health"
     ])
 
-    # --- TAB 1: MANUAL FULFILLMENT ---
+    # --- TAB 1: MASTER FULFILLMENT QUEUE ---
     with tabs[0]:
         st.subheader("Ready for Print")
         if st.button("Refresh Queue"): st.rerun()
         
         if database:
             try:
-                # Raw SQL to fetch printable items
+                queue_items = []
+                
                 with database.get_db_session() as session:
-                    sql = text("""
+                    # 1. Fetch Store Orders (Standard)
+                    sql_store = text("""
                         SELECT id, user_email, content, status 
                         FROM letter_drafts 
                         WHERE status IN ('Pending Approval', 'Approved')
                     """)
-                    items = session.execute(sql).fetchall()
+                    store_items = session.execute(sql_store).fetchall()
+                    for item in store_items:
+                        queue_items.append({
+                            "type": "Store",
+                            "id": item.id,
+                            "email": item.user_email,
+                            "content": item.content,
+                            "status": item.status,
+                            "meta": {} 
+                        })
+
+                    # 2. Fetch B2B Projects (Heirloom)
+                    # We join with Clients to get the Storyteller Name for the PDF Header
+                    sql_b2b = text("""
+                        SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, c.name as parent_name, a.firm_name
+                        FROM projects p
+                        JOIN clients c ON p.client_id = c.id
+                        JOIN advisors a ON p.advisor_email = a.email
+                        WHERE p.status = 'Approved'
+                    """)
+                    b2b_items = session.execute(sql_b2b).fetchall()
+                    for item in b2b_items:
+                        queue_items.append({
+                            "type": "Heirloom",
+                            "id": item.id,
+                            "email": f"{item.heir_name} (via {item.advisor_email})",
+                            "content": item.content,
+                            "status": item.status,
+                            "meta": {
+                                "storyteller": item.parent_name,
+                                "firm_name": item.firm_name,
+                                "heir_name": item.heir_name,
+                                "interview_date": "Undated" # Could pull created_at if needed
+                            }
+                        })
                 
-                if not items:
-                    st.info("Queue is empty.")
+                if not queue_items:
+                    st.info("Queue is empty. No letters waiting.")
                 
-                for item in items:
-                    with st.expander(f"🖨️ {item.user_email} - {item.status}"):
-                        st.write(item.content)
+                for item in queue_items:
+                    # Visual distinction
+                    icon = "🏰" if item['type'] == "Heirloom" else "🛒"
+                    
+                    with st.expander(f"{icon} {item['type']} | {item['email']}"):
+                        st.text_area("Content Preview", item['content'], height=100, disabled=True)
+                        
+                        c1, c2 = st.columns(2)
                         
                         # Generate PDF Button
-                        if st.button("⬇️ Generate PDF", key=f"pdf_{item.id}"):
+                        if c1.button("⬇️ Generate PDF", key=f"pdf_{item['type']}_{item['id']}"):
                             if letter_format:
-                                pdf_bytes = letter_format.create_pdf(item.content, {}, {}, "Standard")
+                                # Determine Tier and Metadata
+                                tier = "Heirloom" if item['type'] == "Heirloom" else "Standard"
+                                metadata = item['meta']
+                                
+                                # Generate
+                                pdf_bytes = letter_format.create_pdf(
+                                    body_text=item['content'],
+                                    to_addr={}, # Address isn't on PDF anymore, it's on the envelope
+                                    from_addr={},
+                                    tier=tier,
+                                    metadata=metadata,
+                                    audio_url=str(item['id']) if tier == "Heirloom" else None
+                                )
+                                
                                 b64 = base64.b64encode(pdf_bytes).decode('latin-1')
-                                href = f'<a href="data:application/pdf;base64,{b64}" download="letter.pdf">Download PDF</a>'
+                                href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{item["id"]}.pdf">Download Print File</a>'
                                 st.markdown(href, unsafe_allow_html=True)
                         
                         # Mark Sent Button
-                        if st.button("✅ Mark as Mailed", key=f"sent_{item.id}"):
+                        if c2.button("✅ Mark as Mailed", key=f"sent_{item['type']}_{item['id']}"):
                              with database.get_db_session() as session:
-                                 # Update Status
-                                 upd_sql = text("UPDATE letter_drafts SET status = 'Sent' WHERE id = :id")
-                                 session.execute(upd_sql, {"id": item.id})
+                                 # Execute Update on Correct Table
+                                 if item['type'] == "Heirloom":
+                                     upd_sql = text("UPDATE projects SET status = 'Sent' WHERE id = :id")
+                                 else:
+                                     upd_sql = text("UPDATE letter_drafts SET status = 'Sent' WHERE id = :id")
+                                     
+                                 session.execute(upd_sql, {"id": item['id']})
                                  session.commit()
-                                 
-                                 # --- 📧 EMAIL INJECTION: THE RECEIPT ---
-                                 if email_engine:
-                                     subject = "Your Keepsake has been mailed!"
-                                     html = f"""
-                                     <p>Great news! Your family story has been printed and mailed.</p>
-                                     <p>Look for it in your mailbox soon.</p>
-                                     """
-                                     email_engine.send_email(item.user_email, subject, html)
-                                     st.toast(f"Shipping alert sent to {item.user_email}")
-                                 # ---------------------------------------
                                  
                                  st.success("Order Closed.")
                                  time.sleep(1)

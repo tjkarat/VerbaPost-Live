@@ -18,7 +18,6 @@ def render_dashboard():
     """
     st.title("💼 Advisor Portal")
     
-    # 1. AUTH & PROFILE
     if not database:
         st.error("Database module missing.")
         st.stop()
@@ -28,23 +27,20 @@ def render_dashboard():
         st.error("Please log in.")
         st.stop()
 
-    # Fetch Advisor Profile (Credits, Firm Name)
     advisor = database.get_advisor_profile(user_email)
     if not advisor:
-        st.warning("Advisor profile not found. Please contact admin.")
+        st.warning("Advisor profile not found.")
         st.stop()
         
     credits = advisor.get('credits', 0)
     firm_name = advisor.get('firm_name', 'VerbaPost Wealth')
 
-    # 2. HEADER
     c1, c2 = st.columns([3, 1])
     c1.markdown(f"**Firm:** {firm_name}")
     c2.metric("Available Credits", credits)
     st.divider()
 
-    # 3. ROSTER TABS
-    tab_roster, tab_approve, tab_action = st.tabs(["👥 Client Roster", "✅ Approvals", "🚀 Activate Client"])
+    tab_roster, tab_media, tab_action = st.tabs(["👥 Client Roster", "🔐 Media Locker", "🚀 Activate Client"])
 
     # --- TAB: ROSTER ---
     with tab_roster:
@@ -52,7 +48,7 @@ def render_dashboard():
         clients = database.get_advisor_clients(user_email)
         
         if not clients:
-            st.info("No active clients yet. Go to 'Activate Client' to start.")
+            st.info("No active clients yet.")
         
         for c in clients:
             with st.expander(f"👤 {c.get('name')} ({c.get('status')})"):
@@ -60,57 +56,54 @@ def render_dashboard():
                 st.write(f"**Email:** {c.get('email')}")
                 st.write(f"**Phone:** {c.get('phone')}")
 
-    # --- TAB: APPROVALS (RELEASE GATE) ---
-    with tab_approve:
-        st.subheader("Pending Review")
-        st.caption("Approve drafts to unlock audio for the family and send for printing.")
+    # --- TAB: MEDIA LOCKER (CONTROL ROOM) ---
+    with tab_media:
+        st.subheader("Family Media Controls")
+        st.caption("Unlock audio recordings for families when appropriate.")
         
-        pending = database.get_pending_approvals(user_email)
+        projects = database.get_advisor_projects_for_media(user_email)
         
-        if not pending:
-            st.info("No drafts waiting for review.")
+        if not projects:
+            st.info("No media archives found.")
             
-        for p in pending:
+        for p in projects:
             pid = p.get('id')
             heir_name = p.get('heir_name')
-            heir_email = p.get('heir_email')
+            status = p.get('status')
+            is_released = p.get('audio_released', False)
             
             with st.container(border=True):
-                st.markdown(f"**Draft from {heir_name}**")
-                st.text_area("Content", p.get('content'), height=150, disabled=True, key=f"rev_{pid}")
+                c_info, c_action = st.columns([3, 1])
                 
-                if st.button("✅ Approve & Release Audio", key=f"app_{pid}", type="primary"):
-                    if database.update_project_details(pid, status="Approved"):
-                        
-                        # --- 📧 EMAIL INJECTION: RELEASE NOTIFICATION ---
-                        if email_engine and heir_email:
-                            subject = f"Legacy Letter Approved: Audio Unlocked 🔓"
-                            
-                            # Build Play Link
-                            # Assuming audio_ref is stored, or we use project_id to lookup
-                            play_link = f"https://verbapost.streamlit.app/?play={pid}"
-                            
-                            html = f"""
-                            <div style="font-family: sans-serif; padding: 20px; color: #333;">
-                                <h2 style="color: #2c3e50;">Great news, {heir_name}</h2>
-                                <p>Your advisor, <strong>{firm_name}</strong>, has approved your family story for printing.</p>
-                                <p><strong>The audio recording has been unlocked.</strong></p>
-                                <p>You can listen to the original voice recording by scanning the QR code on your physical letter, or by clicking below:</p>
-                                <br>
-                                <a href="{play_link}" style="background-color: #27ae60; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-                                    🎧 Listen to Story
-                                </a>
-                            </div>
-                            """
-                            email_engine.send_email(heir_email, subject, html)
-                            st.toast(f"Release email sent to {heir_email}")
-                        # -----------------------------------------------
-                        
-                        st.success("Project Approved! Audio Unlocked.")
-                        time.sleep(2)
-                        st.rerun()
+                with c_info:
+                    st.markdown(f"**{heir_name}**")
+                    st.caption(f"Status: {status} | Created: {str(p.get('created_at'))[:10]}")
+                    if is_released:
+                        st.success("✅ Audio Unlocked")
+                    else:
+                        st.warning("🔒 Audio Locked")
 
-    # --- TAB: ACTION (CONSUME CREDIT) ---
+                with c_action:
+                    if not is_released:
+                        if st.button("🔓 Unlock", key=f"ul_{pid}", type="primary"):
+                            if database.toggle_media_release(pid, True):
+                                st.toast("Audio Unlocked!")
+                                
+                                # Notify Heir
+                                if email_engine:
+                                    email_engine.send_email(
+                                        p.get('heir_email'), 
+                                        "Audio Archive Unlocked 🔓", 
+                                        f"Your advisor at {firm_name} has unlocked the audio for your family story."
+                                    )
+                                time.sleep(1)
+                                st.rerun()
+                    else:
+                        if st.button("🔒 Re-Lock", key=f"lk_{pid}"):
+                            database.toggle_media_release(pid, False)
+                            st.rerun()
+
+    # --- TAB: ACTION ---
     with tab_action:
         st.subheader("Start a New Family Archive")
         st.info(f"Cost: 1 Credit (Balance: {credits})")
@@ -122,20 +115,12 @@ def render_dashboard():
             h_email = st.text_input("Heir Email (For Delivery)")
             prompt = st.text_area("Strategic Question", "Why did you choose VerbaPost to protect your family's legacy?")
             
-            submitted = st.form_submit_button("🚀 Consume Credit & Invite")
-            
-            if submitted:
-                # 1. Validation
+            if st.form_submit_button("🚀 Consume Credit & Invite"):
                 if credits < 1:
-                    st.error("Insufficient Credits. Please contact Admin.")
-                    st.stop()
-                    
-                if not c_name or not h_email:
-                    st.error("Client Name and Heir Email are required.")
-                    st.stop()
-
-                # 2. Consume Credit & Create Project
-                try:
+                    st.error("Insufficient Credits.")
+                elif not c_name or not h_email:
+                    st.error("Name and Email required.")
+                else:
                     success, msg = database.create_b2b_project(
                         advisor_email=user_email,
                         client_name=c_name,
@@ -146,32 +131,14 @@ def render_dashboard():
                     )
                     
                     if success:
-                        # --- 📧 EMAIL INJECTION: THE INVITE ---
                         if email_engine:
-                            subject = f"Invitation: Family Legacy Archive (Sponsored by {firm_name})"
-                            invite_link = "https://verbapost.streamlit.app"
-                            
-                            html = f"""
-                            <div style="font-family: serif; color: #333; padding: 20px;">
-                                <h2 style="color: #2c3e50;">You have been invited.</h2>
-                                <p>Dear {h_name},</p>
-                                <p><strong>{firm_name}</strong> has sponsored a private Family Archive for you to preserve your stories.</p>
-                                <p>We have scheduled an automated biography interview for <strong>{c_name}</strong>. The stories will be preserved for you.</p>
-                                <br>
-                                <a href="{invite_link}" style="background-color: #2c3e50; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px;">
-                                    Access Your Archive
-                                </a>
-                            </div>
-                            """
-                            email_engine.send_email(h_email, subject, html)
-                            st.toast(f"Invite sent to {h_email}")
-                        # --------------------------------------
-
-                        st.success("✅ Client Activated! Invitation Sent.")
+                            email_engine.send_email(
+                                h_email, 
+                                f"Invitation: Family Archive (Sponsored by {firm_name})", 
+                                f"You have been invited by {firm_name} to preserve your family legacy."
+                            )
+                        st.success("Client Activated!")
                         time.sleep(2)
                         st.rerun()
                     else:
-                        st.error(f"Activation Failed: {msg}")
-                        
-                except Exception as e:
-                    st.error(f"System Error: {e}")
+                        st.error(f"Failed: {msg}")

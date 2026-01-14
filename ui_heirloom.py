@@ -20,7 +20,7 @@ def get_db():
 
 def render_dashboard():
     """
-    The Heir's Interface: View stories, edit transcripts, and submit to advisor.
+    The Heir's Interface: View stories, edit transcripts, and send for print.
     """
     # 1. SETUP & AUTH CHECK
     db = get_db()
@@ -33,12 +33,8 @@ def render_dashboard():
         st.error("Authentication lost. Please log in again.")
         st.stop()
 
-    # 🛑 NUCLEAR FIX: Purge duplicate client records & force active status
-    # This checks for ghost records and deletes them immediately.
-    try:
-        db.fix_heir_account(user_email)
-    except Exception as e:
-        logger.error(f"Auto-fix failed: {e}")
+    try: db.fix_heir_account(user_email)
+    except Exception: pass
 
     # 2. GET USER DATA
     profile = db.get_user_profile(user_email)
@@ -73,7 +69,6 @@ def render_dashboard():
                         )
                         if sid:
                             st.toast(f"Calling {target_phone}...")
-                            # Create a placeholder draft so the user has something to edit later
                             db.create_draft(user_email, "", "Recording", sid)
                             time.sleep(2)
                             st.rerun()
@@ -88,13 +83,11 @@ def render_dashboard():
     st.caption(f"Logged in as: {user_email}")
     st.divider()
     
-    # Access Gate
     if user_status != 'Active':
         st.warning("🔒 Account Not Active")
         st.markdown(f"This service requires a sponsorship credit from your Financial Advisor. Current Status: `{user_status}`")
         st.stop()
 
-    # 4. TABS
     tab_inbox, tab_vault, tab_setup = st.tabs(["📥 Story Inbox", "🏛️ The Vault", "⚙️ Setup & Schedule"])
 
     # --- TAB: INBOX ---
@@ -110,59 +103,52 @@ def render_dashboard():
             status = p.get('status')
             content = p.get('content') or ""
             prompt = p.get('strategic_prompt') or "No prompt set."
-            advisor_email = p.get('advisor_email') # Needed for email alert
             
             with st.expander(f"Draft: {prompt[:50]}...", expanded=True):
                 if status == "Authorized":
                     st.info("📞 Status: Ready for Interview Call")
                 elif status == "Recording":
                     st.warning("🎙️ Status: Drafting / Needs Edit")
-                elif status == "Pending Approval":
-                    st.warning("⏳ Status: Waiting for Advisor Review")
 
                 st.markdown(f"**Interview Question:** *{prompt}*")
                 
-                is_locked = (status == "Pending Approval")
-                
+                # Editable Text
                 new_text = st.text_area(
                     "Transcript Edit", 
                     value=content, 
                     height=300, 
-                    disabled=is_locked,
                     key=f"txt_{pid}"
                 )
                 
-                if not is_locked:
-                    c1, c2 = st.columns(2)
-                    
-                    # SAVE DRAFT BUTTON
-                    if c1.button("💾 Save Draft", key=f"sv_{pid}"):
-                        if db.update_project_content(pid, new_text):
-                            st.toast("Draft Saved!")
-                            time.sleep(1)
-                            st.rerun()
-                    
-                    # SUBMIT BUTTON
-                    if c2.button("✨ Submit to Advisor", type="primary", key=f"sb_{pid}"):
-                        if db.submit_project(pid):
-                            
-                            # --- 📧 EMAIL INJECTION: THE ALERT ---
-                            if email_engine and advisor_email:
-                                subject = f"Action Required: {user_email} submitted a story"
-                                html = f"""
-                                <h3>Draft Submitted for Review</h3>
-                                <p>Your client <strong>{user_email}</strong> has finished editing a story.</p>
-                                <p>Please log in to the Advisor Portal to review and approve it for printing.</p>
-                                <br>
-                                <a href="https://verbapost.streamlit.app">Go to Advisor Portal</a>
-                                """
-                                email_engine.send_email(advisor_email, subject, html)
-                                st.toast("Advisor notified via email.")
-                            
-                            st.balloons()
-                            st.success("Sent to Advisor for final print approval!")
-                            time.sleep(2)
-                            st.rerun()
+                c1, c2, c3 = st.columns([1, 1, 2])
+                
+                # 1. SAVE DRAFT
+                if c1.button("💾 Save Draft", key=f"sv_{pid}"):
+                    if db.update_project_content(pid, new_text):
+                        st.toast("Draft Saved!")
+                        time.sleep(1)
+                        st.rerun()
+
+                # 2. AI POLISH
+                if c2.button("✨ AI Polish", key=f"ai_{pid}"):
+                    with st.spinner("Polishing transcript..."):
+                        if ai_engine:
+                            refined = ai_engine.refine_text(new_text)
+                            if refined:
+                                db.update_project_content(pid, refined)
+                                st.success("Polished! Reloading...")
+                                time.sleep(1)
+                                st.rerun()
+                        else:
+                            st.error("AI Engine missing.")
+
+                # 3. SEND LETTER (SELF-FULFILLMENT)
+                if c3.button("📮 Mail Letter", type="primary", key=f"sb_{pid}"):
+                    if db.finalize_heir_project(pid, new_text):
+                        st.balloons()
+                        st.success("Sent to Print Queue! Your keepsake is being prepared.")
+                        time.sleep(2)
+                        st.rerun()
 
     # --- TAB: VAULT ---
     with tab_vault:
@@ -176,8 +162,19 @@ def render_dashboard():
             date_str = str(p.get('created_at'))[:10]
             with st.expander(f"✅ {date_str} - {p.get('strategic_prompt')[:30]}..."):
                 st.markdown(p.get('content'))
-                if p.get('audio_ref'):
-                    st.audio(p.get('audio_ref'))
+                st.divider()
+                
+                # AUDIO LOCK CHECK
+                if p.get('audio_released'):
+                    if p.get('audio_ref'):
+                        st.success("🔓 Audio Unlocked by Advisor")
+                        st.audio(p.get('audio_ref'))
+                    else:
+                        st.info("Audio available but file missing.")
+                else:
+                    st.warning("🔒 Audio Archive Locked")
+                    st.caption(f"The audio recording is currently held in the {advisor_firm} secure vault. Contact your advisor to request release.")
+
                 st.download_button("⬇️ Download PDF", data=p.get('content') or "", file_name="letter.txt")
 
     # --- TAB: SETUP & SCHEDULE ---
@@ -191,8 +188,6 @@ def render_dashboard():
             
             st.divider()
             st.markdown("### 📬 Shipping Address")
-            st.caption("Where should the physical keepsake letter be mailed?")
-            
             c_str, c_city = st.columns([2, 1])
             addr1 = c_str.text_input("Street Address", value=profile.get('address_line1', ''))
             city = c_city.text_input("City", value=profile.get('address_city', ''))
@@ -203,16 +198,13 @@ def render_dashboard():
 
             if st.form_submit_button("Update Settings"):
                 if db.update_heirloom_settings(user_email, p_name, p_phone, addr1, city, state, zip_code):
-                    st.success("Settings & Shipping Address Updated")
+                    st.success("Settings Updated")
                     st.rerun()
 
         st.divider()
         st.subheader("📅 Schedule Future Call")
-        st.info("Set a time for the automated interviewer to call you.")
-        
         c1, c2 = st.columns(2)
         d = c1.date_input("Date")
         t = c2.time_input("Time")
-        
         if st.button("Schedule Call"):
-            st.success(f"Call scheduled for {d} at {t}. (System will auto-dial)")
+            st.success(f"Call scheduled for {d} at {t}.")

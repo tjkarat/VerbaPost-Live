@@ -19,30 +19,21 @@ _engine = None
 _SessionLocal = None
 
 def get_db_url():
-    """Security check for DB URL via granular secrets."""
-    if not secrets_manager:
-        return os.environ.get("DATABASE_URL")
+    if not secrets_manager: return os.environ.get("DATABASE_URL")
     try:
         url = secrets_manager.get_secret("DATABASE_URL")
         if url: return url
-        
-        # Fallback to granular secrets
         sb_url = secrets_manager.get_secret("supabase.url")
         sb_key = secrets_manager.get_secret("supabase.key")
         sb_pass = secrets_manager.get_secret("supabase.db_password")
-        
         if sb_url and sb_pass:
             encoded_pass = urllib.parse.quote_plus(sb_pass)
             clean_host = sb_url.replace("https://", "").replace("/", "")
             return f"postgresql://postgres:{encoded_pass}@{clean_host}:5432/postgres"
-            
         return None
-    except Exception as e:
-        logger.error(f"Failed to find DB URL: {e}")
-        return None
+    except Exception: return None
 
 def init_db():
-    """Initializes engine and creates all models."""
     global _engine, _SessionLocal
     if _engine is not None: return _engine, _SessionLocal
     url = get_db_url()
@@ -52,13 +43,10 @@ def init_db():
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
         Base.metadata.create_all(_engine)
         return _engine, _SessionLocal
-    except Exception as e:
-        logger.error(f"DB Init Error: {e}")
-        return None, None
+    except Exception: return None, None
 
 @contextmanager
 def get_db_session():
-    """Context manager for session handling and rollbacks."""
     engine, Session = init_db()
     if not Session: raise ConnectionError("Database not initialized.")
     session = Session()
@@ -72,7 +60,6 @@ def get_db_session():
         session.close()
 
 def to_dict(obj):
-    """Utility for Streamlit UI data rendering."""
     if not obj: return None
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
@@ -113,9 +100,9 @@ class Client(Base):
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, autoincrement=True)
     advisor_email = Column(String, ForeignKey('advisors.email')) 
-    name = Column(String, nullable=False) # Parent Name
+    name = Column(String, nullable=False)
     phone = Column(String)
-    email = Column(String) # Heir Email
+    email = Column(String)
     address_json = Column(Text)
     status = Column(String, default='Active')
     heir_name = Column(String)
@@ -136,6 +123,8 @@ class Project(Base):
     strategic_prompt = Column(Text)
     call_sid = Column(String)
     scheduled_time = Column(DateTime, nullable=True)
+    # NEW: Audio Release Gate
+    audio_released = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LetterDraft(Base):
@@ -169,36 +158,23 @@ class PaymentFulfillment(Base):
 # ==========================================
 
 def fix_heir_account(email):
-    """
-    NUCLEAR OPTION: Purges duplicate client records, keeps the newest, and forces it Active.
-    """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
             clients = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).all()
             if not clients: return False
-            
-            # Keep newest
             winner = clients[0]
             if winner.status != 'Active':
                 winner.status = 'Active'
                 session.add(winner)
-            
-            # Delete stale duplicates
             if len(clients) > 1:
                 for loser in clients[1:]:
                     session.delete(loser)
-                    logger.warning(f"Purged stale client record ID {loser.id} for {email}")
-            
-            # Ensure Profile Role
             u = session.query(UserProfile).filter_by(email=email).first()
             if u: u.role = 'heir'
-                
             session.commit()
             return True
-    except Exception as e:
-        logger.error(f"Fix Account Error: {e}")
-        return False
+    except Exception: return False
 
 def create_user(email, full_name, role='user'):
     email = email.strip().lower()
@@ -206,41 +182,28 @@ def create_user(email, full_name, role='user'):
         with get_db_session() as session:
             existing = session.query(UserProfile).filter_by(email=email).first()
             if existing: return True 
-            
             u = UserProfile(email=email, full_name=full_name, role=role)
             session.add(u)
             session.commit()
             return True
-    except Exception as e:
-        logger.error(f"Create User Error: {e}")
-        return False
+    except Exception: return False
 
 def get_user_profile(email):
-    """
-    Fetches User Profile.
-    CRITICAL FIX: Overrides status to 'Active' if a client record exists.
-    """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
             profile_obj = session.query(UserProfile).filter_by(email=email).first()
             p = to_dict(profile_obj) if profile_obj else {"email": email}
-
             client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
-            
             if client:
                 adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
                 firm = adv.firm_name if adv else "VerbaPost"
                 p["role"] = "heir"
-                
-                # 🛑 FORCE UNBLOCK: If they have a client record, they are Active.
                 p["status"] = "Active" 
-                
                 p["advisor_firm"] = firm
                 p["advisor_email"] = client.advisor_email
                 if client.name: p["parent_name"] = client.name
                 if client.phone: p["parent_phone"] = client.phone
-            
             if "role" not in p: p["role"] = "user"
             return p
     except Exception: return {}
@@ -272,7 +235,6 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
                 adv = Advisor(email=advisor_email, firm_name="VerbaPost Wealth", credits=0)
                 session.add(adv)
                 session.flush()
-
             if adv.credits < 1: return False, "Insufficient Credits"
             
             new_client = Client(
@@ -295,7 +257,6 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
             )
             session.add(new_proj)
             adv.credits -= 1
-            
         return True, "Project Created"
     except Exception as e: return False, str(e)
 
@@ -305,7 +266,7 @@ def get_heir_projects(heir_email):
         with get_db_session() as session:
             client = session.query(Client).filter_by(email=heir_email).order_by(Client.created_at.desc()).first()
             if not client: return []
-            projects = session.query(Project).filter_by(client_id=client.id).all()
+            projects = session.query(Project).filter_by(client_id=client.id).order_by(Project.created_at.desc()).all()
             results = []
             for p in projects:
                 d = to_dict(p)
@@ -323,7 +284,6 @@ def update_heirloom_settings(email, parent_name, parent_phone, addr1=None, city=
             if client:
                 client.name = parent_name
                 client.phone = parent_phone
-            
             u = session.query(UserProfile).filter_by(email=email).first()
             if u:
                 u.parent_name = parent_name
@@ -353,7 +313,6 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
                 session.add(new_proj)
                 session.commit()
                 return True
-            
             draft = LetterDraft(user_email=user_email, content=content, status=status, call_sid=call_sid)
             session.add(draft)
             session.commit()
@@ -393,7 +352,7 @@ def update_project_content(pid, new_text):
             p = session.query(Project).filter_by(id=pid).first()
             if p:
                 p.content = new_text
-                if p.status == 'Authorized': p.status = 'Recording'
+                # Keep status as recording if they are just saving
                 session.commit()
                 return True
             try:
@@ -406,29 +365,52 @@ def update_project_content(pid, new_text):
         return False
     except Exception: return False
 
-def submit_project(pid):
+def finalize_heir_project(pid, content):
+    """
+    HEIR ACTION: Finalize text and send for printing.
+    Status -> 'Approved' (triggers Admin Queue).
+    Audio remains locked (Advisor control).
+    """
     try:
         with get_db_session() as session:
             p = session.query(Project).filter_by(id=pid).first()
             if p:
-                p.status = 'Pending Approval'
+                p.content = content
+                p.status = 'Approved' # Ready for print
                 session.commit()
                 return True
         return False
     except Exception: return False
 
-def get_pending_approvals(advisor_email):
+def toggle_media_release(pid, release=True):
+    """
+    ADVISOR ACTION: Unlock audio.
+    """
+    try:
+        with get_db_session() as session:
+            p = session.query(Project).filter_by(id=pid).first()
+            if p:
+                p.audio_released = release
+                session.commit()
+                return True
+        return False
+    except Exception: return False
+
+def get_advisor_projects_for_media(advisor_email):
+    """
+    Fetches all projects for the advisor to manage media locks.
+    """
     advisor_email = advisor_email.strip().lower()
     try:
         with get_db_session() as session:
-            projs = session.query(Project).filter_by(advisor_email=advisor_email, status="Pending Approval").all()
+            # Get all projects from this advisor
+            projects = session.query(Project).filter_by(advisor_email=advisor_email).all()
             results = []
-            for p in projs:
-                client = session.query(Client).filter_by(id=p.client_id).first()
+            for p in projects:
                 d = to_dict(p)
-                d['parent_name'] = client.name if client else "Unknown"
+                client = session.query(Client).filter_by(id=p.client_id).first()
                 d['heir_name'] = client.heir_name if client else "Unknown"
-                d['heir_email'] = client.email if client else None
+                d['heir_email'] = client.email if client else "Unknown"
                 results.append(d)
             return results
     except Exception: return []
