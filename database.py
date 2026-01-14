@@ -185,6 +185,7 @@ def create_user(email, full_name, role='user'):
     Creates a new base UserProfile.
     Required for ui_login.py signup flow.
     """
+    email = email.strip().lower()
     try:
         with get_db_session() as session:
             # Check if exists
@@ -203,14 +204,16 @@ def create_user(email, full_name, role='user'):
 def get_user_profile(email):
     """
     Fetches User Profile. Merges data from Client table if they are an Heir.
+    Updated to fetch the NEWEST client record if duplicates exist.
     """
+    email = email.strip().lower()
     try:
         with get_db_session() as session:
             profile_obj = session.query(UserProfile).filter_by(email=email).first()
             p = to_dict(profile_obj) if profile_obj else {"email": email}
 
-            # Check if Heir
-            client = session.query(Client).filter_by(email=email).first()
+            # Check if Heir (Get the NEWEST client record)
+            client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
             if client:
                 adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
                 firm = adv.firm_name if adv else "VerbaPost"
@@ -226,6 +229,7 @@ def get_user_profile(email):
     except Exception: return {}
 
 def get_advisor_profile(email):
+    email = email.strip().lower()
     try:
         with get_db_session() as session:
             adv = session.query(Advisor).filter_by(email=email).first()
@@ -234,6 +238,7 @@ def get_advisor_profile(email):
     except Exception: return None
 
 def get_advisor_clients(email):
+    email = email.strip().lower()
     try:
         with get_db_session() as session:
             res = session.query(Client).filter_by(advisor_email=email).order_by(Client.created_at.desc()).all()
@@ -241,6 +246,8 @@ def get_advisor_clients(email):
     except Exception: return []
 
 def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir_email, prompt):
+    advisor_email = advisor_email.strip().lower()
+    heir_email = heir_email.strip().lower()
     try:
         with get_db_session() as session:
             adv = session.query(Advisor).filter_by(email=advisor_email).first()
@@ -276,9 +283,14 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
     except Exception as e: return False, str(e)
 
 def get_heir_projects(heir_email):
+    """
+    Fetches projects for the Heir.
+    Updated to link to the LATEST client record to fix connection issues.
+    """
+    heir_email = heir_email.strip().lower()
     try:
         with get_db_session() as session:
-            client = session.query(Client).filter_by(email=heir_email).first()
+            client = session.query(Client).filter_by(email=heir_email).order_by(Client.created_at.desc()).first()
             if not client: return []
             projects = session.query(Project).filter_by(client_id=client.id).all()
             results = []
@@ -291,9 +303,11 @@ def get_heir_projects(heir_email):
     except Exception: return []
 
 def update_heirloom_settings(email, parent_name, parent_phone, addr1=None, city=None, state=None, zip_code=None):
+    email = email.strip().lower()
     try:
         with get_db_session() as session:
-            client = session.query(Client).filter_by(email=email).first()
+            # Update LATEST client record
+            client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
             if client:
                 client.name = parent_name
                 client.phone = parent_phone
@@ -311,9 +325,11 @@ def update_heirloom_settings(email, parent_name, parent_phone, addr1=None, city=
     except Exception: return False
 
 def create_draft(user_email, content, status="Recording", call_sid=None):
+    user_email = user_email.strip().lower()
     try:
         with get_db_session() as session:
-            client = session.query(Client).filter_by(email=user_email).first()
+            # Link to LATEST client record
+            client = session.query(Client).filter_by(email=user_email).order_by(Client.created_at.desc()).first()
             if client:
                 new_proj = Project(
                     advisor_email=client.advisor_email,
@@ -349,6 +365,7 @@ def record_stripe_fulfillment(session_id, product_name, user_email):
     except Exception: return False
 
 def add_advisor_credit(email, amount=1):
+    email = email.strip().lower()
     try:
         with get_db_session() as session:
             adv = session.query(Advisor).filter_by(email=email).first()
@@ -390,6 +407,7 @@ def submit_project(pid):
     except Exception: return False
 
 def get_pending_approvals(advisor_email):
+    advisor_email = advisor_email.strip().lower()
     try:
         with get_db_session() as session:
             projs = session.query(Project).filter_by(advisor_email=advisor_email, status="Pending Approval").all()
