@@ -54,18 +54,25 @@ def render_dashboard():
         st.divider()
         st.subheader("🎙️ Action Center")
         
-        # CALL NOW BUTTON
+        # 1. CALL BUTTON (Now smarter)
         if st.button("📞 Call Me Now", type="primary", use_container_width=True):
             with st.spinner("Connecting..."):
                 target_phone = profile.get('parent_phone')
+                
+                # Find the prompt from the latest active project
+                active_p = next((p for p in projects if p.get('status') in ['Authorized', 'Recording']), None)
+                prompt_text = active_p.get('strategic_prompt') if active_p else "Please share a memory."
+                
                 if not target_phone:
                     st.error("Please add a phone number in 'Setup' first.")
                 else:
                     try:
+                        # PASSING THE PROMPT HERE FIXES ISSUE #2
                         sid, error = ai_engine.trigger_outbound_call(
                             to_phone=target_phone,
                             advisor_name="Your Advisor",
-                            firm_name=advisor_firm
+                            firm_name=advisor_firm,
+                            prompt_text=prompt_text 
                         )
                         if sid:
                             st.toast(f"Calling {target_phone}...")
@@ -76,6 +83,38 @@ def render_dashboard():
                             st.error(f"Call Failed: {error}")
                     except Exception as e:
                         st.error(f"Error: {e}")
+
+        # 2. REFRESH BUTTON (FIXES ISSUE #1: MISSING TRANSCRIPT)
+        st.markdown("---")
+        if st.button("🔄 Check for New Stories", use_container_width=True):
+            with st.spinner("Downloading from phone system..."):
+                # Find projects that are "Recording" but have no text
+                recording_projects = [p for p in projects if p.get('status') == 'Recording' and p.get('call_sid')]
+                
+                found_new = False
+                for p in recording_projects:
+                    sid = p.get('call_sid')
+                    pid = p.get('id')
+                    
+                    # Fetch from AI Engine
+                    text, audio_url, err = ai_engine.fetch_and_transcribe(sid)
+                    
+                    if text:
+                        # Update Database
+                        with db.get_db_session() as session:
+                            proj = session.query(db.Project).filter_by(id=pid).first()
+                            if proj:
+                                proj.content = text
+                                proj.audio_ref = audio_url
+                                session.commit()
+                        found_new = True
+                
+                if found_new:
+                    st.success("New story transcribed!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.info("No new completed recordings found.")
 
     # --- MAIN CONTENT ---
     st.title("📂 Family Legacy Archive")
@@ -108,7 +147,10 @@ def render_dashboard():
                 if status == "Authorized":
                     st.info("📞 Status: Ready for Interview Call")
                 elif status == "Recording":
-                    st.warning("🎙️ Status: Drafting / Needs Edit")
+                    if not content:
+                        st.warning("🎙️ Status: Waiting for Recording... (Click 'Check for New Stories' in sidebar)")
+                    else:
+                        st.success("📝 Status: Transcribed / Ready to Edit")
 
                 st.markdown(f"**Interview Question:** *{prompt}*")
                 

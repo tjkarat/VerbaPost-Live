@@ -1,153 +1,138 @@
 import os
 import logging
-import openai
-from datetime import datetime
+import requests
+import tempfile
+from openai import OpenAI
+from twilio.rest import Client
 
 # --- LOGGING SETUP ---
 logger = logging.getLogger(__name__)
 
-# --- IMPORTS ---
+# --- SECRETS & CONFIG ---
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
-# --- CONFIG ---
 def get_secret(key):
-    """
-    Retrieves secret from secrets_manager or environment variables.
-    """
     if secrets_manager: return secrets_manager.get_secret(key)
-    # Fallback to os.environ for Cloud Run / Local
-    val = os.environ.get(key)
-    if not val: val = os.environ.get(key.upper())
-    return val
+    return os.environ.get(key) or os.environ.get(key.upper())
 
-def get_openai_client():
-    api_key = get_secret("openai.api_key")
-    if not api_key: return None
-    return openai.OpenAI(api_key=api_key)
-
-# ==========================================
-# 📞 B2B TELEPHONY
-# ==========================================
-
-def send_prep_sms(to_phone, advisor_name):
+# --- 1. TELEPHONY (The Call) ---
+def trigger_outbound_call(to_phone, advisor_name, firm_name, prompt_text=None):
     """
-    Sends a 'Warm Up' SMS so the user knows the call is coming.
-    Prevents 'Spam Risk' rejection.
+    Triggers a Twilio call with the SPECIFIC question from the database.
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
-    from_number = get_secret("twilio.from_number") or "+16156567667"
-
-    if not sid or not token: return False, "Missing Credentials"
-    
-    msg_body = f"Hello. This is the automated interview service for {advisor_name or 'your advisor'}. We will call you in about 2 minutes to record your family story. Please pick up!"
-
-    try:
-        from twilio.rest import Client
-        client = Client(sid, token)
-        message = client.messages.create(
-            body=msg_body,
-            from_=from_number,
-            to=to_phone
-        )
-        return True, message.sid
-    except ImportError:
-        logger.error("Twilio Module Missing (ImportError)")
-        return False, "Twilio library not installed."
-    except Exception as e:
-        logger.error(f"SMS Error: {e}")
-        return False, str(e)
-
-def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id=None):
-    """
-    Triggers a Twilio call with Answering Machine Detection (AMD).
-    """
-    # 1. Credential Check
-    sid = get_secret("twilio.account_sid")
-    token = get_secret("twilio.auth_token")
-    from_number = get_secret("twilio.from_number") or "+16156567667"
+    from_number = get_secret("twilio.from_number") or "+16156567667" # Fallback
 
     if not sid or not token:
-        logger.error("Twilio Credentials Missing")
-        return None, "Missing Credentials"
+        return None, "Twilio Credentials Missing"
 
-    # 2. TwiML Generation
-    safe_advisor = advisor_name or "your financial advisor"
-    safe_firm = firm_name or "their firm"
+    # DEFAULT FALLBACK (Only used if database is empty)
+    if not prompt_text:
+        prompt_text = "Please share a favorite memory from your life that you want your family to remember."
 
+    # TwiML Script (Latency Fix: Removed <Pause> tags)
     twiml = f"""
     <Response>
-        <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
+            Hello. This is the family historian for {firm_name}.
         </Say>
-        <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
-            Please share a favorite memory from your childhood after the beep. 
-            When you are finished, press the pound key.
+            {advisor_name} has sponsored this interview. Here is your question:
         </Say>
-        <Record maxLength="300" finishOnKey="#" playBeep="true" />
-        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved. Goodbye.</Say>
+        <Say voice="Polly.Joanna-Neural">
+            {prompt_text}
+        </Say>
+        <Record maxLength="600" timeout="10" playBeep="true" trim="trim-silence" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved.</Say>
     </Response>
     """
 
-    # 3. Execution
     try:
-        from twilio.rest import Client
         client = Client(sid, token)
-
         call = client.calls.create(
             twiml=twiml,
             to=to_phone,
             from_=from_number,
-            machine_detection='DetectMessageEnd', 
+            machine_detection='DetectMessageEnd'
         )
-        logger.info(f"Call Dispatched: {call.sid}")
         return call.sid, None
-
-    except ImportError as e:
-        logger.error(f"Twilio Import Failed: {e}")
-        return None, f"Twilio Library Missing: {e}"
     except Exception as e:
-        logger.error(f"Twilio API Error: {e}")
+        logger.error(f"Twilio Error: {e}")
         return None, str(e)
 
-# ==========================================
-# 🎤 TRANSCRIPTION & POLISHING
-# ==========================================
-
-def transcribe_audio(file_path):
+# --- 2. TRANSCRIPTION (The Fetch) ---
+def fetch_and_transcribe(call_sid):
     """
-    Standard Whisper Transcription
+    1. Asks Twilio for the recording URL.
+    2. Downloads the MP3.
+    3. Sends to OpenAI Whisper.
+    4. Returns text + audio_url.
     """
-    client = get_openai_client()
-    if not client: return None
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    openai_key = get_secret("openai.api_key")
     
-    try:
-        with open(file_path, "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file
-            )
-        return transcript.text
-    except Exception as e:
-        logger.error(f"Transcription Error: {e}")
-        return None
+    if not sid or not token or not openai_key:
+        return None, None, "Missing API Keys"
 
+    try:
+        client = Client(sid, token)
+        
+        # 1. Find Recording
+        recordings = client.recordings.list(call_sid=call_sid, limit=1)
+        if not recordings:
+            return None, None, "No recording found yet (Call might be active)."
+            
+        rec = recordings[0]
+        # Construct MP3 URL (Twilio creates .json by default in API, we force .mp3)
+        # We assume the standard Twilio pattern: https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Recordings/{RecordingSid}.mp3
+        # But grabbing it from the URI is safer if we strip the extension
+        base_uri = f"https://api.twilio.com{rec.uri[:-5]}.mp3" 
+        
+        # 2. Download Audio
+        resp = requests.get(base_uri)
+        if resp.status_code != 200:
+            return None, None, "Failed to download audio from Twilio."
+            
+        # 3. Transcribe with OpenAI
+        transcript_text = ""
+        openai_client = OpenAI(api_key=openai_key)
+        
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp.write(resp.content)
+            tmp.close()
+            
+            with open(tmp.name, "rb") as audio_file:
+                transcript = openai_client.audio.transcriptions.create(
+                    model="whisper-1", 
+                    file=audio_file
+                )
+                transcript_text = transcript.text
+            
+            os.unlink(tmp.name)
+
+        return transcript_text, base_uri, None
+
+    except Exception as e:
+        logger.error(f"Transcribe Error: {e}")
+        return None, None, str(e)
+
+# --- 3. POLISHING (The AI Edit) ---
 def refine_text(text):
     """
-    Legacy 'AI Polish' feature.
+    GPT-4o Polish.
     """
-    client = get_openai_client()
-    if not client: return text
+    key = get_secret("openai.api_key")
+    if not key: return text
     
     try:
+        client = OpenAI(api_key=key)
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a professional editor. Polish this letter for clarity and warmth."},
+                {"role": "system", "content": "You are a professional editor. Clean up this spoken transcript. Remove 'ums', 'ahs', and stutters. Fix punctuation. Keep the tone warm and personal. Do not summarize; keep the original story intact."},
                 {"role": "user", "content": text}
             ]
         )
@@ -155,34 +140,3 @@ def refine_text(text):
     except Exception as e:
         logger.error(f"Refine Error: {e}")
         return text
-
-# ==========================================
-# ⚙️ ADMIN UTILITIES
-# ==========================================
-
-def get_all_twilio_recordings(limit=50):
-    """
-    Used by ui_admin.py to scan for ghost recordings.
-    """
-    sid = get_secret("twilio.account_sid")
-    token = get_secret("twilio.auth_token")
-    if not sid or not token: return []
-
-    try:
-        from twilio.rest import Client
-        client = Client(sid, token)
-        recordings = client.recordings.list(limit=limit)
-        
-        data = []
-        for r in recordings:
-            data.append({
-                "sid": r.sid,
-                "date_created": r.date_created,
-                "duration": r.duration,
-                "status": r.status,
-                "uri": r.uri 
-            })
-        return data
-    except Exception as e:
-        logger.error(f"Twilio Fetch Error: {e}")
-        return []
