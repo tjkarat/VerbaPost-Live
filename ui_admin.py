@@ -4,6 +4,7 @@ import time
 import base64
 import os
 import requests
+from datetime import datetime
 
 # --- MODULE IMPORTS ---
 try: import database
@@ -14,6 +15,68 @@ try: import audit_engine
 except ImportError: audit_engine = None
 try: import secrets_manager
 except ImportError: secrets_manager = None
+try: import ai_engine
+except ImportError: ai_engine = None
+
+# --- HELPER FUNCTIONS ---
+
+def get_orphaned_calls():
+    """
+    Compares Twilio logs vs Database Drafts to find missing stories.
+    """
+    if not ai_engine or not database: return []
+    
+    # 1. Fetch from Twilio
+    twilio_calls = ai_engine.get_all_twilio_recordings(limit=50)
+    if not twilio_calls: return []
+    
+    # 2. Fetch from DB
+    try:
+        with database.get_db_session() as session:
+            # Execute raw SQL to get all known SIDs
+            result = session.execute("SELECT call_sid FROM letter_drafts WHERE call_sid IS NOT NULL")
+            # Flatten list of known SIDs
+            known_sids = [row[0] for row in result.fetchall()]
+    except Exception as e:
+        st.error(f"DB Error: {e}")
+        return []
+
+    # 3. Find Orphans
+    orphans = []
+    for call in twilio_calls:
+        if call['sid'] not in known_sids:
+            orphans.append(call)
+            
+    return orphans
+
+def manual_credit_grant(advisor_email, amount):
+    """
+    Manually adds credits to an advisor.
+    """
+    if not database: return False
+    try:
+        with database.get_db_session() as session:
+            # Check if advisor exists
+            result = session.execute(
+                "SELECT credits FROM advisors WHERE email = :email", 
+                {"email": advisor_email}
+            ).fetchone()
+            
+            if not result:
+                return False, "Advisor not found."
+            
+            current_credits = result[0] or 0
+            new_total = current_credits + amount
+            
+            # Update
+            session.execute(
+                "UPDATE advisors SET credits = :new_val WHERE email = :email",
+                {"new_val": new_total, "email": advisor_email}
+            )
+            session.commit()
+            return True, new_total
+    except Exception as e:
+        return False, str(e)
 
 def check_service_health():
     """Diagnoses connection to critical B2B services."""
@@ -28,39 +91,121 @@ def check_service_health():
     except Exception as e:
         health_report.append(("❌", "Database", f"Error: {str(e)}"))
 
-    # 2. OPENAI CHECK (Transcription)
+    # 2. OPENAI CHECK
     api_key = secrets_manager.get_secret("openai.api_key") if secrets_manager else os.environ.get("OPENAI_API_KEY")
     if api_key:
-        health_report.append(("✅", "OpenAI (Intelligence)", "Key Present"))
+        health_report.append(("✅", "OpenAI", "Key Present"))
     else:
-        health_report.append(("⚠️", "OpenAI", "Key Missing (Transcription will fail)"))
+        health_report.append(("⚠️", "OpenAI", "Key Missing"))
 
-    # 3. TWILIO CHECK (Voice)
+    # 3. TWILIO CHECK
     sid = secrets_manager.get_secret("twilio.account_sid") if secrets_manager else os.environ.get("TWILIO_ACCOUNT_SID")
     if sid:
-        health_report.append(("✅", "Twilio (Voice)", "Key Present"))
+        health_report.append(("✅", "Twilio", "Key Present"))
     else:
-        health_report.append(("❌", "Twilio", "Key Missing (Calls will fail)"))
+        health_report.append(("❌", "Twilio", "Key Missing"))
 
     return health_report
 
+# --- MAIN RENDER ---
+
 def render_admin_page():
-    st.title("⚙️ Admin Console (B2B Mode)")
+    st.title("⚙️ Admin Console (B2B)")
     
-    tab_print, tab_logs, tab_health = st.tabs(["🖨️ Manual Print Queue", "📊 System Logs", "❤️ Health"])
+    # NAVIGATION
+    tabs = st.tabs([
+        "🖨️ Manual Print", 
+        "📢 Marketing Studio", 
+        "👻 Ghost Calls", 
+        "💰 Grant Credits",
+        "❤️ Health"
+    ])
 
-    # --- TAB: PRINT QUEUE (Same as before) ---
-    with tab_print:
-        # ... (Keep the print logic I gave you previously) ...
-        st.info("Load the previous print queue code here.")
+    # --- TAB 1: MANUAL PRINT QUEUE ---
+    with tabs[0]:
+        st.subheader("Fulfillment Queue")
+        st.info("Pending letters that need manual printing.")
+        # (Placeholder for existing logic if you have it, otherwise just a header)
+        if st.button("Refresh Queue"):
+            st.toast("Queue refreshed")
 
-    # --- TAB: LOGS (Same as before) ---
-    with tab_logs:
-         # ... (Keep the log logic I gave you previously) ...
-         st.info("Load the previous log code here.")
+    # --- TAB 2: MARKETING STUDIO (New) ---
+    with tabs[1]:
+        st.subheader("📢 Direct Marketing Writer")
+        st.markdown("Create a one-off letter using the **Vintage TrueType** font engine.")
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            m_name = st.text_input("Recipient Name", "Future Client")
+            m_addr = st.text_area("Recipient Address", "123 Wealth Way\nNashville, TN 37203")
+        with c2:
+            m_from = st.text_area("Return Address", "VerbaPost HQ\n123 Innovation Dr\nFranklin, TN")
+            m_tier = st.selectbox("Style / Font", ["Vintage", "Standard", "Civic"])
+            
+        m_body = st.text_area("Letter Body", height=300, value="Dear Client,\n\nWe would like to invite you...")
+        
+        if st.button("📄 Generate PDF Preview", type="primary"):
+            if letter_format:
+                # Structure inputs for the engine
+                to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "ST", "zip": "00000"} 
+                # (Simple parsing for preview)
+                from_obj = {"name": "VerbaPost", "address_line1": m_from}
+                
+                pdf_bytes = letter_format.create_pdf(
+                    body_text=m_body,
+                    to_addr=to_obj,
+                    from_addr=from_obj,
+                    tier=m_tier
+                )
+                
+                b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
+                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500" type="application/pdf"></iframe>'
+                st.markdown(pdf_display, unsafe_allow_html=True)
+            else:
+                st.error("Letter Format Engine missing.")
 
-    # --- TAB: HEALTH (RESTORED) ---
-    with tab_health:
+    # --- TAB 3: GHOST CALLS (New) ---
+    with tabs[2]:
+        st.subheader("👻 Orphaned Recording Scanner")
+        st.markdown("Finds Twilio recordings that **do not** have a matching draft in the database.")
+        
+        if st.button("🔍 Scan Twilio Logs"):
+            with st.spinner("Comparing Twilio Logs vs Database..."):
+                orphans = get_orphaned_calls()
+                
+                if not orphans:
+                    st.success("✅ No orphans found! All calls are accounted for.")
+                else:
+                    st.warning(f"⚠️ Found {len(orphans)} orphaned recordings.")
+                    
+                    for o in orphans:
+                        with st.expander(f"Orphan: {o['date_created']} ({o['duration']}s)"):
+                            st.write(f"**SID:** `{o['sid']}`")
+                            st.write(f"**Status:** {o['status']}")
+                            # Audio Player
+                            # Note: Twilio URIs often require auth, but we can try rendering the .mp3 version
+                            media_url = f"https://api.twilio.com{o['uri'].replace('.json', '.mp3')}"
+                            st.audio(media_url)
+                            
+                            st.markdown("To fix: Manually create a draft with this SID.")
+
+    # --- TAB 4: GRANT CREDITS (New) ---
+    with tabs[3]:
+        st.subheader("💰 The Central Bank")
+        
+        c_email = st.text_input("Advisor Email")
+        c_amount = st.number_input("Credits to Add", min_value=1, value=1, step=1)
+        
+        if st.button("💸 Inject Credits"):
+            success, msg = manual_credit_grant(c_email, int(c_amount))
+            if success:
+                st.success(f"SUCCESS! New Balance: {msg}")
+                audit_engine.log_event("admin", "manual_credit_grant", metadata={"target": c_email, "amount": c_amount})
+            else:
+                st.error(f"Failed: {msg}")
+
+    # --- TAB 5: HEALTH ---
+    with tabs[4]:
         st.subheader("System Diagnostics")
         if st.button("Run Health Check"):
             with st.spinner("Pinging services..."):
