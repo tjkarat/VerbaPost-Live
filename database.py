@@ -78,10 +78,14 @@ def to_dict(obj):
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 # ==========================================
-# 🏛️ MODELS (Unified B2B Schema)
+# 🏛️ MODELS (Refactored to match provided Schema)
 # ==========================================
 
 class UserProfile(Base):
+    """
+    Clean Identity Table. 
+    Removed: advisor_firm, advisor_email, address_* (Calculated dynamically)
+    """
     __tablename__ = 'user_profiles'
     id = Column(Integer, primary_key=True, autoincrement=True)
     email = Column(String, unique=True, nullable=False)
@@ -89,18 +93,10 @@ class UserProfile(Base):
     parent_name = Column(String)
     parent_phone = Column(String)
     role = Column(String, default="user") 
-    advisor_firm = Column(String, nullable=True) # Added for B2B linking
-    advisor_email = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
-    # Legacy fields
-    address_line1 = Column(String)
-    address_city = Column(String)
-    address_state = Column(String)
-    address_zip = Column(String)
-    country = Column(String, default="US")
-    timezone = Column(String, default="US/Central")
-    credits = Column(Integer, default=0) # Legacy credits
+    # We keep credits as it was in your provided schema
+    credits = Column(Integer, default=0) 
 
 class Advisor(Base):
     __tablename__ = 'advisors'
@@ -111,6 +107,7 @@ class Advisor(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class Client(Base):
+    """Links an Heir (User) to an Advisor."""
     __tablename__ = 'clients'
     id = Column(Integer, primary_key=True, autoincrement=True)
     advisor_email = Column(String, ForeignKey('advisors.email'))
@@ -138,7 +135,7 @@ class Project(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 class LetterDraft(Base):
-    """Legacy Table for Store (Standard/Civic)"""
+    """Legacy Table for Store"""
     __tablename__ = 'letter_drafts'
     id = Column(Integer, primary_key=True, autoincrement=True)
     user_email = Column(String)
@@ -169,34 +166,51 @@ class PaymentFulfillment(Base):
 # ==========================================
 
 def get_user_profile(email):
+    """
+    DYNAMIC PROFILE BUILDER
+    Instead of expecting 'advisor_firm' to be a column in the user table,
+    we look it up in the 'clients' table and merge it into the result.
+    """
     try:
         with get_db_session() as session:
-            # Check B2B Client List First
-            client = session.query(Client).filter_by(email=email).first()
-            if client:
-                adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
-                firm = adv.firm_name if adv else "VerbaPost"
-                return {
-                    "full_name": client.heir_name,
-                    "role": "heir",
-                    "status": client.status,
-                    "parent_name": client.name,
-                    "parent_phone": client.phone,
-                    "advisor_firm": firm,
-                    "advisor_email": client.advisor_email
-                }
+            # 1. Fetch Basic Profile
+            profile_obj = session.query(UserProfile).filter_by(email=email).first()
+            if not profile_obj:
+                # If no profile exists, create a skeleton (Safe Fallback)
+                return {"email": email, "role": "user", "status": "New"}
             
-            # Fallback to Legacy/Advisor Profile
-            profile = session.query(UserProfile).filter_by(email=email).first()
-            if not profile:
-                return {"email": email, "role": "user"}
-            return to_dict(profile)
+            profile_dict = to_dict(profile_obj)
+
+            # 2. Check for B2B Linkage (The "Yesterday" Logic)
+            client_record = session.query(Client).filter_by(email=email).first()
+            
+            if client_record:
+                # This user is an Heir managed by an Advisor
+                adv = session.query(Advisor).filter_by(email=client_record.advisor_email).first()
+                firm_name = adv.firm_name if adv else "VerbaPost"
+                
+                # Inject B2B data into the dictionary
+                profile_dict["role"] = "heir"
+                profile_dict["status"] = client_record.status
+                profile_dict["advisor_firm"] = firm_name
+                profile_dict["advisor_email"] = client_record.advisor_email
+                # Use client record parent details if available
+                if client_record.name: profile_dict["parent_name"] = client_record.name
+                if client_record.phone: profile_dict["parent_phone"] = client_record.phone
+
+            else:
+                # Legacy / Direct Consumer
+                profile_dict["advisor_firm"] = None
+                profile_dict["advisor_email"] = None
+                profile_dict["status"] = "Active" if (profile_obj.credits and profile_obj.credits > 0) else "Pending"
+
+            return profile_dict
+
     except Exception as e:
         logger.error(f"Get Profile Error: {e}")
         return {}
 
 def get_advisor_profile(email):
-    """Fetches Advisor data for B2B Portal."""
     try:
         with get_db_session() as session:
             adv = session.query(Advisor).filter_by(email=email).first()
@@ -214,14 +228,14 @@ def get_advisor_clients(email):
     except Exception: return []
 
 def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir_email, prompt):
-    """Consumes credit and creates client/project records."""
-    session = get_db_session()
     try:
-        with session: 
+        with get_db_session() as session:
+            # 1. Check Credits
             adv = session.query(Advisor).filter_by(email=advisor_email).first()
             if not adv or adv.credits < 1:
                 return False, "Insufficient Credits"
             
+            # 2. Create Client
             new_client = Client(
                 advisor_email=advisor_email,
                 name=client_name,
@@ -231,8 +245,9 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
                 status='Active'
             )
             session.add(new_client)
-            session.flush() 
+            session.flush() # Get ID
             
+            # 3. Create Project
             pid = str(uuid.uuid4())
             new_proj = Project(
                 id=pid,
@@ -244,6 +259,8 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
                 created_at=datetime.utcnow()
             )
             session.add(new_proj)
+            
+            # 4. Deduct Credit
             adv.credits -= 1
             
         return True, "Project Created"
@@ -251,65 +268,12 @@ def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir
         logger.error(f"Create B2B Project Error: {e}")
         return False, str(e)
 
-# --- LEGACY / HELPER FUNCTIONS RESTORED ---
-
-def create_hybrid_project(advisor_email, parent_name, parent_phone, heir_name, prompt):
-    """Legacy: Creates relational link between Firm, Client, and Project."""
-    try:
-        with get_db_session() as session:
-            client = session.query(Client).filter_by(advisor_email=advisor_email, phone=parent_phone).first()
-            if not client:
-                client = Client(advisor_email=advisor_email, name=parent_name, phone=parent_phone, heir_name=heir_name)
-                session.add(client)
-                session.flush() 
-            
-            new_proj = Project(
-                advisor_email=advisor_email, 
-                client_id=client.id, 
-                heir_name=heir_name, 
-                strategic_prompt=prompt, 
-                status="Authorized"
-            )
-            session.add(new_proj)
-            session.commit()
-            return new_proj.id
-    except Exception as e: 
-        logger.error(f"Create Hybrid Project Error: {e}")
-        return None
-
-def get_pending_approvals(advisor_email):
-    """Restored: Fetches items for Ghostwriting review."""
-    try:
-        with get_db_session() as session:
-            projs = session.query(Project).filter_by(advisor_email=advisor_email, status="Pending Approval").all()
-            results = []
-            for p in projs:
-                client = session.query(Client).filter_by(id=p.client_id).first()
-                d = to_dict(p)
-                d['parent_name'] = client.name if client else "Unknown"
-                d['heir_name'] = client.heir_name if client else "Unknown"
-                results.append(d)
-            return results
-    except Exception: return []
-
-def update_project_details(project_id, content=None, status=None):
-    """Restored: Global update hook."""
-    try:
-        with get_db_session() as session:
-            proj = session.query(Project).filter_by(id=project_id).first()
-            if proj:
-                if status: proj.status = status
-                if content: proj.content = content
-                session.commit()
-                return True
-            return False
-    except Exception: return False
-
 def get_heir_projects(heir_email):
     try:
         with get_db_session() as session:
             client = session.query(Client).filter_by(email=heir_email).first()
             if not client: return []
+            
             projects = session.query(Project).filter_by(client_id=client.id).order_by(Project.created_at.desc()).all()
             results = []
             for p in projects:
