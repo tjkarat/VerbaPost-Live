@@ -6,10 +6,36 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Fl
 from sqlalchemy.orm import sessionmaker, declarative_base
 from contextlib import contextmanager
 from datetime import datetime
+import streamlit as st
 
 # --- IMPORT SECRETS ---
 try: import secrets_manager
 except ImportError: secrets_manager = None
+
+# --- SUPABASE CLIENT SETUP (REQUIRED FOR NEW FUNCTIONS) ---
+try:
+    from supabase import create_client, Client
+    
+    # Try getting credentials from multiple sources
+    sb_url = os.environ.get("SUPABASE_URL")
+    sb_key = os.environ.get("SUPABASE_KEY")
+    
+    if not sb_url and secrets_manager:
+        sb_url = secrets_manager.get_secret("supabase.url")
+        sb_key = secrets_manager.get_secret("supabase.key")
+        
+    if not sb_url and hasattr(st, "secrets") and "supabase" in st.secrets:
+        sb_url = st.secrets["supabase"]["url"]
+        sb_key = st.secrets["supabase"]["key"]
+
+    if sb_url and sb_key:
+        supabase: Client = create_client(sb_url, sb_key)
+    else:
+        supabase = None
+        logging.warning("⚠️ Supabase Client could not be initialized. Missing URL/KEY.")
+except ImportError:
+    supabase = None
+    logging.error("⚠️ Supabase library not found. Install with: pip install supabase")
 
 logger = logging.getLogger(__name__)
 Base = declarative_base()
@@ -446,11 +472,20 @@ def log_event(user_email, event_type, metadata=None):
             session.add(evt)
             session.commit()
     except Exception: pass
+
+# ==========================================
+# 🆕 NEW B2B FUNCTIONS (USING SUPABASE CLIENT)
+# ==========================================
+
 def get_user_drafts(user_email):
     """
     Fetches all stories (posts) for a specific user.
     Required for the Family Archive page.
     """
+    if not supabase:
+        print("Supabase client not initialized")
+        return []
+        
     try:
         # Assumes your table is named 'posts'
         response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
@@ -463,6 +498,8 @@ def update_draft(draft_id, new_content):
     """
     Updates the text transcript of a story.
     """
+    if not supabase: return False
+    
     try:
         supabase.table("posts").update({"content": new_content}).eq("id", draft_id).execute()
         return True
@@ -474,6 +511,8 @@ def mark_draft_sent(draft_id, letter_id):
     """
     Marks a story as 'mailed' and saves the letter ID.
     """
+    if not supabase: return False
+
     try:
         supabase.table("posts").update({
             "status": "sent", 
@@ -483,31 +522,20 @@ def mark_draft_sent(draft_id, letter_id):
     except Exception as e:
         print(f"Error marking sent: {e}")
         return False
+
 def fetch_advisor_clients(advisor_email):
     """
     Fetches the list of clients sponsored by a specific advisor.
     Used in ui_advisor.py to populate the "Client Roster" tab.
     """
+    if not supabase: return []
+
     try:
         # Assumes user_profiles has a column 'created_by' or similar linking to the advisor
-        # Adjust 'created_by' if your schema uses a different column name (e.g., 'advisor_email')
         response = supabase.table("user_profiles").select("*").eq("created_by", advisor_email).execute()
         return response.data
     except Exception as e:
         print(f"Error fetching clients: {e}")
-        return []
-
-def get_user_drafts(user_email):
-    """
-    Fetches all stories (posts) for a specific user.
-    Used in ui_heirloom.py to populate the "Story Archive".
-    """
-    try:
-        # Assumes your stories are stored in a table named 'posts'
-        response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
-        return response.data
-    except Exception as e:
-        print(f"Error fetching drafts: {e}")
         return []
 
 def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
@@ -515,6 +543,8 @@ def create_sponsored_user(advisor_email, client_name, client_email, client_phone
     Creates a new user profile sponsored by an advisor.
     Used in ui_advisor.py when 'Activating' a new client.
     """
+    if not supabase: return False, "Database Offline"
+
     try:
         # 1. Check if user already exists
         existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
