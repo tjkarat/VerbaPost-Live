@@ -26,8 +26,39 @@ def render_dashboard():
         st.error("Profile not found.")
         return
 
+    # --- 🔒 THE GATE: CHECK SPONSORSHIP ---
+    # We check if they have a specific role OR if they were created by an advisor
+    is_sponsored = (
+        profile.get("role") in ["heir", "heirloom"] or 
+        profile.get("created_by") is not None
+    )
+
+    if not is_sponsored:
+        # RENDER BLOCKED STATE
+        st.title("🏛️ The Family Legacy Project")
+        st.divider()
+        st.info("🔒 Account Verification Pending")
+        st.markdown(f"""
+        **Welcome to VerbaPost.**
+        
+        Your account is currently in **Guest Mode**. To unlock the Family Archive and start recording stories, 
+        your account must be activated by your sponsoring financial advisor.
+        
+        **What to do:**
+        1. Contact your advisor to confirm your invitation.
+        2. Ask them to "Activate" your email address: `{user_email}`.
+        3. Refresh this page once confirmed.
+        """)
+        if st.button("🔄 Refresh Status"):
+            st.rerun()
+        return  # <--- STOP RENDERING THE REST OF THE DASHBOARD
+
+    # --- IF SPONSORED, CONTINUE TO DASHBOARD ---
+
     # --- HEADER & INSTRUCTIONS ---
     st.title("🏛️ The Family Legacy Project")
+    advisor_firm = profile.get("advisor_firm", "VerbaPost Wealth")
+    st.caption(f"Sponsored by {advisor_firm}")
     
     with st.expander("📝 HOW TO CAPTURE A STORY (Read First)", expanded=True):
         st.markdown("""

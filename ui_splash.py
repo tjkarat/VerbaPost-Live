@@ -1,44 +1,49 @@
 import streamlit as st
 
 def render_splash_page():
-    st.markdown("""
-        <div style='text-align: center; padding: 40px 0;'>
-            <h1 style='font-family: "Helvetica Neue", serif; font-size: 3rem; font-weight: 700; color: #1f2937;'>
-                VerbaPost Wealth
-            </h1>
-            <p style='font-size: 1.2rem; color: #4b5563; max-width: 600px; margin: 0 auto;'>
-                The high-touch client retention platform for independent financial advisors.
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
-
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c2:
-        with st.container(border=True):
-            st.markdown("### 🏛️ Advisor Portal")
-            st.write("Secure dashboard for managing client legacy outreach.")
-            
-            # --- FIX: Set Intent to 'advisor' before routing ---
-            if st.button("Login as Advisor", use_container_width=True, type="primary"):
-                st.query_params["role"] = "advisor"  # <--- Triggers Smart Routing in ui_login
-                st.session_state.app_mode = "login"
-                st.rerun()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        with st.container(border=True):
-            st.markdown("### 📜 Family Archive")
-            st.write("Preserve family stories through voice-to-letter dictation.")
-            if st.button("Access My Archive", use_container_width=True):
-                # Heirs go directly to login, defaulting to heirloom mode upon success
-                st.session_state.app_mode = "login"
-                st.rerun()
-
-    st.markdown("<br><br><hr>", unsafe_allow_html=True)
-    col_l, col_r = st.columns([4, 1])
-    col_l.caption("© 2026 VerbaPost Wealth Management Solutions.")
+    """
+    The 'App Portal' Entry Point.
+    Replaces marketing fluff with clear Login pathways.
+    """
+    # Simple, centered layout
+    col1, col2, col3 = st.columns([1, 2, 1])
     
-    # Using a unique key to prevent ID collisions if used elsewhere
-    if col_r.button("⚖️ Legal & Terms", key="splash_legal_btn", use_container_width=True):
-        st.session_state.app_mode = "legal"
-        st.rerun()
+    with col2:
+        st.markdown("""
+            <div style='text-align: center; margin-top: 50px; margin-bottom: 30px;'>
+                <h1 style='font-family: serif; color: #0f172a; font-size: 3rem;'>VerbaPost</h1>
+                <p style='color: #64748b; font-size: 1.2rem; font-family: sans-serif;'>The Family Legacy Archive</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        st.markdown("---")
+
+        # Two Clear Doors
+        st.markdown("### Select Your Portal")
+        
+        tab_family, tab_advisor = st.tabs(["🏛️ For Families", "💼 For Advisors"])
+        
+        with tab_family:
+            st.info("Access your private family vault to record and preserve stories.")
+            if st.button("🔐 Client Login", key="btn_heir_login", use_container_width=True):
+                st.session_state.app_mode = "login"
+                st.rerun()
+                
+        with tab_advisor:
+            st.warning("Manage client rosters, credits, and activations.")
+            if st.button("💼 Advisor Login", key="btn_adv_login", use_container_width=True):
+                st.session_state.app_mode = "login"
+                st.rerun()
+        
+        st.markdown("---")
+        
+        # Subtle Footer
+        st.markdown("""
+            <div style='text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 20px;'>
+                Secure Bank-Grade Encryption • Archival Preservation Standards<br>
+                © 2025 VerbaPost Wealth
+            </div>
+        """, unsafe_allow_html=True)
+
+# Safety Alias
+show_splash = render_splash_page

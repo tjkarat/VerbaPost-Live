@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import database
 import payment_engine
+import email_engine # NEW IMPORT
 
 def render_dashboard():
     """
@@ -23,6 +24,7 @@ def render_dashboard():
     # Basic Variables
     firm_name = profile.get("advisor_firm") or "Unspecified Firm"
     credits = profile.get("credits", 0)
+    advisor_full_name = profile.get("full_name", "Your Advisor")
     
     # --- 2. HEADER AREA ---
     col1, col2 = st.columns([3, 1])
@@ -98,7 +100,7 @@ def render_dashboard():
                 elif not c_email:
                     st.error("Client Email is required.")
                 else:
-                    with st.spinner("Provisioning Vault..."):
+                    with st.spinner("Provisioning Vault & Notifying Heir..."):
                         success, msg = database.create_sponsored_user(
                             advisor_email=user_email,
                             client_name=c_name,
@@ -107,9 +109,18 @@ def render_dashboard():
                         )
                         
                         if success:
+                            # 1. Update Credits
                             new_balance = credits - 1
                             database.update_user_credits(user_email, new_balance)
-                            st.success(f"🎉 Project Activated for {c_name}!")
+                            
+                            # 2. Send Welcome Email (THE TRIGGER)
+                            email_engine.send_heir_welcome_email(
+                                to_email=c_email,
+                                advisor_firm=firm_name,
+                                advisor_name=advisor_full_name
+                            )
+                            
+                            st.success(f"🎉 Project Activated for {c_name}! Invitation sent to {c_email}.")
                             time.sleep(2)
                             st.rerun()
                         else:

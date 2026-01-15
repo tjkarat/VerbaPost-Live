@@ -78,7 +78,7 @@ def send_email(to_email, subject, html_content):
         logger.error(f"❌ Email Exception: {e}")
         return False
 
-# --- NEW: INTERVIEW PREP EMAIL ---
+# --- INTERVIEW PREP EMAIL ---
 def send_interview_prep_email(to_email, advisor_name, question_text):
     """
     Sends a prep email to the interviewee so they know what to say.
@@ -125,3 +125,32 @@ def send_admin_alert(trigger_event, details_html):
     </div>
     """
     return send_email(admin_email, subject, html)
+
+# --- NEW: HEIR WELCOME EMAIL (THE TRIGGER) ---
+def send_heir_welcome_email(to_email, advisor_firm, advisor_name):
+    """
+    Notifies the Heir that their Advisor has sponsored a legacy project.
+    """
+    subject = f"Gift from {advisor_name}: The Family Legacy Project"
+    
+    html_content = f"""
+    <div style="font-family: 'Times New Roman', serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #eee;">
+        <h2 style="color: #0f172a; text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px;">THE FAMILY LEGACY ARCHIVE</h2>
+        
+        <p>Hello,</p>
+        
+        <p><strong>{advisor_name}</strong> (from {advisor_firm}) has sponsored a private legacy archive for your family.</p>
+        
+        <p>This secure vault allows you to capture, preserve, and print your family's most important stories before they are lost to time.</p>
+        
+        <div style="background-color: #f8f9fa; padding: 15px; text-align: center; margin: 25px 0; border: 1px solid #ddd;">
+            <p style="margin: 0 0 10px 0;">To access your vault, please log in below using this email address:</p>
+            <a href="https://app.verbapost.com?nav=login" style="background-color: #0f172a; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-family: sans-serif;">Access Family Vault</a>
+        </div>
+        
+        <p><strong>Next Step:</strong> Log in and schedule your first interview call.</p>
+        
+        <p style="margin-top: 30px;">Warmly,<br>The VerbaPost Archives</p>
+    </div>
+    """
+    return send_email(to_email, subject, html_content)
