@@ -359,18 +359,6 @@ def record_stripe_fulfillment(session_id, product_name, user_email):
             return True
     except Exception: return False
 
-def add_advisor_credit(email, amount=1):
-    email = email.strip().lower()
-    try:
-        with get_db_session() as session:
-            adv = session.query(Advisor).filter_by(email=email).first()
-            if adv:
-                adv.credits += amount
-                session.commit()
-                return True
-            return False
-    except Exception: return False
-
 def update_project_content(pid, new_text):
     try:
         with get_db_session() as session:
@@ -470,82 +458,6 @@ def log_event(user_email, event_type, metadata=None):
             session.commit()
     except Exception: pass
 
-# ==========================================
-# 🆕 NEW B2B FUNCTIONS (USING SUPABASE CLIENT)
-# ==========================================
-
-def fetch_advisor_clients(advisor_email):
-    """Fetches clients for the Advisor Portal."""
-    if not supabase: return []
-    try:
-        response = supabase.table("user_profiles").select("*").eq("created_by", advisor_email).execute()
-        return response.data
-    except Exception as e:
-        logger.error(f"Error fetching clients: {e}")
-        return []
-
-def get_user_drafts(user_email):
-    """Fetches stories for the Family Archive."""
-    if not supabase: return []
-    try:
-        response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
-        return response.data
-    except Exception as e:
-        logger.error(f"Error fetching drafts: {e}")
-        return []
-
-def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
-    """Creates a new client account."""
-    if not supabase: return False, "DB Offline"
-    try:
-        existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
-        if existing.data: return False, "User exists"
-
-        new_user = {
-            "email": client_email,
-            "full_name": client_name,
-            "parent_phone": client_phone,
-            "created_by": advisor_email,
-            "role": "heirloom",
-            "credits": 0,
-            "advisor_firm": "Robbana and Associates"
-        }
-        data = supabase.table("user_profiles").insert(new_user).execute()
-        return (True, "Success") if data.data else (False, "Insert failed")
-    except Exception as e:
-        return False, str(e)
-
-def update_advisor_firm_name(advisor_email, new_firm_name):
-    """Updates the firm name safely without raw cursors."""
-    if not supabase: return False
-    try:
-        supabase.table("user_profiles").update({"advisor_firm": new_firm_name}).eq("email", advisor_email).execute()
-        return True
-    except Exception as e:
-        logger.error(f"Update Firm Error: {e}")
-        return False
-
-def update_user_credits(user_email, new_amount):
-    """Updates credit balance."""
-    if not supabase: return False
-    try:
-        supabase.table("user_profiles").update({"credits": new_amount}).eq("email", user_email).execute()
-        return True
-    except Exception: return False
-
-def mark_draft_sent(draft_id, letter_id):
-    if not supabase: return False
-    try:
-        supabase.table("posts").update({"status": "sent", "letter_id": letter_id}).eq("id", draft_id).execute()
-        return True
-    except: return False
-
-def update_draft(draft_id, new_text):
-    if not supabase: return False
-    try:
-        supabase.table("posts").update({"content": new_text}).eq("id", draft_id).execute()
-        return True
-    except: return False
 # ==========================================
 # 🆕 NEW B2B FUNCTIONS (FIXED)
 # ==========================================
@@ -656,4 +568,35 @@ def update_draft(draft_id, new_text):
         # FIX: Targeting 'projects' table
         supabase.table("projects").update({"content": new_text}).eq("id", draft_id).execute()
         return True
-    except: return False    
+    except: return False
+
+# --- 🟡 FIX: REWRITTEN CREDIT FUNCTION ---
+def add_advisor_credit(email, amount=1):
+    """
+    Increments credits in the user_profiles table (B2B Logic).
+    """
+    # 1. Try Supabase Client First (Preferred)
+    if supabase:
+        try:
+            # Fetch current
+            res = supabase.table("user_profiles").select("credits").eq("email", email).execute()
+            if res.data:
+                current = res.data[0].get('credits', 0) or 0
+                new_total = current + amount
+                supabase.table("user_profiles").update({"credits": new_total}).eq("email", email).execute()
+                return True
+        except Exception as e:
+            logger.error(f"Credit Update Failed: {e}")
+            # Do NOT return False yet, try Fallback
+
+    # 2. Fallback to SQLAlchemy (Legacy) - BUT UPDATE USER_PROFILES
+    try:
+        with get_db_session() as session:
+            # TARGET USER_PROFILE (NOT ADVISOR TABLE)
+            u = session.query(UserProfile).filter_by(email=email).first()
+            if u:
+                u.credits = (u.credits or 0) + amount
+                session.commit()
+                return True
+    except: return False
+    return False
