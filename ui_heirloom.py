@@ -212,10 +212,27 @@ def render_dashboard():
                 with st.expander("✍️ Edit Text & Mail Letter"):
                     new_text = st.text_area("Transcript", value=draft.get('content', ''), height=200, key=f"txt_{draft['id']}")
                     
-                    # Save Button
-                    if st.button("💾 Save Changes", key=f"save_{draft['id']}"):
-                        database.update_draft(draft['id'], new_text)
-                        st.toast("Changes Saved", icon="💾")
+                    # --- NEW: AI POLISH & SAVE BUTTONS ---
+                    b_col1, b_col2 = st.columns([1, 1])
+                    
+                    # BUTTON: AI POLISH
+                    with b_col1:
+                        if st.button("✨ AI Polish", key=f"polish_{draft['id']}", help="Uses AI to fix grammar and improve flow."):
+                            with st.spinner("Polishing story..."):
+                                polished_text = ai_engine.refine_text(new_text)
+                                if polished_text:
+                                    database.update_draft(draft['id'], polished_text)
+                                    st.success("Story Polished!")
+                                    time.sleep(1)
+                                    st.rerun()
+                                else:
+                                    st.error("Polish failed. Try again.")
+
+                    # BUTTON: SAVE
+                    with b_col2:
+                        if st.button("💾 Save Changes", key=f"save_{draft['id']}"):
+                            database.update_draft(draft['id'], new_text)
+                            st.toast("Changes Saved", icon="💾")
                     
                     st.divider()
                     

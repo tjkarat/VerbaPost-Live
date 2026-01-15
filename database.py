@@ -12,7 +12,7 @@ import streamlit as st
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
-# --- 1. SUPABASE CLIENT SETUP (REQUIRED FOR NEW B2B FUNCTIONS) ---
+# --- 1. SUPABASE CLIENT SETUP ---
 try:
     from supabase import create_client, Client
     
@@ -37,7 +37,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 Base = declarative_base()
 
-# --- 2. SQLALCHEMY SETUP (REQUIRED FOR LEGACY FUNCTIONS) ---
+# --- 2. SQLALCHEMY SETUP ---
 _engine = None
 _SessionLocal = None
 
@@ -87,7 +87,7 @@ def to_dict(obj):
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 # ==========================================
-# 🏛️ MODELS (ALL ORIGINAL MODELS RESTORED)
+# 🏛️ MODELS
 # ==========================================
 
 class UserProfile(Base):
@@ -177,42 +177,30 @@ class PaymentFulfillment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS (LEGACY RESTORED)
+# 🛠️ HELPER FUNCTIONS
 # ==========================================
 
 def get_user_profile(email):
-    """
-    Retrieves user profile. 
-    🔴 CRITICAL FIX: JIT Migration from Advisor table + Routing Protection
-    """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
-            # 1. Try to find existing profile
             profile_obj = session.query(UserProfile).filter_by(email=email).first()
-            
-            # --- 🟡 NEW: JIT MIGRATION (Fixes "Missing Advisor" Bug) ---
-            # If no UserProfile exists, check if they are a Legacy Advisor
             if not profile_obj:
                 legacy_adv = session.query(Advisor).filter_by(email=email).first()
                 if legacy_adv:
-                    # Create the profile now!
                     profile_obj = UserProfile(
                         email=email,
                         full_name=legacy_adv.full_name,
-                        role="advisor", # FORCE ADVISOR ROLE
+                        role="advisor",
                         advisor_firm=legacy_adv.firm_name,
-                        credits=legacy_adv.credits, # COPY CREDITS
+                        credits=legacy_adv.credits,
                         created_at=legacy_adv.created_at or datetime.utcnow()
                     )
                     session.add(profile_obj)
                     session.commit()
-                    session.refresh(profile_obj) # Get ID
+                    session.refresh(profile_obj)
             
             p = to_dict(profile_obj) if profile_obj else {"email": email}
-            
-            # 2. Only check Client table if user is NOT an Advisor
-            # (If JIT Migration happened above, role is 'advisor', so this is skipped!)
             if p.get("role") != "advisor":
                 client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
                 if client:
@@ -224,7 +212,6 @@ def get_user_profile(email):
                     p["advisor_email"] = client.advisor_email
                     if client.name: p["parent_name"] = client.name
                     if client.phone: p["parent_phone"] = client.phone
-            
             if "role" not in p: p["role"] = "user"
             return p
     except Exception: return {}
@@ -275,7 +262,6 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
         logger.error(f"Create Draft Error: {e}")
         return False
 
-# --- NEW: UPDATE DRAFT VIA SID ---
 def update_draft_by_sid(call_sid, content, recording_url):
     try:
         with get_db_session() as session:
@@ -298,6 +284,19 @@ def update_draft_by_sid(call_sid, content, recording_url):
     except Exception as e:
         logger.error(f"Update SID Error: {e}")
         return False
+
+# --- 🔴 THIS IS THE MISSING FUNCTION CAUSING THE ERROR ---
+def update_project_details(project_id, content=None, status=None):
+    try:
+        with get_db_session() as session:
+            proj = session.query(Project).filter_by(id=project_id).first()
+            if proj:
+                if status: proj.status = status
+                if content: proj.content = content
+                session.commit()
+                return True
+            return False
+    except Exception: return False
 
 def is_fulfillment_recorded(session_id):
     try:
@@ -455,7 +454,6 @@ def update_draft(draft_id, new_text):
     except: return False
 
 def add_advisor_credit(email, amount=1):
-    # 1. Try Supabase Client First (Preferred)
     if supabase:
         try:
             res = supabase.table("user_profiles").select("credits").eq("email", email).execute()
@@ -465,7 +463,6 @@ def add_advisor_credit(email, amount=1):
                 return True
         except Exception as e: logger.error(f"Credit Update Failed: {e}")
 
-    # 2. Fallback to SQLAlchemy (Legacy) - BUT UPDATE USER_PROFILES
     try:
         with get_db_session() as session:
             u = session.query(UserProfile).filter_by(email=email).first()
