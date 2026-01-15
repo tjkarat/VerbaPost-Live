@@ -12,12 +12,10 @@ import streamlit as st
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
-# --- SUPABASE CLIENT SETUP (REQUIRED FOR NEW FUNCTIONS) ---
-# This fixes "NameError: name 'supabase' is not defined"
+# --- 1. SUPABASE CLIENT SETUP (REQUIRED FOR NEW B2B FUNCTIONS) ---
 try:
     from supabase import create_client, Client
     
-    # Try getting credentials from multiple sources
     sb_url = os.environ.get("SUPABASE_URL")
     sb_key = os.environ.get("SUPABASE_KEY")
     
@@ -33,15 +31,13 @@ try:
         supabase: Client = create_client(sb_url, sb_key)
     else:
         supabase = None
-        # logging.warning("⚠️ Supabase Client could not be initialized. Missing URL/KEY.")
 except ImportError:
     supabase = None
-    logging.error("⚠️ Supabase library not found. Install with: pip install supabase")
 
 logger = logging.getLogger(__name__)
 Base = declarative_base()
 
-# Global variables for Lazy Loading
+# --- 2. SQLALCHEMY SETUP (REQUIRED FOR LEGACY FUNCTIONS) ---
 _engine = None
 _SessionLocal = None
 
@@ -91,7 +87,7 @@ def to_dict(obj):
     return {c.name: getattr(obj, c.name) for c in obj.__table__.columns}
 
 # ==========================================
-# 🏛️ MODELS
+# 🏛️ MODELS (ALL ORIGINAL MODELS RESTORED)
 # ==========================================
 
 class UserProfile(Base):
@@ -181,7 +177,7 @@ class PaymentFulfillment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS (LEGACY)
+# 🛠️ HELPER FUNCTIONS (LEGACY RESTORED)
 # ==========================================
 
 def fix_heir_account(email):
@@ -454,7 +450,7 @@ def get_project_by_id(pid):
                     d['parent_name'] = client.name
                     d['heir_name'] = client.heir_name
                 
-                # FIX: Fetch Firm Name from Advisor table
+                # Fetch Firm Name from Advisor table
                 adv = session.query(Advisor).filter_by(email=proj.advisor_email).first()
                 if adv:
                     d['firm_name'] = adv.firm_name
@@ -478,98 +474,75 @@ def log_event(user_email, event_type, metadata=None):
 # 🆕 NEW B2B FUNCTIONS (USING SUPABASE CLIENT)
 # ==========================================
 
-def get_user_drafts(user_email):
-    """
-    Fetches all stories (posts) for a specific user.
-    Required for the Family Archive page.
-    """
-    if not supabase:
-        logging.error("Supabase client not initialized")
-        return []
-        
-    try:
-        # Assumes your table is named 'posts'
-        response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
-        return response.data
-    except Exception as e:
-        logger.error(f"Error fetching drafts: {e}")
-        return []
-
-def update_draft(draft_id, new_content):
-    """
-    Updates the text transcript of a story.
-    """
-    if not supabase: return False
-    
-    try:
-        supabase.table("posts").update({"content": new_content}).eq("id", draft_id).execute()
-        return True
-    except Exception as e:
-        logger.error(f"Error updating draft: {e}")
-        return False
-
-def mark_draft_sent(draft_id, letter_id):
-    """
-    Marks a story as 'mailed' and saves the letter ID.
-    """
-    if not supabase: return False
-
-    try:
-        supabase.table("posts").update({
-            "status": "sent", 
-            "letter_id": letter_id
-        }).eq("id", draft_id).execute()
-        return True
-    except Exception as e:
-        logger.error(f"Error marking sent: {e}")
-        return False
-
 def fetch_advisor_clients(advisor_email):
-    """
-    Fetches the list of clients sponsored by a specific advisor.
-    Used in ui_advisor.py to populate the "Client Roster" tab.
-    """
+    """Fetches clients for the Advisor Portal."""
     if not supabase: return []
-
     try:
-        # Assumes user_profiles has a column 'created_by' or similar linking to the advisor
         response = supabase.table("user_profiles").select("*").eq("created_by", advisor_email).execute()
         return response.data
     except Exception as e:
         logger.error(f"Error fetching clients: {e}")
         return []
 
-def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
-    """
-    Creates a new user profile sponsored by an advisor.
-    Used in ui_advisor.py when 'Activating' a new client.
-    """
-    if not supabase: return False, "Database Offline"
-
+def get_user_drafts(user_email):
+    """Fetches stories for the Family Archive."""
+    if not supabase: return []
     try:
-        # 1. Check if user already exists
-        existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
-        if existing.data:
-            return False, "User with this email already exists."
+        response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
+        return response.data
+    except Exception as e:
+        logger.error(f"Error fetching drafts: {e}")
+        return []
 
-        # 2. Insert new profile
+def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
+    """Creates a new client account."""
+    if not supabase: return False, "DB Offline"
+    try:
+        existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
+        if existing.data: return False, "User exists"
+
         new_user = {
             "email": client_email,
             "full_name": client_name,
             "parent_phone": client_phone,
-            "created_by": advisor_email, # Links them to the advisor
-            "role": "heirloom",          # Default role for the client
-            "credits": 0,                 # Client starts with 0 (Advisor uses their own)
-            "advisor_firm": "Robbana and Associates" # Inherit firm name (hardcoded or fetched)
+            "created_by": advisor_email,
+            "role": "heirloom",
+            "credits": 0,
+            "advisor_firm": "Robbana and Associates"
         }
-        
         data = supabase.table("user_profiles").insert(new_user).execute()
-        
-        if data.data:
-            return True, "Client account created successfully."
-        else:
-            return False, "Database insert failed."
-            
+        return (True, "Success") if data.data else (False, "Insert failed")
     except Exception as e:
-        logger.error(f"Error creating sponsored user: {e}")
         return False, str(e)
+
+def update_advisor_firm_name(advisor_email, new_firm_name):
+    """Updates the firm name safely without raw cursors."""
+    if not supabase: return False
+    try:
+        supabase.table("user_profiles").update({"advisor_firm": new_firm_name}).eq("email", advisor_email).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Update Firm Error: {e}")
+        return False
+
+def update_user_credits(user_email, new_amount):
+    """Updates credit balance."""
+    if not supabase: return False
+    try:
+        supabase.table("user_profiles").update({"credits": new_amount}).eq("email", user_email).execute()
+        return True
+    except Exception: return False
+
+def mark_draft_sent(draft_id, letter_id):
+    if not supabase: return False
+    try:
+        supabase.table("posts").update({"status": "sent", "letter_id": letter_id}).eq("id", draft_id).execute()
+        return True
+    except: return False
+
+def update_draft(draft_id, new_text):
+    if not supabase: return False
+    try:
+        supabase.table("posts").update({"content": new_text}).eq("id", draft_id).execute()
+        return True
+    except: return False
