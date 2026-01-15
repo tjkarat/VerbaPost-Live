@@ -546,3 +546,114 @@ def update_draft(draft_id, new_text):
         supabase.table("posts").update({"content": new_text}).eq("id", draft_id).execute()
         return True
     except: return False
+# ==========================================
+# 🆕 NEW B2B FUNCTIONS (FIXED)
+# ==========================================
+
+def fetch_advisor_clients(advisor_email):
+    """Fetches clients for the Advisor Portal."""
+    if not supabase: return []
+    try:
+        response = supabase.table("user_profiles").select("*").eq("created_by", advisor_email).execute()
+        return response.data
+    except Exception as e:
+        logger.error(f"Error fetching clients: {e}")
+        return []
+
+def get_user_drafts(user_email):
+    """
+    Fetches stories. 
+    FIX: Queries 'projects' table via 'clients' lookup (since projects table lacks user_email).
+    """
+    if not supabase: return []
+    try:
+        # 1. Get Client ID from 'clients' table
+        client_res = supabase.table("clients").select("id").eq("email", user_email).execute()
+        
+        # If no client record, they have no projects
+        if not client_res.data:
+            return []
+            
+        client_id = client_res.data[0]['id']
+        
+        # 2. Get Projects for this Client
+        # Note: Using 'projects' table now, not 'posts'
+        response = supabase.table("projects").select("*").eq("client_id", client_id).order("created_at", desc=True).execute()
+        return response.data
+    except Exception as e:
+        logger.error(f"Error fetching drafts: {e}")
+        return []
+
+def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
+    """
+    Creates a new client account.
+    FIX: Inserts into BOTH 'user_profiles' AND 'clients' to maintain B2B relationships.
+    """
+    if not supabase: return False, "DB Offline"
+
+    try:
+        # 1. Check if user exists
+        existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
+        if existing.data:
+            return False, "User with this email already exists."
+
+        # 2. Create User Profile (Login Access)
+        new_profile = {
+            "email": client_email,
+            "full_name": client_name,
+            "parent_phone": client_phone,
+            "created_by": advisor_email, # Link to Advisor
+            "role": "heirloom",
+            "credits": 0,
+            "advisor_firm": "Robbana and Associates" # Should fetch actual firm name in production
+        }
+        supabase.table("user_profiles").insert(new_profile).execute()
+        
+        # 3. Create Client Record (Project Linkage)
+        # We need this so 'get_user_drafts' works!
+        new_client = {
+            "email": client_email,
+            "name": client_name,
+            "phone": client_phone,
+            "advisor_email": advisor_email,
+            "status": "Active"
+        }
+        supabase.table("clients").insert(new_client).execute()
+        
+        return True, "Client account created successfully."
+            
+    except Exception as e:
+        logger.error(f"Error creating sponsored user: {e}")
+        return False, str(e)
+
+def update_advisor_firm_name(advisor_email, new_firm_name):
+    if not supabase: return False
+    try:
+        supabase.table("user_profiles").update({"advisor_firm": new_firm_name}).eq("email", advisor_email).execute()
+        return True
+    except Exception as e:
+        logger.error(f"Update Firm Error: {e}")
+        return False
+
+def update_user_credits(user_email, new_amount):
+    if not supabase: return False
+    try:
+        supabase.table("user_profiles").update({"credits": new_amount}).eq("email", user_email).execute()
+        return True
+    except Exception: return False
+
+def mark_draft_sent(draft_id, letter_id):
+    if not supabase: return False
+    try:
+        # FIX: Targeting 'projects' table
+        supabase.table("projects").update({"status": "sent", "tracking_number": letter_id}).eq("id", draft_id).execute()
+        return True
+    except: return False
+
+def update_draft(draft_id, new_text):
+    if not supabase: return False
+    try:
+        # FIX: Targeting 'projects' table
+        supabase.table("projects").update({"content": new_text}).eq("id", draft_id).execute()
+        return True
+    except: return False    
