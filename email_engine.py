@@ -22,7 +22,6 @@ def get_api_key():
 def get_admin_email():
     """Retrieves the Admin Email for notifications."""
     try:
-        # Check standard admin location
         if "admin" in st.secrets:
             return st.secrets["admin"]["email"]
     except: pass
@@ -31,20 +30,17 @@ def get_admin_email():
 def get_sender_address():
     """
     Returns the configured sender or the Resend default.
-    Change 'VERIFIED_DOMAIN_EMAIL' in secrets to use your custom domain.
     """
     try:
         if "email" in st.secrets and "sender" in st.secrets["email"]:
             return st.secrets["email"]["sender"]
     except: pass
-    
-    # Fallback to Resend Test Domain if not configured (Ensures delivery)
-    return "VerbaPost <onboarding@resend.dev>"
+    return "VerbaPost Archives <onboarding@resend.dev>"
 
 # --- CORE SEND FUNCTION ---
 def send_email(to_email, subject, html_content):
     """
-    Generic wrapper to send emails to Users.
+    Generic wrapper to send emails via Resend.
     """
     api_key = get_api_key()
     sender = get_sender_address()
@@ -82,18 +78,42 @@ def send_email(to_email, subject, html_content):
         logger.error(f"❌ Email Exception: {e}")
         return False
 
-# --- NEW: ADMIN NOTIFICATION SYSTEM ---
+# --- NEW: INTERVIEW PREP EMAIL ---
+def send_interview_prep_email(to_email, advisor_name, question_text):
+    """
+    Sends a prep email to the interviewee so they know what to say.
+    """
+    subject = f"Upcoming Legacy Interview: Prep for your call"
+    
+    # Simple, elegant HTML styling
+    html_content = f"""
+    <div style="font-family: 'Times New Roman', serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #eee;">
+        <h2 style="color: #2c3e50; text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px;">THE FAMILY LEGACY ARCHIVE</h2>
+        <p>Hello,</p>
+        <p><strong>{advisor_name}</strong> has sponsored a legacy preservation session to capture your story.</p>
+        <p>You will receive a phone call shortly from <strong>(615) 656-7667</strong>. When you answer, our automated biographer will ask you to record your answer to the following question:</p>
+        
+        <div style="background-color: #f8f9fa; padding: 20px; border-left: 5px solid #d4af37; margin: 25px 0;">
+            <h3 style="margin-top: 0; color: #d4af37; font-family: sans-serif; font-size: 14px; text-transform: uppercase;">Your Interview Question</h3>
+            <p style="font-size: 20px; font-style: italic; margin-bottom: 0;">"{question_text}"</p>
+        </div>
+        
+        <p>Please take a moment to collect your thoughts. There is no time limit, but we recommend a story length of about <strong>3 to 5 minutes</strong>.</p>
+        <p style="margin-top: 30px;">Warmly,<br>The VerbaPost Archives</p>
+    </div>
+    """
+    
+    return send_email(to_email, subject, html_content)
+
+# --- ADMIN ALERTS ---
 def send_admin_alert(trigger_event, details_html):
     """
     Sends an alert to the Admin when a manual action is needed.
     """
     admin_email = get_admin_email()
-    if not admin_email:
-        logger.warning("⚠️ Cannot send Admin Alert: No Admin Email configured.")
-        return False
+    if not admin_email: return False
         
     subject = f"🔔 ACTION REQUIRED: {trigger_event}"
-    
     html = f"""
     <div style="font-family:sans-serif; border:1px solid #d93025; padding:20px;">
         <h2 style="color:#d93025; margin-top:0;">Manual Fulfillment Required</h2>
@@ -101,8 +121,7 @@ def send_admin_alert(trigger_event, details_html):
         <hr>
         {details_html}
         <hr>
-        <p>Login to <a href="https://verbapost.streamlit.app">VerbaPost Admin</a> to print.</p>
+        <p>Login to Admin Console to print.</p>
     </div>
     """
-    
     return send_email(admin_email, subject, html)

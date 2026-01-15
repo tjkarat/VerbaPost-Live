@@ -446,3 +446,40 @@ def log_event(user_email, event_type, metadata=None):
             session.add(evt)
             session.commit()
     except Exception: pass
+def get_user_drafts(user_email):
+    """
+    Fetches all stories (posts) for a specific user.
+    Required for the Family Archive page.
+    """
+    try:
+        # Assumes your table is named 'posts'
+        response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
+        return response.data
+    except Exception as e:
+        print(f"Error fetching drafts: {e}")
+        return []
+
+def update_draft(draft_id, new_content):
+    """
+    Updates the text transcript of a story.
+    """
+    try:
+        supabase.table("posts").update({"content": new_content}).eq("id", draft_id).execute()
+        return True
+    except Exception as e:
+        print(f"Error updating draft: {e}")
+        return False
+
+def mark_draft_sent(draft_id, letter_id):
+    """
+    Marks a story as 'mailed' and saves the letter ID.
+    """
+    try:
+        supabase.table("posts").update({
+            "status": "sent", 
+            "letter_id": letter_id
+        }).eq("id", draft_id).execute()
+        return True
+    except Exception as e:
+        print(f"Error marking sent: {e}")
+        return False

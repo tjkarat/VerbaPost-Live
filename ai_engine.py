@@ -1,138 +1,118 @@
 import os
 import logging
-import requests
-import tempfile
-from openai import OpenAI
-from twilio.rest import Client
+import openai
+from datetime import datetime
 
-# --- LOGGING SETUP ---
-logger = logging.getLogger(__name__)
-
-# --- SECRETS & CONFIG ---
+# --- IMPORTS ---
 try: import secrets_manager
 except ImportError: secrets_manager = None
 
+logger = logging.getLogger(__name__)
+
+# --- CONFIG ---
 def get_secret(key):
     if secrets_manager: return secrets_manager.get_secret(key)
-    return os.environ.get(key) or os.environ.get(key.upper())
+    val = os.environ.get(key)
+    if not val: val = os.environ.get(key.upper())
+    return val
 
-# --- 1. TELEPHONY (The Call) ---
-def trigger_outbound_call(to_phone, advisor_name, firm_name, prompt_text=None):
+def get_openai_client():
+    api_key = get_secret("openai.api_key")
+    if not api_key: return None
+    return openai.OpenAI(api_key=api_key)
+
+# ==========================================
+# 📞 B2B TELEPHONY (UPDATED)
+# ==========================================
+
+def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, question_text=None):
     """
-    Triggers a Twilio call with the SPECIFIC question from the database.
+    Triggers a Twilio call with a dynamic B2B script.
+    NOW SUPPORTS: Custom Question Text & Neural Voice.
     """
     sid = get_secret("twilio.account_sid")
     token = get_secret("twilio.auth_token")
-    from_number = get_secret("twilio.from_number") or "+16156567667" # Fallback
+    from_number = get_secret("twilio.from_number") or "+16156567667"
 
     if not sid or not token:
-        return None, "Twilio Credentials Missing"
+        logger.error("Twilio Credentials Missing")
+        return None, "Missing Credentials"
 
-    # DEFAULT FALLBACK (Only used if database is empty)
-    if not prompt_text:
-        prompt_text = "Please share a favorite memory from your life that you want your family to remember."
+    # Default fallback if no question provided
+    if not question_text:
+        question_text = "Please share a favorite memory from your childhood."
 
-    # TwiML Script (Latency Fix: Removed <Pause> tags)
+    callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}"
+    
+    # Sanitize inputs
+    safe_advisor = advisor_name or "your financial advisor"
+    safe_firm = firm_name or "their firm"
+
+    # --- DYNAMIC SCRIPT GENERATION ---
     twiml = f"""
     <Response>
+        <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            Hello. This is the family historian for {firm_name}.
+            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
         </Say>
+        <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            {advisor_name} has sponsored this interview. Here is your question:
+            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
+            Here is your question:
         </Say>
+        <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            {prompt_text}
+            {question_text}
         </Say>
-        <Record maxLength="600" timeout="10" playBeep="true" trim="trim-silence" />
-        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved.</Say>
+        <Pause length="2"/>
+        <Say voice="Polly.Joanna-Neural">
+            Please take a moment to think. Then, record your answer after the beep. When you are finished, press the pound key.
+        </Say>
+        <Record maxLength="600" finishOnKey="#" action="{callback_url}" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved to the archive.</Say>
     </Response>
     """
 
     try:
+        from twilio.rest import Client
         client = Client(sid, token)
+
         call = client.calls.create(
             twiml=twiml,
             to=to_phone,
-            from_=from_number,
-            machine_detection='DetectMessageEnd'
+            from_=from_number
         )
         return call.sid, None
     except Exception as e:
         logger.error(f"Twilio Error: {e}")
         return None, str(e)
 
-# --- 2. TRANSCRIPTION (The Fetch) ---
-def fetch_and_transcribe(call_sid):
-    """
-    1. Asks Twilio for the recording URL.
-    2. Downloads the MP3.
-    3. Sends to OpenAI Whisper.
-    4. Returns text + audio_url.
-    """
-    sid = get_secret("twilio.account_sid")
-    token = get_secret("twilio.auth_token")
-    openai_key = get_secret("openai.api_key")
-    
-    if not sid or not token or not openai_key:
-        return None, None, "Missing API Keys"
+# ==========================================
+# 🎤 TRANSCRIPTION (UNCHANGED)
+# ==========================================
 
+def transcribe_audio(file_path):
+    client = get_openai_client()
+    if not client: return None
     try:
-        client = Client(sid, token)
-        
-        # 1. Find Recording
-        recordings = client.recordings.list(call_sid=call_sid, limit=1)
-        if not recordings:
-            return None, None, "No recording found yet (Call might be active)."
-            
-        rec = recordings[0]
-        # Construct MP3 URL (Twilio creates .json by default in API, we force .mp3)
-        # We assume the standard Twilio pattern: https://api.twilio.com/2010-04-01/Accounts/{AccountSid}/Recordings/{RecordingSid}.mp3
-        # But grabbing it from the URI is safer if we strip the extension
-        base_uri = f"https://api.twilio.com{rec.uri[:-5]}.mp3" 
-        
-        # 2. Download Audio
-        resp = requests.get(base_uri)
-        if resp.status_code != 200:
-            return None, None, "Failed to download audio from Twilio."
-            
-        # 3. Transcribe with OpenAI
-        transcript_text = ""
-        openai_client = OpenAI(api_key=openai_key)
-        
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp.write(resp.content)
-            tmp.close()
-            
-            with open(tmp.name, "rb") as audio_file:
-                transcript = openai_client.audio.transcriptions.create(
-                    model="whisper-1", 
-                    file=audio_file
-                )
-                transcript_text = transcript.text
-            
-            os.unlink(tmp.name)
-
-        return transcript_text, base_uri, None
-
+        with open(file_path, "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            )
+        return transcript.text
     except Exception as e:
-        logger.error(f"Transcribe Error: {e}")
-        return None, None, str(e)
+        logger.error(f"Transcription Error: {e}")
+        return None
 
-# --- 3. POLISHING (The AI Edit) ---
 def refine_text(text):
-    """
-    GPT-4o Polish.
-    """
-    key = get_secret("openai.api_key")
-    if not key: return text
-    
+    client = get_openai_client()
+    if not client: return text
     try:
-        client = OpenAI(api_key=key)
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a professional editor. Clean up this spoken transcript. Remove 'ums', 'ahs', and stutters. Fix punctuation. Keep the tone warm and personal. Do not summarize; keep the original story intact."},
+                {"role": "system", "content": "You are a professional editor. Polish this letter for clarity and warmth."},
                 {"role": "user", "content": text}
             ]
         )
@@ -140,3 +120,26 @@ def refine_text(text):
     except Exception as e:
         logger.error(f"Refine Error: {e}")
         return text
+
+def get_all_twilio_recordings(limit=50):
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    if not sid or not token: return []
+
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        recordings = client.recordings.list(limit=limit)
+        data = []
+        for r in recordings:
+            data.append({
+                "sid": r.sid,
+                "date_created": r.date_created,
+                "duration": r.duration,
+                "status": r.status,
+                "uri": r.uri 
+            })
+        return data
+    except Exception as e:
+        logger.error(f"Twilio Fetch Error: {e}")
+        return []
