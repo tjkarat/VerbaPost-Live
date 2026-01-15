@@ -43,19 +43,27 @@ def get_orphaned_calls():
         if call['sid'] not in known_sids: orphans.append(call)
     return orphans
 
+# --- 🔴 FIX: TARGETING CORRECT TABLE (USER_PROFILES) ---
 def manual_credit_grant(advisor_email, amount):
     if not database: return False
     try:
         with database.get_db_session() as session:
-            sql_check = text("SELECT credits FROM advisors WHERE email = :email")
+            # 1. Check User Profiles (The Source of Truth)
+            sql_check = text("SELECT credits FROM user_profiles WHERE email = :email")
             result = session.execute(sql_check, {"email": advisor_email}).fetchone()
-            if not result: return False, "Advisor not found."
+            
+            if not result: 
+                return False, "Advisor not found in User Profiles."
+                
             current_credits = result[0] or 0
             new_total = current_credits + amount
-            sql_update = text("UPDATE advisors SET credits = :new_val WHERE email = :email")
+            
+            # 2. Update User Profiles
+            sql_update = text("UPDATE user_profiles SET credits = :new_val WHERE email = :email")
             session.execute(sql_update, {"new_val": new_total, "email": advisor_email})
             session.commit()
             return True, new_total
+            
     except Exception as e: return False, str(e)
 
 def check_service_health():
