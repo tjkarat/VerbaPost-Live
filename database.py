@@ -13,6 +13,7 @@ try: import secrets_manager
 except ImportError: secrets_manager = None
 
 # --- SUPABASE CLIENT SETUP (REQUIRED FOR NEW FUNCTIONS) ---
+# This fixes "NameError: name 'supabase' is not defined"
 try:
     from supabase import create_client, Client
     
@@ -32,7 +33,7 @@ try:
         supabase: Client = create_client(sb_url, sb_key)
     else:
         supabase = None
-        logging.warning("⚠️ Supabase Client could not be initialized. Missing URL/KEY.")
+        # logging.warning("⚠️ Supabase Client could not be initialized. Missing URL/KEY.")
 except ImportError:
     supabase = None
     logging.error("⚠️ Supabase library not found. Install with: pip install supabase")
@@ -180,7 +181,7 @@ class PaymentFulfillment(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 # ==========================================
-# 🛠️ HELPER FUNCTIONS
+# 🛠️ HELPER FUNCTIONS (LEGACY)
 # ==========================================
 
 def fix_heir_account(email):
@@ -483,7 +484,7 @@ def get_user_drafts(user_email):
     Required for the Family Archive page.
     """
     if not supabase:
-        print("Supabase client not initialized")
+        logging.error("Supabase client not initialized")
         return []
         
     try:
@@ -491,7 +492,7 @@ def get_user_drafts(user_email):
         response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
         return response.data
     except Exception as e:
-        print(f"Error fetching drafts: {e}")
+        logger.error(f"Error fetching drafts: {e}")
         return []
 
 def update_draft(draft_id, new_content):
@@ -504,7 +505,7 @@ def update_draft(draft_id, new_content):
         supabase.table("posts").update({"content": new_content}).eq("id", draft_id).execute()
         return True
     except Exception as e:
-        print(f"Error updating draft: {e}")
+        logger.error(f"Error updating draft: {e}")
         return False
 
 def mark_draft_sent(draft_id, letter_id):
@@ -520,7 +521,7 @@ def mark_draft_sent(draft_id, letter_id):
         }).eq("id", draft_id).execute()
         return True
     except Exception as e:
-        print(f"Error marking sent: {e}")
+        logger.error(f"Error marking sent: {e}")
         return False
 
 def fetch_advisor_clients(advisor_email):
@@ -535,7 +536,7 @@ def fetch_advisor_clients(advisor_email):
         response = supabase.table("user_profiles").select("*").eq("created_by", advisor_email).execute()
         return response.data
     except Exception as e:
-        print(f"Error fetching clients: {e}")
+        logger.error(f"Error fetching clients: {e}")
         return []
 
 def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
@@ -570,5 +571,5 @@ def create_sponsored_user(advisor_email, client_name, client_email, client_phone
             return False, "Database insert failed."
             
     except Exception as e:
-        print(f"Error creating sponsored user: {e}")
+        logger.error(f"Error creating sponsored user: {e}")
         return False, str(e)
