@@ -3,7 +3,8 @@ import pandas as pd
 import time
 import database
 import payment_engine
-import email_engine # NEW IMPORT
+import email_engine 
+import audit_engine # <--- NEW IMPORT
 
 def render_dashboard():
     """
@@ -60,15 +61,12 @@ def render_dashboard():
     # === TAB 1: CLIENT ROSTER ===
     with tab1:
         st.subheader("Your Sponsored Families")
-        
-        # Call the safe function
         clients = database.fetch_advisor_clients(user_email) 
         
         if not clients:
             st.info("No active clients found. Use the 'Activate Client' tab to start your first project.")
         else:
             df = pd.DataFrame(clients)
-            # Display specific columns
             display_cols = [c for c in df.columns if c in ['full_name', 'email', 'created_at', 'status']]
             st.dataframe(df[display_cols] if display_cols else df, use_container_width=True)
 
@@ -109,16 +107,18 @@ def render_dashboard():
                         )
                         
                         if success:
-                            # 1. Update Credits
                             new_balance = credits - 1
                             database.update_user_credits(user_email, new_balance)
                             
-                            # 2. Send Welcome Email (THE TRIGGER)
                             email_engine.send_heir_welcome_email(
                                 to_email=c_email,
                                 advisor_firm=firm_name,
                                 advisor_name=advisor_full_name
                             )
+                            
+                            # AUDIT LOG
+                            if audit_engine:
+                                audit_engine.log_event(user_email, "Client Activated", metadata={"client_email": c_email, "credit_spent": 1})
                             
                             st.success(f"🎉 Project Activated for {c_name}! Invitation sent to {c_email}.")
                             time.sleep(2)
@@ -142,7 +142,6 @@ def render_dashboard():
             st.write("") 
             if st.button("Save Branding", use_container_width=True):
                 if new_firm_name:
-                    # NEW: Using the safe function instead of cursor
                     if database.update_advisor_firm_name(user_email, new_firm_name):
                         st.success("✅ Branding Updated!")
                         time.sleep(1)

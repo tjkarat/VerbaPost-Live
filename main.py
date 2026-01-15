@@ -24,8 +24,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- 4. HARDENED IMPORTS (Prevents KeyError/Crash Loop) ---
-# We use Exception here because Streamlit hot-reloading can throw
-# KeyErrors or AttributeErrors if the module cache is stale.
 try: import ui_splash
 except Exception: ui_splash = None
 
@@ -62,6 +60,8 @@ try: import ui_archive
 except Exception: ui_archive = None
 try: import payment_engine 
 except Exception: payment_engine = None
+try: import audit_engine # <--- NEW IMPORT
+except Exception: audit_engine = None
 
 # --- 5. ROUTER LOGIC ---
 def main():
@@ -74,7 +74,6 @@ def main():
                 st.stop()
             st.session_state.system_verified = True
         except Exception: 
-            # If validator crashes, assume manual override
             st.session_state.system_verified = True
 
     # B. SESSION INIT
@@ -104,13 +103,14 @@ def main():
             user, err = auth_engine.exchange_code_for_user(code)
             
             if user:
-                # STRICT CHECK: Does this user exist?
                 profile = database.get_user_profile(user.email)
-                
                 st.session_state.authenticated = True
                 st.session_state.user_email = user.email
                 
-                # Smart Route: Check role
+                # AUDIT LOG
+                if audit_engine:
+                    audit_engine.log_event(user.email, "Google Login", metadata={"role": profile.get('role')})
+
                 if profile.get('role') == 'advisor':
                     st.session_state.app_mode = "advisor"
                 else:
@@ -136,6 +136,11 @@ def main():
                         if user_email:
                             database.add_advisor_credit(user_email, 1) 
                             database.record_stripe_fulfillment(session_id, "Advisor Credit", user_email)
+                            
+                            # AUDIT LOG
+                            if audit_engine:
+                                audit_engine.log_event(user_email, "Payment Verified", metadata={"session": session_id, "item": "Advisor Credit"})
+
                             st.balloons()
                             st.success("Payment Successful! Credit added.")
                             st.session_state.authenticated = True
@@ -162,15 +167,15 @@ def main():
         with st.sidebar:
             st.caption(f"VerbaPost v{VERSION}")
             
-            # 1. Standard User Controls
             if st.button("🚪 Sign Out"):
+                # AUDIT LOG (Logout)
+                if audit_engine:
+                    audit_engine.log_event(st.session_state.get("user_email", "unknown"), "Logout")
                 st.session_state.clear()
                 st.rerun()
             
-            # 2. Admin Super-Controls
             user = st.session_state.get("user_email", "")
             
-            # Check if user is admin
             is_admin = "admin" in user or \
                        (secrets_manager and user == secrets_manager.get_secret("admin.email")) or \
                        user == "tjkarat@gmail.com"
@@ -179,17 +184,14 @@ def main():
                 st.divider()
                 st.markdown("**Role Switcher**")
                 
-                # View 1: The Control Room
                 if st.button("⚙️ Admin Console"): 
                     st.session_state.app_mode = "admin"
                     st.rerun()
                 
-                # View 2: The B2B Customer View
                 if st.button("👔 Advisor Portal"): 
                     st.session_state.app_mode = "advisor"
                     st.rerun()
                     
-                # View 3: The End User View (Heirloom)
                 if st.button("📂 Family Archive"): 
                     st.session_state.app_mode = "heirloom"
                     st.rerun()
@@ -197,7 +199,6 @@ def main():
     # E. VIEW CONTROLLER
     mode = st.session_state.app_mode
 
-    # 1. Protected Routes
     if mode in ["heirloom", "advisor", "admin"]:
         if not st.session_state.authenticated:
             st.session_state.app_mode = "login"
@@ -207,15 +208,12 @@ def main():
         elif mode == "advisor" and ui_advisor: ui_advisor.render_dashboard()
         elif mode == "admin" and ui_admin: ui_admin.render_admin_page()
     
-    # 2. Public Static Routes
     elif mode == "legal" and ui_legal: ui_legal.render_legal_page()
     elif mode == "blog" and ui_blog: ui_blog.render_blog_page()
     elif mode == "partner" and ui_partner: ui_partner.render_partner_page()
 
-    # 3. Auth Routes
     elif mode == "login" and ui_login: ui_login.render_login_page()
     
-    # 4. Default / Splash
     else:
         if ui_splash: ui_splash.render_splash_page()
         else: st.write("Loading...")

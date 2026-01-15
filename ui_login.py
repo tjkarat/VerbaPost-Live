@@ -16,7 +16,8 @@ def render_login_page():
         import auth_engine
         import database
         import mailer
-        import secrets_manager 
+        import secrets_manager
+        import audit_engine # <--- NEW IMPORT
     except ImportError as e:
         st.error(f"System Module Error: {e}")
         return
@@ -237,6 +238,10 @@ def render_login_page():
                                             
                                             db.commit()
                                     
+                                    # AUDIT LOG
+                                    if audit_engine:
+                                        audit_engine.log_event(new_email, "Account Created", metadata={"role": "advisor" if is_advisor else "user"})
+                                    
                                     st.success("✅ Account Created! Logging you in...")
                                     st.session_state.authenticated = True
                                     st.session_state.user_email = new_email
@@ -277,6 +282,10 @@ def render_login_page():
                             if p.get("role") == "advisor": mode = "advisor"
                             elif p.get("role") == "admin": mode = "admin"
                         
+                        # AUDIT LOG
+                        if audit_engine:
+                            audit_engine.log_event(email, "Login Successful", metadata={"mode": mode})
+
                         st.session_state.app_mode = mode
                         st.rerun()
                     else:
