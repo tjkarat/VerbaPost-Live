@@ -42,23 +42,26 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
     if not question_text:
         question_text = "Please share a favorite memory from your childhood."
 
-    callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}"
+    # --- 🔴 FIX 2: REMOVE BROKEN WEBHOOK ---
+    # Streamlit cannot handle incoming POST webhooks easily.
+    # We rely on the "Check for New Stories" button (Polling) instead.
+    # callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}" 
     
     # Sanitize inputs
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
 
-    # --- DYNAMIC SCRIPT GENERATION ---
+    # --- 🟡 FIX 1: NATURAL SCRIPT (NO REPETITION) ---
+    # Streamlined copy: Introduces advisor once, then pivots to the "Biographer" persona.
     twiml = f"""
     <Response>
         <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            Hello. This is a courtesy call from VerbaPost, on behalf of {safe_advisor} at {safe_firm}.
+            Hello. This is the VerbaPost personal biographer calling for a scheduled interview sponsored by {safe_advisor}.
         </Say>
         <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
-            {safe_advisor} has sponsored a legacy interview to preserve your family story. 
-            Here is your question:
+            I am here to capture a specific story for your family archive. Here is your question:
         </Say>
         <Pause length="1"/>
         <Say voice="Polly.Joanna-Neural">
@@ -66,10 +69,10 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
         </Say>
         <Pause length="2"/>
         <Say voice="Polly.Joanna-Neural">
-            Please take a moment to think. Then, record your answer after the beep. When you are finished, press the pound key.
+            Please take a moment to think. Then, record your answer after the beep. When you are finished, simply hang up or press the pound key.
         </Say>
-        <Record maxLength="600" finishOnKey="#" action="{callback_url}" />
-        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved to the archive.</Say>
+        <Record maxLength="600" finishOnKey="#" />
+        <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved to the archive. Goodbye.</Say>
     </Response>
     """
 
