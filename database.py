@@ -183,16 +183,36 @@ class PaymentFulfillment(Base):
 def get_user_profile(email):
     """
     Retrieves user profile. 
-    🔴 CRITICAL FIX: Ensures Advisors are not overwritten as Heirs.
+    🔴 CRITICAL FIX: JIT Migration from Advisor table + Routing Protection
     """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
+            # 1. Try to find existing profile
             profile_obj = session.query(UserProfile).filter_by(email=email).first()
+            
+            # --- 🟡 NEW: JIT MIGRATION (Fixes "Missing Advisor" Bug) ---
+            # If no UserProfile exists, check if they are a Legacy Advisor
+            if not profile_obj:
+                legacy_adv = session.query(Advisor).filter_by(email=email).first()
+                if legacy_adv:
+                    # Create the profile now!
+                    profile_obj = UserProfile(
+                        email=email,
+                        full_name=legacy_adv.full_name,
+                        role="advisor", # FORCE ADVISOR ROLE
+                        advisor_firm=legacy_adv.firm_name,
+                        credits=legacy_adv.credits, # COPY CREDITS
+                        created_at=legacy_adv.created_at or datetime.utcnow()
+                    )
+                    session.add(profile_obj)
+                    session.commit()
+                    session.refresh(profile_obj) # Get ID
+            
             p = to_dict(profile_obj) if profile_obj else {"email": email}
             
-            # --- FIX STARTS HERE ---
-            # Only check Client table if user is NOT already an Advisor
+            # 2. Only check Client table if user is NOT an Advisor
+            # (If JIT Migration happened above, role is 'advisor', so this is skipped!)
             if p.get("role") != "advisor":
                 client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
                 if client:
@@ -230,16 +250,10 @@ def get_advisor_clients(email):
     except Exception: return []
 
 def create_draft(user_email, content, status="Recording", call_sid=None):
-    """
-    Creates a placeholder draft/project for the call.
-    Uses 'call_sid' to link the future recording.
-    """
     user_email = user_email.strip().lower()
     try:
         with get_db_session() as session:
-            # Check if this user is a "Client" (B2B)
             client = session.query(Client).filter_by(email=user_email).order_by(Client.created_at.desc()).first()
-            
             if client:
                 new_proj = Project(
                     advisor_email=client.advisor_email,
@@ -253,8 +267,6 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
                 session.add(new_proj)
                 session.commit()
                 return True
-            
-            # Fallback for B2C/Direct users
             draft = LetterDraft(user_email=user_email, content=content, status=status, call_sid=call_sid)
             session.add(draft)
             session.commit()
@@ -265,23 +277,16 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
 
 # --- NEW: UPDATE DRAFT VIA SID ---
 def update_draft_by_sid(call_sid, content, recording_url):
-    """
-    Updates a draft based on the Twilio Call SID.
-    Used by the Polling Mechanism.
-    """
     try:
         with get_db_session() as session:
-            # 1. Try Projects Table
             p = session.query(Project).filter_by(call_sid=call_sid).first()
             if p:
                 p.content = content
-                p.tracking_number = recording_url # Store URL in tracking column
+                p.tracking_number = recording_url 
                 p.status = 'Draft'
-                p.call_sid = None # Clear SID to stop polling
+                p.call_sid = None 
                 session.commit()
                 return True
-                
-            # 2. Try Drafts Table
             d = session.query(LetterDraft).filter_by(call_sid=call_sid).first()
             if d:
                 d.content = content
@@ -360,14 +365,9 @@ def get_project_by_id(pid):
                 if client:
                     d['parent_name'] = client.name
                     d['heir_name'] = client.heir_name
-                
-                # Fetch Firm Name from Advisor table
                 adv = session.query(Advisor).filter_by(email=proj.advisor_email).first()
-                if adv:
-                    d['firm_name'] = adv.firm_name
-                else:
-                    d['firm_name'] = "VerbaPost Wealth"
-                    
+                if adv: d['firm_name'] = adv.firm_name
+                else: d['firm_name'] = "VerbaPost Wealth"
                 return d
             return None
     except Exception: return None
@@ -386,7 +386,6 @@ def log_event(user_email, event_type, metadata=None):
 # ==========================================
 
 def fetch_advisor_clients(advisor_email):
-    """Fetches clients for the Advisor Portal."""
     if not supabase: return []
     try:
         response = supabase.table("user_profiles").select("*").eq("created_by", advisor_email).execute()
@@ -396,23 +395,11 @@ def fetch_advisor_clients(advisor_email):
         return []
 
 def get_user_drafts(user_email):
-    """
-    Fetches stories. 
-    FIX: Queries 'projects' table via 'clients' lookup (since projects table lacks user_email).
-    """
     if not supabase: return []
     try:
-        # 1. Get Client ID from 'clients' table
         client_res = supabase.table("clients").select("id").eq("email", user_email).execute()
-        
-        # If no client record, they have no projects
-        if not client_res.data:
-            return []
-            
+        if not client_res.data: return []
         client_id = client_res.data[0]['id']
-        
-        # 2. Get Projects for this Client
-        # Note: Using 'projects' table now, not 'posts'
         response = supabase.table("projects").select("*").eq("client_id", client_id).order("created_at", desc=True).execute()
         return response.data
     except Exception as e:
@@ -420,46 +407,22 @@ def get_user_drafts(user_email):
         return []
 
 def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
-    """
-    Creates a new client account.
-    FIX: Inserts into BOTH 'user_profiles' AND 'clients' to maintain B2B relationships.
-    """
     if not supabase: return False, "DB Offline"
-
     try:
-        # 1. Check if user exists
         existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
-        if existing.data:
-            return False, "User with this email already exists."
-
-        # 2. Create User Profile (Login Access)
+        if existing.data: return False, "User exists"
         new_profile = {
-            "email": client_email,
-            "full_name": client_name,
-            "parent_phone": client_phone,
-            "created_by": advisor_email, # Link to Advisor
-            "role": "heirloom",
-            "credits": 0,
-            "advisor_firm": "Robbana and Associates" # Should fetch actual firm name in production
+            "email": client_email, "full_name": client_name, "parent_phone": client_phone,
+            "created_by": advisor_email, "role": "heirloom", "credits": 0, "advisor_firm": "Robbana and Associates"
         }
         supabase.table("user_profiles").insert(new_profile).execute()
-        
-        # 3. Create Client Record (Project Linkage)
-        # We need this so 'get_user_drafts' works!
         new_client = {
-            "email": client_email,
-            "name": client_name,
-            "phone": client_phone,
-            "advisor_email": advisor_email,
-            "status": "Active"
+            "email": client_email, "name": client_name, "phone": client_phone,
+            "advisor_email": advisor_email, "status": "Active"
         }
         supabase.table("clients").insert(new_client).execute()
-        
-        return True, "Client account created successfully."
-            
-    except Exception as e:
-        logger.error(f"Error creating sponsored user: {e}")
-        return False, str(e)
+        return True, "Success"
+    except Exception as e: return False, str(e)
 
 def update_advisor_firm_name(advisor_email, new_firm_name):
     if not supabase: return False
@@ -480,7 +443,6 @@ def update_user_credits(user_email, new_amount):
 def mark_draft_sent(draft_id, letter_id):
     if not supabase: return False
     try:
-        # FIX: Targeting 'projects' table
         supabase.table("projects").update({"status": "sent", "tracking_number": letter_id}).eq("id", draft_id).execute()
         return True
     except: return False
@@ -488,33 +450,24 @@ def mark_draft_sent(draft_id, letter_id):
 def update_draft(draft_id, new_text):
     if not supabase: return False
     try:
-        # FIX: Targeting 'projects' table
         supabase.table("projects").update({"content": new_text}).eq("id", draft_id).execute()
         return True
     except: return False
 
 def add_advisor_credit(email, amount=1):
-    """
-    Increments credits in the user_profiles table (B2B Logic).
-    """
     # 1. Try Supabase Client First (Preferred)
     if supabase:
         try:
-            # Fetch current
             res = supabase.table("user_profiles").select("credits").eq("email", email).execute()
             if res.data:
                 current = res.data[0].get('credits', 0) or 0
-                new_total = current + amount
-                supabase.table("user_profiles").update({"credits": new_total}).eq("email", email).execute()
+                supabase.table("user_profiles").update({"credits": current + amount}).eq("email", email).execute()
                 return True
-        except Exception as e:
-            logger.error(f"Credit Update Failed: {e}")
-            # Do NOT return False yet, try Fallback
+        except Exception as e: logger.error(f"Credit Update Failed: {e}")
 
     # 2. Fallback to SQLAlchemy (Legacy) - BUT UPDATE USER_PROFILES
     try:
         with get_db_session() as session:
-            # TARGET USER_PROFILE (NOT ADVISOR TABLE)
             u = session.query(UserProfile).filter_by(email=email).first()
             if u:
                 u.credits = (u.credits or 0) + amount
