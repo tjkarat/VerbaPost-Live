@@ -180,24 +180,34 @@ class PaymentFulfillment(Base):
 # 🛠️ HELPER FUNCTIONS (LEGACY RESTORED)
 # ==========================================
 
-def fix_heir_account(email):
+def get_user_profile(email):
+    """
+    Retrieves user profile. 
+    🔴 CRITICAL FIX: Ensures Advisors are not overwritten as Heirs.
+    """
     email = email.strip().lower()
     try:
         with get_db_session() as session:
-            clients = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).all()
-            if not clients: return False
-            winner = clients[0]
-            if winner.status != 'Active':
-                winner.status = 'Active'
-                session.add(winner)
-            if len(clients) > 1:
-                for loser in clients[1:]:
-                    session.delete(loser)
-            u = session.query(UserProfile).filter_by(email=email).first()
-            if u: u.role = 'heir'
-            session.commit()
-            return True
-    except Exception: return False
+            profile_obj = session.query(UserProfile).filter_by(email=email).first()
+            p = to_dict(profile_obj) if profile_obj else {"email": email}
+            
+            # --- FIX STARTS HERE ---
+            # Only check Client table if user is NOT already an Advisor
+            if p.get("role") != "advisor":
+                client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
+                if client:
+                    adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
+                    firm = adv.firm_name if adv else "VerbaPost"
+                    p["role"] = "heir"
+                    p["status"] = "Active" 
+                    p["advisor_firm"] = firm
+                    p["advisor_email"] = client.advisor_email
+                    if client.name: p["parent_name"] = client.name
+                    if client.phone: p["parent_phone"] = client.phone
+            
+            if "role" not in p: p["role"] = "user"
+            return p
+    except Exception: return {}
 
 def create_user(email, full_name, role='user'):
     email = email.strip().lower()
@@ -211,35 +221,6 @@ def create_user(email, full_name, role='user'):
             return True
     except Exception: return False
 
-def get_user_profile(email):
-    email = email.strip().lower()
-    try:
-        with get_db_session() as session:
-            profile_obj = session.query(UserProfile).filter_by(email=email).first()
-            p = to_dict(profile_obj) if profile_obj else {"email": email}
-            client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
-            if client:
-                adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
-                firm = adv.firm_name if adv else "VerbaPost"
-                p["role"] = "heir"
-                p["status"] = "Active" 
-                p["advisor_firm"] = firm
-                p["advisor_email"] = client.advisor_email
-                if client.name: p["parent_name"] = client.name
-                if client.phone: p["parent_phone"] = client.phone
-            if "role" not in p: p["role"] = "user"
-            return p
-    except Exception: return {}
-
-def get_advisor_profile(email):
-    email = email.strip().lower()
-    try:
-        with get_db_session() as session:
-            adv = session.query(Advisor).filter_by(email=email).first()
-            if adv: return to_dict(adv)
-            return None
-    except Exception: return None
-
 def get_advisor_clients(email):
     email = email.strip().lower()
     try:
@@ -248,84 +229,17 @@ def get_advisor_clients(email):
             return [to_dict(r) for r in res]
     except Exception: return []
 
-def create_b2b_project(advisor_email, client_name, client_phone, heir_name, heir_email, prompt, parent_email=None):
-    advisor_email = advisor_email.strip().lower()
-    heir_email = heir_email.strip().lower()
-    if parent_email: parent_email = parent_email.strip().lower()
-    try:
-        with get_db_session() as session:
-            adv = session.query(Advisor).filter_by(email=advisor_email).first()
-            if not adv:
-                adv = Advisor(email=advisor_email, firm_name="VerbaPost Wealth", credits=0)
-                session.add(adv)
-                session.flush()
-            if adv.credits < 1: return False, "Insufficient Credits"
-            
-            new_client = Client(
-                advisor_email=advisor_email,
-                name=client_name,
-                phone=client_phone,
-                email=heir_email, 
-                parent_email=parent_email,
-                heir_name=heir_name,
-                status='Active'
-            )
-            session.add(new_client)
-            session.flush() 
-            
-            new_proj = Project(
-                advisor_email=advisor_email,
-                client_id=new_client.id,
-                heir_name=heir_name,
-                strategic_prompt=prompt,
-                status='Authorized'
-            )
-            session.add(new_proj)
-            adv.credits -= 1
-        return True, "Project Created"
-    except Exception as e: return False, str(e)
-
-def get_heir_projects(heir_email):
-    heir_email = heir_email.strip().lower()
-    try:
-        with get_db_session() as session:
-            client = session.query(Client).filter_by(email=heir_email).order_by(Client.created_at.desc()).first()
-            if not client: return []
-            projects = session.query(Project).filter_by(client_id=client.id).order_by(Project.created_at.desc()).all()
-            results = []
-            for p in projects:
-                d = to_dict(p)
-                adv = session.query(Advisor).filter_by(email=p.advisor_email).first()
-                d['firm_name'] = adv.firm_name if adv else "VerbaPost"
-                results.append(d)
-            return results
-    except Exception: return []
-
-def update_heirloom_settings(email, parent_name, parent_phone, addr1=None, city=None, state=None, zip_code=None):
-    email = email.strip().lower()
-    try:
-        with get_db_session() as session:
-            client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
-            if client:
-                client.name = parent_name
-                client.phone = parent_phone
-            u = session.query(UserProfile).filter_by(email=email).first()
-            if u:
-                u.parent_name = parent_name
-                u.parent_phone = parent_phone
-                if addr1: u.address_line1 = addr1
-                if city: u.address_city = city
-                if state: u.address_state = state
-                if zip_code: u.address_zip = zip_code
-            session.commit()
-            return True
-    except Exception: return False
-
 def create_draft(user_email, content, status="Recording", call_sid=None):
+    """
+    Creates a placeholder draft/project for the call.
+    Uses 'call_sid' to link the future recording.
+    """
     user_email = user_email.strip().lower()
     try:
         with get_db_session() as session:
+            # Check if this user is a "Client" (B2B)
             client = session.query(Client).filter_by(email=user_email).order_by(Client.created_at.desc()).first()
+            
             if client:
                 new_proj = Project(
                     advisor_email=client.advisor_email,
@@ -333,16 +247,52 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
                     heir_name=client.heir_name,
                     strategic_prompt="Ad-hoc Interview",
                     status=status,
-                    call_sid=call_sid
+                    call_sid=call_sid,
+                    content=content
                 )
                 session.add(new_proj)
                 session.commit()
                 return True
+            
+            # Fallback for B2C/Direct users
             draft = LetterDraft(user_email=user_email, content=content, status=status, call_sid=call_sid)
             session.add(draft)
             session.commit()
             return True
-    except Exception: return False
+    except Exception as e:
+        logger.error(f"Create Draft Error: {e}")
+        return False
+
+# --- NEW: UPDATE DRAFT VIA SID ---
+def update_draft_by_sid(call_sid, content, recording_url):
+    """
+    Updates a draft based on the Twilio Call SID.
+    Used by the Polling Mechanism.
+    """
+    try:
+        with get_db_session() as session:
+            # 1. Try Projects Table
+            p = session.query(Project).filter_by(call_sid=call_sid).first()
+            if p:
+                p.content = content
+                p.tracking_number = recording_url # Store URL in tracking column
+                p.status = 'Draft'
+                p.call_sid = None # Clear SID to stop polling
+                session.commit()
+                return True
+                
+            # 2. Try Drafts Table
+            d = session.query(LetterDraft).filter_by(call_sid=call_sid).first()
+            if d:
+                d.content = content
+                d.status = 'Draft'
+                d.call_sid = None
+                session.commit()
+                return True
+        return False
+    except Exception as e:
+        logger.error(f"Update SID Error: {e}")
+        return False
 
 def is_fulfillment_recorded(session_id):
     try:
@@ -400,33 +350,6 @@ def toggle_media_release(pid, release=True):
         return False
     except Exception: return False
 
-def get_advisor_projects_for_media(advisor_email):
-    advisor_email = advisor_email.strip().lower()
-    try:
-        with get_db_session() as session:
-            projects = session.query(Project).filter_by(advisor_email=advisor_email).all()
-            results = []
-            for p in projects:
-                d = to_dict(p)
-                client = session.query(Client).filter_by(id=p.client_id).first()
-                d['heir_name'] = client.heir_name if client else "Unknown"
-                d['heir_email'] = client.email if client else "Unknown"
-                results.append(d)
-            return results
-    except Exception: return []
-
-def update_project_details(project_id, content=None, status=None):
-    try:
-        with get_db_session() as session:
-            proj = session.query(Project).filter_by(id=project_id).first()
-            if proj:
-                if status: proj.status = status
-                if content: proj.content = content
-                session.commit()
-                return True
-            return False
-    except Exception: return False
-
 def get_project_by_id(pid):
     try:
         with get_db_session() as session:
@@ -459,7 +382,7 @@ def log_event(user_email, event_type, metadata=None):
     except Exception: pass
 
 # ==========================================
-# 🆕 NEW B2B FUNCTIONS (FIXED)
+# 🆕 NEW B2B FUNCTIONS (USING SUPABASE CLIENT)
 # ==========================================
 
 def fetch_advisor_clients(advisor_email):
@@ -570,7 +493,6 @@ def update_draft(draft_id, new_text):
         return True
     except: return False
 
-# --- 🟡 FIX: REWRITTEN CREDIT FUNCTION ---
 def add_advisor_credit(email, amount=1):
     """
     Increments credits in the user_profiles table (B2B Logic).

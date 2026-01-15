@@ -217,11 +217,14 @@ def render_login_page():
     # --- 5. MAIN HEADER ---
     st.title("🔐 Access VerbaPost")
     
+    # 🔴 RESTORED WARNING
+    st.error("🛑 **STOP: NEW USERS READ THIS FIRST**")
     st.markdown("""
-    <div style="background-color: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 15px; margin-bottom: 20px; color: #0c4a6e;">
-        <strong>New Users:</strong> Please create an account manually first to configure your role (Advisor vs Family).
-    </div>
-    """, unsafe_allow_html=True)
+    **Do NOT use "Sign in with Google" unless you have already created an account below.**
+    
+    You must create an account manually first to set your **Role (Advisor vs Family)** and **Firm Name**. 
+    *If you skip this, your account will be misconfigured.*
+    """)
 
     tab_signup, tab_login, tab_forgot = st.tabs(["✨ Create Account", "🔑 Sign In", "❓ Help"])
 

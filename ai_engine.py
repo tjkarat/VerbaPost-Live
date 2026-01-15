@@ -90,6 +90,65 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
         logger.error(f"Twilio Error: {e}")
         return None, str(e)
 
+# --- NEW: SYNC LOGIC (POLLING) ---
+
+def find_and_transcribe_recording(call_sid):
+    """
+    Looks for a completed recording for the given SID.
+    If found, transcribes it and returns the text and URL.
+    """
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    if not sid or not token: return None, None
+
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        
+        # 1. Fetch recordings for this Call SID
+        recordings = client.recordings.list(call_sid=call_sid, limit=1)
+        
+        if not recordings:
+            return None, None
+            
+        rec = recordings[0]
+        # Twilio URIs are usually .json, strip to get base
+        # Construct .mp3 URL
+        mp3_url = f"https://api.twilio.com{rec.uri[:-5]}.mp3"
+        
+        # 2. Transcribe (if we haven't already - assuming we call this only when needed)
+        # Note: We need to download the bytes to send to OpenAI
+        import requests
+        import tempfile
+        
+        # Download Audio
+        resp = requests.get(mp3_url)
+        if resp.status_code != 200: return None, None
+        
+        transcript_text = "Transcription Failed."
+        
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp.write(resp.content)
+            tmp.flush()
+            
+            # Send to Whisper
+            ai_client = get_openai_client()
+            if ai_client:
+                try:
+                    with open(tmp.name, "rb") as audio_file:
+                        res = ai_client.audio.transcriptions.create(model="whisper-1", file=audio_file)
+                        transcript_text = res.text
+                except Exception as e:
+                    logger.error(f"Whisper Error: {e}")
+            
+            os.unlink(tmp.name)
+            
+        return transcript_text, mp3_url
+
+    except Exception as e:
+        logger.error(f"Sync Logic Error: {e}")
+        return None, None
+
 # ==========================================
 # 🎤 TRANSCRIPTION (UNCHANGED)
 # ==========================================
