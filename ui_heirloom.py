@@ -170,7 +170,8 @@ def render_dashboard():
 
     # Fetch Drafts
     drafts = database.get_user_drafts(user_email)
-    heirloom_drafts = [d for d in drafts if d.get('tier') == 'Heirloom' or d.get('project_type')] # B2B check
+    # Filter for B2B drafts
+    heirloom_drafts = [d for d in drafts if d.get('tier') == 'Heirloom' or d.get('project_type')]
     
     if not heirloom_drafts:
         st.info("No stories recorded yet. Start an interview above!")
@@ -195,10 +196,9 @@ def render_dashboard():
                         st.caption("🔴 Archived (Offline)")
 
                 # Audio Player & Download
-                audio_url = draft.get('tracking_number') # Storing audio_ref in tracking column for now
+                audio_url = draft.get('tracking_number') 
                 if audio_url and "http" in audio_url:
                      st.audio(audio_url)
-                     # --- 🔴 FIX: FAKE DOWNLOAD BUTTON REPLACED ---
                      # Using link_button for URL-based downloads
                      st.link_button(
                          label="⬇️ Download (.mp3)", 
@@ -227,41 +227,30 @@ def render_dashboard():
                         credits = profile.get('credits', 0)
                         if st.button(f"📮 Mail Letter ({CREDIT_COST} Credit)", key=f"mail_{draft['id']}", disabled=(credits < CREDIT_COST)):
                             
-                            pdf_bytes = letter_format.create_pdf(
-                                body_text=new_text,
-                                to_addr=profile, # Sends to User (Heir)
-                                from_addr=profile, # "Storyteller" Name comes from Profile Name
-                                advisor_firm=profile.get('advisor_firm', 'VerbaPost'),
-                                audio_url=audio_url
-                            )
-                            
-                            # 2. Send via PostGrid
-                            with st.spinner("Processing Manuscript..."):
-                                letter_id = mailer.send_letter(
-                                    pdf_bytes=pdf_bytes,
-                                    to_addr=profile,
-                                    from_addr=profile # Return address is Advisor (mapped in mailer/format)
-                                )
-                                
-                                if letter_id:
-                                    # 3. Deduct Credit & Log
+                            # --- 🔴 MANUAL QUEUE LOGIC (No PostGrid) ---
+                            with st.spinner("Queueing for Print..."):
+                                try:
+                                    # 1. Deduct Credit
                                     new_credits = credits - CREDIT_COST
                                     database.update_user_credits(user_email, new_credits)
-                                    database.mark_draft_sent(draft['id'], letter_id)
                                     
-                                    # AUDIT LOG
+                                    # 2. Set Status to 'Approved' (This makes it show up in Admin Console Queue)
+                                    # We use update_project_details which takes (id, content, status)
+                                    # Ensuring we pass the draft/project ID correctly
+                                    database.update_project_details(draft['id'], status='Approved')
+                                    
+                                    # 3. Log
                                     if audit_engine:
-                                        audit_engine.log_event(user_email, "Letter Mailed", metadata={"draft_id": draft['id'], "letter_id": letter_id})
+                                        audit_engine.log_event(user_email, "Manual Print Queued", metadata={"draft_id": draft['id']})
                                     
-                                    st.toast("Manuscript Sent to Printing!", icon="📮")
+                                    st.success("✅ Added to Print Queue! Your advisor will finalize fulfillment.")
                                     time.sleep(2)
                                     st.rerun()
-                                else:
-                                    st.error("Mailing Service Error. Please try again.")
+                                    
+                                except Exception as e:
+                                    st.error(f"Error queueing order: {e}")
 
     # --- SETTINGS (Address Book) ---
     with st.expander("⚙️ Mailing Settings"):
         st.write("Ensure your mailing address is correct for the physical manuscript.")
-        # Simple inputs to update profile address if needed
-        # (Implementation relies on existing profile update logic or ui_main)
         st.info("To update your mailing address, please visit the main Settings page.")
