@@ -43,7 +43,7 @@ def get_orphaned_calls():
         if call['sid'] not in known_sids: orphans.append(call)
     return orphans
 
-# --- 🔴 FIX: SANITIZED INPUT & DUAL WRITE ---
+# --- FIX: SANITIZED INPUT & DUAL WRITE ---
 def manual_credit_grant(advisor_email, amount):
     if not database: return False
     
@@ -143,7 +143,7 @@ def render_admin_page():
                             "content": item.content, "status": item.status,
                             "meta": {
                                 "storyteller": item.parent_name, "firm_name": item.firm_name,
-                                "heir_name": item.heir_name, "interview_date": date_str # <-- Passed to PDF
+                                "heir_name": item.heir_name, "interview_date": date_str 
                             }
                         })
                 
@@ -154,13 +154,26 @@ def render_admin_page():
                     with st.expander(f"{icon} {item['type']} | {item['email']}"):
                         st.text_area("Content", item['content'], height=100, disabled=True)
                         c1, c2 = st.columns(2)
+                        
                         if c1.button("⬇️ Generate PDF", key=f"pdf_{item['type']}_{item['id']}"):
                             if letter_format:
+                                # --- 🔴 FIX: PDF ARGUMENTS ALIGNED TO LETTER_FORMAT.PY ---
+                                # letter_format.create_pdf signature:
+                                # (body_text, to_addr, from_addr, advisor_firm, audio_url)
+                                
                                 tier = "Heirloom" if item['type'] == "Heirloom" else "Standard"
+                                firm_name = item['meta'].get('firm_name', 'VerbaPost')
+                                storyteller = item['meta'].get('storyteller', 'The Family')
+                                
+                                # Map Data Correctly
                                 pdf_bytes = letter_format.create_pdf(
-                                    body_text=item['content'], to_addr={}, from_addr={}, tier=tier,
-                                    metadata=item['meta'], audio_url=str(item['id']) if tier == "Heirloom" else None
+                                    body_text=item['content'], 
+                                    to_addr={}, # Admin handles addressing manually
+                                    from_addr={'name': storyteller}, # Passes Storyteller Name
+                                    advisor_firm=firm_name, # Passes Firm Name
+                                    audio_url=str(item['id']) if tier == "Heirloom" else None
                                 )
+                                
                                 b64 = base64.b64encode(pdf_bytes).decode('latin-1')
                                 href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{item["id"]}.pdf">Download Print File</a>'
                                 st.markdown(href, unsafe_allow_html=True)
@@ -185,13 +198,23 @@ def render_admin_page():
             m_addr = st.text_area("Recipient Address", "123 Wealth Way\nNashville, TN 37203")
         with c2:
             m_from = st.text_area("Return Address", "VerbaPost HQ\nFranklin, TN")
-            m_tier = st.selectbox("Style", ["Vintage", "Standard"])
+            m_tier = st.selectbox("Style", ["Vintage", "Standard"]) # UI Only
         m_body = st.text_area("Letter Body", height=300, value="Dear Client...")
+        
         if st.button("Generate Preview"):
             if letter_format:
+                # --- 🔴 FIX: MARKETING PDF CALL ---
                 to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "TN", "zip": "00000"} 
                 from_obj = {"name": "VerbaPost", "address_line1": m_from}
-                pdf_bytes = letter_format.create_pdf(m_body, to_obj, from_obj, m_tier)
+                
+                # Pass "Vintage" as advisor_firm if needed for styling, or fixed string
+                pdf_bytes = letter_format.create_pdf(
+                    body_text=m_body, 
+                    to_addr=to_obj, 
+                    from_addr=from_obj,
+                    advisor_firm="VerbaPost Marketing"
+                )
+                
                 b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
                 pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>'
                 st.markdown(pdf_display, unsafe_allow_html=True)
@@ -214,7 +237,7 @@ def render_admin_page():
         c_email = st.text_input("Advisor Email")
         c_amount = st.number_input("Credits to Add", 1)
         if st.button("💸 Inject"):
-            # --- 🟡 SANITIZATION HERE TOO ---
+            # --- SANITIZATION ---
             c_email = c_email.strip().lower()
             success, msg = manual_credit_grant(c_email, int(c_amount))
             if success: st.success(f"Updated: {msg}")
