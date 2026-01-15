@@ -18,6 +18,13 @@ def render_heir_vault(project_id):
         return
 
     firm_name = project.get('firm_name', 'VerbaPost Wealth')
+    
+    # --- 🔴 FIX: SAFE NAME FALLBACK ---
+    heir_name = project.get('heir_name')
+    if not heir_name or heir_name == "None":
+        heir_name = "Family Member"
+
+    parent_name = project.get('parent_name') or "Your Loved One"
 
     # 2. BRANDED HEADER
     st.markdown(f"""
@@ -30,9 +37,9 @@ def render_heir_vault(project_id):
     st.divider()
 
     # 3. THE MESSAGE
-    st.markdown(f"### Welcome, {project.get('heir_name')}")
+    st.markdown(f"### Welcome, {heir_name}")
     st.write(f"""
-        You have received a physical Legacy Letter from **{project.get('parent_name')}**. 
+        You have received a physical Legacy Letter from **{parent_name}**. 
         This digital vault contains the original audio recording of those stories.
     """)
 
@@ -43,13 +50,15 @@ def render_heir_vault(project_id):
         # CHECK RELEASE STATUS
         if project.get('audio_released'):
             # UNLOCKED STATE
-            audio_url = project.get('audio_ref')
-            if audio_url:
+            # Try audio_ref first, fall back to tracking_number if it holds the URL
+            audio_url = project.get('audio_ref') or project.get('tracking_number')
+            
+            if audio_url and "http" in audio_url:
                 st.success("🔓 Audio Unlocked - Ready to Play")
                 st.audio(audio_url, format="audio/mp3")
                 st.balloons()
             else:
-                st.warning("Audio file is missing from the server.")
+                st.warning("Audio file is pending upload or missing.")
         else:
             # LOCKED STATE
             st.info("🔒 This audio archive is currently secured.")

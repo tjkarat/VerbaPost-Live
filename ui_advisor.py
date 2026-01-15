@@ -4,7 +4,7 @@ import time
 import database
 import payment_engine
 import email_engine 
-import audit_engine # <--- NEW IMPORT
+import audit_engine 
 
 def render_dashboard():
     """
@@ -70,10 +70,49 @@ def render_dashboard():
             display_cols = [c for c in df.columns if c in ['full_name', 'email', 'created_at', 'status']]
             st.dataframe(df[display_cols] if display_cols else df, use_container_width=True)
 
-    # === TAB 2: MEDIA LOCKER ===
+    # === TAB 2: MEDIA LOCKER (FIXED) ===
     with tab2:
         st.subheader("Global Media Archive")
-        st.info("Media Locker is syncing with the Archive...")
+        st.markdown("Manage digital access for your clients. Toggle **Release** to unlock audio for the heir.")
+        
+        # 1. Fetch Projects
+        projects = database.get_advisor_projects_for_media(user_email)
+        
+        if not projects:
+            st.info("No media projects found yet.")
+        else:
+            for p in projects:
+                with st.expander(f"📁 {p.get('heir_name', 'Unknown')} - {p.get('created_at', 'Undated')}"):
+                    c1, c2 = st.columns([3, 1])
+                    
+                    with c1:
+                        st.write(f"**Story Content:** {str(p.get('content', ''))[:100]}...")
+                        if p.get('audio_ref'):
+                            st.audio(p.get('audio_ref'))
+                        elif p.get('tracking_number') and "http" in str(p.get('tracking_number')):
+                             st.audio(p.get('tracking_number'))
+                        else:
+                            st.caption("No audio recording available.")
+
+                    with c2:
+                        # 2. Release Toggle
+                        is_released = p.get('audio_released', False)
+                        
+                        # Use a unique key for each toggle
+                        if st.toggle("🔓 Release to Heir", value=is_released, key=f"tog_{p['id']}"):
+                            if not is_released:
+                                database.toggle_media_release(p['id'], True)
+                                st.toast("Audio Unlocked!")
+                                if audit_engine:
+                                    audit_engine.log_event(user_email, "Media Released", metadata={"project_id": p['id']})
+                                time.sleep(0.5)
+                                st.rerun()
+                        else:
+                            if is_released:
+                                database.toggle_media_release(p['id'], False)
+                                st.toast("Audio Locked.")
+                                time.sleep(0.5)
+                                st.rerun()
 
     # === TAB 3: ACTIVATE CLIENT ===
     with tab3:
@@ -116,7 +155,6 @@ def render_dashboard():
                                 advisor_name=advisor_full_name
                             )
                             
-                            # AUDIT LOG
                             if audit_engine:
                                 audit_engine.log_event(user_email, "Client Activated", metadata={"client_email": c_email, "credit_spent": 1})
                             
