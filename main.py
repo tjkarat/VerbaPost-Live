@@ -5,7 +5,7 @@ import logging
 import time
 
 # --- 🏷️ VERSION CONTROL ---
-VERSION = "5.1.1" 
+VERSION = "5.1.2"  # Bumped for Fixes
 
 # --- 1. CONFIG ---
 st.set_page_config(
@@ -23,7 +23,7 @@ if current_dir not in sys.path: sys.path.append(current_dir)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- 4. HARDENED IMPORTS (Prevents KeyError/Crash Loop) ---
+# --- 4. HARDENED IMPORTS ---
 try: import ui_splash
 except Exception: ui_splash = None
 
@@ -60,7 +60,7 @@ try: import ui_archive
 except Exception: ui_archive = None
 try: import payment_engine 
 except Exception: payment_engine = None
-try: import audit_engine # <--- NEW IMPORT
+try: import audit_engine
 except Exception: audit_engine = None
 
 # --- 5. ROUTER LOGIC ---
@@ -79,6 +79,20 @@ def main():
     # B. SESSION INIT
     if "authenticated" not in st.session_state: st.session_state.authenticated = False
     if "app_mode" not in st.session_state: st.session_state.app_mode = "splash"
+
+    # --- 🟡 FIX: ADVISOR ROUTING ENFORCER ---
+    # If logged in as advisor but stuck in heirloom mode, force switch
+    if st.session_state.authenticated:
+        # Check role occasionally or relies on session state accuracy
+        # Here we do a lightweight check if they are "misrouted"
+        if st.session_state.app_mode == "heirloom":
+            # Safety check: Get role from DB to be sure
+            user_email = st.session_state.get("user_email")
+            if user_email and database:
+                p = database.get_user_profile(user_email)
+                if p.get("role") == "advisor":
+                    st.session_state.app_mode = "advisor"
+                    st.rerun()
 
     # C. URL PARAMS & CALLBACKS
     params = st.query_params
@@ -111,7 +125,9 @@ def main():
                 if audit_engine:
                     audit_engine.log_event(user.email, "Google Login", metadata={"role": profile.get('role')})
 
-                if profile.get('role') == 'advisor':
+                # Route Logic
+                role = str(profile.get('role')).lower()
+                if role == 'advisor':
                     st.session_state.app_mode = "advisor"
                 else:
                     st.session_state.app_mode = "heirloom"
@@ -134,21 +150,30 @@ def main():
                     if session and session.payment_status == 'paid':
                         user_email = session.metadata.get('user_email')
                         if user_email:
-                            database.add_advisor_credit(user_email, 1) 
-                            database.record_stripe_fulfillment(session_id, "Advisor Credit", user_email)
+                            # --- 🟡 FIX: CREDIT LOGIC ORDER ---
+                            # 1. Add Credit FIRST
+                            success = database.add_advisor_credit(user_email, 1)
                             
-                            # AUDIT LOG
-                            if audit_engine:
-                                audit_engine.log_event(user_email, "Payment Verified", metadata={"session": session_id, "item": "Advisor Credit"})
+                            if success:
+                                # 2. Record Fulfillment SECOND
+                                database.record_stripe_fulfillment(session_id, "Advisor Credit", user_email)
+                                
+                                # 3. Log
+                                if audit_engine:
+                                    audit_engine.log_event(user_email, "Payment Verified", metadata={"session": session_id, "item": "Advisor Credit"})
 
-                            st.balloons()
-                            st.success("Payment Successful! Credit added.")
-                            st.session_state.authenticated = True
-                            st.session_state.user_email = user_email
-                            st.session_state.app_mode = "advisor"
-                            time.sleep(2)
-                            st.query_params.clear()
-                            st.rerun()
+                                st.balloons()
+                                st.success("Payment Successful! Credit added.")
+                                st.session_state.authenticated = True
+                                st.session_state.user_email = user_email
+                                st.session_state.app_mode = "advisor" # Force Advisor Mode
+                                time.sleep(2)
+                                st.query_params.clear()
+                                st.rerun()
+                            else:
+                                st.error("Payment verified but Credit failed to update. Contact Support.")
+                        else:
+                             st.error("Error: User Email missing from payment metadata.")
 
     # 5. LANDING PAGE ROUTING (?nav=...)
     if "nav" in params:
@@ -168,7 +193,6 @@ def main():
             st.caption(f"VerbaPost v{VERSION}")
             
             if st.button("🚪 Sign Out"):
-                # AUDIT LOG (Logout)
                 if audit_engine:
                     audit_engine.log_event(st.session_state.get("user_email", "unknown"), "Logout")
                 st.session_state.clear()

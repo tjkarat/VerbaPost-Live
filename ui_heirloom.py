@@ -6,7 +6,7 @@ import ai_engine
 import mailer
 import email_engine 
 import letter_format
-import audit_engine # <--- NEW IMPORT
+import audit_engine 
 
 # --- CONFIGURATION ---
 CREDIT_COST = 1 
@@ -61,9 +61,9 @@ def render_dashboard():
     
     with st.expander("📝 HOW TO CAPTURE A STORY (Read First)", expanded=True):
         st.markdown("""
-        **1. Prepare the Interviewee:** Enter their email below to send them the question in advance.
-        **2. Start the Interview:** Click **'Send Request & Call'**. Our AI Biographer will call them immediately.
-        **3. Save & Share:** The recording will appear below. You have **30 days** to download the master file or mail the keepsake letter.
+        **Step 1: Notify.** Send the 'Prep Email' so the interviewee knows the topic and the incoming phone number **(615) 656-7667**.
+        **Step 2: Interview.** When they are ready, click 'Start Interview Call'.
+        **Step 3: Preserve.** The recording will appear below within minutes.
         """)
 
     st.divider()
@@ -81,35 +81,52 @@ def render_dashboard():
     with col2:
         custom_question = st.text_area("Interview Question", value="Please share a favorite memory from your childhood.", height=100)
         
-    if st.button("🚀 Send Request & Call Now", use_container_width=True):
-        if not target_phone or len(target_phone) < 10:
-            st.error("⚠️ Please enter a valid phone number.")
-        elif not target_email:
-            st.error("⚠️ Please enter the Interviewee's email for the prep notification.")
-        else:
-            with st.spinner("📧 Sending Prep Email..."):
-                advisor_name = profile.get("advisor_firm") or "Your Advisor"
-                email_sent = email_engine.send_interview_prep_email(target_email, advisor_name, custom_question)
-                
-                if email_sent:
-                    st.toast("✅ Prep Email Sent!", icon="📧")
-                    time.sleep(1)
+    # --- SPLIT ACTION BUTTONS ---
+    btn_col1, btn_col2 = st.columns(2)
+    
+    # BUTTON 1: SEND EMAIL
+    with btn_col1:
+        if st.button("📧 Send Prep Email", use_container_width=True, help="Sends the question and heads-up to the interviewee."):
+            if not target_email or "@" not in target_email:
+                st.error("⚠️ Please enter a valid email address.")
+            else:
+                with st.spinner("Sending Notification..."):
+                    advisor_name = profile.get("advisor_firm") or "Your Advisor"
+                    email_sent = email_engine.send_interview_prep_email(target_email, advisor_name, custom_question)
                     
-                    with st.spinner("☎️ Connecting AI Biographer..."):
-                        sid, err = ai_engine.trigger_outbound_call(
-                            to_phone=target_phone,
-                            advisor_name=advisor_name,
-                            firm_name=profile.get("advisor_firm", "VerbaPost"),
-                            project_id=profile.get("id"), 
-                            question_text=custom_question
-                        )
-                        
-                        if sid:
-                            st.success(f"📞 Calling {target_phone} now...")
-                        else:
-                            st.error(f"Call Failed: {err}")
-                else:
-                    st.error("Failed to send prep email. Check email address.")
+                    if email_sent:
+                        if audit_engine:
+                            audit_engine.log_event(user_email, "Prep Email Sent", metadata={"target": target_email})
+                        st.toast("✅ Notification Sent!", icon="📧")
+                    else:
+                        st.error("Failed to send email. Please check the address.")
+
+    # BUTTON 2: START CALL
+    with btn_col2:
+        if st.button("📞 Start Interview Call", use_container_width=True, type="primary", help="Triggers the phone call immediately."):
+            # --- 🟡 FIX: PHONE SANITIZATION ---
+            clean_phone = "".join(filter(str.isdigit, target_phone))
+            
+            if not clean_phone or len(clean_phone) < 10:
+                st.error("⚠️ Please enter a valid 10-digit phone number (e.g., 6155550123).")
+            else:
+                with st.spinner("☎️ Connecting AI Biographer..."):
+                    advisor_name = profile.get("advisor_firm") or "Your Advisor"
+                    
+                    sid, err = ai_engine.trigger_outbound_call(
+                        to_phone=clean_phone, # Sending the clean digits
+                        advisor_name=advisor_name,
+                        firm_name=profile.get("advisor_firm", "VerbaPost"),
+                        project_id=profile.get("id"), 
+                        question_text=custom_question
+                    )
+                    
+                    if sid:
+                        if audit_engine:
+                            audit_engine.log_event(user_email, "Interview Started", metadata={"sid": sid, "target": clean_phone})
+                        st.success(f"📞 Calling {target_phone} now...")
+                    else:
+                        st.error(f"Call Failed: {err}")
 
     st.divider()
 
@@ -147,12 +164,13 @@ def render_dashboard():
                 audio_url = draft.get('tracking_number')
                 if audio_url:
                      st.audio(audio_url)
-                     st.download_button(
-                         label="⬇️ Download & Keep (.mp3)",
-                         data=audio_url,
-                         file_name=f"story_{draft['id']}.mp3",
-                         mime="audio/mpeg",
-                         help="Save this file to your computer. It will be deleted from the cloud in 30 days."
+                     
+                     # --- 🔴 FIX: FAKE DOWNLOAD BUTTON REPLACED ---
+                     # Using link_button for URL-based downloads
+                     st.link_button(
+                         label="⬇️ Download (.mp3)", 
+                         url=audio_url,
+                         help="Click to open the audio file in a new tab for saving."
                      )
 
                 with st.expander("✍️ Edit Text & Mail Letter"):
