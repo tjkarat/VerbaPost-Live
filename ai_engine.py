@@ -51,8 +51,7 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
 
-    # --- 🟡 FIX 1: NATURAL SCRIPT (NO REPETITION) ---
-    # Streamlined copy: Introduces advisor once, then pivots to the "Biographer" persona.
+    # --- 🟡 FIX 1: NATURAL SCRIPT (NO REPETITION + BEEP PAUSE) ---
     twiml = f"""
     <Response>
         <Pause length="1"/>
@@ -71,6 +70,7 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
         <Say voice="Polly.Joanna-Neural">
             Please take a moment to think. Then, record your answer after the beep. When you are finished, simply hang up or press the pound key.
         </Say>
+        <Pause length="1"/>
         <Record maxLength="600" finishOnKey="#" playBeep="true" />
         <Say voice="Polly.Joanna-Neural">Thank you. Your story has been saved to the archive. Goodbye.</Say>
     </Response>

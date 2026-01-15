@@ -43,26 +43,39 @@ def get_orphaned_calls():
         if call['sid'] not in known_sids: orphans.append(call)
     return orphans
 
-# --- 🔴 FIX: TARGETING CORRECT TABLE (USER_PROFILES) ---
+# --- 🔴 FIX: DUAL WRITE CREDIT UPDATE (Safety Net) ---
 def manual_credit_grant(advisor_email, amount):
     if not database: return False
     try:
         with database.get_db_session() as session:
-            # 1. Check User Profiles (The Source of Truth)
+            new_val = 0
+            found = False
+            
+            # 1. Update User Profiles (Primary)
             sql_check = text("SELECT credits FROM user_profiles WHERE email = :email")
             result = session.execute(sql_check, {"email": advisor_email}).fetchone()
+            if result:
+                found = True
+                new_val = (result[0] or 0) + amount
+                sql_update = text("UPDATE user_profiles SET credits = :new_val WHERE email = :email")
+                session.execute(sql_update, {"new_val": new_val, "email": advisor_email})
             
-            if not result: 
-                return False, "Advisor not found in User Profiles."
-                
-            current_credits = result[0] or 0
-            new_total = current_credits + amount
+            # 2. Update Legacy Advisors Table (Fallback/Safety)
+            # This ensures sync even if UI looks at the old table
+            sql_check_adv = text("SELECT credits FROM advisors WHERE email = :email")
+            result_adv = session.execute(sql_check_adv, {"email": advisor_email}).fetchone()
+            if result_adv:
+                found = True
+                new_val_adv = (result_adv[0] or 0) + amount
+                sql_update_adv = text("UPDATE advisors SET credits = :new_val WHERE email = :email")
+                session.execute(sql_update_adv, {"new_val": new_val_adv, "email": advisor_email})
             
-            # 2. Update User Profiles
-            sql_update = text("UPDATE user_profiles SET credits = :new_val WHERE email = :email")
-            session.execute(sql_update, {"new_val": new_total, "email": advisor_email})
             session.commit()
-            return True, new_total
+            
+            if found:
+                return True, new_val
+            else:
+                return False, "User not found in Profiles or Advisors table."
             
     except Exception as e: return False, str(e)
 
