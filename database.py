@@ -483,3 +483,62 @@ def mark_draft_sent(draft_id, letter_id):
     except Exception as e:
         print(f"Error marking sent: {e}")
         return False
+def fetch_advisor_clients(advisor_email):
+    """
+    Fetches the list of clients sponsored by a specific advisor.
+    Used in ui_advisor.py to populate the "Client Roster" tab.
+    """
+    try:
+        # Assumes user_profiles has a column 'created_by' or similar linking to the advisor
+        # Adjust 'created_by' if your schema uses a different column name (e.g., 'advisor_email')
+        response = supabase.table("user_profiles").select("*").eq("created_by", advisor_email).execute()
+        return response.data
+    except Exception as e:
+        print(f"Error fetching clients: {e}")
+        return []
+
+def get_user_drafts(user_email):
+    """
+    Fetches all stories (posts) for a specific user.
+    Used in ui_heirloom.py to populate the "Story Archive".
+    """
+    try:
+        # Assumes your stories are stored in a table named 'posts'
+        response = supabase.table("posts").select("*").eq("user_email", user_email).order("created_at", desc=True).execute()
+        return response.data
+    except Exception as e:
+        print(f"Error fetching drafts: {e}")
+        return []
+
+def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
+    """
+    Creates a new user profile sponsored by an advisor.
+    Used in ui_advisor.py when 'Activating' a new client.
+    """
+    try:
+        # 1. Check if user already exists
+        existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
+        if existing.data:
+            return False, "User with this email already exists."
+
+        # 2. Insert new profile
+        new_user = {
+            "email": client_email,
+            "full_name": client_name,
+            "parent_phone": client_phone,
+            "created_by": advisor_email, # Links them to the advisor
+            "role": "heirloom",          # Default role for the client
+            "credits": 0,                 # Client starts with 0 (Advisor uses their own)
+            "advisor_firm": "Robbana and Associates" # Inherit firm name (hardcoded or fetched)
+        }
+        
+        data = supabase.table("user_profiles").insert(new_user).execute()
+        
+        if data.data:
+            return True, "Client account created successfully."
+        else:
+            return False, "Database insert failed."
+            
+    except Exception as e:
+        print(f"Error creating sponsored user: {e}")
+        return False, str(e)
