@@ -70,6 +70,7 @@ def get_base_url():
 def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None):
     """
     Creates a Stripe Checkout Session.
+    Includes logic to Rebrand the $99 Tier as 'The Family Legacy Project'.
     """
     if not stripe:
         st.error("⚠️ Payment System Offline (Module Missing)")
@@ -96,11 +97,31 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
     if promo_code:
         metadata["promo_code"] = str(promo_code)
 
+    # --- STRATEGIC REBRANDING: B2B PIVOT ---
+    # Intercept the $99 item to rename it for better perceived value
+    final_line_items = []
+    try:
+        for item in line_items:
+            # Check if this is the $99 B2B Activation item (9900 cents)
+            price_data = item.get('price_data', {})
+            if price_data.get('unit_amount') == 9900: 
+                new_item = item.copy()
+                # NEW NAME: "The Family Legacy Project"
+                new_item['price_data']['product_data']['name'] = "The Family Legacy Project"
+                # NEW TERMS: "30-Day Access" instead of Lifetime
+                new_item['price_data']['product_data']['description'] = "Production Fee + Physical Manuscript + 30-Day Digital Access"
+                final_line_items.append(new_item)
+            else:
+                final_line_items.append(item)
+    except Exception as e:
+        logger.warning(f"Failed to rebrand line item: {e}")
+        final_line_items = line_items # Fallback to original if structure is unexpected
+
     try:
         # Build Session Params
         session_params = {
             "payment_method_types": ["card"],
-            "line_items": line_items,
+            "line_items": final_line_items,
             "mode": mode,
             "success_url": success_url,
             "cancel_url": cancel_url,
