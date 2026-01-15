@@ -285,7 +285,23 @@ def update_draft_by_sid(call_sid, content, recording_url):
         logger.error(f"Update SID Error: {e}")
         return False
 
-# --- 🔴 THIS IS THE MISSING FUNCTION CAUSING THE ERROR ---
+# --- 🔴 RESTORED: ADVISOR MEDIA LOOKUP ---
+def get_advisor_projects_for_media(advisor_email):
+    advisor_email = advisor_email.strip().lower()
+    try:
+        with get_db_session() as session:
+            projects = session.query(Project).filter_by(advisor_email=advisor_email).all()
+            results = []
+            for p in projects:
+                d = to_dict(p)
+                client = session.query(Client).filter_by(id=p.client_id).first()
+                d['heir_name'] = client.heir_name if client else "Unknown"
+                d['heir_email'] = client.email if client else "Unknown"
+                results.append(d)
+            return results
+    except Exception: return []
+
+# --- 🔴 RESTORED: MANUAL MAILING HELPER ---
 def update_project_details(project_id, content=None, status=None):
     try:
         with get_db_session() as session:
