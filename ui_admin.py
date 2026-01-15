@@ -43,15 +43,20 @@ def get_orphaned_calls():
         if call['sid'] not in known_sids: orphans.append(call)
     return orphans
 
-# --- 🔴 FIX: DUAL WRITE CREDIT UPDATE (Safety Net) ---
+# --- 🔴 FIX: SANITIZED INPUT & DUAL WRITE ---
 def manual_credit_grant(advisor_email, amount):
     if not database: return False
+    
+    # SANITIZE INPUT
+    advisor_email = advisor_email.strip().lower()
+    
     try:
         with database.get_db_session() as session:
             new_val = 0
             found = False
+            debug_msg = []
             
-            # 1. Update User Profiles (Primary)
+            # 1. Update User Profiles (The One Advisor Portal Reads)
             sql_check = text("SELECT credits FROM user_profiles WHERE email = :email")
             result = session.execute(sql_check, {"email": advisor_email}).fetchone()
             if result:
@@ -59,9 +64,9 @@ def manual_credit_grant(advisor_email, amount):
                 new_val = (result[0] or 0) + amount
                 sql_update = text("UPDATE user_profiles SET credits = :new_val WHERE email = :email")
                 session.execute(sql_update, {"new_val": new_val, "email": advisor_email})
+                debug_msg.append(f"Profile updated to {new_val}")
             
-            # 2. Update Legacy Advisors Table (Fallback/Safety)
-            # This ensures sync even if UI looks at the old table
+            # 2. Update Legacy Advisors Table (Safety Net)
             sql_check_adv = text("SELECT credits FROM advisors WHERE email = :email")
             result_adv = session.execute(sql_check_adv, {"email": advisor_email}).fetchone()
             if result_adv:
@@ -69,13 +74,14 @@ def manual_credit_grant(advisor_email, amount):
                 new_val_adv = (result_adv[0] or 0) + amount
                 sql_update_adv = text("UPDATE advisors SET credits = :new_val WHERE email = :email")
                 session.execute(sql_update_adv, {"new_val": new_val_adv, "email": advisor_email})
+                debug_msg.append(f"Legacy Advisor updated to {new_val_adv}")
             
             session.commit()
             
             if found:
-                return True, new_val
+                return True, f"Success! {', '.join(debug_msg)}"
             else:
-                return False, "User not found in Profiles or Advisors table."
+                return False, f"User {advisor_email} not found in any table."
             
     except Exception as e: return False, str(e)
 
@@ -208,8 +214,10 @@ def render_admin_page():
         c_email = st.text_input("Advisor Email")
         c_amount = st.number_input("Credits to Add", 1)
         if st.button("💸 Inject"):
+            # --- 🟡 SANITIZATION HERE TOO ---
+            c_email = c_email.strip().lower()
             success, msg = manual_credit_grant(c_email, int(c_amount))
-            if success: st.success(f"New Balance: {msg}")
+            if success: st.success(f"Updated: {msg}")
             else: st.error(f"Failed: {msg}")
 
     # --- TAB 5: HEALTH ---
