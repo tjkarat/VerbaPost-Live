@@ -6,7 +6,6 @@ def render_login_page():
     Unified Auth Page.
     """
     # --- LAZY IMPORTS (CRITICAL FIX) ---
-    # Moving these inside the function stops the crash
     import auth_engine
     import database
     import mailer
@@ -30,9 +29,7 @@ def render_login_page():
     if st.button("🇬 Google Sign In", key="google_auth_btn", use_container_width=True):
         try:
             auth_url = auth_engine.get_google_auth_url()
-            # Show link as backup in case redirect fails
             st.link_button("👉 Click here to continue", auth_url)
-            # Auto-redirect
             st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Google Config Error: {e}")
