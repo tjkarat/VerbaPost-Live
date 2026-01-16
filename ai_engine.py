@@ -20,7 +20,9 @@ def get_secret(key):
 
 def get_openai_client():
     api_key = get_secret("openai.api_key")
-    if not api_key: return None
+    if not api_key: 
+        logger.warning("⚠️ OpenAI API Key is missing. Transcription will be skipped.")
+        return None
     return openai.OpenAI(api_key=api_key)
 
 # ==========================================
@@ -103,28 +105,35 @@ def find_and_transcribe_recording(call_sid):
             
         rec = recordings[0]
         # Construct MP3 URL (Twilio usually returns .json by default in uri)
-        # We strip .json and add .mp3
         base_uri = rec.uri.replace(".json", "")
         audio_url = f"https://api.twilio.com{base_uri}.mp3"
         
         # 2. Download Audio to Temp File
-        # We need to authenticate the download request manually
         response = requests.get(audio_url, auth=(sid, token))
         
+        transcript_text = "[Audio captured. Transcription unavailable.]"
+
         if response.status_code == 200:
             filename = f"temp_{call_sid}.mp3"
             with open(filename, 'wb') as f:
                 f.write(response.content)
             
-            # 3. Transcribe
-            transcript_text = transcribe_audio(filename)
-            
+            # 3. Transcribe (Robust)
+            # We attempt transcription, but if it fails, we keep the default text
+            # so the database still updates with the Audio URL.
+            try:
+                result = transcribe_audio(filename)
+                if result:
+                    transcript_text = result
+            except Exception as e:
+                logger.error(f"Transcription Failed (but audio saved): {e}")
+
             # 4. Cleanup
             try:
                 os.remove(filename)
             except: pass
             
-            # Return Text and the Public URL (or Twilio URL)
+            # Return Text (even if placeholder) and the URL
             return transcript_text, audio_url
             
         return None, None
@@ -134,15 +143,21 @@ def find_and_transcribe_recording(call_sid):
         return None, None
 
 def transcribe_audio(file_path):
+    """
+    Sends audio file to OpenAI Whisper.
+    Returns None if client is missing (handled by caller).
+    """
     client = get_openai_client()
-    if not client: return None
+    if not client: 
+        return None # Caller will use fallback text
+
     try:
         with open(file_path, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(model="whisper-1", file=audio_file)
         return transcript.text
     except Exception as e:
-        logger.error(f"Transcription Error: {e}")
-        return "Audio recorded (Transcription failed)."
+        logger.error(f"OpenAI API Error: {e}")
+        return None
 
 def refine_text(text):
     client = get_openai_client()
