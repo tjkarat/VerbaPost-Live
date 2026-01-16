@@ -12,6 +12,7 @@ def render_login_page():
     - FIXED: Circular Import (Lazy Loading)
     """
     # --- LAZY IMPORTS (Breaks Circular Dependency) ---
+    # These must be inside the function to prevent KeyError: 'database'
     import auth_engine
     import database
     import mailer
