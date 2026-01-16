@@ -111,28 +111,42 @@ def map_profile_to_addr(profile, name_override=None):
     }
 
 def parse_address_text(raw_text):
-    """Attempts to parse a 3-line address block into dictionary components."""
-    parts = raw_text.split("\n")
+    """
+    Robustly parses a text block into address components.
+    Handles 2-line (Name/Street) and 3-line (Name/Street/City-State-Zip) formats.
+    """
+    if not raw_text: return {}
+    
+    # Split by lines and remove empty ones
+    parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
+    
     data = {
-        "name": parts[0].strip() if len(parts) > 0 else "",
-        "address_line1": parts[1].strip() if len(parts) > 1 else "",
-        "city": "", "state": "", "zip_code": ""
+        "name": "", "address_line1": "", "city": "", "state": "", "zip_code": ""
     }
     
-    # Try to handle line 3 (City, State Zip)
-    if len(parts) > 2:
-        line3 = parts[2].strip()
-        # Basic Strategy: Assume comma separates City from State/Zip
+    if len(parts) >= 1:
+        data["name"] = parts[0]
+    
+    if len(parts) >= 2:
+        data["address_line1"] = parts[1]
+        
+    if len(parts) >= 3:
+        # Try to parse City, State Zip
+        line3 = parts[2]
+        # Heuristic: Comma usually separates City from State
         if "," in line3:
             c_split = line3.split(",")
             data["city"] = c_split[0].strip()
             rest = c_split[1].strip()
-            # Split rest by space for state/zip
+            # Heuristic: Last space separates State from Zip
             r_split = rest.split(" ")
-            if len(r_split) >= 1: data["state"] = r_split[0]
-            if len(r_split) >= 2: data["zip_code"] = r_split[-1]
+            if len(r_split) > 1:
+                data["zip_code"] = r_split[-1]
+                data["state"] = " ".join(r_split[:-1])
+            else:
+                data["state"] = rest
         else:
-            # Fallback: Just put whole line in city so it prints at least
+            # Fallback: Just treat the whole line as city to ensure it prints
             data["city"] = line3
             
     return data
@@ -252,21 +266,22 @@ def render_admin_page():
             m_tier = st.selectbox("Style", ["Vintage", "Standard"])
         m_body = st.text_area("Letter Body", height=300, value="Dear Client...")
         
-        # --- NEW: SPLIT BUTTONS FOR MARKETING ---
+        # --- MARKETING BUTTONS ---
         mb1, mb2 = st.columns(2)
         
         with mb1:
             if st.button("📄 Generate Letter PDF"):
                 if letter_format:
-                    to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "TN", "zip": "00000"} 
-                    from_obj = {"name": "VerbaPost", "address_line1": m_from}
+                    # Parse Addr using helper
+                    to_obj = parse_address_text(f"{m_name}\n{m_addr}")
+                    from_obj = parse_address_text(f"VerbaPost\n{m_from}")
                     
                     pdf_bytes = letter_format.create_pdf(
                         body_text=m_body, 
                         to_addr=to_obj, 
                         from_addr=from_obj,
                         advisor_firm="VerbaPost Marketing",
-                        is_marketing=True 
+                        is_marketing=True # <--- CRITICAL: REMOVES FAMILY HEADER
                     )
                     b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
                     pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>'
@@ -275,12 +290,12 @@ def render_admin_page():
         with mb2:
              if st.button("✉️ Generate Envelope PDF"):
                 if envelope_format:
-                    # Parse Address Input
+                    # Parse Address Input using the new robust helper
                     to_obj = parse_address_text(f"{m_name}\n{m_addr}")
                     from_obj = parse_address_text(f"VerbaPost\n{m_from}")
                     
-                    # Override names if parsing was messy
-                    if not from_obj['name']: from_obj['name'] = "VerbaPost"
+                    # Ensure From Name exists
+                    if not from_obj.get('name'): from_obj['name'] = "VerbaPost"
 
                     env_bytes = envelope_format.create_envelope(to_obj, from_obj)
                     if env_bytes:
