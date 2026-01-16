@@ -1,4 +1,5 @@
 import streamlit as st
+import time
 import ui_login
 import ui_advisor
 import ui_heirloom
@@ -6,8 +7,6 @@ import ui_admin
 import ui_splash
 
 # --- IMPORTS FOR AUTH ---
-# We try/except these to prevent crashes if files are missing, 
-# but they are required for Google Auth to work.
 try: import auth_engine
 except ImportError: auth_engine = None
 try: import database
@@ -18,7 +17,7 @@ st.set_page_config(
     page_title="VerbaPost",
     page_icon="📬",
     layout="centered",
-    initial_sidebar_state="expanded"  # FORCE SIDEBAR OPEN so you can see it
+    initial_sidebar_state="expanded" # FORCE OPEN
 )
 
 def handle_logout():
@@ -38,7 +37,7 @@ def main():
         st.session_state.user_email = None
 
     # 2. 🚨 PRIORITY: HANDLE GOOGLE CALLBACK 🚨
-    # This block was missing or broken. It catches the return trip from Google.
+    # We check this FIRST before rendering anything else.
     query_params = st.query_params
     if "code" in query_params and not st.session_state.authenticated:
         if auth_engine:
@@ -48,7 +47,7 @@ def main():
                     user, error = auth_engine.handle_google_callback(query_params["code"])
                     
                     if user:
-                        # SUCCESS: Set Session
+                        # SUCCESS
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.email
                         
@@ -59,8 +58,8 @@ def main():
                                 st.session_state.user_role = profile.get("role", "user")
                         
                         st.success(f"✅ Logged in as {user.email}")
-                        
-                        # Clear URL to prevent re-triggering and reload
+                        time.sleep(1)
+                        # Clear URL to prevent re-triggering
                         st.query_params.clear()
                         st.rerun()
                     else:
@@ -68,7 +67,7 @@ def main():
             except Exception as e:
                 st.error(f"⚠️ Auth System Error: {e}")
         else:
-            st.error("⚠️ Auth Engine not loaded. Cannot process Google Login.")
+            st.error("⚠️ Auth Engine not loaded.")
 
     # 3. 🛠️ GLOBAL SIDEBAR (ALWAYS VISIBLE NOW) 🛠️
     with st.sidebar:
@@ -81,7 +80,7 @@ def main():
             
             # ADMIN TOOLS
             # Check if Admin OR if it's YOU (hardcoded safety net)
-            is_admin = (st.session_state.user_role == "admin") or (st.session_state.user_email == "pat@gmail.com")
+            is_admin = (st.session_state.user_role == "admin") or (st.session_state.user_email == "pat@gmail.com") # <--- VERIFY THIS EMAIL
             
             if is_admin:
                 st.divider()
@@ -106,6 +105,11 @@ def main():
 
     # 4. ROUTING LOGIC
     nav = query_params.get("nav")
+    
+    # --- COMPATIBILITY BRIDGE (Fixes 'Button Does Nothing') ---
+    # If the Splash page uses the old 'app_mode' state, we force the router to respect it
+    if not nav and st.session_state.get("app_mode") == "login":
+        nav = "login"
 
     # --- AUTHENTICATED ROUTES ---
     if st.session_state.authenticated:
