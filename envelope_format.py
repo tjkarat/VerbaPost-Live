@@ -54,13 +54,16 @@ def create_envelope(to_addr, from_addr):
                 else: csz_line = state
             if zip_c: csz_line += f" {zip_c}"
             
-            if csz_line: lines.append(csz_line)
+            # 🔴 FIX: Don't print empty lines or dangling commas
+            clean_csz = csz_line.strip().strip(",").strip()
+            if clean_csz: lines.append(clean_csz)
+            
             return "\n".join(lines)
-
+        
         # --- RETURN ADDRESS (Top Left) ---
         pdf.set_xy(15, 15)
         return_block = build_block(from_addr)
-        pdf.multi_cell(90, 5, return_block)
+        pdf.multi_cell(80, 5, return_block)
         
         # --- DESTINATION ADDRESS (Center Right) ---
         pdf.set_xy(110, 50)
