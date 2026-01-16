@@ -5,13 +5,15 @@ import ui_advisor
 import ui_heirloom
 import ui_admin
 import ui_splash
-import ui_legal  # <--- ADDED IMPORT
+import ui_legal 
 
 # --- IMPORTS FOR AUTH ---
 try: import auth_engine
 except ImportError: auth_engine = None
 try: import database
 except ImportError: database = None
+try: import payment_engine # <--- Added Import
+except ImportError: payment_engine = None
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -37,8 +39,30 @@ def main():
     if "user_email" not in st.session_state:
         st.session_state.user_email = None
 
-    # 2. 🚨 PUBLIC PLAYBACK GATE (QR Code Bypass) 🚨
     query_params = st.query_params
+
+    # 1.5 🚨 CRITICAL: PAYMENT RETURN HANDLER 🚨
+    # Checks for Stripe redirect BEFORE requiring login.
+    # This fixes the "Logged Out / No Credit" issue.
+    if "session_id" in query_params:
+        session_id = query_params["session_id"]
+        if payment_engine:
+            with st.spinner("Verifying Payment..."):
+                success, msg = payment_engine.handle_payment_return(session_id)
+                if success:
+                    st.toast(f"Payment Confirmed: {msg}!", icon="✅")
+                    # Optional: Clean URL so a refresh doesn't re-trigger (though idempotency handles it)
+                    st.success("✅ Credit Added to your account! Please log in to view.")
+                    time.sleep(2)
+                    # We do NOT return here; we let them fall through to Login
+                else:
+                    if msg != "Already Fulfilled":
+                        st.error(f"Payment Verification Failed: {msg}")
+        
+        # Clean URL to prevent confusion
+        # st.query_params.clear() # Optional: Keep session_id visible for debugging or clear it
+
+    # 2. 🚨 PUBLIC PLAYBACK GATE (QR Code Bypass) 🚨
     if "play" in query_params:
         audio_id = query_params["play"]
         if ui_heirloom and hasattr(ui_heirloom, 'render_public_player'):

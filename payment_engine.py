@@ -17,7 +17,7 @@ except ImportError:
     stripe = None
     logger.error("Stripe module not found. Payments will be disabled.")
 
-# Database imported lazily to prevent circular refs
+# Database imported lazily inside functions to prevent circular refs
 
 def get_api_key():
     """
@@ -140,7 +140,7 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
         # Create Session
         checkout_session = stripe.checkout.Session.create(**session_params)
 
-        # --- 🛡️ AUDIT LOG: PAYMENT INITIATED (NEW) ---
+        # --- 🛡️ AUDIT LOG: PAYMENT INITIATED ---
         if audit_engine:
             try:
                 audit_engine.log_event(
@@ -153,7 +153,7 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
                     }
                 )
             except: pass
-        # ---------------------------------------------
+        # ----------------------------------------
         
         return checkout_session.url
 
@@ -179,6 +179,66 @@ def verify_session(session_id):
     except Exception as e:
         logger.error(f"Stripe Verification Error: {e}")
         return None
+
+# --- 🆕 NEW: ROBUST IDEMPOTENT FULFILLMENT ---
+def handle_payment_return(session_id):
+    """
+    Called by main.py when ?session_id= is present.
+    1. Verify with Stripe.
+    2. Check DB if already fulfilled (Idempotency).
+    3. Fulfill (Add Credits).
+    4. Mark as fulfilled.
+    """
+    import database # Lazy import
+    
+    # 1. Verify
+    session = verify_session(session_id)
+    if not session:
+        return False, "Invalid Session"
+        
+    if session.payment_status != "paid":
+        return False, "Payment Pending or Failed"
+
+    # 2. Check Idempotency (Have we done this already?)
+    if database.is_fulfillment_recorded(session_id):
+        return True, "Already Fulfilled"
+
+    # 3. Extract Data
+    # Prefer metadata user_email, fallback to customer_details
+    user_email = session.metadata.get("user_email")
+    if not user_email and session.customer_details:
+        user_email = session.customer_details.email
+        
+    if not user_email:
+        return False, "No Email Found in Transaction"
+
+    # 4. Fulfill (Add 1 Credit per $99 item roughly, or just 1 for now)
+    # For MVP, we assume 1 credit purchase.
+    try:
+        # Add Credit to DB
+        database.add_advisor_credit(user_email, 1)
+        
+        # Record Fulfillment to prevent double-counting
+        product_name = "Legacy Project Credit"
+        database.record_stripe_fulfillment(session_id, product_name, user_email)
+        
+        # Log Audit
+        if audit_engine:
+            audit_engine.log_event(
+                user_email, 
+                "Credit Purchased", 
+                metadata={"session_id": session_id, "amount": session.amount_total}
+            )
+            
+        return True, "Credit Added"
+        
+    except Exception as e:
+        logger.error(f"Fulfillment Error: {e}")
+        return False, f"DB Error: {e}"
+
+# ==========================================
+# 🔄 SUBSCRIPTION HELPERS (RESTORED)
+# ==========================================
 
 def check_subscription_status(user_email):
     """
