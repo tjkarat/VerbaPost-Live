@@ -10,7 +10,7 @@ st.set_page_config(
     page_title="VerbaPost",
     page_icon="📬",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="auto"  # Changed from 'collapsed' to 'auto' so you see it
 )
 
 def handle_logout():
@@ -26,19 +26,46 @@ def main():
         st.session_state.authenticated = False
     if "user_role" not in st.session_state:
         st.session_state.user_role = "user"
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = ""
 
-    # 2. Global Sidebar (For Logged In Users)
+    # 2. Global Sidebar (Restored Admin Tools)
     if st.session_state.authenticated:
         with st.sidebar:
-            st.write(f"Logged in as: **{st.session_state.user_role.title()}**")
+            st.write(f"User: **{st.session_state.user_email}**")
+            st.write(f"Role: **{st.session_state.user_role.title()}**")
             
-            # Debug/Test Control: Allow Advisors to switch views manually
-            if st.session_state.user_role == 'advisor':
-                if st.button("Switch to Heir View"):
+            # --- RESTORED: ROLE SWITCHER ---
+            # Checks for explicit 'admin' role OR the hardcoded dev email
+            is_admin = (st.session_state.user_role == "admin") or (st.session_state.user_email == "pat@gmail.com")
+            
+            if is_admin:
+                st.divider()
+                st.caption("🛠️ Admin / Dev Tools")
+                
+                if st.button("⚙️ Admin Console", use_container_width=True):
+                    st.session_state.user_role = "admin"
+                    st.rerun()
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("👔 Advisor", use_container_width=True):
+                        st.session_state.user_role = "advisor"
+                        st.rerun()
+                with col2:
+                    if st.button("📂 Heir", use_container_width=True):
+                        st.session_state.user_role = "heir"
+                        st.rerun()
+            
+            # Advisor specific toggle (Heir View Check)
+            elif st.session_state.user_role == 'advisor':
+                st.divider()
+                if st.button("👀 View as Heir", use_container_width=True):
                     st.query_params["nav"] = "archive"
                     st.rerun()
 
-            if st.button("Log Out"):
+            st.divider()
+            if st.button("Log Out", use_container_width=True):
                 handle_logout()
 
     # 3. Routing Logic
@@ -50,8 +77,6 @@ def main():
         role = st.session_state.user_role
         
         # --- DUAL ROLE CHECK ---
-        # If user is Advisor BUT has a 'play' context (QR code) or requested archive,
-        # we FORCE the Heir view.
         force_heir = False
         if "pending_play_id" in st.session_state:
             force_heir = True
@@ -83,7 +108,7 @@ def main():
                 st.error("Error: Admin view not found.")
                 
         else:
-            # Fallback for standard users
+            # Fallback for standard users (Heirloom)
             if hasattr(ui_heirloom, 'render_family_archive'):
                 ui_heirloom.render_family_archive()
             elif hasattr(ui_heirloom, 'render_dashboard'):
@@ -106,7 +131,6 @@ def main():
 
     else:
         # Default: The Marketing Splash Page
-        # FIXED: Calling the correct function name 'render_splash_page'
         if hasattr(ui_splash, 'render_splash_page'):
             ui_splash.render_splash_page()
         else:
