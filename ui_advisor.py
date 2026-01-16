@@ -27,6 +27,45 @@ def render_dashboard():
     credits = profile.get("credits", 0)
     advisor_full_name = profile.get("full_name", "Your Advisor")
     
+    # --- 🆕 ONBOARDING TRACKER (ADVISOR) ---
+    clients = database.fetch_advisor_clients(user_email)
+    media_projects = database.get_advisor_projects_for_media(user_email)
+    
+    # Calculate Status
+    has_credits = credits > 0
+    has_clients = len(clients) > 0
+    has_released = any(p.get('audio_released') for p in media_projects)
+    
+    # Determine Step
+    step_msg = ""
+    percent = 0
+    if not has_clients and not has_credits:
+        step_msg = "Step 1: Buy a Credit to start a legacy project."
+        percent = 10
+    elif has_credits and not has_clients:
+        step_msg = "Step 2: Activate your first Client Family."
+        percent = 40
+    elif has_clients and not has_released:
+        step_msg = "Step 3: Wait for stories, then 'Release' audio."
+        percent = 70
+    elif has_released:
+        step_msg = "🎉 Fully Operational. Manage your roster below."
+        percent = 100
+
+    # Render Tracker
+    st.markdown(f"""
+    <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 25px;">
+        <p style="margin: 0; font-size: 0.9rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Setup Progress</p>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3 style="margin: 5px 0; color: #0f172a;">{step_msg}</h3>
+            <span style="font-weight: bold; color: #3b82f6;">{percent}%</span>
+        </div>
+        <div style="width: 100%; background-color: #e2e8f0; height: 8px; border-radius: 4px; margin-top: 5px;">
+            <div style="width: {percent}%; background-color: #3b82f6; height: 8px; border-radius: 4px;"></div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     # --- 2. HEADER AREA ---
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -61,7 +100,6 @@ def render_dashboard():
     # === TAB 1: CLIENT ROSTER ===
     with tab1:
         st.subheader("Your Sponsored Families")
-        clients = database.fetch_advisor_clients(user_email) 
         
         if not clients:
             st.info("No active clients found. Use the 'Activate Client' tab to start your first project.")
@@ -70,12 +108,11 @@ def render_dashboard():
             display_cols = [c for c in df.columns if c in ['full_name', 'email', 'created_at', 'status']]
             st.dataframe(df[display_cols] if display_cols else df, use_container_width=True)
 
-    # === TAB 2: MEDIA LOCKER (FIXED) ===
+    # === TAB 2: MEDIA LOCKER ===
     with tab2:
         st.subheader("Global Media Archive")
         st.markdown("Manage digital access for your clients. Toggle **Release** to unlock audio for the heir.")
         
-        # 1. Fetch Projects
         projects = database.get_advisor_projects_for_media(user_email)
         
         if not projects:
@@ -95,10 +132,7 @@ def render_dashboard():
                             st.caption("No audio recording available.")
 
                     with c2:
-                        # 2. Release Toggle
                         is_released = p.get('audio_released', False)
-                        
-                        # Use a unique key for each toggle
                         if st.toggle("🔓 Release to Heir", value=is_released, key=f"tog_{p['id']}"):
                             if not is_released:
                                 database.toggle_media_release(p['id'], True)
@@ -166,7 +200,7 @@ def render_dashboard():
 
     st.divider()
 
-    # --- 4. FIRM SETTINGS (FIXED) ---
+    # --- 4. FIRM SETTINGS ---
     with st.expander("⚙️ Firm Settings & Branding"):
         st.write("Update how your firm name appears on client letters and emails.")
         
