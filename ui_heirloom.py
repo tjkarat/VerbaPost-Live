@@ -238,10 +238,21 @@ def render_dashboard():
                     if sid:
                         database.create_draft(
                             user_email=user_email, content="Waiting for recording...",
-                            status="Pending", call_sid=sid
+                            status="Pending", call_sid=sid, prompt=custom_question
                         )
+                        
+                        # --- 🆕 NOTIFY ADVISOR HERE ---
+                        adv_email = profile.get("advisor_email") or profile.get("created_by")
+                        if adv_email:
+                            email_engine.send_advisor_heir_started_alert(
+                                advisor_email=adv_email,
+                                heir_name=profile.get("full_name", "The Heir"),
+                                client_name=profile.get("parent_name", "Family")
+                            )
+
                         if audit_engine:
-                            audit_engine.log_event(user_email, "Interview Started", metadata={"sid": sid})
+                            audit_engine.log_event(user_email, "Interview Started", metadata={"sid": sid, "question": custom_question})
+                        
                         st.success(f"📞 Calling {target_phone} now... Call Initiated!")
                     else:
                         st.error(f"Call Failed: {err}")
@@ -323,8 +334,17 @@ def render_dashboard():
                                     new_credits = credits - CREDIT_COST
                                     database.update_user_credits(user_email, new_credits)
                                     database.update_project_details(draft['id'], status='Approved')
+                                    
+                                    # --- 🆕 NOTIFY ADMIN HERE ---
+                                    email_engine.send_admin_print_ready_alert(
+                                        user_email=user_email,
+                                        draft_id=draft['id'],
+                                        content_preview=new_text
+                                    )
+
                                     if audit_engine:
-                                        audit_engine.log_event(user_email, "Manual Print Queued", metadata={"draft_id": draft['id']})
+                                        audit_engine.log_event(user_email, "Manual Print Queued", metadata={"draft_id": draft['id'], "cost": CREDIT_COST})
+                                    
                                     st.success("✅ Added to Print Queue! Your advisor will finalize fulfillment.")
                                     time.sleep(2)
                                     st.rerun()

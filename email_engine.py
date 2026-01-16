@@ -154,3 +154,43 @@ def send_heir_welcome_email(to_email, advisor_firm, advisor_name):
     </div>
     """
     return send_email(to_email, subject, html_content)
+
+# --- 🆕 ADVISOR ALERT: HEIR STARTED STORY ---
+def send_advisor_heir_started_alert(advisor_email, heir_name, client_name):
+    """
+    Notifies the Advisor that their client has logged in and started a story.
+    """
+    subject = f"🔔 Activity Alert: {heir_name} started a story"
+    html_content = f"""
+    <div style="font-family: sans-serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0;">
+        <h3 style="color: #166534;">Client Activity Detected</h3>
+        <p>Great news! The legacy project for the <strong>{client_name}</strong> family is active.</p>
+        <p><strong>{heir_name}</strong> just initiated an interview call to record a new story.</p>
+        <p>You will be notified again when the audio is ready for your review.</p>
+        <hr>
+        <p style="font-size: 12px; color: #64748b;">VerbaPost Advisor Notifications</p>
+    </div>
+    """
+    return send_email(advisor_email, subject, html_content)
+
+# --- 🆕 ADMIN ALERT: STORY READY TO PRINT ---
+def send_admin_print_ready_alert(user_email, draft_id, content_preview):
+    """
+    Notifies Admin that a story has been created/approved and is ready to print.
+    """
+    admin_email = get_admin_email()
+    if not admin_email: return False
+    
+    subject = f"🖨️ PRINT JOB: Draft #{draft_id} Ready"
+    html_content = f"""
+    <div style="font-family: sans-serif; border: 2px solid #0f172a; padding: 20px;">
+        <h2 style="margin-top:0;">New Print Job Submitted</h2>
+        <p><strong>User:</strong> {user_email}</p>
+        <p><strong>Draft ID:</strong> {draft_id}</p>
+        <div style="background: #f1f5f9; padding: 10px; margin: 10px 0; font-style: italic;">
+            "{content_preview[:100]}..."
+        </div>
+        <p><a href="https://app.verbapost.com?nav=login" style="font-weight: bold;">Login to Admin Console</a> to generate PDF and Envelope.</p>
+    </div>
+    """
+    return send_email(admin_email, subject, html_content)

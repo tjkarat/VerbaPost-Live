@@ -190,7 +190,15 @@ def render_advisor_portal():
                             )
                             
                             if audit_engine:
-                                audit_engine.log_event(user_email, "Client Activated", metadata={"client_email": c_email, "credit_spent": 1})
+                                audit_engine.log_event(
+                                    user_email, 
+                                    "Client Activated", 
+                                    metadata={
+                                        "client_email": c_email, 
+                                        "credit_spent": 1,
+                                        "remaining_credits": new_balance
+                                    }
+                                )
                             
                             st.success(f"🎉 Project Activated for {c_name}! Invitation sent to {c_email}.")
                             time.sleep(2)

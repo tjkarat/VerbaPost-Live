@@ -6,6 +6,10 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+# --- AUDIT IMPORT ---
+try: import audit_engine
+except ImportError: audit_engine = None
+
 # Try to import stripe safely
 try:
     import stripe
@@ -135,6 +139,22 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
         
         # Create Session
         checkout_session = stripe.checkout.Session.create(**session_params)
+
+        # --- 🛡️ AUDIT LOG: PAYMENT INITIATED (NEW) ---
+        if audit_engine:
+            try:
+                audit_engine.log_event(
+                    user_email=user_email, 
+                    event_type="Payment Initiated", 
+                    metadata={
+                        "amount_total": final_line_items[0]['price_data']['unit_amount'],
+                        "product": final_line_items[0]['price_data']['product_data']['name'],
+                        "stripe_url": checkout_session.url
+                    }
+                )
+            except: pass
+        # ---------------------------------------------
+        
         return checkout_session.url
 
     except Exception as e:
