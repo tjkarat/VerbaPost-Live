@@ -1,6 +1,8 @@
 import os
 import logging
 import openai
+import requests
+import time
 from datetime import datetime
 
 # --- IMPORTS ---
@@ -42,7 +44,6 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
 
     safe_advisor = advisor_name or "your financial advisor"
 
-    # FIXED: Indentation is now correct for this multi-line string
     twiml = f"""
     <Response>
         <Pause length="1"/>
@@ -81,8 +82,56 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
         return None, str(e)
 
 def find_and_transcribe_recording(call_sid):
-    # Polling logic (placeholder for simplicity if unused)
-    return None, None
+    """
+    Connects to Twilio, checks if a recording exists for the SID,
+    downloads it, and transcribes it.
+    """
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    
+    if not sid or not token: return None, None
+    
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        
+        # 1. Fetch Recordings for this Call
+        recordings = client.recordings.list(call_sid=call_sid, limit=1)
+        
+        if not recordings:
+            return None, None
+            
+        rec = recordings[0]
+        # Construct MP3 URL (Twilio usually returns .json by default in uri)
+        # We strip .json and add .mp3
+        base_uri = rec.uri.replace(".json", "")
+        audio_url = f"https://api.twilio.com{base_uri}.mp3"
+        
+        # 2. Download Audio to Temp File
+        # We need to authenticate the download request manually
+        response = requests.get(audio_url, auth=(sid, token))
+        
+        if response.status_code == 200:
+            filename = f"temp_{call_sid}.mp3"
+            with open(filename, 'wb') as f:
+                f.write(response.content)
+            
+            # 3. Transcribe
+            transcript_text = transcribe_audio(filename)
+            
+            # 4. Cleanup
+            try:
+                os.remove(filename)
+            except: pass
+            
+            # Return Text and the Public URL (or Twilio URL)
+            return transcript_text, audio_url
+            
+        return None, None
+
+    except Exception as e:
+        logger.error(f"Find/Transcribe Error: {e}")
+        return None, None
 
 def transcribe_audio(file_path):
     client = get_openai_client()
@@ -93,7 +142,7 @@ def transcribe_audio(file_path):
         return transcript.text
     except Exception as e:
         logger.error(f"Transcription Error: {e}")
-        return None
+        return "Audio recorded (Transcription failed)."
 
 def refine_text(text):
     client = get_openai_client()
@@ -102,7 +151,7 @@ def refine_text(text):
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a helpful transcriber. Lightly edit this text only to fix grammar and remove filler words."},
+                {"role": "system", "content": "You are a helpful transcriber. Lightly edit this text only to fix grammar and remove filler words like 'um' or 'uh'. Do not change the meaning."},
                 {"role": "user", "content": text}
             ]
         )
@@ -112,4 +161,27 @@ def refine_text(text):
         return text
 
 def get_all_twilio_recordings(limit=50):
-    return []
+    """
+    Fetches recent calls for the Admin Ghost Scanner.
+    """
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    if not sid or not token: return []
+    
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        recordings = client.recordings.list(limit=limit)
+        
+        results = []
+        for r in recordings:
+            results.append({
+                "sid": r.call_sid,
+                "date_created": r.date_created,
+                "duration": r.duration,
+                "uri": r.uri.replace(".json", ".mp3")
+            })
+        return results
+    except Exception as e:
+        logger.error(f"Twilio Fetch Error: {e}")
+        return []
