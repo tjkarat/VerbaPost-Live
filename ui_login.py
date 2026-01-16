@@ -11,6 +11,8 @@ def render_login_page():
     - Implicit Role Assignment (Advisor vs User) based on URL.
     - Shake Animation on error.
     - Robust Address Validation handling.
+    - RESTORED: Google Authentication
+    - FIXED: Routing loop upon success
     """
     
     # --- CSS: Shake Animation & Clean Tabs ---
@@ -32,6 +34,10 @@ def render_login_page():
         margin: 0 auto;
         padding-top: 2rem;
     }
+    .google-btn {
+        width: 100%;
+        margin-bottom: 15px;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -47,6 +53,19 @@ def render_login_page():
         st.caption("🎧 Login to access Family Archive")
     else:
         st.caption("Sign in to manage your letters")
+
+    # --- RESTORED: GOOGLE AUTH ---
+    # We place this above the tabs for maximum visibility/low friction
+    if st.button("🇬 Google Sign In", key="google_auth_btn", use_container_width=True):
+        # Assuming auth_engine handles the redirect URL generation
+        try:
+            auth_url = auth_engine.get_google_auth_url()
+            st.link_button("Continue to Google", auth_url) # Fallback if direct redirect fails
+            st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Google Auth Error: {e}")
+
+    st.markdown("---") # Visual separator
 
     tab1, tab2, tab3 = st.tabs(["Sign In", "Create Account", "Reset Password"])
 
@@ -66,7 +85,7 @@ def render_login_page():
                     with st.spinner("Verifying credentials..."):
                         user, error = auth_engine.sign_in(email, password)
                         if user:
-                            # Success: Set Session & Reload
+                            # Success: Set Session
                             st.session_state.authenticated = True
                             st.session_state.user_email = user.email
                             
@@ -78,6 +97,10 @@ def render_login_page():
                             
                             st.success("Welcome back!")
                             time.sleep(0.5)
+                            
+                            # --- FIX: BREAK THE LOOP ---
+                            # Clear the 'nav=login' param so main.py routes us to Dashboard
+                            st.query_params.clear() 
                             st.rerun()
                         else:
                             st.markdown(f"<div class='shake'></div>", unsafe_allow_html=True)
@@ -88,7 +111,6 @@ def render_login_page():
     # ==========================================
     with tab2:
         # --- 1. DETERMINE ROLE AUTOMATICALLY ---
-        # We removed the checkbox. The URL decides the destiny.
         target_role = "user"  # Default
         if nav_mode == "advisor":
             target_role = "advisor"
@@ -99,7 +121,7 @@ def render_login_page():
             new_pass = st.text_input("Password", type="password", key="su_pass")
             full_name = st.text_input("Full Name", key="su_name")
             
-            # Address Block (Required for Mailing Profile)
+            # Address Block
             st.markdown("---")
             st.caption("Mailing Address (For Return Address)")
             s_street = st.text_input("Street Address", key="su_street")
@@ -115,8 +137,7 @@ def render_login_page():
                     st.error("Please fill in all required fields.")
                 else:
                     with st.spinner("Creating secure account..."):
-                        # --- 2. ADDRESS VALIDATION (CRASH FIX) ---
-                        # We validate before creating the auth user to prevent bad data.
+                        # --- 2. ADDRESS VALIDATION ---
                         addr_payload = {
                             "street": s_street, "city": s_city, 
                             "state": s_state, "zip": s_zip
@@ -125,13 +146,10 @@ def render_login_page():
                         is_valid, val_result = mailer.validate_address(addr_payload)
                         
                         if not is_valid:
-                            # SAFEGUARD: Handle error strings gracefully
                             err_msg = val_result if isinstance(val_result, str) else "Address validation failed."
                             st.error(f"📍 {err_msg}")
                         else:
-                            # Address is good (val_result is a dict). Proceed to Auth.
-                            # We pass 'role' in the metadata so database triggers can use it if needed,
-                            # or we set it manually in the profile creation step.
+                            # Address is good. Proceed to Auth.
                             user, error = auth_engine.sign_up(
                                 new_email, 
                                 new_pass, 
@@ -139,17 +157,16 @@ def render_login_page():
                             )
                             
                             if user:
-                                # Create DB Profile
                                 if database:
-                                    # Use the CLEANED address from PostGrid (val_result)
                                     database.create_user_profile(
                                         email=new_email,
                                         full_name=full_name,
                                         role=target_role,
-                                        address=val_result # Store verified address
+                                        address=val_result 
                                     )
                                 
                                 st.success("Account created! Please check your email to confirm.")
+                                # Optional: Clear params here too if you want auto-login behavior
                             else:
                                 st.error(f"Signup failed: {error}")
 
