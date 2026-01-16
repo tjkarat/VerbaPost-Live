@@ -26,14 +26,14 @@ class LetterPDF(FPDF):
         self.custom_footer_text = footer_text
         self.set_margins(MARGIN_MM, MARGIN_MM, MARGIN_MM)
         
-        # 🔴 FIX: Reduced bottom margin trigger to 20mm (0.8 inch) to fit more text
+        # Reduced bottom margin trigger to 20mm to fit more text
         self.set_auto_page_break(auto=True, margin=20) 
         
     def header(self):
         pass
 
     def footer(self):
-        # 🔴 FIX: Disable footer entirely if text is empty (Marketing Mode)
+        # Disable footer entirely if text is empty (Marketing Mode)
         if not self.custom_footer_text:
             return
 
@@ -64,12 +64,13 @@ def _safe_get(obj, key, default=""):
     if isinstance(obj, dict): return obj.get(key, default)
     return getattr(obj, key, default)
 
-def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives", audio_url=None, is_marketing=False):
+def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives", audio_url=None, is_marketing=False, question_text=None):
     """
     Generates the Single Standard 'Manuscript' PDF.
+    Now supports 'question_text' to appear in the dedication block.
     """
     try:
-        # 🔴 FIX: Disable footer for Marketing
+        # Disable footer for Marketing
         footer_txt = f"Preserved by {advisor_firm}" if not is_marketing else ""
         pdf = LetterPDF(footer_text=footer_txt)
         
@@ -96,15 +97,14 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             # --- MARKETING HEADER (Unbranded) ---
             pdf.set_font(font_family, '', 12)
             
-            # 🔴 FIX: Use ONLY provided name/address. No defaults.
             sender_name = _safe_get(from_addr, 'name')
             sender_addr = _safe_get(from_addr, 'address_line1')
-            sender_city = _safe_get(from_addr, 'city') # If parsed separately
+            sender_city = _safe_get(from_addr, 'city') 
             
             if sender_name: pdf.cell(0, 5, sender_name, ln=1, align='L')
             if sender_addr: pdf.cell(0, 5, sender_addr, ln=1, align='L')
             
-            # If city/state was parsed into 'city' field by the robust parser
+            # If city/state was parsed into 'city' field
             if sender_city and sender_city != sender_addr: 
                  pdf.cell(0, 5, sender_city, ln=1, align='L')
 
@@ -125,6 +125,14 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             
             pdf.set_font(font_family, '', 10)
             pdf.cell(0, 5, f"Storyteller: {storyteller}", align='C', ln=1)
+            
+            # --- 🆕 ADDED: QUESTION TEXT ---
+            if question_text:
+                # Wrap question if it's too long
+                pdf.set_font(font_family, '', 9)
+                pdf.multi_cell(0, 5, f"Question: {question_text}", align='C')
+                pdf.set_font(font_family, '', 10) # Reset font size
+            
             pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
             pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
             

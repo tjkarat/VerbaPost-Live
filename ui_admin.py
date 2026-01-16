@@ -113,11 +113,9 @@ def map_profile_to_addr(profile, name_override=None):
 def parse_address_text(raw_text):
     """
     Robustly parses a text block into address components.
-    Handles 2-line (Name/Street) and 3-line (Name/Street/City-State-Zip) formats.
     """
     if not raw_text: return {}
     
-    # Split by lines and remove empty ones
     parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
     
     data = {
@@ -131,14 +129,11 @@ def parse_address_text(raw_text):
         data["address_line1"] = parts[1]
         
     if len(parts) >= 3:
-        # Try to parse City, State Zip
         line3 = parts[2]
-        # Heuristic: Comma usually separates City from State
         if "," in line3:
             c_split = line3.split(",")
             data["city"] = c_split[0].strip()
             rest = c_split[1].strip()
-            # Heuristic: Last space separates State from Zip
             r_split = rest.split(" ")
             if len(r_split) > 1:
                 data["zip_code"] = r_split[-1]
@@ -146,7 +141,6 @@ def parse_address_text(raw_text):
             else:
                 data["state"] = rest
         else:
-            # Fallback: Just treat the whole line as city to ensure it prints
             data["city"] = line3
             
     return data
@@ -174,9 +168,10 @@ def render_admin_page():
                             "status": item.status, "meta": {} 
                         })
 
-                    # 2. Heirloom Projects
+                    # 2. Heirloom Projects (UPDATED to fetch 'strategic_prompt')
                     sql_b2b = text("""
-                        SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, p.created_at, c.name as parent_name, a.firm_name, c.email as heir_email
+                        SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, p.created_at, p.strategic_prompt, 
+                               c.name as parent_name, a.firm_name, c.email as heir_email
                         FROM projects p
                         JOIN clients c ON p.client_id = c.id
                         JOIN advisors a ON p.advisor_email = a.email
@@ -191,7 +186,8 @@ def render_admin_page():
                             "meta": {
                                 "storyteller": item.parent_name, "firm_name": item.firm_name,
                                 "heir_name": item.heir_name, "interview_date": date_str,
-                                "heir_email_raw": item.heir_email, "advisor_email_raw": item.advisor_email
+                                "heir_email_raw": item.heir_email, "advisor_email_raw": item.advisor_email,
+                                "prompt": item.strategic_prompt # <--- Captured Question
                             }
                         })
                 
@@ -209,13 +205,17 @@ def render_admin_page():
                                 tier = "Heirloom" if item['type'] == "Heirloom" else "Standard"
                                 firm_name = item['meta'].get('firm_name', 'VerbaPost')
                                 storyteller = item['meta'].get('storyteller', 'The Family')
+                                # 🔴 NEW: Get Question
+                                question = item['meta'].get('prompt')
+                                
                                 pdf_bytes = letter_format.create_pdf(
                                     body_text=item['content'], 
                                     to_addr={}, 
                                     from_addr={'name': storyteller}, 
                                     advisor_firm=firm_name, 
                                     audio_url=str(item['id']) if tier == "Heirloom" else None,
-                                    is_marketing=False 
+                                    is_marketing=False,
+                                    question_text=question # <--- PASSING THE QUESTION
                                 )
                                 b64 = base64.b64encode(pdf_bytes).decode('latin-1')
                                 href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{item["id"]}.pdf">Download Letter</a>'
@@ -272,10 +272,7 @@ def render_admin_page():
         with mb1:
             if st.button("📄 Generate Letter PDF"):
                 if letter_format:
-                    # Parse Addr using helper
                     to_obj = parse_address_text(f"{m_name}\n{m_addr}")
-                    
-                    # 🔴 FIX: Don't force "VerbaPost" prefix. Use exactly what is typed.
                     from_obj = parse_address_text(m_from) 
                     
                     pdf_bytes = letter_format.create_pdf(
@@ -292,10 +289,7 @@ def render_admin_page():
         with mb2:
              if st.button("✉️ Generate Envelope PDF"):
                 if envelope_format:
-                    # Parse Address Input
                     to_obj = parse_address_text(f"{m_name}\n{m_addr}")
-                    
-                    # 🔴 FIX: Use exactly what is typed for return
                     from_obj = parse_address_text(m_from)
 
                     env_bytes = envelope_format.create_envelope(to_obj, from_obj)
