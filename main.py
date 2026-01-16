@@ -103,7 +103,13 @@ def main():
 
     else:
         # Default: The Marketing Splash Page
-        ui_splash.render_splash()
+        # FIXED: Call the correct function name (render_splash_page)
+        if hasattr(ui_splash, 'render_splash_page'):
+            ui_splash.render_splash_page()
+        elif hasattr(ui_splash, 'render_splash'):
+            ui_splash.render_splash()
+        else:
+            st.error("Error: Splash page function not found.")
 
 if __name__ == "__main__":
     main()
