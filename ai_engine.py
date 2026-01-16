@@ -163,10 +163,6 @@ def transcribe_audio(file_path):
         return None
 
 def refine_text(text):
-    """
-    Polishes the raw transcript.
-    UPDATED: Now includes specific 'Find & Replace' rules for firm names.
-    """
     client = get_openai_client()
     if not client: return text
     
