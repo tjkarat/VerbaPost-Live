@@ -4,15 +4,21 @@ import ui_advisor
 import ui_heirloom
 import ui_admin
 import ui_splash
-import auth_engine  # Needed for Google Callback
-import database     # Needed for Profile Sync
+
+# --- IMPORTS FOR AUTH ---
+# We try/except these to prevent crashes if files are missing, 
+# but they are required for Google Auth to work.
+try: import auth_engine
+except ImportError: auth_engine = None
+try: import database
+except ImportError: database = None
 
 # --- PAGE CONFIG ---
 st.set_page_config(
     page_title="VerbaPost",
     page_icon="📬",
     layout="centered",
-    initial_sidebar_state="auto"
+    initial_sidebar_state="expanded"  # FORCE SIDEBAR OPEN so you can see it
 )
 
 def handle_logout():
@@ -23,71 +29,82 @@ def handle_logout():
     st.rerun()
 
 def main():
-    # 1. Initialize Session State
+    # 1. INITIALIZE STATE
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     if "user_role" not in st.session_state:
         st.session_state.user_role = "user"
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
 
-    # --- CRITICAL FIX: HANDLE GOOGLE CALLBACK ---
-    # This must happen BEFORE the router logic
+    # 2. 🚨 PRIORITY: HANDLE GOOGLE CALLBACK 🚨
+    # This block was missing or broken. It catches the return trip from Google.
     query_params = st.query_params
     if "code" in query_params and not st.session_state.authenticated:
-        try:
-            with st.spinner("Authenticating with Google..."):
-                # Exchange code for user session
-                user, error = auth_engine.handle_google_callback(query_params["code"])
-                if user:
-                    st.session_state.authenticated = True
-                    st.session_state.user_email = user.email
+        if auth_engine:
+            try:
+                with st.spinner("🔄 Verifying Google Login..."):
+                    # Exchange code for user session
+                    user, error = auth_engine.handle_google_callback(query_params["code"])
                     
-                    # Sync Role
-                    profile = database.get_user_profile(user.email)
-                    if profile:
-                        st.session_state.user_role = profile.get("role", "user")
-                    
-                    # Cleanup URL and Enter
-                    st.query_params.clear()
-                    st.rerun()
-                else:
-                    st.error(f"Google Auth Failed: {error}")
-        except Exception as e:
-            st.error(f"Auth Error: {e}")
+                    if user:
+                        # SUCCESS: Set Session
+                        st.session_state.authenticated = True
+                        st.session_state.user_email = user.email
+                        
+                        # Sync Role from DB
+                        if database:
+                            profile = database.get_user_profile(user.email)
+                            if profile:
+                                st.session_state.user_role = profile.get("role", "user")
+                        
+                        st.success(f"✅ Logged in as {user.email}")
+                        
+                        # Clear URL to prevent re-triggering and reload
+                        st.query_params.clear()
+                        st.rerun()
+                    else:
+                        st.error(f"❌ Google Auth Failed: {error}")
+            except Exception as e:
+                st.error(f"⚠️ Auth System Error: {e}")
+        else:
+            st.error("⚠️ Auth Engine not loaded. Cannot process Google Login.")
 
-    # 2. GLOBAL SIDEBAR (Visible only when logged in)
-    if st.session_state.authenticated:
-        with st.sidebar:
-            st.write(f"User: **{st.session_state.get('user_email')}**")
-            st.write(f"Role: **{st.session_state.user_role.title()}**")
+    # 3. 🛠️ GLOBAL SIDEBAR (ALWAYS VISIBLE NOW) 🛠️
+    with st.sidebar:
+        st.header("VerbaPost Admin")
+        
+        # STATUS INDICATOR
+        if st.session_state.authenticated:
+            st.success(f"🟢 Online: {st.session_state.user_email}")
+            st.caption(f"Role: {st.session_state.user_role}")
             
-            # Role Switcher for Admin/Dev
-            # Update 'pat@gmail.com' to your actual admin email if different
-            is_admin = (st.session_state.user_role == "admin") or (st.session_state.get("user_email") == "pat@gmail.com")
+            # ADMIN TOOLS
+            # Check if Admin OR if it's YOU (hardcoded safety net)
+            is_admin = (st.session_state.user_role == "admin") or (st.session_state.user_email == "pat@gmail.com")
             
             if is_admin:
                 st.divider()
-                st.caption("🛠️ Admin Tools")
-                if st.button("⚙️ Admin"): 
+                st.subheader("🕵️ Role Switcher")
+                if st.button("⚙️ Admin Console"): 
                     st.session_state.user_role = "admin"
                     st.rerun()
-                if st.button("👔 Advisor"): 
+                if st.button("👔 Advisor View"): 
                     st.session_state.user_role = "advisor"
                     st.rerun()
-                if st.button("📂 Heir"): 
+                if st.button("📂 Heir View"): 
                     st.session_state.user_role = "heir"
                     st.rerun()
             
-            elif st.session_state.user_role == 'advisor':
-                st.divider()
-                if st.button("👀 View as Heir"):
-                    st.query_params["nav"] = "archive"
-                    st.rerun()
-
+            # LOGOUT
             st.divider()
-            if st.button("Log Out"):
+            if st.button("🚪 Log Out"):
                 handle_logout()
+        else:
+            st.warning("🔴 Not Logged In")
+            st.info("Please sign in to access tools.")
 
-    # 3. ROUTING LOGIC
+    # 4. ROUTING LOGIC
     nav = query_params.get("nav")
 
     # --- AUTHENTICATED ROUTES ---
@@ -98,44 +115,45 @@ def main():
         force_heir = ("pending_play_id" in st.session_state) or (nav == "archive")
         
         if force_heir:
-            if hasattr(ui_heirloom, 'render_family_archive'):
-                ui_heirloom.render_family_archive()
-            elif hasattr(ui_heirloom, 'render_dashboard'):
-                 ui_heirloom.render_dashboard()
+            if ui_heirloom: ui_heirloom.render_family_archive()
+            else: st.error("Heirloom UI missing")
             return
 
         # Role Routing
         if role == "advisor":
-            if hasattr(ui_advisor, 'render_advisor_portal'):
-                ui_advisor.render_advisor_portal()
-            elif hasattr(ui_advisor, 'render_dashboard'):
-                ui_advisor.render_dashboard()
+            if ui_advisor: ui_advisor.render_advisor_portal()
+            else: st.error("Advisor UI missing")
         
         elif role == "admin":
-            if hasattr(ui_admin, 'render_admin_console'):
-                ui_admin.render_admin_console()
-            else:
-                st.write("Admin Console not found.")
+            if ui_admin: ui_admin.render_admin_console()
+            else: st.error("Admin UI missing")
                 
         else: # Default/Heir
-            if hasattr(ui_heirloom, 'render_family_archive'):
-                ui_heirloom.render_family_archive()
-            elif hasattr(ui_heirloom, 'render_dashboard'):
-                 ui_heirloom.render_dashboard()
+            if ui_heirloom: ui_heirloom.render_family_archive()
+            else: st.error("Heirloom UI missing")
         return
 
     # --- PUBLIC ROUTES ---
     if nav == "login" or nav == "advisor":
-        ui_login.render_login_page()
+        if ui_login: ui_login.render_login_page()
+        else: st.error("Login UI missing")
+        
     elif nav == "archive":
-        # Deep link to archive (triggers login inside if needed)
-        ui_login.render_login_page()
+        if ui_login: ui_login.render_login_page()
+        else: st.error("Login UI missing")
+
     else:
         # Default: The Marketing Splash Page
-        if hasattr(ui_splash, 'render_splash_page'):
+        if ui_splash and hasattr(ui_splash, 'render_splash_page'):
             ui_splash.render_splash_page()
-        elif hasattr(ui_splash, 'render_splash'):
+        elif ui_splash and hasattr(ui_splash, 'render_splash'):
             ui_splash.render_splash()
+        else:
+            # Fallback if splash is broken
+            st.title("VerbaPost")
+            if st.button("Go to Login"):
+                st.query_params["nav"] = "login"
+                st.rerun()
 
 if __name__ == "__main__":
     main()
