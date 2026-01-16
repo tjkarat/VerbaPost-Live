@@ -49,7 +49,7 @@ def main():
     if st.session_state.authenticated:
         role = st.session_state.user_role
         
-        # --- DUAL ROLE CHECK (THE FIX) ---
+        # --- DUAL ROLE CHECK ---
         # If user is Advisor BUT has a 'play' context (QR code) or requested archive,
         # we FORCE the Heir view.
         force_heir = False
@@ -59,57 +59,58 @@ def main():
             force_heir = True
             
         if force_heir:
-            try:
+            if hasattr(ui_heirloom, 'render_family_archive'):
                 ui_heirloom.render_family_archive()
-            except AttributeError:
+            elif hasattr(ui_heirloom, 'render_dashboard'):
+                 ui_heirloom.render_dashboard()
+            else:
                 st.error("Error: Heirloom view not found.")
             return
 
         # --- STANDARD ROLE ROUTING ---
         if role == "advisor":
-            # 💼 Advisor Portal
-            try:
+            if hasattr(ui_advisor, 'render_advisor_portal'):
                 ui_advisor.render_advisor_portal()
-            except AttributeError:
-                st.error("Error: Advisor view not found. Check `ui_advisor.render_advisor_portal`.")
+            elif hasattr(ui_advisor, 'render_dashboard'):
+                ui_advisor.render_dashboard()
+            else:
+                st.error("Error: Advisor view not found.")
         
         elif role == "admin":
-            # ⚙️ Admin Console
-            try:
+            if hasattr(ui_admin, 'render_admin_console'):
                 ui_admin.render_admin_console()
-            except AttributeError:
+            else:
                 st.error("Error: Admin view not found.")
                 
         else:
-            # 🏡 Heir/User Portal (Default Fallback)
-            try:
+            # Fallback for standard users
+            if hasattr(ui_heirloom, 'render_family_archive'):
                 ui_heirloom.render_family_archive()
-            except AttributeError:
+            elif hasattr(ui_heirloom, 'render_dashboard'):
+                 ui_heirloom.render_dashboard()
+            else:
                 st.error("Error: Heirloom view not found.")
         
         return  # Stop here so we don't render public pages
 
     # --- ROUTE: PUBLIC VISITORS (Unauthenticated) ---
     if nav == "login" or nav == "advisor":
-        # The 'advisor' param just triggers the login page with advisor messaging
         ui_login.render_login_page()
         
     elif nav == "archive":
-        # Direct link to archive (might trigger login inside)
-        try:
+        # Direct link to archive (triggers login inside heirloom if needed)
+        if hasattr(ui_heirloom, 'render_family_archive'):
             ui_heirloom.render_family_archive()
-        except AttributeError:
+        else:
              ui_login.render_login_page()
 
     else:
         # Default: The Marketing Splash Page
-        # FIXED: Call the correct function name (render_splash_page)
+        # FIXED: Calling the correct function name 'render_splash_page'
         if hasattr(ui_splash, 'render_splash_page'):
             ui_splash.render_splash_page()
-        elif hasattr(ui_splash, 'render_splash'):
-            ui_splash.render_splash()
         else:
-            st.error("Error: Splash page function not found.")
+            st.error("Error: Splash page function 'render_splash_page' not found.")
 
 if __name__ == "__main__":
     main()

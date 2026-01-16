@@ -4,7 +4,6 @@ def render_splash_page():
     """
     The 'App Portal' Entry Point.
     Replaces marketing fluff with clear Login pathways.
-    UPDATED: Now uses URL params to drive routing in main.py.
     """
     # Simple, centered layout
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -26,14 +25,14 @@ def render_splash_page():
         
         with tab_family:
             st.info("Access your private family vault to record and preserve stories.")
-            # FIX: Set query param 'nav=login' so main.py sees it
+            # FIX: Updates URL so main.py catches it
             if st.button("🔐 Client Login", key="btn_heir_login", use_container_width=True):
                 st.query_params["nav"] = "login"
                 st.rerun()
                 
         with tab_advisor:
             st.warning("Manage client rosters, credits, and activations.")
-            # FIX: Set query param 'nav=advisor' so main.py sees it
+            # FIX: Updates URL so main.py catches it
             if st.button("💼 Advisor Login", key="btn_adv_login", use_container_width=True):
                 st.query_params["nav"] = "advisor"
                 st.rerun()
@@ -47,6 +46,3 @@ def render_splash_page():
                 © 2025 VerbaPost Wealth
             </div>
         """, unsafe_allow_html=True)
-
-# Safety Alias
-show_splash = render_splash_page
