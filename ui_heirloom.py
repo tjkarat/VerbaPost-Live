@@ -7,9 +7,11 @@ import mailer
 import email_engine 
 import letter_format
 import audit_engine 
+import logging
 
 # --- CONFIGURATION ---
 CREDIT_COST = 1 
+logger = logging.getLogger(__name__)
 
 # ==========================================
 # 🎧 PUBLIC PLAYER (QR Code Access)
@@ -45,19 +47,15 @@ def render_public_player(audio_id):
     storyteller = "Family Member"
 
     # NOTE: If your QR code contains ?play=demo, this works immediately.
-    # Otherwise, it attempts to fetch from DB if you have a helper.
     if audio_id == "demo" or audio_id == "sample":
         audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
         story_title = "Barnaby Jones - Childhood Memories"
         story_date = "January 16, 2026"
         storyteller = "Barnaby Jones"
     else:
-        # Try to find the draft in the DB by tracking_number or ID
-        # This assumes your DB has a way to get public URLs
+        # Placeholder for DB lookup logic
         try:
-            # Placeholder: In a real scenario, you'd look up the draft by ID
-            # draft = database.get_draft_by_id(audio_id) 
-            # if draft: ...
+            # You can eventually add: draft = database.get_draft_by_id(audio_id)
             st.warning(f"Note: Looking up secure recording ID: {audio_id}")
         except Exception:
             pass
@@ -99,10 +97,6 @@ def render_public_player(audio_id):
 # ==========================================
 # 🏛️ AUTHENTICATED DASHBOARD
 # ==========================================
-
-def render_family_archive():
-    """Alias function to ensure main.py calls the correct entry point."""
-    render_dashboard()
 
 def render_dashboard():
     """
@@ -332,3 +326,6 @@ def render_dashboard():
     with st.expander("⚙️ Mailing Settings"):
         st.write("Ensure your mailing address is correct for the physical manuscript.")
         st.info("To update your mailing address, please visit the main Settings page.")
+
+# --- 🚨 CRITICAL FIX: ALIAS TO PREVENT ATTRIBUTE ERROR 🚨 ---
+render_family_archive = render_dashboard
