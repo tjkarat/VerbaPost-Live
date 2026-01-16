@@ -1,14 +1,12 @@
 import streamlit as st
 import time
 
-# NOTE: Imports for auth_engine, database, and mailer are moved INSIDE the function
-# to prevent the "Circular Import / KeyError" crash.
-
 def render_login_page():
     """
     Unified Auth Page.
     """
     # --- LAZY IMPORTS (CRITICAL FIX) ---
+    # Moving these inside the function stops the crash
     import auth_engine
     import database
     import mailer
@@ -32,7 +30,9 @@ def render_login_page():
     if st.button("🇬 Google Sign In", key="google_auth_btn", use_container_width=True):
         try:
             auth_url = auth_engine.get_google_auth_url()
+            # Show link as backup in case redirect fails
             st.link_button("👉 Click here to continue", auth_url)
+            # Auto-redirect
             st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Google Config Error: {e}")
@@ -55,7 +55,6 @@ def render_login_page():
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.email
                         
-                        # Sync Profile
                         profile = database.get_user_profile(user.email)
                         if profile:
                             st.session_state.user_role = profile.get("role", "user")
@@ -86,7 +85,6 @@ def render_login_page():
             
             if st.form_submit_button("Create Account", use_container_width=True):
                 with st.spinner("Creating account..."):
-                    # Validate Address
                     is_valid, val_result = mailer.validate_address({
                         "street": s_street, "city": s_city, 
                         "state": s_state, "zip": s_zip
