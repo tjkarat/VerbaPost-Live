@@ -158,6 +158,7 @@ class LetterDraft(Base):
     status = Column(String)
     call_sid = Column(String)
     created_at = Column(DateTime, default=datetime.utcnow)
+    tracking_number = Column(String) # Ensure this exists in your DB or add it manually if missing
 
 class AuditEvent(Base):
     __tablename__ = 'audit_events'
@@ -236,8 +237,6 @@ def get_advisor_clients(email):
             return [to_dict(r) for r in res]
     except Exception: return []
 
-# In database.py - Find 'create_draft' and replace it with this:
-
 def create_draft(user_email, content, status="Recording", call_sid=None, prompt=None):
     user_email = user_email.strip().lower()
     # If no prompt provided, fallback to "Ad-hoc Interview"
@@ -285,6 +284,7 @@ def update_draft_by_sid(call_sid, content, recording_url):
                 d.content = content
                 d.status = 'Draft'
                 d.call_sid = None
+                d.tracking_number = recording_url # Store URL here if using LetterDraft
                 session.commit()
                 return True
         return False
@@ -422,6 +422,7 @@ def get_user_drafts(user_email):
         client_res = supabase.table("clients").select("id").eq("email", user_email).execute()
         if not client_res.data: return []
         client_id = client_res.data[0]['id']
+        # Fetch Project Table
         response = supabase.table("projects").select("*").eq("client_id", client_id).order("created_at", desc=True).execute()
         return response.data
     except Exception as e:
@@ -495,3 +496,47 @@ def add_advisor_credit(email, amount=1):
                 return True
     except: return False
     return False
+
+# ==========================================
+# 🆕 PUBLIC PLAYER ACCESS (FIX FOR QR CODE)
+# ==========================================
+
+def get_public_draft(draft_id):
+    """
+    Fetches a draft by ID for the public player (QR Code).
+    Securely returns only the necessary metadata and URL.
+    Checks 'projects' table first, then 'letter_drafts'.
+    """
+    try:
+        # Cast ID to int to prevent SQL injection attempts via URL
+        try:
+            safe_id = int(str(draft_id).strip())
+        except ValueError:
+            return None
+            
+        with get_db_session() as db:
+            # 1. Check PROJECT table (B2B Priority)
+            proj = db.query(Project).filter(Project.id == safe_id).first()
+            if proj:
+                return {
+                    "id": proj.id,
+                    "url": proj.tracking_number, # This holds the Audio URL
+                    "title": f"Story #{proj.id}",
+                    "date": proj.created_at.strftime("%B %d, %Y") if proj.created_at else "Unknown",
+                    "storyteller": proj.heir_name or "Family Member"
+                }
+
+            # 2. Check LETTER_DRAFT table (Legacy/B2C)
+            draft = db.query(LetterDraft).filter(LetterDraft.id == safe_id).first()
+            if draft:
+                return {
+                    "id": draft.id,
+                    "url": draft.tracking_number,
+                    "title": f"Story #{draft.id}",
+                    "date": draft.created_at.strftime("%B %d, %Y") if draft.created_at else "Unknown",
+                    "storyteller": "Family Member"
+                }
+            return None
+    except Exception as e:
+        logger.error(f"Public Draft Fetch Error: {e}")
+        return None
