@@ -6,7 +6,7 @@ import payment_engine
 import email_engine 
 import audit_engine 
 
-def render_dashboard():
+def render_advisor_portal():
     """
     The Advisor Portal (B2B View).
     """

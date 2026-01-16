@@ -147,7 +147,7 @@ def parse_address_text(raw_text):
 
 # --- MAIN RENDER ---
 
-def render_admin_page():
+def render_admin_console():
     st.title("⚙️ Admin Console (B2B)")
     tabs = st.tabs(["🖨️ Master Queue", "📢 Marketing", "👻 Ghost Calls", "💰 Credits", "❤️ Health"])
 
