@@ -11,6 +11,99 @@ import audit_engine
 # --- CONFIGURATION ---
 CREDIT_COST = 1 
 
+# ==========================================
+# 🎧 PUBLIC PLAYER (QR Code Access)
+# ==========================================
+def render_public_player(audio_id):
+    """
+    Public-facing player for QR code scans. 
+    Does not require login.
+    """
+    # 1. Clean Layout for Mobile/Public
+    st.markdown("""
+        <style>
+            header {visibility: hidden;}
+            .block-container {padding-top: 3rem;}
+            .stAudio {width: 100%;}
+            .player-card {
+                background-color: #f8fafc;
+                padding: 20px;
+                border-radius: 12px;
+                border: 1px solid #e2e8f0;
+                text-align: center;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 2. Header
+    st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1>🎙️ The Family Legacy Archive</h1></div>", unsafe_allow_html=True)
+    
+    # 3. Resolve Audio URL (Logic for Demo vs Real DB)
+    audio_url = None
+    story_title = "Private Recording"
+    story_date = "Unknown Date"
+    storyteller = "Family Member"
+
+    # NOTE: If your QR code contains ?play=demo, this works immediately.
+    # Otherwise, it attempts to fetch from DB if you have a helper.
+    if audio_id == "demo" or audio_id == "sample":
+        audio_url = "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3"
+        story_title = "Barnaby Jones - Childhood Memories"
+        story_date = "January 16, 2026"
+        storyteller = "Barnaby Jones"
+    else:
+        # Try to find the draft in the DB by tracking_number or ID
+        # This assumes your DB has a way to get public URLs
+        try:
+            # Placeholder: In a real scenario, you'd look up the draft by ID
+            # draft = database.get_draft_by_id(audio_id) 
+            # if draft: ...
+            st.warning(f"Note: Looking up secure recording ID: {audio_id}")
+        except Exception:
+            pass
+    
+    # 4. Render Player UI
+    if audio_url:
+        st.markdown(f"""
+            <div class='player-card'>
+                <h3 style='margin-top: 0; color: #0f172a;'>{story_title}</h3>
+                <p style='color: #64748b; font-size: 0.9rem;'>Storyteller: <strong>{storyteller}</strong></p>
+                <p style='color: #94a3b8; font-size: 0.8rem;'>Recorded: {story_date}</p>
+            </div>
+            <br>
+        """, unsafe_allow_html=True)
+        
+        st.audio(audio_url, format="audio/mp3")
+        
+        st.markdown("---")
+        
+        # Call to Action
+        st.markdown("""
+            <div style='text-align: center; color: #64748b; font-size: 0.9rem;'>
+                <em>Preserved by VerbaPost</em><br><br>
+                <p>Do you have a story to tell?</p>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Claim this Memory / Log In", use_container_width=True):
+            # Clear the play param so the main router sends them to login next time
+            st.query_params["nav"] = "login"
+            st.rerun()
+            
+    else:
+        st.error("⚠️ Audio file not found or access link expired.")
+        if st.button("Return to Home"):
+            st.query_params.clear()
+            st.rerun()
+
+# ==========================================
+# 🏛️ AUTHENTICATED DASHBOARD
+# ==========================================
+
+def render_family_archive():
+    """Alias function to ensure main.py calls the correct entry point."""
+    render_dashboard()
+
 def render_dashboard():
     """
     The Family Legacy Archive (B2B Mode).

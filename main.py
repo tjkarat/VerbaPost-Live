@@ -17,7 +17,7 @@ st.set_page_config(
     page_title="VerbaPost",
     page_icon="📬",
     layout="centered",
-    initial_sidebar_state="expanded" # FORCE OPEN
+    initial_sidebar_state="collapsed" 
 )
 
 def handle_logout():
@@ -36,9 +36,19 @@ def main():
     if "user_email" not in st.session_state:
         st.session_state.user_email = None
 
-    # 2. 🚨 PRIORITY: HANDLE GOOGLE CALLBACK 🚨
-    # We check this FIRST before rendering anything else.
+    # 2. 🚨 PUBLIC PLAYBACK GATE (QR Code Bypass) 🚨
+    # This must happen BEFORE Google Auth or Login checks.
     query_params = st.query_params
+    if "play" in query_params:
+        audio_id = query_params["play"]
+        if ui_heirloom and hasattr(ui_heirloom, 'render_public_player'):
+            ui_heirloom.render_public_player(audio_id)
+            return  # STOP HERE. Do not render sidebar or login.
+        else:
+            st.error("⚠️ Player module (ui_heirloom) is missing or incomplete.")
+            return
+
+    # 3. HANDLE GOOGLE CALLBACK
     if "code" in query_params and not st.session_state.authenticated:
         if auth_engine:
             try:
@@ -47,7 +57,6 @@ def main():
                     user, error = auth_engine.handle_google_callback(query_params["code"])
                     
                     if user:
-                        # SUCCESS
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.email
                         
@@ -59,17 +68,14 @@ def main():
                         
                         st.success(f"✅ Logged in as {user.email}")
                         time.sleep(1)
-                        # Clear URL to prevent re-triggering
                         st.query_params.clear()
                         st.rerun()
                     else:
                         st.error(f"❌ Google Auth Failed: {error}")
             except Exception as e:
                 st.error(f"⚠️ Auth System Error: {e}")
-        else:
-            st.error("⚠️ Auth Engine not loaded.")
 
-    # 3. 🛠️ GLOBAL SIDEBAR (ALWAYS VISIBLE NOW) 🛠️
+    # 4. 🛠️ GLOBAL SIDEBAR 🛠️
     with st.sidebar:
         st.header("VerbaPost Admin")
         
@@ -79,8 +85,7 @@ def main():
             st.caption(f"Role: {st.session_state.user_role}")
             
             # ADMIN TOOLS
-            # Check if Admin OR if it's YOU (hardcoded safety net)
-            is_admin = (st.session_state.user_role == "admin") or (st.session_state.user_email == "pat@gmail.com") # <--- VERIFY THIS EMAIL
+            is_admin = (st.session_state.user_role == "admin") or (st.session_state.user_email == "pat@gmail.com")
             
             if is_admin:
                 st.divider()
@@ -103,11 +108,10 @@ def main():
             st.warning("🔴 Not Logged In")
             st.info("Please sign in to access tools.")
 
-    # 4. ROUTING LOGIC
+    # 5. ROUTING LOGIC
     nav = query_params.get("nav")
     
-    # --- COMPATIBILITY BRIDGE (Fixes 'Button Does Nothing') ---
-    # If the Splash page uses the old 'app_mode' state, we force the router to respect it
+    # Compatibility Bridge
     if not nav and st.session_state.get("app_mode") == "login":
         nav = "login"
 
