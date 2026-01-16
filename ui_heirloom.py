@@ -53,10 +53,18 @@ def render_public_player(audio_id):
         story_date = "January 16, 2026"
         storyteller = "Barnaby Jones"
     else:
-        # Placeholder for DB lookup logic
+        # DB Lookup - Gracefully handles missing function if database.py isn't updated
         try:
-            # You can eventually add: draft = database.get_draft_by_id(audio_id)
-            st.warning(f"Note: Looking up secure recording ID: {audio_id}")
+            # We try to use the helper if it exists
+            if hasattr(database, 'get_public_draft'):
+                draft_data = database.get_public_draft(audio_id)
+                if draft_data:
+                    audio_url = draft_data.get("url")
+                    story_title = draft_data.get("title")
+                    story_date = draft_data.get("date")
+                    storyteller = draft_data.get("storyteller")
+            else:
+                st.warning(f"Note: Looking up secure recording ID: {audio_id}")
         except Exception:
             pass
     

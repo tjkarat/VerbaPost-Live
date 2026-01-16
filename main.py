@@ -72,6 +72,9 @@ def main():
                         st.rerun()
                     else:
                         st.error(f"❌ Google Auth Failed: {error}")
+                        if st.button("Try Logging in Again"):
+                            st.query_params.clear()
+                            st.rerun()
             except Exception as e:
                 st.error(f"⚠️ Auth System Error: {e}")
 
@@ -85,7 +88,14 @@ def main():
             st.caption(f"Role: {st.session_state.user_role}")
             
             # ADMIN TOOLS
-            is_admin = (st.session_state.user_role == "admin") or (st.session_state.user_email == "pat@gmail.com")
+            # UPDATED: Added your email explicitly so you ALWAYS get access
+            user_email = st.session_state.user_email
+            is_admin = (
+                (st.session_state.user_role == "admin") or 
+                (user_email == "tjkarat@gmail.com") or 
+                (user_email == "tjkarat@gmai.com") or
+                (user_email == "pat@gmail.com")
+            )
             
             if is_admin:
                 st.divider()
@@ -107,6 +117,9 @@ def main():
         else:
             st.warning("🔴 Not Logged In")
             st.info("Please sign in to access tools.")
+            # Emergency logout in case state is stuck
+            if st.button("Reset Session"):
+                handle_logout()
 
     # 5. ROUTING LOGIC
     nav = query_params.get("nav")
