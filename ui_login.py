@@ -28,8 +28,9 @@ def render_login_page():
     # --- GOOGLE AUTH BUTTON ---
     if st.button("🇬 Google Sign In", key="google_auth_btn", use_container_width=True):
         try:
+            # This calls the bridge function we just added to auth_engine.py
             auth_url = auth_engine.get_google_auth_url()
-            st.link_button("👉 Click here to continue", auth_url)
+            st.link_button("🔗 Click here to continue", auth_url)
             st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
         except Exception as e:
             st.error(f"Google Config Error: {e}")
@@ -66,7 +67,7 @@ def render_login_page():
     with tab2:
         target_role = "advisor" if nav_mode == "advisor" else "user"
         if target_role == "advisor":
-            st.info("✨ Creating Advisor Account")
+            st.info("ℹ️ Creating Advisor Account")
             
         with st.form("signup_form"):
             new_email = st.text_input("Email", key="su_email").strip()
@@ -82,6 +83,7 @@ def render_login_page():
             
             if st.form_submit_button("Create Account", use_container_width=True):
                 with st.spinner("Creating account..."):
+                    # Validate Address First
                     is_valid, val_result = mailer.validate_address({
                         "street": s_street, "city": s_city, 
                         "state": s_state, "zip": s_zip
@@ -90,9 +92,12 @@ def render_login_page():
                     if not is_valid:
                         st.error(f"Address Error: {val_result}")
                     else:
+                        # Create Auth User
                         user, error = auth_engine.sign_up(new_email, new_pass, {"full_name": full_name})
                         if user:
-                            database.create_user_profile(new_email, full_name, target_role, val_result)
+                            # Create DB Entry (Fixed function call)
+                            # Note: Address data is validated but create_user only takes basic info currently
+                            database.create_user(new_email, full_name, role=target_role)
                             st.success("Account created! Check email.")
                         else:
                             st.error(f"Signup Error: {error}")

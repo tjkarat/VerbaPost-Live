@@ -86,6 +86,16 @@ def verify_oauth_token(access_token):
     except Exception as e:
         return None, str(e)
 
+# --- 🚨 CRITICAL COMPATIBILITY BRIDGES ADDED HERE 🚨 ---
+
+def get_google_auth_url():
+    """Alias for UI compatibility."""
+    return get_oauth_url(provider="google")
+
+def handle_google_callback(code):
+    """Alias for Main.py compatibility."""
+    return exchange_code_for_user(code)
+
 # --- STANDARD AUTH FLOWS ---
 
 def sign_up(email, password, data=None):
