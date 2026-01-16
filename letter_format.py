@@ -115,7 +115,7 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             pdf.set_font(font_family, '', 16)
             pdf.cell(0, 8, "THE FAMILY LEGACY ARCHIVE", align='C', ln=1)
 
-            # 🆕 TAGLINE ADDED HERE
+            # TAGLINE
             pdf.set_font(font_family, '', 10)
             pdf.cell(0, 5, "A letter your grandchildren will hold.", align='C', ln=1)
             
@@ -133,13 +133,14 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             # 1. Storyteller
             pdf.cell(0, 5, f"Storyteller: {storyteller}", align='C', ln=1)
             
-            # 2. Question (with slight font reduction to fit better if long)
+            # 2. Question
             if question_text:
                 pdf.set_font(font_family, '', 9)
                 pdf.multi_cell(0, 5, f"Question: {question_text}", align='C')
                 pdf.set_font(font_family, '', 10) # Reset font
             
-            # 3. Date (Explicitly Centered)
+            # 3. Date (FIXED: Explicitly Centered with small padding)
+            pdf.ln(2) 
             pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
             
             # 4. Preserved By
@@ -167,7 +168,7 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
 
 def _add_audio_qr(pdf, audio_url, w, h, margin):
     try:
-        # 🆕 ADDED CAMPAIGN TRACKING
+        # CAMPAIGN TRACKING
         player_link = f"https://app.verbapost.com/?play={audio_url}&utm_source=letter&utm_medium=qr"
         
         qr_img = qrcode.make(player_link)
