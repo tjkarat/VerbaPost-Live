@@ -1,16 +1,18 @@
 import streamlit as st
 import time
 
+# NOTE: Imports for auth_engine, database, and mailer are moved INSIDE the function
+# to prevent the "Circular Import / KeyError" crash.
+
 def render_login_page():
     """
-    Unified Auth Page with Lazy Imports to prevent Circular Dependency Errors.
+    Unified Auth Page.
     """
-    # --- LAZY IMPORTS: MUST BE INSIDE FUNCTION ---
+    # --- LAZY IMPORTS (CRITICAL FIX) ---
     import auth_engine
     import database
     import mailer
     
-    # --- CSS & Layout ---
     st.markdown("""
     <style>
     .auth-container { max-width: 400px; margin: 0 auto; padding-top: 2rem; }
@@ -26,14 +28,14 @@ def render_login_page():
     else:
         st.caption("Sign in to manage your letters")
 
-    # --- GOOGLE AUTH ---
+    # --- GOOGLE AUTH BUTTON ---
     if st.button("🇬 Google Sign In", key="google_auth_btn", use_container_width=True):
         try:
             auth_url = auth_engine.get_google_auth_url()
-            st.link_button("Continue to Google", auth_url)
+            st.link_button("👉 Click here to continue", auth_url)
             st.markdown(f'<meta http-equiv="refresh" content="0;url={auth_url}">', unsafe_allow_html=True)
         except Exception as e:
-            st.error(f"Google Auth Error: {e}")
+            st.error(f"Google Config Error: {e}")
 
     st.markdown("---") 
 
@@ -59,7 +61,6 @@ def render_login_page():
                             st.session_state.user_role = profile.get("role", "user")
                         
                         st.success("Success!")
-                        time.sleep(0.5)
                         st.query_params.clear()
                         st.rerun()
                     else:

@@ -16,19 +16,21 @@ st.set_page_config(
 )
 
 def handle_logout():
+    """Clear session and reload to home."""
     for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.query_params.clear()
     st.rerun()
 
 def main():
-    # 1. Initialize Session
+    # 1. Initialize Session State
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
     if "user_role" not in st.session_state:
         st.session_state.user_role = "user"
 
-    # 2. HANDLE GOOGLE CALLBACK (Critical Fix)
+    # --- CRITICAL FIX: HANDLE GOOGLE CALLBACK ---
+    # This must happen BEFORE the router logic
     query_params = st.query_params
     if "code" in query_params and not st.session_state.authenticated:
         try:
@@ -52,13 +54,14 @@ def main():
         except Exception as e:
             st.error(f"Auth Error: {e}")
 
-    # 3. GLOBAL SIDEBAR (Visible only when logged in)
+    # 2. GLOBAL SIDEBAR (Visible only when logged in)
     if st.session_state.authenticated:
         with st.sidebar:
             st.write(f"User: **{st.session_state.get('user_email')}**")
             st.write(f"Role: **{st.session_state.user_role.title()}**")
             
             # Role Switcher for Admin/Dev
+            # Update 'pat@gmail.com' to your actual admin email if different
             is_admin = (st.session_state.user_role == "admin") or (st.session_state.get("user_email") == "pat@gmail.com")
             
             if is_admin:
@@ -84,7 +87,7 @@ def main():
             if st.button("Log Out"):
                 handle_logout()
 
-    # 4. ROUTING LOGIC
+    # 3. ROUTING LOGIC
     nav = query_params.get("nav")
 
     # --- AUTHENTICATED ROUTES ---
@@ -128,6 +131,7 @@ def main():
         # Deep link to archive (triggers login inside if needed)
         ui_login.render_login_page()
     else:
+        # Default: The Marketing Splash Page
         if hasattr(ui_splash, 'render_splash_page'):
             ui_splash.render_splash_page()
         elif hasattr(ui_splash, 'render_splash'):
