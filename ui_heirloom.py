@@ -8,6 +8,7 @@ import email_engine
 import letter_format
 import audit_engine 
 import logging
+import analytics  # <--- IMPORT EXISTING MODULE
 
 # --- CONFIGURATION ---
 CREDIT_COST = 1 
@@ -21,7 +22,10 @@ def render_public_player(audio_id):
     Public-facing player for QR code scans. 
     Does not require login.
     """
-    # 1. Clean Layout for Mobile/Public
+    # 1. 🆕 INJECT ANALYTICS (USING EXISTING MODULE)
+    analytics.inject_ga()
+    
+    # 2. Clean Layout for Mobile/Public
     st.markdown("""
         <style>
             header {visibility: hidden;}
@@ -37,10 +41,10 @@ def render_public_player(audio_id):
         </style>
     """, unsafe_allow_html=True)
 
-    # 2. Header
+    # 3. Header
     st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1>🎙️ The Family Legacy Archive</h1></div>", unsafe_allow_html=True)
     
-    # 3. Resolve Audio URL (Logic for Demo vs Real DB)
+    # 4. Resolve Audio URL (Logic for Demo vs Real DB)
     audio_url = None
     story_title = "Private Recording"
     story_date = "Unknown Date"
@@ -68,7 +72,7 @@ def render_public_player(audio_id):
         except Exception:
             pass
     
-    # 4. Render Player UI
+    # 5. Render Player UI
     if audio_url:
         st.markdown(f"""
             <div class='player-card'>

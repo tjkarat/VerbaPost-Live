@@ -167,7 +167,9 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
 
 def _add_audio_qr(pdf, audio_url, w, h, margin):
     try:
-        player_link = f"https://app.verbapost.com/?play={audio_url}"
+        # 🆕 ADDED CAMPAIGN TRACKING
+        player_link = f"https://app.verbapost.com/?play={audio_url}&utm_source=letter&utm_medium=qr"
+        
         qr_img = qrcode.make(player_link)
         
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_qr:
