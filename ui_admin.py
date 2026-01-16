@@ -274,14 +274,16 @@ def render_admin_page():
                 if letter_format:
                     # Parse Addr using helper
                     to_obj = parse_address_text(f"{m_name}\n{m_addr}")
-                    from_obj = parse_address_text(f"VerbaPost\n{m_from}")
+                    
+                    # 🔴 FIX: Don't force "VerbaPost" prefix. Use exactly what is typed.
+                    from_obj = parse_address_text(m_from) 
                     
                     pdf_bytes = letter_format.create_pdf(
                         body_text=m_body, 
                         to_addr=to_obj, 
                         from_addr=from_obj,
                         advisor_firm="VerbaPost Marketing",
-                        is_marketing=True # <--- CRITICAL: REMOVES FAMILY HEADER
+                        is_marketing=True 
                     )
                     b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
                     pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>'
@@ -290,12 +292,11 @@ def render_admin_page():
         with mb2:
              if st.button("✉️ Generate Envelope PDF"):
                 if envelope_format:
-                    # Parse Address Input using the new robust helper
+                    # Parse Address Input
                     to_obj = parse_address_text(f"{m_name}\n{m_addr}")
-                    from_obj = parse_address_text(f"VerbaPost\n{m_from}")
                     
-                    # Ensure From Name exists
-                    if not from_obj.get('name'): from_obj['name'] = "VerbaPost"
+                    # 🔴 FIX: Use exactly what is typed for return
+                    from_obj = parse_address_text(m_from)
 
                     env_bytes = envelope_format.create_envelope(to_obj, from_obj)
                     if env_bytes:
