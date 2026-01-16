@@ -12,7 +12,7 @@ try: import database
 except ImportError: database = None
 try: import letter_format
 except ImportError: letter_format = None
-try: import envelope_format # <--- NEW IMPORT
+try: import envelope_format 
 except ImportError: envelope_format = None
 try: import audit_engine
 except ImportError: audit_engine = None
@@ -110,6 +110,33 @@ def map_profile_to_addr(profile, name_override=None):
         "zip_code": profile.get("address_zip", "")
     }
 
+def parse_address_text(raw_text):
+    """Attempts to parse a 3-line address block into dictionary components."""
+    parts = raw_text.split("\n")
+    data = {
+        "name": parts[0].strip() if len(parts) > 0 else "",
+        "address_line1": parts[1].strip() if len(parts) > 1 else "",
+        "city": "", "state": "", "zip_code": ""
+    }
+    
+    # Try to handle line 3 (City, State Zip)
+    if len(parts) > 2:
+        line3 = parts[2].strip()
+        # Basic Strategy: Assume comma separates City from State/Zip
+        if "," in line3:
+            c_split = line3.split(",")
+            data["city"] = c_split[0].strip()
+            rest = c_split[1].strip()
+            # Split rest by space for state/zip
+            r_split = rest.split(" ")
+            if len(r_split) >= 1: data["state"] = r_split[0]
+            if len(r_split) >= 2: data["zip_code"] = r_split[-1]
+        else:
+            # Fallback: Just put whole line in city so it prints at least
+            data["city"] = line3
+            
+    return data
+
 # --- MAIN RENDER ---
 
 def render_admin_page():
@@ -133,7 +160,7 @@ def render_admin_page():
                             "status": item.status, "meta": {} 
                         })
 
-                    # 2. Heirloom Projects (UPDATED to fetch heir_email for addressing)
+                    # 2. Heirloom Projects
                     sql_b2b = text("""
                         SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, p.created_at, c.name as parent_name, a.firm_name, c.email as heir_email
                         FROM projects p
@@ -160,7 +187,7 @@ def render_admin_page():
                     icon = "🏰" if item['type'] == "Heirloom" else "🛒"
                     with st.expander(f"{icon} {item['type']} | {item['email']}"):
                         st.text_area("Content", item['content'], height=100, disabled=True)
-                        c1, c2, c3 = st.columns(3) # Added 3rd column for Envelope
+                        c1, c2, c3 = st.columns(3)
                         
                         # --- BUTTON 1: LETTER PDF ---
                         if c1.button("⬇️ Letter PDF", key=f"pdf_{item['type']}_{item['id']}"):
@@ -173,7 +200,8 @@ def render_admin_page():
                                     to_addr={}, 
                                     from_addr={'name': storyteller}, 
                                     advisor_firm=firm_name, 
-                                    audio_url=str(item['id']) if tier == "Heirloom" else None
+                                    audio_url=str(item['id']) if tier == "Heirloom" else None,
+                                    is_marketing=False 
                                 )
                                 b64 = base64.b64encode(pdf_bytes).decode('latin-1')
                                 href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{item["id"]}.pdf">Download Letter</a>'
@@ -184,32 +212,21 @@ def render_admin_page():
                             if envelope_format:
                                 to_obj = {}
                                 from_obj = {}
-                                
-                                # Resolve Addresses based on Type
                                 if item['type'] == "Heirloom":
-                                    # From: Advisor
                                     adv_profile = database.get_user_profile(item['meta'].get('advisor_email_raw'))
                                     from_obj = map_profile_to_addr(adv_profile, name_override=item['meta'].get('firm_name'))
-                                    
-                                    # To: Heir
                                     heir_profile = database.get_user_profile(item['meta'].get('heir_email_raw'))
                                     to_obj = map_profile_to_addr(heir_profile, name_override=item['meta'].get('heir_name'))
-                                
-                                else: # Store
-                                    # From: VerbaPost
+                                else:
                                     from_obj = {"name": "VerbaPost Fulfillment", "address_line1": "123 Legacy Lane", "city": "Nashville", "state": "TN", "zip_code": "37203"}
-                                    # To: User
                                     u_profile = database.get_user_profile(item['email'])
                                     to_obj = map_profile_to_addr(u_profile)
 
-                                # Generate
                                 env_bytes = envelope_format.create_envelope(to_obj, from_obj)
                                 if env_bytes:
                                     b64_env = base64.b64encode(env_bytes).decode('latin-1')
                                     href_env = f'<a href="data:application/pdf;base64,{b64_env}" download="envelope_{item["id"]}.pdf">Download Envelope</a>'
                                     st.markdown(href_env, unsafe_allow_html=True)
-                                else:
-                                    st.error("Envelope generation failed (Check logs).")
 
                         # --- BUTTON 3: MARK SENT ---
                         if c3.button("✅ Mark Sent", key=f"sent_{item['type']}_{item['id']}"):
@@ -232,7 +249,7 @@ def render_admin_page():
             m_addr = st.text_area("Recipient Address", "123 Wealth Way\nNashville, TN 37203")
         with c2:
             m_from = st.text_area("Return Address", "VerbaPost HQ\nFranklin, TN")
-            m_tier = st.selectbox("Style", ["Vintage", "Standard"]) # UI Only
+            m_tier = st.selectbox("Style", ["Vintage", "Standard"])
         m_body = st.text_area("Letter Body", height=300, value="Dear Client...")
         
         # --- NEW: SPLIT BUTTONS FOR MARKETING ---
@@ -243,11 +260,13 @@ def render_admin_page():
                 if letter_format:
                     to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "TN", "zip": "00000"} 
                     from_obj = {"name": "VerbaPost", "address_line1": m_from}
+                    
                     pdf_bytes = letter_format.create_pdf(
                         body_text=m_body, 
                         to_addr=to_obj, 
                         from_addr=from_obj,
-                        advisor_firm="VerbaPost Marketing"
+                        advisor_firm="VerbaPost Marketing",
+                        is_marketing=True 
                     )
                     b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
                     pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>'
@@ -256,28 +275,12 @@ def render_admin_page():
         with mb2:
              if st.button("✉️ Generate Envelope PDF"):
                 if envelope_format:
-                     # Parse Address Input (Simple Split)
-                    addr_parts = m_addr.split("\n")
-                    street = addr_parts[0] if len(addr_parts) > 0 else ""
-                    rest = addr_parts[1] if len(addr_parts) > 1 else ""
+                    # Parse Address Input
+                    to_obj = parse_address_text(f"{m_name}\n{m_addr}")
+                    from_obj = parse_address_text(f"VerbaPost\n{m_from}")
                     
-                    to_obj = {
-                        "name": m_name,
-                        "address_line1": street,
-                        "city": rest, # Simplified for demo
-                        "state": "",
-                        "zip_code": ""
-                    }
-                    
-                    from_parts = m_from.split("\n")
-                    f_name = from_parts[0] if len(from_parts) > 0 else "VerbaPost"
-                    f_addr = from_parts[1] if len(from_parts) > 1 else ""
-                    
-                    from_obj = {
-                        "name": f_name,
-                        "address_line1": f_addr,
-                        "city": "", "state": "", "zip_code": ""
-                    }
+                    # Override names if parsing was messy
+                    if not from_obj['name']: from_obj['name'] = "VerbaPost"
 
                     env_bytes = envelope_format.create_envelope(to_obj, from_obj)
                     if env_bytes:

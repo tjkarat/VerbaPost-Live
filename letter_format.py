@@ -68,61 +68,82 @@ def _safe_get(obj, key, default=""):
     if isinstance(obj, dict): return obj.get(key, default)
     return getattr(obj, key, default)
 
-def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives", audio_url=None):
+def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives", audio_url=None, is_marketing=False):
     """
     Generates the Single Standard 'Manuscript' PDF.
+    Now supports is_marketing=True to remove the Family Archive header.
     """
     try:
         # 1. Initialize PDF (Manuscript Mode)
-        pdf = LetterPDF(footer_text=f"Preserved by {advisor_firm}")
+        footer_txt = f"Preserved by {advisor_firm}" if not is_marketing else "VerbaPost"
+        pdf = LetterPDF(footer_text=footer_txt)
         
-        # 2. Load Vintage Font (Hardcoded Standard)
+        # 2. Load Vintage Font (Corrected Path)
         font_family = 'Courier' # Fallback
-        if os.path.exists("type_right.ttf"):
+        font_path = os.path.join("assets", "fonts", "type_right.ttf")
+        
+        # Try Assets Path First
+        if os.path.exists(font_path):
+            try:
+                pdf.add_font('TypeRight', '', font_path, uni=True)
+                font_family = 'TypeRight'
+            except Exception as e:
+                logger.error(f"Font Load Error (Assets): {e}")
+        # Try Root Path Fallback
+        elif os.path.exists("type_right.ttf"):
             try:
                 pdf.add_font('TypeRight', '', 'type_right.ttf', uni=True)
                 font_family = 'TypeRight'
             except Exception as e:
-                logger.error(f"Font Load Error: {e}")
+                logger.error(f"Font Load Error (Root): {e}")
         
         # 3. Add Page
         pdf.add_page()
         pdf.set_text_color(0, 0, 0)
         
-        # --- THE MASTHEAD (Page 1 Only) ---
-        pdf.set_font(font_family, '', 16)
-        pdf.cell(0, 8, "THE FAMILY LEGACY ARCHIVE", align='C', ln=1)
-        
-        # Divider Line
-        pdf.set_draw_color(50, 50, 50)
-        y_line = pdf.get_y() + 2
-        pdf.line(x1=MARGIN_MM, y1=y_line, x2=PAGE_WIDTH_MM - MARGIN_MM, y2=y_line)
-        pdf.ln(5)
-        
-        # --- THE DEDICATION BLOCK ---
-        # Storyteller = The person sending the letter (from_addr)
-        storyteller = _safe_get(from_addr, 'name') or "The Family"
-        rec_date = datetime.now().strftime("%B %d, %Y")
-        
-        pdf.set_font(font_family, '', 10)
-        pdf.cell(0, 5, f"Storyteller: {storyteller}", align='C', ln=1)
-        pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
-        pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
-        
-        pdf.ln(15) # Space before body starts
+        if is_marketing:
+            # --- MARKETING HEADER (Clean) ---
+            pdf.set_font(font_family, '', 12)
+            
+            # Sender Block
+            sender_name = _safe_get(from_addr, 'name') or "VerbaPost"
+            sender_addr = _safe_get(from_addr, 'address_line1')
+            
+            pdf.cell(0, 5, sender_name, ln=1, align='L')
+            if sender_addr:
+                pdf.cell(0, 5, sender_addr, ln=1, align='L')
+            
+            pdf.ln(10) # Gap
+            
+        else:
+            # --- HEIRLOOM HEADER (The "Family Archive" Brand) ---
+            pdf.set_font(font_family, '', 16)
+            pdf.cell(0, 8, "THE FAMILY LEGACY ARCHIVE", align='C', ln=1)
+            
+            # Divider Line
+            pdf.set_draw_color(50, 50, 50)
+            y_line = pdf.get_y() + 2
+            pdf.line(x1=MARGIN_MM, y1=y_line, x2=PAGE_WIDTH_MM - MARGIN_MM, y2=y_line)
+            pdf.ln(5)
+            
+            # --- THE DEDICATION BLOCK ---
+            storyteller = _safe_get(from_addr, 'name') or "The Family"
+            rec_date = datetime.now().strftime("%B %d, %Y")
+            
+            pdf.set_font(font_family, '', 10)
+            pdf.cell(0, 5, f"Storyteller: {storyteller}", align='C', ln=1)
+            pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
+            pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
+            
+            pdf.ln(15) # Space before body starts
 
         # --- THE BODY ---
-        pdf.set_font(font_family, '', 11) # Typewriter size 11 is readable
-        
-        # Note: No "Dear X" header hardcoded here because the body usually contains it.
-        # If you want to force addresses at the top like a formal letter, uncomment below:
-        # _draw_addresses(pdf, to_addr, from_addr) 
-        
+        pdf.set_font(font_family, '', 11)
         safe_body = _sanitize_text(body_text)
         pdf.multi_cell(0, 6, safe_body)
         
         # --- AUDIO QR CODE (The Digital Bridge) ---
-        if audio_url:
+        if audio_url and not is_marketing:
             _add_audio_qr(pdf, audio_url, PAGE_WIDTH_MM, PAGE_HEIGHT_MM, MARGIN_MM)
 
         # Output

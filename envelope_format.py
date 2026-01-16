@@ -10,49 +10,61 @@ ENV_H_MM = 104.8
 
 def create_envelope(to_addr, from_addr):
     """
-    Generates a #10 Envelope PDF in Typewriter font.
+    Generates a #10 Envelope PDF using TypeRight font.
     """
     try:
         pdf = FPDF(orientation='L', unit='mm', format=(ENV_H_MM, ENV_W_MM))
         
-        # Load Font
-        font_family = 'Courier'
-        if os.path.exists("type_right.ttf"):
+        # --- FONT LOADING (FIXED PATH) ---
+        font_family = 'Courier' # Safe fallback
+        font_path = os.path.join("assets", "fonts", "type_right.ttf")
+        
+        if os.path.exists(font_path):
             try:
-                pdf.add_font('TypeRight', '', 'type_right.ttf', uni=True)
+                pdf.add_font('TypeRight', '', font_path, uni=True)
                 font_family = 'TypeRight'
             except: pass
+        elif os.path.exists("type_right.ttf"): # Root fallback
+             try:
+                pdf.add_font('TypeRight', '', 'type_right.ttf', uni=True)
+                font_family = 'TypeRight'
+             except: pass
             
         pdf.add_page()
         pdf.set_font(font_family, '', 11)
         
+        # --- HELPER: BUILD ADDRESS BLOCK ---
+        def build_block(addr_dict):
+            lines = []
+            name = addr_dict.get('name') or addr_dict.get('company')
+            if name: lines.append(str(name))
+            
+            street = addr_dict.get('address_line1')
+            if street: lines.append(str(street))
+            
+            # City/State/Zip Logic
+            city = addr_dict.get('city', '').strip()
+            state = addr_dict.get('state', '').strip()
+            zip_c = addr_dict.get('zip_code', '').strip()
+            
+            csz_line = ""
+            if city: csz_line += city
+            if state: 
+                if csz_line: csz_line += f", {state}"
+                else: csz_line = state
+            if zip_c: csz_line += f" {zip_c}"
+            
+            if csz_line: lines.append(csz_line)
+            return "\n".join(lines)
+
         # --- RETURN ADDRESS (Top Left) ---
-        # Advisor / Sender
-        f_name = from_addr.get('name') or from_addr.get('company', '')
-        f_street = from_addr.get('address_line1', '')
-        f_city = from_addr.get('city', '')
-        f_state = from_addr.get('state', '')
-        f_zip = from_addr.get('zip_code', '')
-        
-        # Position: 15mm from left, 15mm from top
         pdf.set_xy(15, 15)
-        return_block = f"{f_name}\n{f_street}\n{f_city}, {f_state} {f_zip}"
-        pdf.multi_cell(80, 5, return_block)
+        return_block = build_block(from_addr)
+        pdf.multi_cell(90, 5, return_block)
         
         # --- DESTINATION ADDRESS (Center Right) ---
-        # Heir / Recipient
-        t_name = to_addr.get('name', '')
-        t_street = to_addr.get('address_line1', '')
-        t_city = to_addr.get('city', '')
-        t_state = to_addr.get('state', '')
-        t_zip = to_addr.get('zip_code', '')
-        
-        # Position: 110mm from left (roughly middle), 60mm from top
         pdf.set_xy(110, 50)
-        dest_block = f"{t_name}\n{t_street}\n{t_city}, {t_state} {t_zip}"
-        
-        # Make destination slightly larger/bolder logic if needed, 
-        # but same font size is standard for typewriters.
+        dest_block = build_block(to_addr)
         pdf.multi_cell(100, 6, dest_block)
         
         # Output
