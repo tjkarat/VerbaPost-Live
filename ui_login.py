@@ -1,9 +1,7 @@
 import streamlit as st
 import time
 
-# NOTE: Imports for auth_engine, database, and mailer are moved INSIDE the function
-# to prevent the "Circular Import / KeyError" crash.
-
+# NOTE: Imports are moved INSIDE to prevent circular dependency crashes
 def render_login_page():
     """
     Unified Auth Page.

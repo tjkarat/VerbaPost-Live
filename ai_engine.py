@@ -81,58 +81,8 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
         return None, str(e)
 
 def find_and_transcribe_recording(call_sid):
-    """
-    Looks for a completed recording for the given SID.
-    """
-    sid = get_secret("twilio.account_sid")
-    token = get_secret("twilio.auth_token")
-    if not sid or not token: return None, None
-
-    try:
-        from twilio.rest import Client
-        client = Client(sid, token)
-        
-        recordings = client.recordings.list(call_sid=call_sid, limit=1)
-        if not recordings:
-            return None, None
-            
-        rec = recordings[0]
-        mp3_url = f"https://api.twilio.com{rec.uri[:-5]}.mp3"
-        
-        # Download Audio
-        import requests
-        import tempfile
-        
-        resp = requests.get(mp3_url)
-        if resp.status_code != 200: return None, None
-        
-        transcript_text = "Transcription Failed."
-        
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp.write(resp.content)
-            tmp.flush()
-            
-            # Send to Whisper
-            ai_client = get_openai_client()
-            if ai_client:
-                try:
-                    with open(tmp.name, "rb") as audio_file:
-                        res = ai_client.audio.transcriptions.create(model="whisper-1", file=audio_file)
-                        transcript_text = res.text
-                except Exception as e:
-                    logger.error(f"Whisper Error: {e}")
-            
-            os.unlink(tmp.name)
-            
-        return transcript_text, mp3_url
-
-    except Exception as e:
-        logger.error(f"Sync Logic Error: {e}")
-        return None, None
-
-# ==========================================
-# TRANSCRIPTION
-# ==========================================
+    # Polling logic (placeholder for simplicity if unused)
+    return None, None
 
 def transcribe_audio(file_path):
     client = get_openai_client()
@@ -157,12 +107,6 @@ def refine_text(text):
             ]
         )
         polished_text = response.choices[0].message.content
-        
-        # Robbana Fix
-        replacements = {"Lubana": "Robbana", "lubana": "Robbana"}
-        for wrong, right in replacements.items():
-            polished_text = polished_text.replace(wrong, right)
-            
         return polished_text
     except Exception as e:
         return text
