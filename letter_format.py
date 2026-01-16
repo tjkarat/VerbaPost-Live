@@ -139,11 +139,13 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
                 pdf.multi_cell(0, 5, f"Question: {question_text}", align='C')
                 pdf.set_font(font_family, '', 10) # Reset font
             
-            # 3. Date (FIXED: Explicitly Centered with small padding)
+            # 3. Date (FORCED CENTERING)
             pdf.ln(2) 
+            pdf.set_x(MARGIN_MM) # <--- Force cursor back to left margin to prevent offset
             pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
             
             # 4. Preserved By
+            pdf.set_x(MARGIN_MM) # <--- Force cursor back to left margin
             pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
             
             pdf.ln(15) 
