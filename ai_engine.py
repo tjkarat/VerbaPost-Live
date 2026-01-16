@@ -42,16 +42,11 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
     if not question_text:
         question_text = "Please share a favorite memory from your childhood."
 
-    # --- 🔴 FIX 2: REMOVE BROKEN WEBHOOK ---
-    # Streamlit cannot handle incoming POST webhooks easily.
-    # We rely on the "Check for New Stories" button (Polling) instead.
-    # callback_url = f"https://api.verbapost.com/webhooks/voice?project_id={project_id}" 
-    
     # Sanitize inputs
     safe_advisor = advisor_name or "your financial advisor"
     safe_firm = firm_name or "their firm"
 
-    # --- 🟡 FIX 1: NATURAL SCRIPT (NO REPETITION + BEEP PAUSE) ---
+    # --- FIX 1: NATURAL SCRIPT (NO REPETITION + BEEP PAUSE) ---
     twiml = f"""
     <Response>
         <Pause length="1"/>
@@ -150,7 +145,7 @@ def find_and_transcribe_recording(call_sid):
         return None, None
 
 # ==========================================
-# 🎤 TRANSCRIPTION (UNCHANGED)
+# 📝 TRANSCRIPTION & POLISH
 # ==========================================
 
 def transcribe_audio(file_path):
@@ -168,20 +163,42 @@ def transcribe_audio(file_path):
         return None
 
 def refine_text(text):
+    """
+    Polishes the raw transcript.
+    UPDATED: Now includes specific 'Find & Replace' rules for firm names.
+    """
     client = get_openai_client()
     if not client: return text
+    
+    # 1. GPT-4 Light Polish
     try:
         response = client.chat.completions.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You are a professional editor. Polish this letter for clarity and warmth."},
+                {
+                    "role": "system", 
+                    "content": "You are a helpful transcriber. Lightly edit this text only to fix grammar and remove filler words (ums, ahs). Do not change the speaker's tone or vocabulary."
+                },
                 {"role": "user", "content": text}
             ]
         )
-        return response.choices[0].message.content
+        polished_text = response.choices[0].message.content
     except Exception as e:
         logger.error(f"Refine Error: {e}")
-        return text
+        polished_text = text
+
+    # 2. Hardcoded Corrections (The Safety Net)
+    # This catches the Whisper errors that GPT-4 might miss.
+    replacements = {
+        "Lubana": "Robbana",
+        "lubana": "Robbana",
+        "Lubana and Associates": "Robbana and Associates",
+    }
+    
+    for wrong, right in replacements.items():
+        polished_text = polished_text.replace(wrong, right)
+        
+    return polished_text
 
 def get_all_twilio_recordings(limit=50):
     sid = get_secret("twilio.account_sid")

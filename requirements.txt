@@ -1,24 +1,11 @@
-streamlit==1.40.0
-streamlit-drawable-canvas==0.9.3
-supabase
+streamlit
+openai
 stripe
-openai-whisper
-# --- CRITICAL: FORCE CPU VERSION ---
---extra-index-url https://download.pytorch.org/whl/cpu
-torch
-numpy<2.0.0
+twilio
+supabase
 sqlalchemy
 psycopg2-binary
-requests
-resend
-pandas
 fpdf2
-python-dotenv
-openai
-tenacity
-ffmpeg-python
-geocodio
-twilio
-streamlit-javascript
 qrcode
-pillow
+requests
+pandas

@@ -236,8 +236,13 @@ def get_advisor_clients(email):
             return [to_dict(r) for r in res]
     except Exception: return []
 
-def create_draft(user_email, content, status="Recording", call_sid=None):
+# In database.py - Find 'create_draft' and replace it with this:
+
+def create_draft(user_email, content, status="Recording", call_sid=None, prompt=None):
     user_email = user_email.strip().lower()
+    # If no prompt provided, fallback to "Ad-hoc Interview"
+    final_prompt = prompt if prompt else "Ad-hoc Interview" 
+    
     try:
         with get_db_session() as session:
             client = session.query(Client).filter_by(email=user_email).order_by(Client.created_at.desc()).first()
@@ -246,7 +251,7 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
                     advisor_email=client.advisor_email,
                     client_id=client.id,
                     heir_name=client.heir_name,
-                    strategic_prompt="Ad-hoc Interview",
+                    strategic_prompt=final_prompt, # <--- SAVES THE ACTUAL QUESTION
                     status=status,
                     call_sid=call_sid,
                     content=content
@@ -254,6 +259,8 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
                 session.add(new_proj)
                 session.commit()
                 return True
+            
+            # Fallback for non-client drafts
             draft = LetterDraft(user_email=user_email, content=content, status=status, call_sid=call_sid)
             session.add(draft)
             session.commit()
@@ -261,7 +268,7 @@ def create_draft(user_email, content, status="Recording", call_sid=None):
     except Exception as e:
         logger.error(f"Create Draft Error: {e}")
         return False
-
+    
 def update_draft_by_sid(call_sid, content, recording_url):
     try:
         with get_db_session() as session:
