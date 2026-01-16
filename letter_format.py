@@ -114,26 +114,35 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             # --- HEIRLOOM HEADER (Branded) ---
             pdf.set_font(font_family, '', 16)
             pdf.cell(0, 8, "THE FAMILY LEGACY ARCHIVE", align='C', ln=1)
+
+            # 🆕 TAGLINE ADDED HERE
+            pdf.set_font(font_family, '', 10)
+            pdf.cell(0, 5, "A letter your grandchildren will hold.", align='C', ln=1)
             
             pdf.set_draw_color(50, 50, 50)
             y_line = pdf.get_y() + 2
             pdf.line(x1=MARGIN_MM, y1=y_line, x2=PAGE_WIDTH_MM - MARGIN_MM, y2=y_line)
-            pdf.ln(5)
+            pdf.ln(6)
             
             storyteller = _safe_get(from_addr, 'name') or "The Family"
             rec_date = datetime.now().strftime("%B %d, %Y")
             
+            # --- INFO BLOCK (CENTERED & STACKED) ---
             pdf.set_font(font_family, '', 10)
+            
+            # 1. Storyteller
             pdf.cell(0, 5, f"Storyteller: {storyteller}", align='C', ln=1)
             
-            # --- 🆕 ADDED: QUESTION TEXT ---
+            # 2. Question (with slight font reduction to fit better if long)
             if question_text:
-                # Wrap question if it's too long
                 pdf.set_font(font_family, '', 9)
                 pdf.multi_cell(0, 5, f"Question: {question_text}", align='C')
-                pdf.set_font(font_family, '', 10) # Reset font size
+                pdf.set_font(font_family, '', 10) # Reset font
             
+            # 3. Date (Explicitly Centered)
             pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
+            
+            # 4. Preserved By
             pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
             
             pdf.ln(15) 
