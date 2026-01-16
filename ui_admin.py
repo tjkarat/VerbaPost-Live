@@ -179,7 +179,7 @@ def render_admin_page():
                                 href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{item["id"]}.pdf">Download Letter</a>'
                                 st.markdown(href, unsafe_allow_html=True)
 
-                        # --- BUTTON 2: ENVELOPE PDF (NEW) ---
+                        # --- BUTTON 2: ENVELOPE PDF ---
                         if c2.button("✉️ Envelope", key=f"env_{item['type']}_{item['id']}"):
                             if envelope_format:
                                 to_obj = {}
@@ -232,17 +232,58 @@ def render_admin_page():
             m_addr = st.text_area("Recipient Address", "123 Wealth Way\nNashville, TN 37203")
         with c2:
             m_from = st.text_area("Return Address", "VerbaPost HQ\nFranklin, TN")
-            m_tier = st.selectbox("Style", ["Vintage", "Standard"])
+            m_tier = st.selectbox("Style", ["Vintage", "Standard"]) # UI Only
         m_body = st.text_area("Letter Body", height=300, value="Dear Client...")
         
-        if st.button("Generate Preview"):
-            if letter_format:
-                to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "TN", "zip": "00000"} 
-                from_obj = {"name": "VerbaPost", "address_line1": m_from}
-                pdf_bytes = letter_format.create_pdf(m_body, to_obj, from_obj, advisor_firm="VerbaPost Marketing")
-                b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>'
-                st.markdown(pdf_display, unsafe_allow_html=True)
+        # --- NEW: SPLIT BUTTONS FOR MARKETING ---
+        mb1, mb2 = st.columns(2)
+        
+        with mb1:
+            if st.button("📄 Generate Letter PDF"):
+                if letter_format:
+                    to_obj = {"name": m_name, "street": m_addr.split("\n")[0], "city": "City", "state": "TN", "zip": "00000"} 
+                    from_obj = {"name": "VerbaPost", "address_line1": m_from}
+                    pdf_bytes = letter_format.create_pdf(
+                        body_text=m_body, 
+                        to_addr=to_obj, 
+                        from_addr=from_obj,
+                        advisor_firm="VerbaPost Marketing"
+                    )
+                    b64_pdf = base64.b64encode(pdf_bytes).decode('latin-1')
+                    pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="500"></iframe>'
+                    st.markdown(pdf_display, unsafe_allow_html=True)
+
+        with mb2:
+             if st.button("✉️ Generate Envelope PDF"):
+                if envelope_format:
+                     # Parse Address Input (Simple Split)
+                    addr_parts = m_addr.split("\n")
+                    street = addr_parts[0] if len(addr_parts) > 0 else ""
+                    rest = addr_parts[1] if len(addr_parts) > 1 else ""
+                    
+                    to_obj = {
+                        "name": m_name,
+                        "address_line1": street,
+                        "city": rest, # Simplified for demo
+                        "state": "",
+                        "zip_code": ""
+                    }
+                    
+                    from_parts = m_from.split("\n")
+                    f_name = from_parts[0] if len(from_parts) > 0 else "VerbaPost"
+                    f_addr = from_parts[1] if len(from_parts) > 1 else ""
+                    
+                    from_obj = {
+                        "name": f_name,
+                        "address_line1": f_addr,
+                        "city": "", "state": "", "zip_code": ""
+                    }
+
+                    env_bytes = envelope_format.create_envelope(to_obj, from_obj)
+                    if env_bytes:
+                        b64_env = base64.b64encode(env_bytes).decode('latin-1')
+                        href_env = f'<a href="data:application/pdf;base64,{b64_env}" download="envelope_marketing.pdf">Download Envelope</a>'
+                        st.markdown(href_env, unsafe_allow_html=True)
 
     # --- TAB 3: GHOSTS ---
     with tabs[2]:
