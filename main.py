@@ -5,6 +5,7 @@ import ui_advisor
 import ui_heirloom
 import ui_admin
 import ui_splash
+import ui_legal  # <--- ADDED IMPORT
 
 # --- IMPORTS FOR AUTH ---
 try: import auth_engine
@@ -37,13 +38,12 @@ def main():
         st.session_state.user_email = None
 
     # 2. 🚨 PUBLIC PLAYBACK GATE (QR Code Bypass) 🚨
-    # This must happen BEFORE Google Auth or Login checks.
     query_params = st.query_params
     if "play" in query_params:
         audio_id = query_params["play"]
         if ui_heirloom and hasattr(ui_heirloom, 'render_public_player'):
             ui_heirloom.render_public_player(audio_id)
-            return  # STOP HERE. Do not render sidebar or login.
+            return
         else:
             st.error("⚠️ Player module (ui_heirloom) is missing or incomplete.")
             return
@@ -53,19 +53,14 @@ def main():
         if auth_engine:
             try:
                 with st.spinner("🔄 Verifying Google Login..."):
-                    # Exchange code for user session
                     user, error = auth_engine.handle_google_callback(query_params["code"])
-                    
                     if user:
                         st.session_state.authenticated = True
                         st.session_state.user_email = user.email
-                        
-                        # Sync Role from DB
                         if database:
                             profile = database.get_user_profile(user.email)
                             if profile:
                                 st.session_state.user_role = profile.get("role", "user")
-                        
                         st.success(f"✅ Logged in as {user.email}")
                         time.sleep(1)
                         st.query_params.clear()
@@ -82,13 +77,10 @@ def main():
     with st.sidebar:
         st.header("VerbaPost Admin")
         
-        # STATUS INDICATOR
         if st.session_state.authenticated:
             st.success(f"🟢 Online: {st.session_state.user_email}")
             st.caption(f"Role: {st.session_state.user_role}")
             
-            # ADMIN TOOLS
-            # UPDATED: Added your email explicitly so you ALWAYS get access
             user_email = st.session_state.user_email
             is_admin = (
                 (st.session_state.user_role == "admin") or 
@@ -110,14 +102,12 @@ def main():
                     st.session_state.user_role = "heir"
                     st.rerun()
             
-            # LOGOUT
             st.divider()
             if st.button("🚪 Log Out"):
                 handle_logout()
         else:
             st.warning("🔴 Not Logged In")
             st.info("Please sign in to access tools.")
-            # Emergency logout in case state is stuck
             if st.button("Reset Session"):
                 handle_logout()
 
@@ -163,6 +153,11 @@ def main():
         if ui_login: ui_login.render_login_page()
         else: st.error("Login UI missing")
 
+    # --- 🆕 RESTORED LEGAL ROUTE ---
+    elif nav == "legal":
+        if ui_legal: ui_legal.render_legal_page()
+        else: st.error("Legal UI missing")
+
     else:
         # Default: The Marketing Splash Page
         if ui_splash and hasattr(ui_splash, 'render_splash_page'):
@@ -170,7 +165,6 @@ def main():
         elif ui_splash and hasattr(ui_splash, 'render_splash'):
             ui_splash.render_splash()
         else:
-            # Fallback if splash is broken
             st.title("VerbaPost")
             if st.button("Go to Login"):
                 st.query_params["nav"] = "login"
