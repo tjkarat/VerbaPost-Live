@@ -9,6 +9,7 @@ import audit_engine
 def render_advisor_portal():
     """
     The Advisor Portal (B2B View).
+    Simplified Layout: No "Briefcase", Activate First, Email-Only Instructions.
     """
     # --- 1. AUTH & PROFILE ---
     if not st.session_state.get("authenticated"):
@@ -27,60 +28,27 @@ def render_advisor_portal():
     credits = profile.get("credits", 0)
     advisor_full_name = profile.get("full_name", "Your Advisor")
     
-    # --- 🆕 ONBOARDING TRACKER (ADVISOR) ---
-    clients = database.fetch_advisor_clients(user_email)
-    media_projects = database.get_advisor_projects_for_media(user_email)
-    
-    # Calculate Status
-    has_credits = credits > 0
-    has_clients = len(clients) > 0
-    has_released = any(p.get('audio_released') for p in media_projects)
-    
-    # Determine Step
-    step_msg = ""
-    percent = 0
-    if not has_clients and not has_credits:
-        step_msg = "Step 1: Buy a Credit to start a legacy project."
-        percent = 10
-    elif has_credits and not has_clients:
-        step_msg = "Step 2: Activate your first Client Family."
-        percent = 40
-    elif has_clients and not has_released:
-        step_msg = "Step 3: Wait for stories, then 'Release' audio."
-        percent = 70
-    elif has_released:
-        step_msg = "🎉 Fully Operational. Manage your roster below."
-        percent = 100
-
-    # Render Tracker
-    st.markdown(f"""
-    <div style="background-color: #f8fafc; padding: 15px; border-radius: 10px; border: 1px solid #e2e8f0; margin-bottom: 25px;">
-        <p style="margin: 0; font-size: 0.9rem; font-weight: 600; color: #64748b; text-transform: uppercase;">Setup Progress</p>
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="margin: 5px 0; color: #0f172a;">{step_msg}</h3>
-            <span style="font-weight: bold; color: #3b82f6;">{percent}%</span>
-        </div>
-        <div style="width: 100%; background-color: #e2e8f0; height: 8px; border-radius: 4px; margin-top: 5px;">
-            <div style="width: {percent}%; background-color: #3b82f6; height: 8px; border-radius: 4px;"></div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # --- 2. HEADER AREA ---
+    # --- 2. COMPACT HEADER ---
     col1, col2 = st.columns([3, 1])
     with col1:
         st.title("💼 Advisor Portal")
-        st.markdown(f"**Firm:** {firm_name}")
+        # Display Firm Name prominently so they know who they are operating as
+        if firm_name and firm_name != "Unspecified Firm":
+            st.caption(f"Operating as: **{firm_name}**")
+        else:
+            st.error("⚠️ Firm Name Not Set (See Step 1 Below)")
+            
     with col2:
-        st.metric(label="Available Credits", value=credits)
-        if st.button("➕ Buy Credits"):
+        # Simple Credit Counter
+        st.metric(label="Credits", value=credits)
+        if st.button("➕ Add", help="Purchase additional client licenses"):
             checkout_url = payment_engine.create_checkout_session(
                 line_items=[{
                     'price_data': {
                         'currency': 'usd',
                         'product_data': {
                             'name': 'Legacy Project Credit',
-                            'description': '1 Credit = 1 Family Archive (30-Day Access)'
+                            'description': '1 Credit = 1 Family Archive'
                         },
                         'unit_amount': 9900, 
                     },
@@ -90,55 +58,143 @@ def render_advisor_portal():
                 mode='payment'
             )
             if checkout_url:
-                st.link_button("Go to Checkout ($99)", checkout_url)
+                st.link_button("Pay $99", checkout_url)
 
     st.divider()
 
-    # --- 3. MAIN TABS ---
-    tab1, tab2, tab3 = st.tabs(["👥 Client Roster", "🔐 Media Locker", "🚀 Activate Client"])
+    # --- 3. MAIN TABS (ACTIVATE IS NOW FIRST) ---
+    tab1, tab2, tab3 = st.tabs(["🚀 Activate Client", "👥 Client Roster", "🔐 Media Locker"])
 
-    # === TAB 1: CLIENT ROSTER ===
+    # === TAB 1: ACTIVATE CLIENT (DEFAULT) ===
     with tab1:
+        
+        # --- STEP 1: BRANDING ---
+        with st.container(border=True):
+            st.markdown("#### Step 1: Confirm Firm Branding")
+            st.info(f"**Current Label:** {firm_name}")
+            st.caption("""
+            **Why is this important?** This name appears in the 'From' field of the notification email sent to your client.
+            Ensure it is recognizable (e.g., 'Smith Wealth Management').
+            """)
+            
+            with st.expander("🖊️ Edit Firm Name"):
+                new_firm_name = st.text_input("New Firm Name", value=firm_name)
+                if st.button("Save Branding"):
+                    if new_firm_name:
+                        database.update_advisor_firm_name(user_email, new_firm_name)
+                        st.success("Branding Updated!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning("Name cannot be empty.")
+
+        st.write("") # Spacer
+
+        # --- STEP 2: GIFTING ---
+        with st.container(border=True):
+            st.markdown("#### Step 2: Send the Gift")
+            st.markdown("""
+            Enter the recipient's details below to create their private vault.
+            
+            **⚠️ IMPORTANT NOTIFICATION PROTOCOL:**
+            * **Email Only:** The client will receive an immediate **Welcome Email** from VerbaPost (on your behalf).
+            * **No Physical Letter:** We do *not* mail a physical notification card at this stage.
+            * **Action:** We recommend you send a personal follow-up note to let them know to look for the email.
+            """)
+            
+            if credits < 1:
+                st.warning(f"⚠️ Balance: {credits}. Please purchase a credit above to proceed.")
+            
+            with st.form("activate_client_form"):
+                c_name = st.text_input("Recipient Name (The Heir)", placeholder="e.g. Sarah Jones")
+                c_email = st.text_input("Recipient Email", placeholder="e.g. sarah@example.com")
+                # Removed Phone Number field as requested to simplify flow
+                
+                submitted = st.form_submit_button("🚀 Send Gift (Deduct 1 Credit)", disabled=(credits < 1))
+                
+                if submitted:
+                    if credits < 1:
+                        st.error("Insufficient Credits.")
+                    elif not c_email or not c_name:
+                        st.error("Name and Email are required.")
+                    else:
+                        with st.spinner("Provisioning Vault & Sending Email..."):
+                            # Create User (Passing empty string for phone since we removed input)
+                            success, msg = database.create_sponsored_user(
+                                advisor_email=user_email,
+                                client_name=c_name,
+                                client_email=c_email,
+                                client_phone="" 
+                            )
+                            
+                            if success:
+                                # Deduct Credit
+                                new_balance = credits - 1
+                                database.update_user_credits(user_email, new_balance)
+                                
+                                # Send Email
+                                email_engine.send_heir_welcome_email(
+                                    to_email=c_email,
+                                    advisor_firm=firm_name,
+                                    advisor_name=advisor_full_name
+                                )
+                                
+                                if audit_engine:
+                                    audit_engine.log_event(
+                                        user_email, 
+                                        "Client Activated", 
+                                        metadata={"client_email": c_email, "credit_spent": 1}
+                                    )
+                                
+                                st.success(f"🎉 Success! Welcome email sent to {c_email}.")
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error(f"Activation Failed: {msg}")
+
+    # === TAB 2: CLIENT ROSTER ===
+    with tab2:
         st.subheader("Your Sponsored Families")
+        clients = database.fetch_advisor_clients(user_email)
         
         if not clients:
-            st.info("No active clients found. Use the 'Activate Client' tab to start your first project.")
+            st.info("No active clients found.")
         else:
+            # Simple, clean table
             df = pd.DataFrame(clients)
-            display_cols = [c for c in df.columns if c in ['full_name', 'email', 'created_at', 'status']]
-            st.dataframe(df[display_cols] if display_cols else df, use_container_width=True)
+            # Filter to show only useful columns if they exist
+            cols = [c for c in ['full_name', 'email', 'created_at', 'status'] if c in df.columns]
+            st.dataframe(df[cols] if cols else df, use_container_width=True)
 
-    # === TAB 2: MEDIA LOCKER ===
-    with tab2:
-        st.subheader("Global Media Archive")
-        st.markdown("Manage digital access for your clients. Toggle **Release** to unlock audio for the heir.")
+    # === TAB 3: MEDIA LOCKER ===
+    with tab3:
+        st.subheader("Media Approvals")
+        st.markdown("When a family finishes a recording, it will appear here. Toggle **Release** to unlock the audio for them.")
         
         projects = database.get_advisor_projects_for_media(user_email)
         
         if not projects:
-            st.info("No media projects found yet.")
+            st.info("No recordings pending review.")
         else:
             for p in projects:
                 with st.expander(f"📁 {p.get('heir_name', 'Unknown')} - {p.get('created_at', 'Undated')}"):
                     c1, c2 = st.columns([3, 1])
                     
                     with c1:
-                        st.write(f"**Story Content:** {str(p.get('content', ''))[:100]}...")
-                        if p.get('audio_ref'):
-                            st.audio(p.get('audio_ref'))
-                        elif p.get('tracking_number') and "http" in str(p.get('tracking_number')):
-                             st.audio(p.get('tracking_number'))
+                        st.write(f"**Transcript Preview:** {str(p.get('content', ''))[:150]}...")
+                        # Audio Player Logic
+                        audio_src = p.get('audio_ref') or p.get('tracking_number')
+                        if audio_src and "http" in str(audio_src):
+                             st.audio(audio_src)
                         else:
-                            st.caption("No audio recording available.")
+                            st.caption("Audio processing...")
 
                     with c2:
                         is_released = p.get('audio_released', False)
-                        if st.toggle("🔓 Release to Heir", value=is_released, key=f"tog_{p['id']}"):
+                        if st.toggle("🔓 Release Audio", value=is_released, key=f"tog_{p['id']}"):
                             if not is_released:
                                 database.toggle_media_release(p['id'], True)
-                                st.toast("Audio Unlocked!")
-                                if audit_engine:
-                                    audit_engine.log_event(user_email, "Media Released", metadata={"project_id": p['id']})
+                                st.toast("Audio Unlocked for Heir!")
                                 time.sleep(0.5)
                                 st.rerun()
                         else:
@@ -147,86 +203,3 @@ def render_advisor_portal():
                                 st.toast("Audio Locked.")
                                 time.sleep(0.5)
                                 st.rerun()
-
-    # === TAB 3: ACTIVATE CLIENT ===
-    with tab3:
-        st.subheader("Start a New Family Archive")
-        
-        if credits > 0:
-            st.success(f"✅ You have {credits} credit(s) available.")
-        else:
-            st.warning("⚠️ Cost: 1 Credit ($99). Balance: 0.")
-
-        with st.form("activate_client_form"):
-            st.write("Enter the details of the **Senior (Interviewee)** or the **Heir (Manager)**.")
-            c_name = st.text_input("Client Name (The Senior)")
-            c_phone = st.text_input("Client Phone", placeholder="(615) ...")
-            c_email = st.text_input("Client Email")
-            
-            submitted = st.form_submit_button("🚀 Launch Legacy Project")
-            
-            if submitted:
-                if credits < 1:
-                    st.error("Insufficient Credits.")
-                elif not c_email:
-                    st.error("Client Email is required.")
-                else:
-                    with st.spinner("Provisioning Vault & Notifying Heir..."):
-                        success, msg = database.create_sponsored_user(
-                            advisor_email=user_email,
-                            client_name=c_name,
-                            client_email=c_email,
-                            client_phone=c_phone
-                        )
-                        
-                        if success:
-                            new_balance = credits - 1
-                            database.update_user_credits(user_email, new_balance)
-                            
-                            email_engine.send_heir_welcome_email(
-                                to_email=c_email,
-                                advisor_firm=firm_name,
-                                advisor_name=advisor_full_name
-                            )
-                            
-                            if audit_engine:
-                                audit_engine.log_event(
-                                    user_email, 
-                                    "Client Activated", 
-                                    metadata={
-                                        "client_email": c_email, 
-                                        "credit_spent": 1,
-                                        "remaining_credits": new_balance
-                                    }
-                                )
-                            
-                            st.success(f"🎉 Project Activated for {c_name}! Invitation sent to {c_email}.")
-                            time.sleep(2)
-                            st.rerun()
-                        else:
-                            st.error(f"Activation Failed: {msg}")
-
-    st.divider()
-
-    # --- 4. FIRM SETTINGS ---
-    with st.expander("⚙️ Firm Settings & Branding"):
-        st.write("Update how your firm name appears on client letters and emails.")
-        
-        current_firm_name = profile.get("advisor_firm", "")
-        col_s1, col_s2 = st.columns([3, 1])
-        with col_s1:
-            new_firm_name = st.text_input("Firm Name", value=current_firm_name, key="setting_firm_name")
-        
-        with col_s2:
-            st.write("") 
-            st.write("") 
-            if st.button("Save Branding", use_container_width=True):
-                if new_firm_name:
-                    if database.update_advisor_firm_name(user_email, new_firm_name):
-                        st.success("✅ Branding Updated!")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error("Save Failed. Please try again.")
-                else:
-                    st.warning("Firm name cannot be empty.")
