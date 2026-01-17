@@ -95,8 +95,15 @@ def render_public_player(audio_id):
             </div>
         """, unsafe_allow_html=True)
         
+        # --- 🚨 CRITICAL FIX APPLIED HERE 🚨 ---
         if st.button("Claim this Memory / Log In", use_container_width=True):
-            # Clear the play param so the main router sends them to login next time
+            # 1. OPTIONAL: Save the audio ID so you can auto-play it after they log in
+            st.session_state["pending_play_id"] = audio_id
+            
+            # 2. CRITICAL: Wipe the 'play' param so main.py doesn't trap the user
+            st.query_params.clear()
+            
+            # 3. Set the new destination
             st.query_params["nav"] = "login"
             st.rerun()
             
