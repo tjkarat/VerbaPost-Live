@@ -91,11 +91,10 @@ def render_splash_page():
 
     st.markdown("---")
     
-    # --- 4. FOOTER ---
+    # --- 4. FOOTER (CLEANED) ---
     st.markdown("""
         <div style='text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 20px;'>
-            Secure Bank-Grade Encryption • Archival Preservation Standards<br>
-            © 2026 VerbaPost Wealth
+            © 2026 VerbaPost
         </div>
     """, unsafe_allow_html=True)
 
