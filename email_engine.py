@@ -11,8 +11,11 @@ logger = logging.getLogger(__name__)
 # --- SECRETS & CONFIG ---
 def get_api_key():
     """Retrieves the API key from Env Vars or Secrets."""
+    # 1. Check Env Vars (GCP/Prod)
     key = os.environ.get("RESEND_API_KEY") or os.environ.get("email_password")
     if key: return key
+    
+    # 2. Check Streamlit Secrets (Local/QA)
     try:
         if "resend" in st.secrets: return st.secrets["resend"]["api_key"]
         if "email" in st.secrets: return st.secrets["email"]["password"]
@@ -21,20 +24,34 @@ def get_api_key():
 
 def get_admin_email():
     """Retrieves the Admin Email for notifications."""
+    # 1. Check Env Vars
+    env_admin = os.environ.get("ADMIN_EMAIL")
+    if env_admin: return env_admin
+    
+    # 2. Check Secrets
     try:
         if "admin" in st.secrets:
             return st.secrets["admin"]["email"]
     except: pass
-    return os.environ.get("ADMIN_EMAIL")
+    return None
 
 def get_sender_address():
     """
-    Returns the configured sender or the Resend default.
+    Returns the configured sender. 
+    Prioritizes Env Vars > Secrets > Resend Sandbox.
     """
+    # 1. GCP / Production Environment Variable
+    env_sender = os.environ.get("EMAIL_SENDER")
+    if env_sender: return env_sender
+
+    # 2. Streamlit Secrets (Local / Cloud)
     try:
         if "email" in st.secrets and "sender" in st.secrets["email"]:
             return st.secrets["email"]["sender"]
     except: pass
+    
+    # 3. Fallback (Only use if config is missing)
+    logger.warning("⚠️ No EMAIL_SENDER configured. Using Resend Sandbox.")
     return "VerbaPost Archives <onboarding@resend.dev>"
 
 # --- CORE SEND FUNCTION ---
@@ -69,7 +86,7 @@ def send_email(to_email, subject, html_content):
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=10)
         if response.status_code in [200, 201, 202]:
-            logger.info(f"✅ Email Sent to {to_email}")
+            logger.info(f"✅ Email Sent to {to_email} from {sender}")
             return True
         else:
             logger.error(f"❌ Resend API Error {response.status_code}: {response.text}")
@@ -126,7 +143,7 @@ def send_admin_alert(trigger_event, details_html):
     """
     return send_email(admin_email, subject, html)
 
-# --- NEW: HEIR WELCOME EMAIL (THE TRIGGER) ---
+# --- HEIR WELCOME EMAIL (THE TRIGGER) ---
 def send_heir_welcome_email(to_email, advisor_firm, advisor_name):
     """
     Notifies the Heir that their Advisor has sponsored a legacy project.
@@ -155,7 +172,7 @@ def send_heir_welcome_email(to_email, advisor_firm, advisor_name):
     """
     return send_email(to_email, subject, html_content)
 
-# --- 🆕 ADVISOR ALERT: HEIR STARTED STORY ---
+# --- ADVISOR ALERT: HEIR STARTED STORY ---
 def send_advisor_heir_started_alert(advisor_email, heir_name, client_name):
     """
     Notifies the Advisor that their client has logged in and started a story.
@@ -173,7 +190,7 @@ def send_advisor_heir_started_alert(advisor_email, heir_name, client_name):
     """
     return send_email(advisor_email, subject, html_content)
 
-# --- 🆕 ADMIN ALERT: STORY READY TO PRINT ---
+# --- ADMIN ALERT: STORY READY TO PRINT ---
 def send_admin_print_ready_alert(user_email, draft_id, content_preview):
     """
     Notifies Admin that a story has been created/approved and is ready to print.

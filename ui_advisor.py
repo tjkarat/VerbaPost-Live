@@ -9,7 +9,7 @@ import audit_engine
 def render_advisor_portal():
     """
     The Advisor Portal (B2B View).
-    Simplified Layout: No "Briefcase", Activate First, Email-Only Instructions.
+    Detailed Instructions Restored + Resend Functionality.
     """
     # --- 1. AUTH & PROFILE ---
     if not st.session_state.get("authenticated"):
@@ -28,7 +28,7 @@ def render_advisor_portal():
     credits = profile.get("credits", 0)
     advisor_full_name = profile.get("full_name", "Your Advisor")
     
-    # --- 2. COMPACT HEADER ---
+    # --- 2. HEADER ---
     col1, col2 = st.columns([3, 1])
     with col1:
         st.title("💼 Advisor Portal")
@@ -62,7 +62,7 @@ def render_advisor_portal():
 
     st.divider()
 
-    # --- 3. MAIN TABS (ACTIVATE IS NOW FIRST) ---
+    # --- 3. MAIN TABS ---
     tab1, tab2, tab3 = st.tabs(["🚀 Activate Client", "👥 Client Roster", "🔐 Media Locker"])
 
     # === TAB 1: ACTIVATE CLIENT (DEFAULT) ===
@@ -108,7 +108,6 @@ def render_advisor_portal():
             with st.form("activate_client_form"):
                 c_name = st.text_input("Recipient Name (The Heir)", placeholder="e.g. Sarah Jones")
                 c_email = st.text_input("Recipient Email", placeholder="e.g. sarah@example.com")
-                # Removed Phone Number field as requested to simplify flow
                 
                 submitted = st.form_submit_button("🚀 Send Gift (Deduct 1 Credit)", disabled=(credits < 1))
                 
@@ -119,7 +118,7 @@ def render_advisor_portal():
                         st.error("Name and Email are required.")
                     else:
                         with st.spinner("Provisioning Vault & Sending Email..."):
-                            # Create User (Passing empty string for phone since we removed input)
+                            # Create User
                             success, msg = database.create_sponsored_user(
                                 advisor_email=user_email,
                                 client_name=c_name,
@@ -152,12 +151,13 @@ def render_advisor_portal():
                             else:
                                 st.error(f"Activation Failed: {msg}")
 
-    # === TAB 2: CLIENT ROSTER ===
+    # === TAB 2: CLIENT ROSTER (UPDATED WITH RESEND) ===
     with tab2:
         st.subheader("Your Sponsored Families")
         st.info("""
         **What is this?** This is your master list of all gifts you have sent.
         **Use it to:** Monitor who has accepted their gift and their current account status.
+        **Resend Feature:** If a client missed their welcome email, click "Resend Invite" to trigger it again.
         """)
         
         clients = database.fetch_advisor_clients(user_email)
@@ -165,11 +165,32 @@ def render_advisor_portal():
         if not clients:
             st.info("No active clients found.")
         else:
-            # Simple, clean table
-            df = pd.DataFrame(clients)
-            # Filter to show only useful columns if they exist
-            cols = [c for c in ['full_name', 'email', 'created_at', 'status'] if c in df.columns]
-            st.dataframe(df[cols] if cols else df, use_container_width=True)
+            # Header Row
+            c1, c2, c3 = st.columns([2, 3, 2])
+            c1.markdown("**Name**")
+            c2.markdown("**Email**")
+            c3.markdown("**Action**")
+            st.divider()
+            
+            # Client Rows
+            for client in clients:
+                c1, c2, c3 = st.columns([2, 3, 2])
+                c1.write(client.get('full_name', 'Unknown'))
+                c2.write(client.get('email', 'Unknown'))
+                
+                # Action Button: Resend Email
+                if c3.button("📧 Resend Invite", key=f"resend_{client.get('id', client.get('email'))}"):
+                    with st.spinner("Resending Welcome Email..."):
+                        sent = email_engine.send_heir_welcome_email(
+                            to_email=client.get('email'),
+                            advisor_firm=firm_name,
+                            advisor_name=advisor_full_name
+                        )
+                        if sent:
+                            st.toast(f"✅ Email sent to {client.get('email')}", icon="📨")
+                        else:
+                            st.error("Failed to send. Please check configuration.")
+                st.divider()
 
     # === TAB 3: MEDIA LOCKER ===
     with tab3:

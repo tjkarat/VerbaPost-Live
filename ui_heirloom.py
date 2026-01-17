@@ -4,11 +4,11 @@ from datetime import datetime, timedelta
 import database
 import ai_engine
 import mailer
-import email_engine 
+import email_engine  # <--- Ensure this is imported
 import letter_format
 import audit_engine 
 import logging
-import analytics  # <--- RESTORED
+import analytics
 
 # --- CONFIGURATION ---
 CREDIT_COST = 1 
@@ -22,11 +22,9 @@ def render_public_player(audio_id):
     Public-facing player for QR code scans. 
     Does not require login.
     """
-    # 1. INJECT ANALYTICS (RESTORED)
     if hasattr(analytics, 'inject_ga'):
         analytics.inject_ga()
     
-    # 2. Clean Layout for Mobile/Public
     st.markdown("""
         <style>
             header {visibility: hidden;}
@@ -42,10 +40,8 @@ def render_public_player(audio_id):
         </style>
     """, unsafe_allow_html=True)
 
-    # 3. Header
     st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1>🎙️ The Family Legacy Archive</h1></div>", unsafe_allow_html=True)
     
-    # 4. Resolve Audio URL
     audio_url = None
     story_title = "Private Recording"
     story_date = "Unknown Date"
@@ -65,12 +61,8 @@ def render_public_player(audio_id):
                     story_title = draft_data.get("title")
                     story_date = draft_data.get("date")
                     storyteller = draft_data.get("storyteller")
-            else:
-                st.warning(f"Note: Looking up secure recording ID: {audio_id}")
-        except Exception:
-            pass
+        except Exception: pass
     
-    # 5. Render Player UI
     if audio_url:
         st.markdown(f"""
             <div class='player-card'>
@@ -82,7 +74,6 @@ def render_public_player(audio_id):
         """, unsafe_allow_html=True)
         
         st.audio(audio_url, format="audio/mp3")
-        
         st.markdown("---")
         
         st.markdown("""
@@ -97,7 +88,6 @@ def render_public_player(audio_id):
             st.query_params.clear()
             st.query_params["nav"] = "login"
             st.rerun()
-            
     else:
         st.error("⚠️ Audio file not found or access link expired.")
         if st.button("Return to Home"):
@@ -109,9 +99,6 @@ def render_public_player(audio_id):
 # ==========================================
 
 def render_dashboard():
-    """
-    The Family Legacy Archive.
-    """
     if not st.session_state.get("authenticated"):
         st.warning("Please log in to access the Family Archive.")
         return
@@ -123,7 +110,6 @@ def render_dashboard():
         st.error("Profile not found.")
         return
 
-    # --- SPONSORSHIP CHECK ---
     is_sponsored = (
         profile.get("role") in ["heir", "heirloom"] or 
         profile.get("created_by") is not None
@@ -133,29 +119,21 @@ def render_dashboard():
         st.title("🏛️ The Family Legacy Project")
         st.divider()
         st.info("🔒 Account Verification Pending")
-        st.markdown(f"""
-        **Welcome to VerbaPost.**
-        Your account is currently in **Guest Mode**. To unlock the Family Archive and start recording stories, 
-        your account must be activated by your sponsoring financial advisor.
-        """)
-        if st.button("🔄 Refresh Status"):
-            st.rerun()
+        st.markdown("Your account is in **Guest Mode**. Please contact your advisor.")
+        if st.button("🔄 Refresh Status"): st.rerun()
         return
 
-    # --- HEADER (Smaller as requested) ---
     st.markdown("### 🏛️ The Family Legacy Project")
     advisor_firm = profile.get("advisor_firm", "VerbaPost Wealth")
     st.caption(f"Sponsored by {advisor_firm}")
 
-    # --- INSTRUCTIONS (Updated to your Steps) ---
     st.info("""
     **How to Archive a Story:**
     1. **Enter Data:** Fill in the Interviewee's Phone, Email, and Question below.
-    2. **Notify:** Click 'Send Prep Email'. The call comes from **(615) 656-7669** (VerbaPost) — ensure it's not blocked.
-    3. **Record:** After the call, wait a few minutes and click 'Check for New Stories' below.
+    2. **Notify:** Click 'Send Prep Email'. 
+    3. **Record:** Click 'Start Interview Call'.
     4. **Edit:** Review the transcript and download the audio.
-    5. **Mail:** Click 'Mail Letter' (You will be asked for your shipping address if missing).
-    6. **Receive:** Watch your mailbox for the USPS delivery.
+    5. **Mail:** Click 'Mail Letter'.
     """)
 
     st.divider()
@@ -166,8 +144,8 @@ def render_dashboard():
     col1, col2 = st.columns(2)
     with col1:
         default_phone = profile.get("parent_phone", "")
-        target_phone = st.text_input("Interviewee Phone Number", value=default_phone, help="The number we will call.")
-        target_email = st.text_input("Interviewee Email", placeholder="grandma@example.com", help="We send the prep email here.")
+        target_phone = st.text_input("Interviewee Phone Number", value=default_phone)
+        target_email = st.text_input("Interviewee Email", placeholder="grandma@example.com")
     with col2:
         custom_question = st.text_area("Interview Question", value="Please share a favorite memory from your childhood.", height=100)
         
@@ -209,6 +187,17 @@ def render_dashboard():
                         )
                         if audit_engine:
                             audit_engine.log_event(user_email, "Interview Started", metadata={"sid": sid})
+                        
+                        # --- 🚨 FIXED: SEND ADVISOR ALERT ---
+                        adv_email = profile.get("advisor_email") or profile.get("created_by")
+                        if adv_email:
+                            email_engine.send_advisor_heir_started_alert(
+                                advisor_email=adv_email,
+                                heir_name=profile.get("full_name", "Family Member"),
+                                client_name=profile.get("parent_name", "Client")
+                            )
+                        # ------------------------------------
+
                         st.success(f"📞 Calling {target_phone} now... Call Initiated!")
                     else:
                         st.error(f"Call Failed: {err}")
@@ -273,7 +262,6 @@ def render_dashboard():
                                     st.success("Story Polished!")
                                     time.sleep(1)
                                     st.rerun()
-                                else: st.error("Polish failed.")
                     with b_col2:
                         if st.button("💾 Save Changes", key=f"save_{draft['id']}"):
                             database.update_draft(draft['id'], new_text)
@@ -281,9 +269,6 @@ def render_dashboard():
                     
                     st.divider()
                     
-                    # --- 🚨 ADDRESS GATE LOGIC ---
-                    
-                    # 1. Check if we have an address
                     has_address = (
                         profile.get('address_line1') and 
                         profile.get('address_city') and 
@@ -292,10 +277,7 @@ def render_dashboard():
                     )
 
                     if not has_address:
-                        # 🔴 BLOCKED: Show Form
                         st.error("🛑 Shipping Address Required")
-                        st.info("Step 5: Please enter the address where you want the physical letter sent.")
-                        
                         with st.form(key=f"addr_form_{draft['id']}"):
                             s_street = st.text_input("Street Address")
                             sc1, sc2, sc3 = st.columns(3)
@@ -313,19 +295,16 @@ def render_dashboard():
                                             "address_state": s_state,
                                             "address_zip": s_zip
                                         }).eq("email", user_email).execute()
-                                        st.success("Address Saved! You can now mail the letter.")
+                                        st.success("Address Saved!")
                                         time.sleep(1)
                                         st.rerun()
-                                except Exception as e:
-                                    st.error(f"Save failed: {e}")
+                                except Exception as e: st.error(f"Save failed: {e}")
                     else:
-                        # 🟢 UNLOCKED: Show Mail Button
                         m_col1, m_col2 = st.columns([2, 1])
                         with m_col1:
                             addr_str = f"{profile.get('address_line1')}, {profile.get('address_city')}, {profile.get('address_state')} {profile.get('address_zip')}"
                             st.caption(f"**Mailing to:** {addr_str}")
                             if st.button("📝 Edit Address", key=f"edit_addr_{draft['id']}"):
-                                # Quick reset to force re-entry
                                 from database import supabase
                                 if supabase:
                                     supabase.table("user_profiles").update({"address_line1": ""}).eq("email", user_email).execute()
@@ -341,11 +320,19 @@ def render_dashboard():
                                         database.update_project_details(draft['id'], status='Approved')
                                         if audit_engine:
                                             audit_engine.log_event(user_email, "Manual Print Queued", metadata={"draft_id": draft['id']})
+                                        
+                                        # --- 🚨 FIXED: SEND ADMIN ALERT ---
+                                        email_engine.send_admin_print_ready_alert(
+                                            user_email=user_email,
+                                            draft_id=draft['id'],
+                                            content_preview=new_text
+                                        )
+                                        # ----------------------------------
+
                                         st.success("✅ Added to Print Queue! Your advisor will finalize fulfillment.")
                                         time.sleep(2)
                                         st.rerun()
                                     except Exception as e:
                                         st.error(f"Error queueing order: {e}")
 
-# --- ALIAS ---
 render_family_archive = render_dashboard
