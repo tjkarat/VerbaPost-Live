@@ -23,7 +23,7 @@ def render_splash_page():
     st.markdown(
         "<div style='text-align: center; max-width: 700px; margin: 0 auto 40px auto;'>"
         "We interview your parents over the phone, transcribe their stories, and mail you "
-        "a physical, wax-sealed manuscript for your family archive."
+        "a physical manuscript on archival linen paper for your family archive."
         "</div>", 
         unsafe_allow_html=True
     )
@@ -36,7 +36,7 @@ def render_splash_page():
         st.markdown("""
         <div class='step-card'>
             <h3>1. Setup</h3>
-            <p><strong>The Heir</strong> (you) creates an account and enters the interviewee's phone number.</p>
+            <p><strong>The Family</strong> creates an account and enters the interviewee's phone number. You choose the specific question you want our Biographer to ask, send a prep email, and trigger the call when ready.</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -44,7 +44,7 @@ def render_splash_page():
         st.markdown("""
         <div class='step-card'>
             <h3>2. The Call</h3>
-            <p><strong>VerbaPost</strong> calls your loved one. Our AI Biographer asks a question about their life.</p>
+            <p><strong>VerbaPost</strong> calls your loved one immediately. Our AI Biographer conducts a warm interview, asking the specific question you selected in Step 1.</p>
         </div>
         """, unsafe_allow_html=True)
         
@@ -52,7 +52,7 @@ def render_splash_page():
         st.markdown("""
         <div class='step-card'>
             <h3>3. The Keepsake</h3>
-            <p><strong>The Archive</strong> is created. You receive the audio recording and a physical mailed letter.</p>
+            <p><strong>The Archive</strong> is created. You edit the transcript online, and we mail the final story on elegant linen paper, enclosed in a linen envelope with a vintage stamp.</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -67,9 +67,9 @@ def render_splash_page():
     with col_family:
         st.info("🏠 **For Families**")
         st.markdown("""
-        **Cost:** Sponsored (Free) or $49/Letter
+        **Sponsored Access**
         * Access your private vault
-        * Edit transcripts
+        * Edit and approve transcripts
         * Order additional interviews
         """)
         if st.button("🔐 Family Login / Sign Up", key="btn_heir_login", use_container_width=True):
@@ -81,8 +81,8 @@ def render_splash_page():
         st.warning("💼 **For Wealth Advisors**")
         st.markdown("""
         **Cost:** $99 per Client (Lifetime Access)
-        * **Includes:** 1 Interview + Mailing
-        * Bulk discounts available (5+ packs)
+        * **Includes:** 1 Interview + Fulfillment
+        * Physical Linen Letter & Postage
         * White-labeled branding
         """)
         if st.button("💼 Advisor Portal Access", key="btn_adv_login", use_container_width=True):
@@ -91,7 +91,7 @@ def render_splash_page():
 
     st.markdown("---")
     
-    # --- 4. FOOTER (CLEANED) ---
+    # --- 4. FOOTER ---
     st.markdown("""
         <div style='text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 20px;'>
             © 2026 VerbaPost
