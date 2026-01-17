@@ -159,7 +159,7 @@ def render_admin_console():
             try:
                 queue_items = []
                 with database.get_db_session() as session:
-                    # 1. Store Items
+                    # 1. Store Items (Legacy)
                     sql_store = text("SELECT id, user_email, content, status FROM letter_drafts WHERE status IN ('Pending Approval', 'Approved')")
                     store_items = session.execute(sql_store).fetchall()
                     for item in store_items:
@@ -168,13 +168,16 @@ def render_admin_console():
                             "status": item.status, "meta": {} 
                         })
 
-                    # 2. Heirloom Projects (UPDATED to fetch 'strategic_prompt')
+                    # 2. Heirloom Projects (UPDATED to fetch Address & Question)
+                    # We LEFT JOIN user_profiles (up) to get the address the heir entered
                     sql_b2b = text("""
                         SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, p.created_at, p.strategic_prompt, 
-                               c.name as parent_name, a.firm_name, c.email as heir_email
+                               c.name as parent_name, a.firm_name, c.email as heir_email,
+                               up.address_line1, up.address_city, up.address_state, up.address_zip
                         FROM projects p
                         JOIN clients c ON p.client_id = c.id
                         JOIN advisors a ON p.advisor_email = a.email
+                        LEFT JOIN user_profiles up ON c.email = up.email
                         WHERE p.status = 'Approved'
                     """)
                     b2b_items = session.execute(sql_b2b).fetchall()
@@ -187,7 +190,13 @@ def render_admin_console():
                                 "storyteller": item.parent_name, "firm_name": item.firm_name,
                                 "heir_name": item.heir_name, "interview_date": date_str,
                                 "heir_email_raw": item.heir_email, "advisor_email_raw": item.advisor_email,
-                                "prompt": item.strategic_prompt # <--- Captured Question
+                                "prompt": item.strategic_prompt,
+                                "heir_address": {
+                                    "line1": item.address_line1,
+                                    "city": item.address_city,
+                                    "state": item.address_state,
+                                    "zip": item.address_zip
+                                }
                             }
                         })
                 
@@ -197,6 +206,14 @@ def render_admin_console():
                     icon = "🏰" if item['type'] == "Heirloom" else "🛒"
                     with st.expander(f"{icon} {item['type']} | {item['email']}"):
                         st.text_area("Content", item['content'], height=100, disabled=True)
+                        
+                        # --- ADDRESS VERIFICATION ---
+                        addr = item['meta'].get('heir_address', {})
+                        if addr.get('line1'):
+                            st.caption(f"📍 **Shipping to:** {addr.get('line1')}, {addr.get('city')}, {addr.get('state')} {addr.get('zip')}")
+                        else:
+                            st.warning("⚠️ No Shipping Address Found (Check User Profile)")
+
                         c1, c2, c3 = st.columns(3)
                         
                         # --- BUTTON 1: LETTER PDF ---
@@ -205,7 +222,6 @@ def render_admin_console():
                                 tier = "Heirloom" if item['type'] == "Heirloom" else "Standard"
                                 firm_name = item['meta'].get('firm_name', 'VerbaPost')
                                 storyteller = item['meta'].get('storyteller', 'The Family')
-                                # 🔴 NEW: Get Question
                                 question = item['meta'].get('prompt')
                                 
                                 pdf_bytes = letter_format.create_pdf(
@@ -215,7 +231,7 @@ def render_admin_console():
                                     advisor_firm=firm_name, 
                                     audio_url=str(item['id']) if tier == "Heirloom" else None,
                                     is_marketing=False,
-                                    question_text=question # <--- PASSING THE QUESTION
+                                    question_text=question 
                                 )
                                 b64 = base64.b64encode(pdf_bytes).decode('latin-1')
                                 href = f'<a href="data:application/pdf;base64,{b64}" download="letter_{item["id"]}.pdf">Download Letter</a>'
@@ -227,10 +243,19 @@ def render_admin_console():
                                 to_obj = {}
                                 from_obj = {}
                                 if item['type'] == "Heirloom":
+                                    # FROM: Advisor
                                     adv_profile = database.get_user_profile(item['meta'].get('advisor_email_raw'))
                                     from_obj = map_profile_to_addr(adv_profile, name_override=item['meta'].get('firm_name'))
-                                    heir_profile = database.get_user_profile(item['meta'].get('heir_email_raw'))
-                                    to_obj = map_profile_to_addr(heir_profile, name_override=item['meta'].get('heir_name'))
+                                    
+                                    # TO: Heir (Using fetched address data directly)
+                                    addr_data = item['meta'].get('heir_address', {})
+                                    to_obj = {
+                                        "name": item['meta'].get('heir_name'),
+                                        "address_line1": addr_data.get('line1', ''),
+                                        "city": addr_data.get('city', ''),
+                                        "state": addr_data.get('state', ''),
+                                        "zip_code": addr_data.get('zip', '')
+                                    }
                                 else:
                                     from_obj = {"name": "VerbaPost Fulfillment", "address_line1": "123 Legacy Lane", "city": "Nashville", "state": "TN", "zip_code": "37203"}
                                     u_profile = database.get_user_profile(item['email'])
