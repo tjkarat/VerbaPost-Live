@@ -1,16 +1,19 @@
 import streamlit as st
 import pandas as pd
 import time
-import database
-import payment_engine
-import email_engine 
-import audit_engine 
+# NOTE: Engines are imported INSIDE the function to prevent Circular Import Crash
 
 def render_advisor_portal():
     """
     The Advisor Portal (B2B View).
     Detailed Instructions Restored + Resend Functionality.
     """
+    # --- LAZY IMPORTS (Fixes KeyError: 'database') ---
+    import database
+    import payment_engine
+    import email_engine 
+    import audit_engine 
+
     # --- 1. AUTH & PROFILE ---
     if not st.session_state.get("authenticated"):
         st.warning("Please log in to access the Advisor Portal.")
