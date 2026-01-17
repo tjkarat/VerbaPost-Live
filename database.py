@@ -436,7 +436,7 @@ def create_sponsored_user(advisor_email, client_name, client_email, client_phone
         if existing.data: return False, "User exists"
         new_profile = {
             "email": client_email, "full_name": client_name, "parent_phone": client_phone,
-            "created_by": advisor_email, "role": "heirloom", "credits": 0, "advisor_firm": "Robbana and Associates"
+            "created_by": advisor_email, "role": "heirloom", "credits": 1, "advisor_firm": "Robbana and Associates"
         }
         supabase.table("user_profiles").insert(new_profile).execute()
         new_client = {
