@@ -429,21 +429,42 @@ def get_user_drafts(user_email):
         logger.error(f"Error fetching drafts: {e}")
         return []
 
+# --- 🚨 CRITICAL FIX: UPDATED LOGIC FOR EXISTING USERS 🚨 ---
 def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
     if not supabase: return False, "DB Offline"
     try:
-        existing = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
-        if existing.data: return False, "User exists"
-        new_profile = {
-            "email": client_email, "full_name": client_name, "parent_phone": client_phone,
-            "created_by": advisor_email, "role": "heirloom", "credits": 1, "advisor_firm": "Robbana and Associates"
-        }
-        supabase.table("user_profiles").insert(new_profile).execute()
+        # 1. Check if the User Profile already exists
+        existing_profile = supabase.table("user_profiles").select("id").eq("email", client_email).execute()
+        
+        # 2. If they are NEW, create the User Profile
+        if not existing_profile.data:
+            new_profile = {
+                "email": client_email, 
+                "full_name": client_name, 
+                "parent_phone": client_phone,
+                "created_by": advisor_email, 
+                "role": "heirloom", 
+                "credits": 0, # Changed to 0 so you don't give away free credits unless intended
+                "advisor_firm": "Robbana and Associates" # Default firm fallback
+            }
+            supabase.table("user_profiles").insert(new_profile).execute()
+            
+        # 3. Check if they are ALREADY in this Advisor's roster (Prevent Duplicates)
+        existing_client_link = supabase.table("clients").select("id").eq("email", client_email).eq("advisor_email", advisor_email).execute()
+        
+        if existing_client_link.data:
+            return False, "Client already in your roster"
+
+        # 4. Create the Client Roster Link (The Project)
         new_client = {
-            "email": client_email, "name": client_name, "phone": client_phone,
-            "advisor_email": advisor_email, "status": "Active"
+            "email": client_email, 
+            "name": client_name, 
+            "phone": client_phone,
+            "advisor_email": advisor_email, 
+            "status": "Active"
         }
         supabase.table("clients").insert(new_client).execute()
+        
         return True, "Success"
     except Exception as e: return False, str(e)
 
