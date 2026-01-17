@@ -155,6 +155,11 @@ def render_advisor_portal():
     # === TAB 2: CLIENT ROSTER ===
     with tab2:
         st.subheader("Your Sponsored Families")
+        st.info("""
+        **What is this?** This is your master list of all gifts you have sent.
+        **Use it to:** Monitor who has accepted their gift and their current account status.
+        """)
+        
         clients = database.fetch_advisor_clients(user_email)
         
         if not clients:
@@ -169,7 +174,11 @@ def render_advisor_portal():
     # === TAB 3: MEDIA LOCKER ===
     with tab3:
         st.subheader("Media Approvals")
-        st.markdown("When a family finishes a recording, it will appear here. Toggle **Release** to unlock the audio for them.")
+        st.info("""
+        **What is this?** This is your Quality Control center.
+        **How it works:** When a family finishes a recording, it appears here first (Locked). 
+        You can listen to the audio or read the transcript. When you are satisfied, click **'Release'** to unlock it for the family.
+        """)
         
         projects = database.get_advisor_projects_for_media(user_email)
         
