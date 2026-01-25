@@ -46,6 +46,7 @@ def render_advisor_portal():
         st.metric(label="Available Credits", value=credits)
         
         # EXPLICIT PURCHASE BUTTON & EXPLANATION
+        # This calls the Stripe checkout session from payment_engine
         if st.button("💳 Purchase Credit ($99)", help="Click to buy 1 Client License via Stripe"):
             checkout_url = payment_engine.create_checkout_session(
                 line_items=[{
@@ -128,6 +129,7 @@ def render_advisor_portal():
                 c_name = st.text_input("Recipient Name (The Heir)", placeholder="e.g. Sarah Jones")
                 c_email = st.text_input("Recipient Email", placeholder="e.g. sarah@example.com")
                 
+                # Disable submit if no credits
                 submitted = st.form_submit_button("🚀 Send Gift (Deduct 1 Credit)", disabled=(credits < 1))
                 
                 if submitted:
