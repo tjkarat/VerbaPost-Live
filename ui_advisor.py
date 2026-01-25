@@ -96,17 +96,23 @@ def render_advisor_portal():
         # --- STEP 2: GIFTING ---
         with st.container(border=True):
             st.markdown("#### Step 2: Send the Gift")
-            st.markdown("""
-            Enter the recipient's details below to create their private vault.
+            st.warning("""
+            **⚠️ REQUIREMENTS (Please Read):**
             
-            **⚠️ IMPORTANT NOTIFICATION PROTOCOL:**
-            * **Email Only:** The client will receive an immediate **Welcome Email** from VerbaPost (on your behalf).
-            * **No Physical Letter:** We do *not* mail a physical notification card at this stage.
-            * **Action:** We recommend you send a personal follow-up note to let them know to look for the email.
+            1. **Purchase Required:** You must purchase credits ($99/client) using the 'Add' button above to proceed.
+            2. **The Hand-off:** Clicking 'Send Gift' deducts 1 Credit and immediately emails the client.
+            3. **Client Action Required:** The client **must log in** to VerbaPost using that email to enter the Senior's phone number and schedule the interview.
+            """)
+            
+            st.markdown("""
+            **Notification Protocol:**
+            * **Email Only:** We send a digital Welcome Email immediately.
+            * **No Physical Card:** We do *not* mail a physical notification card at this stage.
+            * **Your Role:** We recommend sending a personal follow-up note telling them to look for an email from VerbaPost.
             """)
             
             if credits < 1:
-                st.warning(f"⚠️ Balance: {credits}. Please purchase a credit above to proceed.")
+                st.error(f"⚠️ Insufficient Funds: You have {credits} credits. Please click 'Add' above to purchase a credit ($99).")
             
             with st.form("activate_client_form"):
                 c_name = st.text_input("Recipient Name (The Heir)", placeholder="e.g. Sarah Jones")
@@ -116,11 +122,11 @@ def render_advisor_portal():
                 
                 if submitted:
                     if credits < 1:
-                        st.error("Insufficient Credits.")
+                        st.error("Insufficient Credits. Please purchase a credit ($99) to proceed.")
                     elif not c_email or not c_name:
                         st.error("Name and Email are required.")
                     else:
-                        with st.spinner("Provisioning Vault & Sending Email..."):
+                        with st.spinner("Provisioning Vault & Sending Welcome Email..."):
                             # Create User
                             success, msg = database.create_sponsored_user(
                                 advisor_email=user_email,
@@ -135,7 +141,7 @@ def render_advisor_portal():
                                 database.update_user_credits(user_email, new_balance)
                                 
                                 # Send Email
-                                email_engine.send_heir_welcome_email(
+                                email_sent = email_engine.send_heir_welcome_email(
                                     to_email=c_email,
                                     advisor_firm=firm_name,
                                     advisor_name=advisor_full_name
@@ -148,8 +154,13 @@ def render_advisor_portal():
                                         metadata={"client_email": c_email, "credit_spent": 1}
                                     )
                                 
-                                st.success(f"🎉 Success! Welcome email sent to {c_email}.")
-                                time.sleep(2)
+                                if email_sent:
+                                    st.success(f"🎉 Success! Welcome email sent to {c_email}.")
+                                    st.info("The client can now log in to setup their interview.")
+                                else:
+                                    st.warning(f"User created, but email failed to send. Use the 'Resend' button in the Client Roster tab.")
+                                
+                                time.sleep(3)
                                 st.rerun()
                             else:
                                 st.error(f"Activation Failed: {msg}")
