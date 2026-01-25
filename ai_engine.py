@@ -119,8 +119,6 @@ def find_and_transcribe_recording(call_sid):
                 f.write(response.content)
             
             # 3. Transcribe (Robust)
-            # We attempt transcription, but if it fails, we keep the default text
-            # so the database still updates with the Audio URL.
             try:
                 result = transcribe_audio(filename)
                 if result:
@@ -190,13 +188,43 @@ def get_all_twilio_recordings(limit=50):
         
         results = []
         for r in recordings:
+            # Normalize URI to .mp3 for display
+            clean_uri = r.uri.replace(".json", "") + ".mp3"
             results.append({
                 "sid": r.call_sid,
                 "date_created": r.date_created,
                 "duration": r.duration,
-                "uri": r.uri.replace(".json", ".mp3")
+                "uri": clean_uri 
             })
         return results
     except Exception as e:
         logger.error(f"Twilio Fetch Error: {e}")
         return []
+
+def fetch_recording_audio(partial_uri):
+    """
+    NEW: Downloads the raw audio bytes from Twilio using backend secrets.
+    This prevents the browser from prompting the user for a login.
+    """
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    
+    if not sid or not token: 
+        return None
+
+    # Construct clean URL
+    # partial_uri usually looks like: /2010-04-01/Accounts/.../Recordings/....mp3
+    if not partial_uri.endswith(".mp3"):
+        partial_uri = partial_uri.replace(".json", "") + ".mp3"
+        
+    url = f"https://api.twilio.com{partial_uri}"
+    
+    try:
+        # Perform authenticated request on the SERVER side
+        response = requests.get(url, auth=(sid, token))
+        if response.status_code == 200:
+            return response.content
+    except Exception as e:
+        logger.error(f"Audio Fetch Error: {e}")
+        
+    return None

@@ -47,7 +47,8 @@ def render_advisor_portal():
         
         # EXPLICIT PURCHASE BUTTON & EXPLANATION
         # This calls the Stripe checkout session from payment_engine
-        if st.button("💳 Purchase Credit ($99)", help="Click to buy 1 Client License via Stripe"):
+        # NOTE: Escaped $ sign to prevent Streamlit Latex rendering
+        if st.button("💳 Purchase Credit (\$99)", help="Click to buy 1 Client License via Stripe"):
             checkout_url = payment_engine.create_checkout_session(
                 line_items=[{
                     'price_data': {
@@ -64,7 +65,7 @@ def render_advisor_portal():
                 mode='payment'
             )
             if checkout_url:
-                st.link_button("🔗 Proceed to Checkout ($99)", checkout_url)
+                st.link_button("🔗 Proceed to Checkout (\$99)", checkout_url)
         
         # Small explanatory text below button
         st.caption("1 Credit = 1 Client Gift")
@@ -104,15 +105,16 @@ def render_advisor_portal():
             st.markdown("#### Step 2: Send the Gift")
             
             # --- EXPLICIT INSTRUCTIONS BLOCK ---
+            # FIX: Used backslash ($) to prevent LaTeX rendering issues
             st.warning("""
             **⚠️ HOW IT WORKS (Please Read):**
             
-            1.  **Purchase Required ($99):** Sending a gift costs **1 Credit ($99)**. If your balance is 0, click the "Purchase Credit" button at the top right of this page first.
-            2.  **What Happens Next:** * You will be redirected to Stripe to pay.
+            1. **Purchase Required (\$99):** Sending a gift costs **1 Credit**. If your balance is 0, click the "Purchase Credit" button at the top right of this page first.
+            2. **What Happens Next:** * You will be redirected to Stripe to pay.
                 * Once paid, you will return here, and your Credit balance will update to **1**.
                 * You can then return to this form to send the gift.
-            3.  **The Hand-off:** Clicking 'Send Gift' below deducts that credit and immediately emails the client.
-            4.  **Client Action:** The client **must log in** to VerbaPost using that email to enter the Senior's phone number and schedule the interview.
+            3. **The Hand-off:** Clicking 'Send Gift' below deducts that credit and immediately emails the client.
+            4. **Client Action:** The client **must log in** to VerbaPost using that email to enter the Senior's phone number and schedule the interview.
             """)
             
             st.markdown("""
@@ -123,7 +125,7 @@ def render_advisor_portal():
             """)
             
             if credits < 1:
-                st.error(f"⚠️ Insufficient Funds: You have {credits} credits. Please purchase a credit ($99) using the button at the top right to unlock this form.")
+                st.error(f"⚠️ Insufficient Funds: You have {credits} credits. Please purchase a credit (\$99) using the button at the top right to unlock this form.")
             
             with st.form("activate_client_form"):
                 c_name = st.text_input("Recipient Name (The Heir)", placeholder="e.g. Sarah Jones")
@@ -134,7 +136,7 @@ def render_advisor_portal():
                 
                 if submitted:
                     if credits < 1:
-                        st.error("Insufficient Credits. Please scroll up and click 'Purchase Credit ($99)' first.")
+                        st.error("Insufficient Credits. Please scroll up and click 'Purchase Credit (\$99)' first.")
                     elif not c_email or not c_name:
                         st.error("Name and Email are required.")
                     else:
