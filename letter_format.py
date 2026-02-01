@@ -168,27 +168,46 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
         logger.error(f"PDF Generation Failed: {e}")
         return _create_error_pdf(str(e))
 
-def _add_audio_qr(pdf, audio_url, w, h, margin):
+def _add_audio_qr(pdf, audio_url, w, h, margin, recipient_id=None):
+    """
+    Generates a QR code with UTM tracking tags.
+    """
     try:
-        # CAMPAIGN TRACKING
-        player_link = f"https://app.verbapost.com/?play={audio_url}&utm_source=letter&utm_medium=qr"
+        # 1. Clean the ID for URL safety
+        safe_id = str(audio_url).strip()
         
+        # 2. Add Tracking Tags (UTM Parameters)
+        # This tells Google Analytics: "Source = Physical Letter", "Campaign = [The Recipient's ID]"
+        tracker = f"?utm_source=physical_mail&utm_medium=qr_code&utm_campaign=letter_{safe_id}"
+        
+        # 3. Build Final Link
+        # IMPORTANT: The tracker goes BEFORE the anchor or query params handled by the app logic
+        # Ideally: https://app.verbapost.com/?play=123&utm_source=physical_mail...
+        player_link = f"https://app.verbapost.com/{tracker}&play={safe_id}"
+        
+        # --- QR GENERATION ---
         qr_img = qrcode.make(player_link)
         
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_qr:
             qr_img.save(tmp_qr.name)
             y_pos = pdf.get_y() + 15
+            
+            # Page Break Logic
             if y_pos > (h - margin - 40): 
                 pdf.add_page()
                 y_pos = margin + 10
             
             x_center = (w - 30) / 2
             pdf.image(tmp_qr.name, x=x_center, y=y_pos, w=30)
+            
+            # Caption
             pdf.set_y(y_pos + 32)
             pdf.set_font("Helvetica", size=8) 
             pdf.cell(0, 5, "Scan to listen to the original recording", align='C', ln=1)
+            
         os.unlink(tmp_qr.name)
-    except Exception: pass
+    except Exception as e:
+        logger.error(f"QR Error: {e}")
 
 def _create_error_pdf(msg):
     pdf = FPDF()
