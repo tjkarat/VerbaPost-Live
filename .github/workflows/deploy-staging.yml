@@ -67,12 +67,19 @@ jobs:
       - name: Push image
         run: docker push "$IMAGE"
 
+      # Flags are idempotent: on the FIRST run they create the service
+      # (public, 1Gi, max 2 instances); on later runs they just deploy.
+      # Env vars (ENV, SESSION_SECRET, keys) are managed on the service
+      # directly, NOT here — deploys never touch them.
       - name: Deploy to staging
         run: |
           gcloud run deploy "$SERVICE" \
             --image "$IMAGE" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
+            --allow-unauthenticated \
+            --memory 1Gi \
+            --max-instances 2 \
             --quiet
 
       - name: Smoke test
