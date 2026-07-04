@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | VerbaPost{% endblock %}
+
+{% block content %}
+    <div class="card" style="max-width: 520px; margin: 60px auto; text-align: center;">
+        <h2>{{ title }}</h2>
+        {% if detail %}<p style="color: var(--slate); margin-top: 8px;">{{ detail }}</p>{% endif %}
+        <p style="margin: 20px 0;">
+            This part of VerbaPost is being upgraded to our new, faster platform.
+        </p>
+        <a class="btn btn-primary" href="/">← Back to Home</a>
+    </div>
+{% endblock %}

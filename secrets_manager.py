@@ -1,6 +1,13 @@
-import streamlit as st
 import os
 import logging
+
+# Lazy/optional import: the FastAPI backend runs without Streamlit installed.
+# When st is None, the st.secrets lookups below raise inside the existing
+# try/except and fall through to returning None — same behavior as before.
+try:
+    import streamlit as st
+except ImportError:
+    st = None
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

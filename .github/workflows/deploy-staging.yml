@@ -1,0 +1,82 @@
+# ============================================================
+# Deploy to STAGING (verbapost-web-staging on Cloud Run)
+#
+# Triggers: any push to the `staging` branch, or manual run.
+# Flow: run tests -> build FastAPI container -> deploy to staging.
+# If tests fail, deployment does not happen.
+#
+# ONE-TIME SETUP REQUIRED (Claude will walk you through this):
+#   1. Create the staging Cloud Run service (verbapost-web-staging)
+#   2. Create a deploy service account + key
+#   3. Add the key as GitHub repo secret: GCP_SA_KEY
+# ============================================================
+name: Deploy Staging
+
+on:
+  push:
+    branches: [ staging ]
+  workflow_dispatch: {}
+
+env:
+  PROJECT_ID: verbapost-prod
+  REGION: us-central1
+  SERVICE: verbapost-web-staging
+  IMAGE: us-central1-docker.pkg.dev/verbapost-prod/cloud-run-source-deploy/verbapost-web:${{ github.sha }}
+
+jobs:
+  test:
+    name: Run test suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-fastapi.txt
+          pip install pytest pytest-mock httpx
+
+      # Scope: scaffold tests only for now. As phases add tests, widen this
+      # to `python -m pytest tests/ -v` once legacy tests are confirmed green.
+      - name: Run tests
+        run: python -m pytest tests/test_app_scaffold.py -v
+
+  deploy:
+    name: Build & deploy to Cloud Run
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build image
+        run: docker build -f dockerfile.fastapi -t "$IMAGE" .
+
+      - name: Push image
+        run: docker push "$IMAGE"
+
+      - name: Deploy to staging
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --quiet
+
+      - name: Smoke test
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')
+          curl --fail --silent "$URL/health"
+          echo "Staging healthy at $URL"

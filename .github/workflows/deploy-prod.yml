@@ -1,0 +1,88 @@
+# ============================================================
+# Deploy to PRODUCTION (verbapost-app on Cloud Run)
+#
+# ⚠️  DO NOT USE UNTIL PHASE 5 CUTOVER.
+# Deploying this replaces the Streamlit app serving
+# verbapost.com / www / app.verbapost.com with the FastAPI app.
+#
+# Safety rails:
+#   - Manual trigger only (workflow_dispatch) — never fires on push
+#   - Requires typing "deploy-to-production" to confirm
+#   - Full test suite must pass first
+#
+# Rollback (~10s) if anything looks wrong after cutover:
+#   gcloud run revisions list --service verbapost-app --region us-central1
+#   gcloud run services update-traffic verbapost-app --region us-central1 \
+#     --to-revisions=<LAST_STREAMLIT_REVISION>=100
+# ============================================================
+name: Deploy Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "deploy-to-production" to confirm'
+        required: true
+
+env:
+  PROJECT_ID: verbapost-prod
+  REGION: us-central1
+  SERVICE: verbapost-app
+  IMAGE: us-central1-docker.pkg.dev/verbapost-prod/cloud-run-source-deploy/verbapost-web:prod-${{ github.sha }}
+
+jobs:
+  test:
+    name: Run FULL test suite
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'deploy-to-production' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-fastapi.txt
+          pip install pytest pytest-mock httpx
+
+      - name: Run all tests
+        run: python -m pytest tests/ -v
+
+  deploy:
+    name: Build & deploy to PRODUCTION
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
+
+      - name: Build image
+        run: docker build -f dockerfile.fastapi -t "$IMAGE" .
+
+      - name: Push image
+        run: docker push "$IMAGE"
+
+      - name: Deploy to production
+        run: |
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --project "$PROJECT_ID" \
+            --quiet
+
+      - name: Smoke test
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')
+          curl --fail --silent "$URL/health"
+          echo "Production healthy at $URL"

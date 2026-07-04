@@ -1,0 +1,24 @@
+# ============================================================
+# VerbaPost — FastAPI backend dependencies
+# Used by dockerfile.fastapi (the new app).
+# The old requirements.txt (Streamlit) remains untouched until cutover.
+# ============================================================
+
+# --- Web framework (new) ---
+fastapi
+uvicorn[standard]
+jinja2
+python-multipart
+itsdangerous
+
+# --- Engines (same as Streamlit requirements, minus streamlit) ---
+openai
+stripe
+twilio
+supabase
+sqlalchemy
+psycopg2-binary
+fpdf2
+qrcode
+requests
+pandas

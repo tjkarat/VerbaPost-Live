@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}VerbaPost | The Family Legacy Archive{% endblock %}</title>
+    <meta name="description" content="{% block description %}We interview your loved ones over the phone, transcribe their stories, and mail physical keepsake letters on archival linen paper.{% endblock %}">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📬</text></svg>">
+    <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+    <style>
+        :root {
+            --ink: #0f172a;
+            --slate: #64748b;
+            --paper: #f8fafc;
+            --line: #e2e8f0;
+            --accent: #8b5e34;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: Georgia, 'Times New Roman', serif;
+            background: var(--paper);
+            color: var(--ink);
+            line-height: 1.6;
+        }
+        .staging-banner {
+            background: #b45309; color: #fff; text-align: center;
+            padding: 6px; font-size: 0.85rem; letter-spacing: 2px;
+            font-family: Helvetica, Arial, sans-serif; font-weight: 700;
+        }
+        header.site {
+            display: flex; justify-content: space-between; align-items: center;
+            max-width: 960px; margin: 0 auto; padding: 24px 20px;
+        }
+        header.site .brand { font-size: 1.4rem; font-weight: 700; text-decoration: none; color: var(--ink); }
+        header.site nav a {
+            color: var(--slate); text-decoration: none; margin-left: 24px; font-size: 0.95rem;
+        }
+        header.site nav a:hover { color: var(--ink); }
+        main { max-width: 960px; margin: 0 auto; padding: 20px; }
+        footer.site {
+            text-align: center; color: #94a3b8; font-size: 0.8rem;
+            padding: 40px 20px; margin-top: 60px; border-top: 1px solid var(--line);
+        }
+        .btn {
+            display: inline-block; padding: 12px 28px; border-radius: 8px;
+            text-decoration: none; font-family: Helvetica, Arial, sans-serif;
+            font-weight: 600; font-size: 0.95rem; cursor: pointer; border: none;
+        }
+        .btn-primary { background: var(--ink); color: #fff; }
+        .btn-primary:hover { background: #1e293b; }
+        .btn-outline { background: #fff; color: var(--ink); border: 2px solid var(--ink); }
+        .card {
+            background: #fff; border: 1px solid var(--line); border-radius: 12px;
+            padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        }
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body>
+    {% if ENV == "staging" %}<div class="staging-banner">STAGING ENVIRONMENT</div>{% endif %}
+
+    <header class="site">
+        <a class="brand" href="/">📬 VerbaPost</a>
+        <nav>
+            <a href="/advisor">For Advisors</a>
+            <a href="/archive">Heir Archive</a>
+            <a href="/login">Log in</a>
+        </nav>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site">
+        <a href="/legal" style="color:#94a3b8;">Terms &amp; Privacy</a> ·
+        VerbaPost Inc. · Nashville, TN<br>
+        © 2026 VerbaPost
+    </footer>
+</body>
+</html>

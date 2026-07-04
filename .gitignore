@@ -18,5 +18,7 @@ venv/
 # Prevent zip bloat
 *.zip
 
-# Prevent test junk
-test_*.py
+# Prevent test junk (scratch test files at repo root)
+/test_*.py
+# ...but REAL tests in tests/ are the regression suite — always tracked
+!tests/test_*.py
