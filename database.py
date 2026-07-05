@@ -43,7 +43,11 @@ try:
         supabase: Client = create_client(sb_url, sb_key)
     else:
         supabase = None
-except ImportError:
+except Exception as _sb_err:
+    # Broadened from ImportError: create_client can also raise on
+    # key-format problems. A dead Supabase client must never make
+    # `import database` itself crash — SQLAlchemy paths still work.
+    logging.getLogger(__name__).error(f"Supabase client init failed: {_sb_err}")
     supabase = None
 
 logger = logging.getLogger(__name__)

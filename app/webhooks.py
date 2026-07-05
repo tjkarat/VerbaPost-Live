@@ -72,9 +72,13 @@ def _fulfill_checkout(session_id: str):
             database.log_event("system", "Webhook Fulfillment FAILED",
                                {"session_id": session_id, "reason": msg})
     except Exception as e:
-        logger.error(f"Webhook fulfillment crashed for {session_id}: {e}")
-        database.log_event("system", "Webhook Fulfillment CRASHED",
-                           {"session_id": session_id, "error": str(e)})
+        # logger.exception logs the FULL traceback, not just str(e)
+        logger.exception(f"Webhook fulfillment crashed for {session_id}")
+        try:
+            database.log_event("system", "Webhook Fulfillment CRASHED",
+                               {"session_id": session_id, "error": repr(e)})
+        except Exception:
+            logger.exception("Also failed to write crash to audit log")
 
 
 # ============================================================
@@ -142,8 +146,8 @@ def _process_recording(call_sid: str, recording_url: str):
                     pass
         else:
             logger.error(f"Recording download failed ({resp.status_code}) for {call_sid}")
-    except Exception as e:
-        logger.error(f"Recording processing error for {call_sid}: {e}")
+    except Exception:
+        logger.exception(f"Recording processing error for {call_sid}")
 
     # Attach to the project/draft created when the call was triggered
     if database.update_draft_by_sid(call_sid, transcript, audio_url):
