@@ -1,8 +1,21 @@
-import streamlit as st
 import stripe
 import logging
 import secrets_manager
 from datetime import datetime
+
+# Optional Streamlit: the FastAPI backend runs without it. The stub turns
+# st.error(...) into a no-op and gives st.secrets an empty dict, so all
+# existing lookups fall through to env vars exactly as before.
+try:
+    import streamlit as st
+except ImportError:
+    class _StreamlitStub:
+        secrets = {}
+        def __getattr__(self, _name):
+            def _noop(*args, **kwargs):
+                return None
+            return _noop
+    st = _StreamlitStub()
 
 logger = logging.getLogger(__name__)
 

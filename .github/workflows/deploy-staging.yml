@@ -39,10 +39,10 @@ jobs:
           pip install -r requirements-fastapi.txt
           pip install pytest pytest-mock httpx
 
-      # Scope: scaffold tests only for now. As phases add tests, widen this
-      # to `python -m pytest tests/ -v` once legacy tests are confirmed green.
+      # Scope: new-stack tests. Widen to `python -m pytest tests/ -v`
+      # once legacy tests are confirmed green.
       - name: Run tests
-        run: python -m pytest tests/test_app_scaffold.py -v
+        run: python -m pytest tests/test_app_scaffold.py tests/test_phase1_webhooks.py -v
 
   deploy:
     name: Build & deploy to Cloud Run

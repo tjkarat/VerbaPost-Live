@@ -46,6 +46,14 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
 
     safe_advisor = advisor_name or "your financial advisor"
 
+    # NEW (Phase 1): tell Twilio to POST to our webhook the moment the
+    # recording is ready, instead of us polling "Check for New Stories".
+    # WEBHOOK_BASE_URL points at the FastAPI service (staging/new stack);
+    # falls back to BASE_URL, then prod domain.
+    callback_base = (get_secret("WEBHOOK_BASE_URL") or get_secret("BASE_URL")
+                     or "https://app.verbapost.com").rstrip("/")
+    recording_callback = f"{callback_base}/webhooks/twilio/recording"
+
     twiml = f"""
     <Response>
         <Pause length="1"/>
@@ -65,7 +73,7 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
             Please take a moment to think. Then, record your answer after the beep.
         </Say>
         <Pause length="1"/>
-        <Record maxLength="600" finishOnKey="#" playBeep="true" />
+        <Record maxLength="600" finishOnKey="#" playBeep="true" recordingStatusCallback="{recording_callback}" recordingStatusCallbackMethod="POST" />
         <Say voice="Polly.Joanna-Neural">Thank you. Goodbye.</Say>
     </Response>
     """

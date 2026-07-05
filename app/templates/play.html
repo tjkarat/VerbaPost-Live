@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }} | The Family Legacy Archive{% endblock %}
+
+{% block content %}
+    <div style="text-align: center; margin: 30px 0;">
+        <h1>🎙️ The Family Legacy Archive</h1>
+    </div>
+
+    {% if found %}
+    <div class="card" style="max-width: 560px; margin: 0 auto; text-align: center;">
+        <h3 style="margin-top: 0;">{{ title }}</h3>
+        <p style="color: var(--slate); font-size: 0.9rem;">Storyteller: <strong>{{ storyteller }}</strong></p>
+        <p style="color: #94a3b8; font-size: 0.8rem;">Recorded: {{ date }}</p>
+        <audio controls preload="metadata" style="width: 100%; margin-top: 16px;">
+            <source src="{{ audio_src }}" type="audio/mpeg">
+            Your browser does not support audio playback.
+        </audio>
+    </div>
+
+    <div style="text-align: center; color: var(--slate); font-size: 0.9rem; margin-top: 40px;">
+        <em>Preserved by VerbaPost</em>
+        <p style="margin-top: 16px;">Do you have a story to tell?</p>
+        <a class="btn btn-primary" href="/login" style="margin-top: 8px;">Claim this Memory / Log In</a>
+    </div>
+    {% else %}
+    <div class="card" style="max-width: 520px; margin: 0 auto; text-align: center;">
+        <h3>We couldn't find this story</h3>
+        <p style="color: var(--slate);">The link may be incomplete, or the recording may not be available yet.
+        If this QR code came from a letter, please contact the family member who sent it.</p>
+        <a class="btn btn-primary" href="/">← VerbaPost Home</a>
+    </div>
+    {% endif %}
+{% endblock %}

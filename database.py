@@ -6,7 +6,19 @@ from sqlalchemy import create_engine, Column, Integer, String, Text, Boolean, Fl
 from sqlalchemy.orm import sessionmaker, declarative_base
 from contextlib import contextmanager
 from datetime import datetime
-import streamlit as st
+
+# Optional Streamlit: the FastAPI backend runs without it. The stub makes
+# `hasattr(st, "secrets")` / `"x" in st.secrets` behave safely (False/empty).
+try:
+    import streamlit as st
+except ImportError:
+    class _StreamlitStub:
+        secrets = {}
+        def __getattr__(self, _name):
+            def _noop(*args, **kwargs):
+                return None
+            return _noop
+    st = _StreamlitStub()
 
 # --- IMPORT SECRETS ---
 try: import secrets_manager

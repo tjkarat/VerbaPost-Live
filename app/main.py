@@ -88,18 +88,16 @@ def splash(request: Request):
     return templates.TemplateResponse(request, "splash.html", {})
 
 
-@app.get("/play/{audio_id}", response_class=HTMLResponse)
-def public_player(request: Request, audio_id: str):
-    """Public QR-code audio player.
+# ============================================================
+# Feature routers (Phase 1+). Registered BEFORE the /{page}
+# catch-all below so their routes take precedence.
+# ============================================================
 
-    Phase 1 replaces this placeholder with the real player
-    (port of ui_heirloom.render_public_player). The route exists now so
-    QR links printed on mailed letters resolve on the new stack.
-    """
-    return templates.TemplateResponse(
-        request, "coming_soon.html",
-        {"title": "Family Archive Player", "detail": f"Audio story {audio_id}"},
-    )
+from app.player import router as player_router      # noqa: E402
+from app.webhooks import router as webhooks_router  # noqa: E402
+
+app.include_router(player_router)    # /play/{id}, /play/{id}/audio.mp3
+app.include_router(webhooks_router)  # /webhooks/stripe, /webhooks/twilio/recording
 
 
 @app.get("/{page}", response_class=HTMLResponse)

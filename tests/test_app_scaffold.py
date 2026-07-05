@@ -47,7 +47,9 @@ def test_legacy_qr_play_link_redirects():
 
 
 def test_play_route_resolves():
-    r = client.get("/play/abc123")
+    # "demo" is the built-in sample story; unknown IDs correctly 404
+    # (covered in test_phase1_webhooks.py).
+    r = client.get("/play/demo")
     assert r.status_code == 200
 
 
