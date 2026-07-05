@@ -140,6 +140,35 @@ def test_process_recording_orphan_is_logged():
 
 
 # ============================================================
+# 💳 Stripe object compatibility (stripe-python v15 removed .get)
+# ============================================================
+
+class ModernStripeObject:
+    """Mimics new stripe-python objects: bracket access works,
+    .get() does NOT exist and attribute access raises for unknown keys."""
+    def __init__(self, data):
+        self._data = data
+
+    def __getitem__(self, k):
+        return self._data[k]
+
+    def __getattr__(self, k):
+        try:
+            return self._data[k]
+        except KeyError as err:
+            raise AttributeError(*err.args) from err
+
+
+def test_sget_handles_modern_stripe_objects():
+    import payment_engine
+    md = ModernStripeObject({"user_email": "x@y.com"})
+    assert payment_engine._sget(md, "user_email") == "x@y.com"
+    assert payment_engine._sget(md, "missing_key") is None
+    assert payment_engine._sget(None, "anything") is None
+    assert payment_engine._sget({"a": 1}, "a") == 1  # plain dicts too
+
+
+# ============================================================
 # 🎙️ QR player
 # ============================================================
 

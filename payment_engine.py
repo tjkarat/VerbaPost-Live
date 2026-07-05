@@ -32,6 +32,20 @@ except ImportError:
 
 # Database imported lazily inside functions to prevent circular refs
 
+def _sget(obj, key, default=None):
+    """
+    Version-proof key lookup on Stripe objects.
+    Old stripe-python: objects were dict subclasses (.get worked).
+    New stripe-python: .get resolves as a data field and raises.
+    Bracket access works on both; this wraps it safely.
+    """
+    if obj is None:
+        return default
+    try:
+        return obj[key]
+    except (KeyError, TypeError, IndexError):
+        return default
+
 def get_api_key():
     """
     Retrieves Stripe API Key with maximum robustness.
@@ -218,7 +232,8 @@ def handle_payment_return(session_id):
 
     # 3. Extract Data
     # Prefer metadata user_email, fallback to customer_details
-    user_email = session.metadata.get("user_email")
+    # (uses _sget: .get() on Stripe objects crashes on stripe-python v15+)
+    user_email = _sget(session.metadata, "user_email")
     if not user_email and session.customer_details:
         user_email = session.customer_details.email
         
@@ -291,10 +306,9 @@ def check_subscription_status(user_email):
             
             # --- FIX: SAFE ATTRIBUTE ACCESS ---
             # Stripe objects can behave like dicts or objects depending on version.
-            # Using .get() or dictionary access is safest.
-            stripe_end_ts = sub.get('current_period_end') 
+            # _sget handles both old and new stripe-python.
+            stripe_end_ts = _sget(sub, 'current_period_end')
             if not stripe_end_ts:
-                # Fallback to attribute access if .get fails (rare object types)
                 stripe_end_ts = getattr(sub, 'current_period_end', None)
 
             if not stripe_end_ts:
