@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }} | VerbaPost Blog{% endblock %}
+
+{% block extra_css %}
+        .post-body { max-width: 680px; margin: 0 auto; font-size: 1.05rem; line-height: 1.75; }
+        .post-body h2, .post-body h3 { margin-top: 32px; }
+        .post-body blockquote {
+            border-left: 3px solid var(--accent); margin: 20px 0; padding: 4px 20px;
+            color: var(--slate); font-style: italic;
+        }
+{% endblock %}
+
+{% block content %}
+<article class="post-body">
+    <h1>{{ post.title }}</h1>
+    {{ post.html | safe }}
+    <hr style="border: none; border-top: 1px solid var(--line); margin: 32px 0;">
+    <p><a href="/blog" style="color: var(--slate); font-size: 0.9rem;">← All posts</a></p>
+</article>
+{% endblock %}

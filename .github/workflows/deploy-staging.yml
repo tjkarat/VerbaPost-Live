@@ -42,7 +42,7 @@ jobs:
       # Scope: new-stack tests. Widen to `python -m pytest tests/ -v`
       # once legacy tests are confirmed green.
       - name: Run tests
-        run: python -m pytest tests/test_app_scaffold.py tests/test_phase1_webhooks.py -v
+        run: python -m pytest tests/test_app_scaffold.py tests/test_phase1_webhooks.py tests/test_phase2_auth_pages.py -v
 
   deploy:
     name: Build & deploy to Cloud Run

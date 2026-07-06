@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Reset password | VerbaPost{% endblock %}
+
+{% block content %}
+<div style="max-width: 420px; margin: 40px auto;">
+    <h2 style="text-align:center;">Reset your password</h2>
+    <p style="text-align:center; color: var(--slate); font-size: 0.9rem;">
+        Enter the 6-digit code from your reset email.
+    </p>
+
+    {% if error %}
+    <div style="background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:12px; border-radius:8px; margin-bottom:12px; font-size:0.9rem;">{{ error }}</div>
+    {% endif %}
+
+    <div class="card">
+        <form method="post" action="/reset">
+            <label style="display:block; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin:14px 0 4px;">Email</label>
+            <input name="email" type="email" required style="width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; box-sizing:border-box;">
+            <label style="display:block; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin:14px 0 4px;">Reset code</label>
+            <input name="token" type="text" required inputmode="numeric" style="width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; box-sizing:border-box;">
+            <label style="display:block; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin:14px 0 4px;">New password (8+ characters)</label>
+            <input name="new_password" type="password" required minlength="8" style="width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; box-sizing:border-box;">
+            <button class="btn btn-primary" type="submit" style="width:100%; margin-top:18px;">Set new password</button>
+        </form>
+    </div>
+    <p style="text-align:center; margin-top:16px;"><a href="/login" style="color:var(--slate); font-size:0.85rem;">← Back to login</a></p>
+</div>
+{% endblock %}

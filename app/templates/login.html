@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Log in | VerbaPost{% endblock %}
+
+{% block extra_css %}
+        .auth-wrap { max-width: 420px; margin: 30px auto; }
+        .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .tabs button {
+            flex: 1; padding: 12px; border: 1px solid var(--line); background: #fff;
+            border-radius: 8px; font-family: Helvetica, Arial, sans-serif;
+            font-weight: 600; cursor: pointer; font-size: 1rem;
+        }
+        .tabs button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+        .auth-card label { display: block; font-family: Helvetica, Arial, sans-serif;
+            font-size: 0.85rem; font-weight: 600; margin: 14px 0 4px; }
+        .auth-card input {
+            width: 100%; padding: 12px; border: 1px solid var(--line);
+            border-radius: 8px; font-size: 1rem; box-sizing: border-box;
+        }
+        .auth-card .btn { width: 100%; margin-top: 18px; }
+        .error-box { background: #fef2f2; border: 1px solid #fecaca; color: #b91c1c;
+            padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem; }
+        .notice-box { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534;
+            padding: 12px; border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem; }
+        .divider-row { text-align: center; color: var(--slate); margin: 18px 0 6px; font-size: 0.85rem; }
+        .google-btn { width: 100%; margin-top: 10px; text-align: center; }
+        .aux-links { text-align: center; margin-top: 16px; font-size: 0.85rem; }
+        .aux-links a { color: var(--slate); }
+        .shake { animation: shake 0.4s ease-in-out; }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-8px); } 40% { transform: translateX(8px); }
+            60% { transform: translateX(-6px); } 80% { transform: translateX(6px); }
+        }
+        .hidden { display: none; }
+{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+    <h2 style="text-align:center;">Welcome to VerbaPost</h2>
+    <p style="text-align:center; color: var(--slate);">The Family Legacy Archive</p>
+
+    {% if error %}<div class="error-box">{{ error }}</div>{% endif %}
+    {% if notice %}<div class="notice-box">{{ notice }}
+        {% if reset_link %} <a href="/reset">Enter your reset code →</a>{% endif %}
+    </div>{% endif %}
+
+    <div class="tabs">
+        <button type="button" id="tab-login" onclick="showTab('login')">Log in</button>
+        <button type="button" id="tab-signup" onclick="showTab('signup')">Sign up</button>
+    </div>
+
+    <div class="card auth-card {% if shake %}shake{% endif %}">
+        <form id="form-login" method="post" action="/login">
+            <label for="l-email">Email</label>
+            <input id="l-email" name="email" type="email" required autocomplete="email">
+            <label for="l-pass">Password</label>
+            <input id="l-pass" name="password" type="password" required autocomplete="current-password">
+            <button class="btn btn-primary" type="submit">🔐 Log in</button>
+        </form>
+
+        <form id="form-signup" method="post" action="/signup" class="hidden">
+            <label for="s-name">Full name</label>
+            <input id="s-name" name="full_name" type="text" autocomplete="name">
+            <label for="s-email">Email</label>
+            <input id="s-email" name="email" type="email" required autocomplete="email">
+            <label for="s-pass">Password (8+ characters)</label>
+            <input id="s-pass" name="password" type="password" required minlength="8" autocomplete="new-password">
+            <button class="btn btn-primary" type="submit">Create account</button>
+        </form>
+
+        <div class="divider-row">or</div>
+        <a class="btn btn-outline google-btn" href="/auth/google">Continue with Google</a>
+    </div>
+
+    <div class="aux-links">
+        <form method="post" action="/forgot" style="display:inline;">
+            <input type="hidden" name="email" id="forgot-email">
+            <a href="#" onclick="sendForgot(); return false;">Forgot password?</a>
+        </form>
+        · <a href="/reset">Have a reset code?</a>
+    </div>
+</div>
+
+<script>
+function showTab(which) {
+    document.getElementById('form-login').classList.toggle('hidden', which !== 'login');
+    document.getElementById('form-signup').classList.toggle('hidden', which !== 'signup');
+    document.getElementById('tab-login').classList.toggle('active', which === 'login');
+    document.getElementById('tab-signup').classList.toggle('active', which === 'signup');
+}
+function sendForgot() {
+    var email = document.getElementById('l-email').value;
+    if (!email) { alert('Type your email in the Email field first, then click Forgot password.'); return; }
+    document.getElementById('forgot-email').value = email;
+    document.querySelector('form[action="/forgot"]').submit();
+}
+showTab('{{ active_tab or "login" }}');
+</script>
+{% endblock %}

@@ -101,6 +101,10 @@ Ship these while Streamlit is still the frontend — immediate reliability gains
 ### Parking Lot (post-migration features)
 - Voice-to-USPS letter vending machine (PostcardMania/PCM integration groundwork already in env vars)
 
+### Phase 5 cutover checklist additions (learned on staging)
+- Set `--no-cpu-throttling` on `verbapost-app` at cutover: FastAPI background tasks (webhook fulfillment, transcription) freeze under Cloud Run's default request-only CPU. Staging already runs this way.
+- stripe-python v15 removed `.get()` on Stripe objects — fixed via `_sget` in payment_engine (would also have hit prod on any container rebuild).
+
 ### Phase 5 (revised) — Cutover via revision swap
 All three domains already map to `verbapost-app`, so cutover requires **no DNS changes**: deploy the FastAPI image as a new revision of the existing service. Rollback = `gcloud run services update-traffic verbapost-app --to-revisions=STREAMLIT_REVISION=100` (~10 seconds). Streamlit stays one revision back as the safety net; no parallel running needed.
 

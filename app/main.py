@@ -85,6 +85,11 @@ def splash(request: Request):
     if nav:
         return RedirectResponse(url=f"/{nav}", status_code=301)
 
+    # LEGACY GOOGLE OAUTH: old flow redirected to / with ?code=
+    code = request.query_params.get("code")
+    if code:
+        return RedirectResponse(url=f"/auth/callback?code={code}", status_code=302)
+
     return templates.TemplateResponse(request, "splash.html", {})
 
 
@@ -93,9 +98,13 @@ def splash(request: Request):
 # catch-all below so their routes take precedence.
 # ============================================================
 
+from app.auth import router as auth_router          # noqa: E402
+from app.pages import router as pages_router        # noqa: E402
 from app.player import router as player_router      # noqa: E402
 from app.webhooks import router as webhooks_router  # noqa: E402
 
+app.include_router(auth_router)      # /login /signup /forgot /reset /auth/* /logout
+app.include_router(pages_router)     # /legal /blog /blog/{slug}
 app.include_router(player_router)    # /play/{id}, /play/{id}/audio.mp3
 app.include_router(webhooks_router)  # /webhooks/stripe, /webhooks/twilio/recording
 
@@ -105,7 +114,9 @@ def stub_pages(request: Request, page: str):
     """Placeholder for pages arriving in Phases 2-4 (login, advisor, heirloom,
     admin, legal, archive...). Returns a friendly 'coming soon' rather than 404
     so navigation links in templates stay real from day one."""
-    known = {"login", "signup", "advisor", "heirloom", "archive", "admin", "legal", "help", "blog"}
+    # login/signup/legal/blog are REAL routes now (Phase 2) — registered above,
+    # so they never reach this catch-all. Remaining stubs arrive in Phases 3-4.
+    known = {"advisor", "heirloom", "archive", "admin", "help"}
     if page not in known:
         return templates.TemplateResponse(
             request, "coming_soon.html",
