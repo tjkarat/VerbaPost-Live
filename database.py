@@ -560,7 +560,9 @@ def get_public_draft(draft_id):
                     "url": proj.tracking_number, # This holds the Audio URL
                     "title": f"Story #{proj.id}",
                     "date": proj.created_at.strftime("%B %d, %Y") if proj.created_at else "Unknown",
-                    "storyteller": proj.heir_name or "Family Member"
+                    "storyteller": proj.heir_name or "Family Member",
+                    # B2B projects: public playback requires advisor release
+                    "released": bool(proj.audio_released)
                 }
 
             # 2. Check LETTER_DRAFT table (Legacy/B2C)
@@ -571,7 +573,10 @@ def get_public_draft(draft_id):
                     "url": draft.tracking_number,
                     "title": f"Story #{draft.id}",
                     "date": draft.created_at.strftime("%B %d, %Y") if draft.created_at else "Unknown",
-                    "storyteller": "Family Member"
+                    "storyteller": "Family Member",
+                    # Legacy B2C drafts predate the advisor-release system;
+                    # QR codes already mailed must keep working.
+                    "released": True
                 }
             return None
     except Exception as e:

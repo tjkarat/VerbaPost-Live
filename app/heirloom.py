@@ -45,7 +45,18 @@ MESSAGES = {
     "queued": ("notice", "Added to the print queue. Your letter will be prepared on linen stock and mailed — you'll receive tracking by email."),
     "no_credits": ("error", "No letter credits remaining. Ask your advisor, or contact support."),
     "queue_fail": ("error", "Could not queue the letter. Please try again."),
+    "denied": ("error", "That story does not belong to this account."),
 }
+
+
+def _owns_draft(email: str, draft_id) -> bool:
+    """Server-side ownership check — draft IDs arrive from the URL and must
+    never be trusted. A user may only touch drafts in their own vault."""
+    try:
+        return any(str(d.get("id")) == str(draft_id)
+                   for d in database.get_user_drafts(email))
+    except Exception:
+        return False
 
 
 def _profile(request: Request):
@@ -185,16 +196,22 @@ def save_address(request: Request, street: str = Form(...), city: str = Form(...
 
 @router.post("/heirloom/draft/{draft_id}/save")
 def save_draft(request: Request, draft_id: int, content: str = Form(...)):
-    if not request.session.get("email"):
+    email = request.session.get("email")
+    if not email:
         return RedirectResponse("/login", status_code=302)
+    if not _owns_draft(email, draft_id):
+        return RedirectResponse("/heirloom?m=denied", status_code=303)
     database.update_draft(draft_id, content)
     return RedirectResponse("/heirloom?m=saved", status_code=303)
 
 
 @router.post("/heirloom/draft/{draft_id}/polish")
 def polish_draft(request: Request, draft_id: int, content: str = Form(...)):
-    if not request.session.get("email"):
+    email = request.session.get("email")
+    if not email:
         return RedirectResponse("/login", status_code=302)
+    if not _owns_draft(email, draft_id):
+        return RedirectResponse("/heirloom?m=denied", status_code=303)
     polished = ai_engine.refine_text(content)
     if polished:
         database.update_draft(draft_id, polished)
@@ -207,6 +224,8 @@ def queue_letter(request: Request, draft_id: int, content: str = Form("")):
     if not auth:
         return RedirectResponse("/login", status_code=302)
     email, profile = auth
+    if not _owns_draft(email, draft_id):
+        return RedirectResponse("/heirloom?m=denied", status_code=303)
     credits = profile.get("credits", 0) or 0
     if credits < CREDIT_COST:
         return RedirectResponse("/heirloom?m=no_credits", status_code=303)

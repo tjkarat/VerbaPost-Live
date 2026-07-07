@@ -52,8 +52,19 @@ def public_player(request: Request, audio_id: str):
     if not story:
         return templates.TemplateResponse(
             request, "play.html",
-            {"found": False, "title": "Story not found"},
+            {"found": False, "locked": False, "title": "Story not found"},
             status_code=404,
+        )
+
+    # Advisor-release gate: the heir's path to the recording runs through
+    # the advisor. (Demo and legacy drafts carry released=True.)
+    if not story.get("released", True):
+        return templates.TemplateResponse(
+            request, "play.html",
+            {"found": True, "locked": True,
+             "title": story.get("title", "Private Recording"),
+             "storyteller": story.get("storyteller", "Family Member"),
+             "date": story.get("date", "")},
         )
 
     # Twilio URLs need auth — stream via our proxy. Public URLs go direct.
@@ -66,6 +77,7 @@ def public_player(request: Request, audio_id: str):
         request, "play.html",
         {
             "found": True,
+            "locked": False,
             "title": story.get("title", "Private Recording"),
             "storyteller": story.get("storyteller", "Family Member"),
             "date": story.get("date", "Unknown Date"),
@@ -80,6 +92,9 @@ def public_player_audio(audio_id: str):
     story = _load_story(audio_id)
     if not story:
         return Response(status_code=404)
+    # Same gate as the page — otherwise the direct mp3 URL bypasses the lock.
+    if not story.get("released", True):
+        return Response(status_code=403)
 
     url = story["url"]
     if not _is_twilio_url(url):

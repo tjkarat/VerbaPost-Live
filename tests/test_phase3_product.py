@@ -188,6 +188,7 @@ def test_start_call_rejects_bad_phone():
 def test_mail_letter_deducts_credit_and_queues():
     c = _login(HEIR_PROFILE)
     with patch("app.heirloom.database.get_user_profile", return_value=dict(HEIR_PROFILE)), \
+         patch("app.heirloom.database.get_user_drafts", return_value=[{"id": 42}]), \
          patch("app.heirloom.database.update_draft"), \
          patch("app.heirloom.database.update_user_credits") as mock_credits, \
          patch("app.heirloom.database.update_project_details") as mock_status, \
@@ -205,11 +206,40 @@ def test_mail_letter_blocked_without_credits():
     broke = dict(HEIR_PROFILE, credits=0)
     c = _login(broke)
     with patch("app.heirloom.database.get_user_profile", return_value=broke), \
+         patch("app.heirloom.database.get_user_drafts", return_value=[{"id": 42}]), \
          patch("app.heirloom.database.update_project_details") as mock_status:
         r = c.post("/heirloom/draft/42/mail", data={"content": "x"},
                    follow_redirects=False)
     assert "no_credits" in r.headers["location"]
     mock_status.assert_not_called()
+
+
+# ============================================================
+# Ownership enforcement (IDOR protection)
+# ============================================================
+
+def test_cannot_mail_someone_elses_draft():
+    """Security regression: draft IDs come from the URL and must be
+    verified against the logged-in user's own vault."""
+    c = _login(HEIR_PROFILE)
+    with patch("app.heirloom.database.get_user_profile", return_value=dict(HEIR_PROFILE)), \
+         patch("app.heirloom.database.get_user_drafts",
+               return_value=[{"id": 42}]), \
+         patch("app.heirloom.database.update_project_details") as mock_status:
+        r = c.post("/heirloom/draft/999/mail", data={"content": "x"},
+                   follow_redirects=False)
+    assert "denied" in r.headers["location"]
+    mock_status.assert_not_called()
+
+
+def test_advisor_cannot_release_foreign_project():
+    c = _login(ADVISOR_PROFILE)
+    with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
+         patch("app.advisor.database.get_advisor_projects_for_media",
+               return_value=[{"id": 5}]), \
+         patch("app.advisor.database.toggle_media_release") as mock_toggle:
+        c.post("/advisor/release/999", data={"release": "on"}, follow_redirects=False)
+    mock_toggle.assert_not_called()
 
 
 # ============================================================

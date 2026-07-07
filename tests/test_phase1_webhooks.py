@@ -188,7 +188,8 @@ def test_play_unknown_story_returns_404_page():
 
 def test_play_twilio_audio_is_proxied_not_exposed():
     story = {"url": "https://api.twilio.com/2010-04-01/Accounts/AC1/Recordings/RE1.mp3",
-             "title": "Story #7", "date": "July 4, 2026", "storyteller": "Grandma"}
+             "title": "Story #7", "date": "July 4, 2026", "storyteller": "Grandma",
+             "released": True}
     with patch("app.player.database.get_public_draft", return_value=story):
         r = client.get("/play/7")
         assert r.status_code == 200
@@ -198,7 +199,8 @@ def test_play_twilio_audio_is_proxied_not_exposed():
 
 def test_play_audio_proxy_streams_bytes():
     story = {"url": "https://api.twilio.com/2010-04-01/Accounts/AC1/Recordings/RE1.mp3",
-             "title": "Story #7", "date": "July 4, 2026", "storyteller": "Grandma"}
+             "title": "Story #7", "date": "July 4, 2026", "storyteller": "Grandma",
+             "released": True}
     with patch("app.player.database.get_public_draft", return_value=story), \
          patch("app.player.ai_engine.fetch_recording_audio",
                return_value=b"mp3-bytes"):
@@ -206,3 +208,26 @@ def test_play_audio_proxy_streams_bytes():
         assert r.status_code == 200
         assert r.headers["content-type"] == "audio/mpeg"
         assert r.content == b"mp3-bytes"
+
+
+def test_play_unreleased_story_is_locked():
+    """B2B recordings stay locked until the advisor releases them —
+    the heir's path to the audio runs through the advisor's desk."""
+    story = {"url": "https://api.twilio.com/2010/Recordings/RE1.mp3",
+             "title": "Story #8", "date": "July 6, 2026",
+             "storyteller": "Grandpa", "released": False}
+    with patch("app.player.database.get_public_draft", return_value=story):
+        page = client.get("/play/8")
+        assert page.status_code == 200
+        assert "RECORDING IS SECURED" in page.text
+        assert "contact the advisor" in page.text
+        assert "<audio" not in page.text
+        # the raw mp3 proxy must be locked too, not just the page
+        audio = client.get("/play/8/audio.mp3")
+        assert audio.status_code == 403
+
+
+def test_play_demo_remains_open():
+    r = client.get("/play/demo")
+    assert r.status_code == 200
+    assert "<audio" in r.text

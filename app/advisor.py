@@ -140,6 +140,10 @@ def toggle_release(request: Request, pid: int, release: str = Form("on")):
     if not auth:
         return RedirectResponse("/login", status_code=302)
     email, profile = auth
+    # Ownership check: an advisor may only release audio on their own projects
+    owned = {str(p.get("id")) for p in database.get_advisor_projects_for_media(email)}
+    if str(pid) not in owned:
+        return RedirectResponse("/advisor", status_code=303)
     database.toggle_media_release(pid, release == "on")
     return RedirectResponse("/advisor", status_code=303)
 
