@@ -98,7 +98,12 @@ def get_base_url():
         
     return url.rstrip("/")
 
-def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None, success_path=None):
+def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None, success_path=None, payer_email=None):
+    """
+    user_email  -> fulfillment target (webhook credits THIS account)
+    payer_email -> who Stripe bills (defaults to user_email). Lets an advisor
+                   pay for a story that is credited to the client family.
+    """
     """
     Creates a Stripe Checkout Session.
     Includes logic to Rebrand the $99 Tier as 'The Family Legacy Project'.
@@ -163,9 +168,10 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
             "client_reference_id": str(draft_id)
         }
 
-        # Handle Guest vs Logged In
-        if user_email and "guest" not in user_email.lower():
-            session_params["customer_email"] = user_email
+        # Handle Guest vs Logged In (payer may differ from fulfillment target)
+        billing_email = payer_email or user_email
+        if billing_email and "guest" not in billing_email.lower():
+            session_params["customer_email"] = billing_email
         
         # Create Session
         checkout_session = stripe.checkout.Session.create(**session_params)

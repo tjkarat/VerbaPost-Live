@@ -41,7 +41,7 @@
             <div class="num">{{ credits }}</div>
             <div class="lbl">Available Credits</div>
             <a class="btn btn-primary btn-sm" href="/advisor/checkout" style="margin-top:8px;">Purchase Credit ($99)</a>
-            <div class="lbl" style="margin-top:6px;">1 credit = 1 client gift</div>
+            <div class="lbl" style="margin-top:6px;">1 credit = 1 client engagement<br>(one story + letters to the family)</div>
         </div>
     </div>
 
@@ -64,10 +64,11 @@
     <div class="section card">
         <h2>Step 2 — Activate a Client</h2>
         <p class="sub">
-            Sending a gift costs <strong>1 credit</strong>. We email the recipient a welcome
-            invitation from {{ firm_name or "your firm" }}; they log in, enter the storyteller's
-            phone number, and schedule the interview. No physical card is sent at this stage —
-            we recommend a personal note telling them to watch for the email.
+            Sending a gift costs <strong>1 credit ($99)</strong> and includes one recorded story
+            with keepsake letters to the family — up to five recipients. We email the recipient
+            a welcome invitation from {{ firm_name or "your firm" }}; they log in, enter the
+            storyteller's phone number, and schedule the interview. Additional stories for the
+            same family are <strong>$40</strong> from the roster below.
         </p>
         <form method="post" action="/advisor/activate">
             <label class="f" for="cn">Recipient name (the heir)</label>
@@ -94,11 +95,15 @@
             <tr>
                 <td>{{ c.get('name') or c.get('full_name') or 'Unknown' }}</td>
                 <td>{{ c.get('email') or 'Unknown' }}</td>
-                <td>
-                    <form method="post" action="/advisor/resend" style="margin:0;">
+                <td style="white-space:nowrap;">
+                    <form method="post" action="/advisor/resend" style="margin:0; display:inline;">
                         <input type="hidden" name="client_email" value="{{ c.get('email') }}">
                         <button class="btn btn-outline btn-sm" type="submit">Resend Invite</button>
                     </form>
+                    <a class="btn btn-primary btn-sm" style="margin-left:6px;"
+                       href="/advisor/story/checkout?client_email={{ c.get('email') }}"
+                       onclick="return confirm('Commission an additional story for this family ($40)?');">
+                       Add Story ($40)</a>
                 </td>
             </tr>
             {% endfor %}

@@ -43,7 +43,7 @@ MESSAGES = {
     "polished": ("notice", "Story polished."),
     "addr_saved": ("notice", "Shipping address saved."),
     "queued": ("notice", "Added to the print queue. Your letter will be prepared on linen stock and mailed — you'll receive tracking by email."),
-    "no_credits": ("error", "No letter credits remaining. Ask your advisor, or contact support."),
+    "no_credits": ("error", "No story credits remaining for this archive. Your advisor can commission an additional story for your family."),
     "queue_fail": ("error", "Could not queue the letter. Please try again."),
     "denied": ("error", "That story does not belong to this account."),
 }

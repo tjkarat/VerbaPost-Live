@@ -105,6 +105,9 @@ def activate_client(request: Request, client_name: str = Form(...),
 
     database.update_user_credits(email, credits - 1)
     profile["credits"] = credits - 1
+    # The $99 engagement INCLUDES one story: grant the family's first
+    # story credit at activation (heir-side credits = story balance).
+    database.add_advisor_credit(client_email.strip().lower(), 1)
     sent = email_engine.send_heir_welcome_email(
         to_email=client_email.strip().lower(), advisor_firm=firm,
         advisor_name=profile.get("full_name") or "Your Advisor",
@@ -146,6 +149,39 @@ def toggle_release(request: Request, pid: int, release: str = Form("on")):
         return RedirectResponse("/advisor", status_code=303)
     database.toggle_media_release(pid, release == "on")
     return RedirectResponse("/advisor", status_code=303)
+
+
+@router.get("/story/checkout")
+def buy_additional_story(request: Request, client_email: str = ""):
+    """$40 — commission an additional story for an EXISTING client family.
+    The advisor pays; the webhook credits the family's story balance."""
+    auth = _require_advisor(request)
+    if not auth:
+        return RedirectResponse("/login", status_code=302)
+    email, _profile = auth
+    target = (client_email or "").strip().lower()
+    if "@" not in target:
+        return RedirectResponse("/advisor", status_code=302)
+    url = payment_engine.create_checkout_session(
+        line_items=[{
+            "price_data": {
+                "currency": "usd",
+                "product_data": {
+                    "name": "Additional Legacy Story",
+                    "description": f"One additional interview & keepsake letters for {target}",
+                },
+                "unit_amount": 4000,
+            },
+            "quantity": 1,
+        }],
+        user_email=target,      # fulfillment: family's story balance
+        payer_email=email,      # billing: the advisor
+        mode="payment",
+        success_path="/advisor",
+    )
+    if not url:
+        return RedirectResponse("/advisor?checkout=failed", status_code=302)
+    return RedirectResponse(url, status_code=303)
 
 
 @router.get("/checkout")

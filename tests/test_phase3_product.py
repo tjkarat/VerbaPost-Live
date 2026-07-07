@@ -64,6 +64,7 @@ def test_activate_client_deducts_credit_and_emails():
          patch("app.advisor.database.create_sponsored_user",
                return_value=(True, "Success")) as mock_create, \
          patch("app.advisor.database.update_user_credits") as mock_credits, \
+         patch("app.advisor.database.add_advisor_credit") as mock_story, \
          patch("app.advisor.email_engine.send_heir_welcome_email",
                return_value=True) as mock_email, \
          patch("app.advisor.audit_engine.log_event"), \
@@ -75,7 +76,25 @@ def test_activate_client_deducts_credit_and_emails():
     assert "Welcome email sent" in r.text
     mock_create.assert_called_once()
     mock_credits.assert_called_once_with("user@test.com", 1)  # 2 - 1
+    # $99 engagement INCLUDES story #1: family balance granted at activation
+    mock_story.assert_called_once_with("sarah@x.com", 1)
     mock_email.assert_called_once()
+
+
+def test_additional_story_charges_advisor_credits_family():
+    """$40 add-on: advisor is billed, but fulfillment targets the family's
+    story balance (metadata user_email = client)."""
+    c = _login(ADVISOR_PROFILE)
+    with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
+         patch("app.advisor.payment_engine.create_checkout_session",
+               return_value="https://checkout.stripe.com/story40") as mock_pay:
+        r = c.get("/advisor/story/checkout?client_email=heir@x.com",
+                  follow_redirects=False)
+    assert r.status_code == 303
+    kw = mock_pay.call_args.kwargs
+    assert kw["user_email"] == "heir@x.com"      # family gets the story credit
+    assert kw["payer_email"] == "user@test.com"  # advisor pays
+    assert kw["line_items"][0]["price_data"]["unit_amount"] == 4000
 
 
 def test_activate_blocked_without_credits():
