@@ -7,6 +7,16 @@
     <meta name="description" content="{% block description %}We interview your loved ones over the phone, transcribe their stories, and mail physical keepsake letters on archival linen paper.{% endblock %}">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><rect width=%22100%22 height=%22100%22 rx=%2214%22 fill=%22%230f172a%22/><text x=%2250%22 y=%2272%22 font-size=%2264%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22Georgia,serif%22>V</text></svg>">
     <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+    {% if GA_ID %}
+    <!-- Google Analytics 4 -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ GA_ID }}"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        gtag('js', new Date());
+        gtag('config', '{{ GA_ID }}', { 'anonymize_ip': true });
+    </script>
+    {% endif %}
     <style>
         :root {
             --ink: #0f172a;

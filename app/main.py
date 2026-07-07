@@ -46,6 +46,9 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.globals["ENV"] = ENV  # lets base.html show the STAGING banner
+# GA4: rendered by base.html only when set. Leave GA_ID blank on staging to
+# keep test traffic out of production analytics.
+templates.env.globals["GA_ID"] = os.environ.get("GA_ID", "")
 
 
 # ============================================================

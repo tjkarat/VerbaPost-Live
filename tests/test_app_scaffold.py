@@ -73,3 +73,17 @@ def test_unknown_page_returns_404():
 def test_robots_and_sitemap_served():
     assert client.get("/robots.txt").status_code == 200
     assert client.get("/sitemap.xml").status_code == 200
+
+
+def test_ga_absent_when_unset_present_when_set():
+    from app.main import templates
+    # No GA_ID (test env) -> no tracking script anywhere
+    assert "googletagmanager" not in client.get("/").text
+    # GA_ID set -> gtag snippet renders on every page via base.html
+    templates.env.globals["GA_ID"] = "G-TESTID123"
+    try:
+        html = client.get("/").text
+        assert "googletagmanager.com/gtag/js?id=G-TESTID123" in html
+        assert "anonymize_ip" in html
+    finally:
+        templates.env.globals["GA_ID"] = ""
