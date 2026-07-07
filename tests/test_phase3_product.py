@@ -48,7 +48,7 @@ def test_advisor_requires_login():
 def test_advisor_dashboard_renders():
     c = _login(ADVISOR_PROFILE)
     with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
-         patch("app.advisor.database.fetch_advisor_clients",
+         patch("app.advisor.database.get_advisor_clients",
                return_value=[{"full_name": "Client One", "email": "c1@x.com"}]), \
          patch("app.advisor.database.get_advisor_projects_for_media", return_value=[]):
         r = c.get("/advisor")
@@ -67,7 +67,7 @@ def test_activate_client_deducts_credit_and_emails():
          patch("app.advisor.email_engine.send_heir_welcome_email",
                return_value=True) as mock_email, \
          patch("app.advisor.audit_engine.log_event"), \
-         patch("app.advisor.database.fetch_advisor_clients", return_value=[]), \
+         patch("app.advisor.database.get_advisor_clients", return_value=[]), \
          patch("app.advisor.database.get_advisor_projects_for_media", return_value=[]):
         r = c.post("/advisor/activate",
                    data={"client_name": "Sarah", "client_email": "sarah@x.com"})
@@ -83,12 +83,33 @@ def test_activate_blocked_without_credits():
     c = _login(broke)
     with patch("app.advisor.database.get_user_profile", return_value=broke), \
          patch("app.advisor.database.create_sponsored_user") as mock_create, \
-         patch("app.advisor.database.fetch_advisor_clients", return_value=[]), \
+         patch("app.advisor.database.get_advisor_clients", return_value=[]), \
          patch("app.advisor.database.get_advisor_projects_for_media", return_value=[]):
         r = c.post("/advisor/activate",
                    data={"client_name": "Sarah", "client_email": "sarah@x.com"})
     assert "Insufficient credits" in r.text
     mock_create.assert_not_called()
+
+
+def test_roster_shows_clients_table_names():
+    """Regression (staging E2E, Jul 2026): roster must read the clients table
+    ('name' field), which activation writes — NOT user_profiles.created_by,
+    which is never set for heirs who already had an account."""
+    c = _login(ADVISOR_PROFILE)
+    with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
+         patch("app.advisor.database.get_advisor_clients",
+               return_value=[{"name": "Existing-Account Heir", "email": "heir@x.com"}]), \
+         patch("app.advisor.database.get_advisor_projects_for_media", return_value=[]):
+        r = c.get("/advisor")
+    assert "Existing-Account Heir" in r.text
+
+
+def test_stripe_return_to_root_bounces_to_advisor():
+    """Regression (staging E2E, Jul 2026): checkout return must not strand
+    the buyer on the marketing splash."""
+    r = client.get("/?session_id=cs_test_xyz", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/advisor?purchased=1"
 
 
 def test_checkout_redirects_to_stripe():
@@ -100,6 +121,7 @@ def test_checkout_redirects_to_stripe():
     assert r.status_code == 303
     assert r.headers["location"].startswith("https://checkout.stripe.com/")
     assert mock_pay.call_args.kwargs["user_email"] == "user@test.com"
+    assert mock_pay.call_args.kwargs["success_path"] == "/advisor"
     item = mock_pay.call_args.kwargs["line_items"][0]
     assert item["price_data"]["unit_amount"] == 9900
 

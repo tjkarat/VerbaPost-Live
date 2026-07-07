@@ -43,7 +43,10 @@ def _render(request: Request, email: str, profile: dict, **extra):
         "firm_name": profile.get("advisor_firm") or "",
         "advisor_name": profile.get("full_name") or email,
         "credits": profile.get("credits", 0) or 0,
-        "clients": database.fetch_advisor_clients(email),
+        # Roster reads the clients table — the table activation actually
+        # writes to. (fetch_advisor_clients read user_profiles.created_by,
+        # which is never set for heirs who already had an account.)
+        "clients": database.get_advisor_clients(email),
         "projects": database.get_advisor_projects_for_media(email),
         "error": None, "notice": None,
     }
@@ -160,6 +163,7 @@ def buy_credit(request: Request):
         }],
         user_email=email,
         mode="payment",
+        success_path="/advisor",
     )
     if not url:
         return RedirectResponse("/advisor?checkout=failed", status_code=302)

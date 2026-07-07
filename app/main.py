@@ -90,6 +90,12 @@ def splash(request: Request):
     if code:
         return RedirectResponse(url=f"/auth/callback?code={code}", status_code=302)
 
+    # STRIPE RETURN SAFETY NET: any checkout session that still lands on the
+    # root (old success URLs in flight) belongs in the advisor portal.
+    # Fulfillment itself is handled by the webhook — this is purely UX.
+    if request.query_params.get("session_id"):
+        return RedirectResponse(url="/advisor?purchased=1", status_code=302)
+
     return templates.TemplateResponse(request, "splash.html", {})
 
 

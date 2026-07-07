@@ -98,7 +98,7 @@ def get_base_url():
         
     return url.rstrip("/")
 
-def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None):
+def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None, success_path=None):
     """
     Creates a Stripe Checkout Session.
     Includes logic to Rebrand the $99 Tier as 'The Family Legacy Project'.
@@ -115,8 +115,11 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
     stripe.api_key = api_key
     base_url = get_base_url()
     
-    success_url = f"{base_url}?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{base_url}?nav=store"
+    # success_path lets callers land the buyer back where they came from
+    # (e.g. "/advisor"). Default preserves legacy behavior (site root).
+    _path = success_path or ""
+    success_url = f"{base_url}{_path}?purchased=1&session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{base_url}{_path or '?nav=store'}"
 
     metadata = {
         "user_email": user_email,

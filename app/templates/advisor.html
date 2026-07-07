@@ -92,7 +92,7 @@
             <tr><th>Name</th><th>Email</th><th></th></tr>
             {% for c in clients %}
             <tr>
-                <td>{{ c.get('full_name') or 'Unknown' }}</td>
+                <td>{{ c.get('name') or c.get('full_name') or 'Unknown' }}</td>
                 <td>{{ c.get('email') or 'Unknown' }}</td>
                 <td>
                     <form method="post" action="/advisor/resend" style="margin:0;">
