@@ -155,30 +155,55 @@ def send_admin_alert(trigger_event, details_html):
     return send_email(admin_email, subject, html)
 
 # --- HEIR WELCOME EMAIL (THE TRIGGER) ---
-def send_heir_welcome_email(to_email, advisor_firm, advisor_name):
+def send_heir_welcome_email(to_email, advisor_firm, advisor_name, heir_name=None):
     """
-    Notifies the Heir that their Advisor has sponsored a legacy project.
+    Notifies the Heir that their Advisor has commissioned a legacy archive.
+    Tone: engraved invitation — formal, restrained, private-bank register.
     """
-    subject = f"Gift from {advisor_name}: The Family Legacy Project"
-    
+    subject = f"{advisor_firm} — An Invitation to Your Family Legacy Archive"
+    base_url = os.environ.get("BASE_URL", "https://app.verbapost.com").rstrip("/")
+    salutation = f"Dear {heir_name}," if heir_name else "Dear Recipient,"
+
     html_content = f"""
-    <div style="font-family: 'Times New Roman', serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #eee;">
-        <h2 style="color: #0f172a; text-align: center; border-bottom: 1px solid #ccc; padding-bottom: 10px;">THE FAMILY LEGACY ARCHIVE</h2>
-        
-        <p>Hello,</p>
-        
-        <p><strong>{advisor_name}</strong> (from {advisor_firm}) has sponsored a private legacy archive for your family.</p>
-        
-        <p>This secure vault allows you to capture, preserve, and print your family's most important stories before they are lost to time.</p>
-        
-        <div style="background-color: #f8f9fa; padding: 15px; text-align: center; margin: 25px 0; border: 1px solid #ddd;">
-            <p style="margin: 0 0 10px 0;">To access your vault, please log in below using this email address:</p>
-            <a href="https://app.verbapost.com?nav=login" style="background-color: #0f172a; color: white; padding: 10px 20px; text-decoration: none; border-radius: 4px; font-family: sans-serif;">Access Family Vault</a>
+    <div style="background-color:#f4f2ee; padding:40px 16px; font-family: Georgia, 'Times New Roman', serif;">
+      <div style="max-width:560px; margin:0 auto; background:#ffffff; border:1px solid #d9d4c9;">
+        <div style="border-bottom:3px double #0f172a; padding:36px 48px 28px; text-align:center;">
+          <div style="font-size:11px; letter-spacing:4px; color:#8a7a5c; font-family: Helvetica, Arial, sans-serif; margin-bottom:14px;">BY PRIVATE ARRANGEMENT</div>
+          <div style="font-size:22px; letter-spacing:3px; color:#0f172a; font-weight:bold;">THE FAMILY LEGACY ARCHIVE</div>
         </div>
-        
-        <p><strong>Next Step:</strong> Log in and schedule your first interview call.</p>
-        
-        <p style="margin-top: 30px;">Warmly,<br>The VerbaPost Archives</p>
+
+        <div style="padding:40px 48px; color:#1a2332; font-size:16px; line-height:1.8;">
+          <p style="margin:0 0 24px;">{salutation}</p>
+
+          <p style="margin:0 0 24px;">On behalf of <strong>{advisor_firm}</strong>, we are honored to inform you
+          that <strong>{advisor_name}</strong> has commissioned a private legacy archive for your family.</p>
+
+          <p style="margin:0 0 24px;">Our biographers will record your family's most important stories in their
+          teller's own voice — then transcribe, typeset, and preserve them as a keepsake letter, composed on
+          archival linen and delivered by post.</p>
+
+          <p style="margin:0 0 32px;">Your archive has been reserved under this email address.</p>
+
+          <div style="text-align:center; margin:0 0 32px;">
+            <a href="{base_url}/login"
+               style="display:inline-block; background-color:#0f172a; color:#ffffff; padding:16px 44px;
+                      text-decoration:none; font-family: Helvetica, Arial, sans-serif; font-size:12px;
+                      letter-spacing:3px;">ENTER THE ARCHIVE</a>
+          </div>
+
+          <p style="margin:0 0 6px;">We remain at your service,</p>
+          <p style="margin:0; font-style:italic;">The VerbaPost Archives</p>
+        </div>
+
+        <div style="border-top:1px solid #d9d4c9; padding:20px 48px; text-align:center;">
+          <div style="font-size:11px; letter-spacing:2px; color:#8a7a5c; font-family: Helvetica, Arial, sans-serif;">
+            PRESENTED IN PARTNERSHIP WITH {advisor_firm.upper()}
+          </div>
+          <div style="font-size:10px; color:#a39a88; font-family: Helvetica, Arial, sans-serif; margin-top:8px;">
+            VerbaPost Inc. &nbsp;·&nbsp; Nashville, Tennessee
+          </div>
+        </div>
+      </div>
     </div>
     """
     return send_email(to_email, subject, html_content)

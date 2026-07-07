@@ -107,7 +107,8 @@ def activate_client(request: Request, client_name: str = Form(...),
     profile["credits"] = credits - 1
     sent = email_engine.send_heir_welcome_email(
         to_email=client_email.strip().lower(), advisor_firm=firm,
-        advisor_name=profile.get("full_name") or "Your Advisor")
+        advisor_name=profile.get("full_name") or "Your Advisor",
+        heir_name=client_name.strip())
     audit_engine.log_event(email, "Client Activated",
                            metadata={"client_email": client_email, "credit_spent": 1})
     if sent:

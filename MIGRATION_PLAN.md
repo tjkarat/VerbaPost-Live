@@ -103,6 +103,7 @@ Ship these while Streamlit is still the frontend — immediate reliability gains
 
 ### Phase 5 cutover checklist additions (learned on staging)
 - PROD Supabase → Authentication → URL Configuration: Site URL must be `https://app.verbapost.com`, Redirect URLs `https://app.verbapost.com/**` (staging shipped with default localhost:3000 and broke confirmation-email redirects).
+- PROD (and staging) Supabase → Authentication → SMTP: configure custom SMTP via Resend so auth emails (confirm/reset) send from @verbapost.com instead of Supabase's rate-limited, spam-prone default sender.
 - Set `--no-cpu-throttling` on `verbapost-app` at cutover: FastAPI background tasks (webhook fulfillment, transcription) freeze under Cloud Run's default request-only CPU. Staging already runs this way.
 - stripe-python v15 removed `.get()` on Stripe objects — fixed via `_sget` in payment_engine (would also have hit prod on any container rebuild).
 
