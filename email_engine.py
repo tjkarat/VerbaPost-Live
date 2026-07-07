@@ -230,23 +230,37 @@ def send_advisor_heir_started_alert(advisor_email, heir_name, client_name):
     return send_email(advisor_email, subject, html_content)
 
 # --- ADMIN ALERT: STORY READY TO PRINT ---
-def send_admin_print_ready_alert(user_email, draft_id, content_preview):
+def send_admin_print_ready_alert(user_email, draft_id, content_preview, mailing_list=None):
     """
     Notifies Admin that a story has been created/approved and is ready to print.
+    mailing_list: list of dicts {name, street, city, state, zip_code} —
+    every address that should receive a printed copy (heir + extras).
     """
     admin_email = get_admin_email()
     if not admin_email: return False
-    
-    subject = f"🖨️ PRINT JOB: Draft #{draft_id} Ready"
+
+    addresses_html = ""
+    if mailing_list:
+        rows = "".join(
+            f"<li><strong>{a.get('name','')}</strong> — {a.get('street','')}, "
+            f"{a.get('city','')}, {a.get('state','')} {a.get('zip_code','')}</li>"
+            for a in mailing_list)
+        addresses_html = f"""
+        <p><strong>Print &amp; mail {len(mailing_list)} cop{'ies' if len(mailing_list) != 1 else 'y'}:</strong></p>
+        <ol style="background:#fffbeb; border:1px solid #fde68a; padding:14px 14px 14px 34px;">{rows}</ol>
+        """
+
+    subject = f"PRINT JOB: Draft #{draft_id} — {len(mailing_list or []) or 1} letter(s)"
     html_content = f"""
     <div style="font-family: sans-serif; border: 2px solid #0f172a; padding: 20px;">
         <h2 style="margin-top:0;">New Print Job Submitted</h2>
         <p><strong>User:</strong> {user_email}</p>
         <p><strong>Draft ID:</strong> {draft_id}</p>
+        {addresses_html}
         <div style="background: #f1f5f9; padding: 10px; margin: 10px 0; font-style: italic;">
-            "{content_preview[:100]}..."
+            "{content_preview[:300]}..."
         </div>
-        <p><a href="https://app.verbapost.com?nav=login" style="font-weight: bold;">Login to Admin Console</a> to generate PDF and Envelope.</p>
+        <p>See the Admin Console for the full transcript.</p>
     </div>
     """
     return send_email(admin_email, subject, html_content)

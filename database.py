@@ -176,6 +176,21 @@ class LetterDraft(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     tracking_number = Column(String) # Ensure this exists in your DB or add it manually if missing
 
+class Recipient(Base):
+    """Additional family members who receive a printed copy of each story.
+    The heir's own address is implicit; up to 4 more may be added (5 letters
+    total per story — included in the engagement, no extra fee)."""
+    __tablename__ = 'recipients'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_email = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    street = Column(String)
+    city = Column(String)
+    state = Column(String)
+    zip_code = Column(String)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class AuditEvent(Base):
     __tablename__ = 'audit_events'
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -543,6 +558,55 @@ def add_advisor_credit(email, amount=1):
                 return True
     except: return False
     return False
+
+# ==========================================
+# 🆕 RECIPIENT ADDRESS BOOK (multi-letter mailing)
+# ==========================================
+
+MAX_EXTRA_RECIPIENTS = 4  # heir's own address + 4 = 5 letters per story
+
+
+def get_recipients(user_email):
+    try:
+        with get_db_session() as session:
+            rows = (session.query(Recipient)
+                    .filter_by(user_email=user_email.strip().lower())
+                    .order_by(Recipient.created_at).limit(MAX_EXTRA_RECIPIENTS).all())
+            return [to_dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def add_recipient(user_email, name, street, city, state, zip_code):
+    user_email = user_email.strip().lower()
+    try:
+        with get_db_session() as session:
+            count = session.query(Recipient).filter_by(user_email=user_email).count()
+            if count >= MAX_EXTRA_RECIPIENTS:
+                return False, f"Limit reached ({MAX_EXTRA_RECIPIENTS} additional recipients)."
+            session.add(Recipient(user_email=user_email, name=name.strip(),
+                                  street=street.strip(), city=city.strip(),
+                                  state=state.strip(), zip_code=zip_code.strip()))
+            return True, "Added"
+    except Exception as e:
+        logger.error(f"Add recipient failed: {e}")
+        return False, "Database error"
+
+
+def delete_recipient(recipient_id, user_email):
+    """Ownership enforced: users may only delete their own recipients."""
+    try:
+        with get_db_session() as session:
+            r = (session.query(Recipient)
+                 .filter_by(id=int(recipient_id), user_email=user_email.strip().lower())
+                 .first())
+            if not r:
+                return False
+            session.delete(r)
+            return True
+    except Exception:
+        return False
+
 
 # ==========================================
 # 🆕 PUBLIC PLAYER ACCESS (FIX FOR QR CODE)

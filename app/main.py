@@ -107,6 +107,7 @@ def splash(request: Request):
 # catch-all below so their routes take precedence.
 # ============================================================
 
+from app.admin import router as admin_router        # noqa: E402
 from app.advisor import router as advisor_router    # noqa: E402
 from app.auth import router as auth_router          # noqa: E402
 from app.heirloom import router as heirloom_router  # noqa: E402
@@ -115,6 +116,7 @@ from app.player import router as player_router      # noqa: E402
 from app.webhooks import router as webhooks_router  # noqa: E402
 
 app.include_router(auth_router)      # /login /signup /forgot /reset /auth/* /logout
+app.include_router(admin_router)     # /admin console (Phase 4)
 app.include_router(advisor_router)   # /advisor dashboard + actions + checkout
 app.include_router(heirloom_router)  # /heirloom dashboard + /archive/{pid}
 app.include_router(pages_router)     # /legal /blog /blog/{slug}
@@ -133,8 +135,8 @@ def stub_pages(request: Request, page: str):
     """Placeholder for pages arriving in Phases 2-4 (login, advisor, heirloom,
     admin, legal, archive...). Returns a friendly 'coming soon' rather than 404
     so navigation links in templates stay real from day one."""
-    # Only admin (Phase 4) and help remain as stubs; everything else is real.
-    known = {"admin", "help"}
+    # Only help remains a stub; every other page is real.
+    known = {"help"}
     if page not in known:
         return templates.TemplateResponse(
             request, "coming_soon.html",

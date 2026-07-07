@@ -273,6 +273,40 @@ def test_mail_letter_blocked_without_credits():
 
 
 # ============================================================
+# Family recipients (multi-letter mailing, no extra fee)
+# ============================================================
+
+def test_mail_letter_includes_all_recipients_in_print_alert():
+    recips = [{"name": "Bro", "street": "2 Oak", "city": "Austin",
+               "state": "TX", "zip_code": "78701"}]
+    c = _login(HEIR_PROFILE)
+    with patch("app.heirloom.database.get_user_profile", return_value=dict(HEIR_PROFILE)), \
+         patch("app.heirloom.database.get_user_drafts", return_value=[{"id": 42}]), \
+         patch("app.heirloom.database.get_recipients", return_value=recips), \
+         patch("app.heirloom.database.update_draft"), \
+         patch("app.heirloom.database.update_user_credits"), \
+         patch("app.heirloom.database.update_project_details"), \
+         patch("app.heirloom.audit_engine.log_event"), \
+         patch("app.heirloom.email_engine.send_admin_print_ready_alert",
+               return_value=True) as mock_alert:
+        c.post("/heirloom/draft/42/mail", data={"content": "story"},
+               follow_redirects=False)
+    ml = mock_alert.call_args.kwargs["mailing_list"]
+    assert len(ml) == 2                      # heir's own + 1 recipient
+    assert ml[0]["street"] == "1 Main St"    # heir first
+    assert ml[1]["name"] == "Bro"
+
+
+def test_add_recipient_route_requires_login():
+    r = client.post("/heirloom/recipients/add",
+                    data={"name": "X", "street": "1", "city": "N",
+                          "state": "TN", "zip_code": "37201"},
+                    follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/login"
+
+
+# ============================================================
 # Ownership enforcement (IDOR protection)
 # ============================================================
 

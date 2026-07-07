@@ -1,0 +1,303 @@
+"""
+Admin Console — Phase 4 port of ui_admin.py.
+
+GET  /admin                          dashboard: health, print queue, ghosts, credits, marketing
+GET  /admin/letter/{kind}/{id}.pdf   print-ready letter PDF
+GET  /admin/envelope/{kind}/{id}.pdf #10 window envelope PDF
+POST /admin/queue/{kind}/{id}/sent   close an order
+POST /admin/credits                  manual credit grant ("Central Bank")
+POST /admin/marketing/letter.pdf     ad-hoc marketing letter PDF
+POST /admin/marketing/envelope.pdf   ad-hoc marketing envelope PDF
+GET  /admin/orphan-audio             authenticated Twilio audio proxy for ghost scans
+
+Access: session role == "admin" (granted at login when email == ADMIN_EMAIL).
+"""
+
+import logging
+import os
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from fastapi import APIRouter, Form, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from sqlalchemy import text
+
+import ai_engine
+import audit_engine
+import database
+import envelope_format
+import letter_format
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/admin")
+
+
+def _require_admin(request: Request):
+    return request.session.get("role") == "admin"
+
+
+def _deny():
+    return RedirectResponse("/login", status_code=302)
+
+
+# ---------- data helpers (ported from ui_admin) ----------
+
+QUEUE_SQL = text("""
+    SELECT p.id, p.advisor_email, p.content, p.status, p.heir_name, p.created_at,
+           p.strategic_prompt, c.name AS parent_name, c.email AS heir_email,
+           COALESCE(aup.advisor_firm, a.firm_name, 'VerbaPost') AS firm_name,
+           up.address_line1, up.address_city, up.address_state, up.address_zip,
+           up.full_name AS heir_full_name
+    FROM projects p
+    JOIN clients c ON p.client_id = c.id
+    LEFT JOIN advisors a ON p.advisor_email = a.email
+    LEFT JOIN user_profiles aup ON p.advisor_email = aup.email
+    LEFT JOIN user_profiles up ON c.email = up.email
+    WHERE p.status = 'Approved'
+    ORDER BY p.created_at DESC
+""")
+
+
+def load_queue():
+    items = []
+    try:
+        with database.get_db_session() as session:
+            store = session.execute(text(
+                "SELECT id, user_email, content, status FROM letter_drafts "
+                "WHERE status IN ('Pending Approval', 'Approved')")).fetchall()
+            for r in store:
+                items.append({"kind": "store", "id": r.id, "who": r.user_email,
+                              "content": r.content or "", "meta": {}})
+            for r in session.execute(QUEUE_SQL).fetchall():
+                heir_email = (r.heir_email or "").strip().lower()
+                items.append({
+                    "kind": "heirloom", "id": r.id,
+                    "who": f"{r.heir_name or r.heir_full_name or 'Family'} (via {r.advisor_email})",
+                    "content": r.content or "",
+                    "meta": {
+                        "firm_name": r.firm_name, "storyteller": r.parent_name,
+                        "heir_name": r.heir_name or r.heir_full_name,
+                        "heir_email": heir_email, "prompt": r.strategic_prompt,
+                        "date": r.created_at.strftime("%B %d, %Y") if r.created_at else "Undated",
+                        "address": {"line1": r.address_line1, "city": r.address_city,
+                                    "state": r.address_state, "zip": r.address_zip},
+                        # extra copies: the family's saved recipients (≤4)
+                        "recipients": database.get_recipients(heir_email) if heir_email else [],
+                    }})
+    except Exception as e:
+        logger.error(f"Queue load error: {e}")
+    return items
+
+
+def _queue_item(kind: str, item_id: int):
+    for it in load_queue():
+        if it["kind"] == kind and str(it["id"]) == str(item_id):
+            return it
+    return None
+
+
+def health_report():
+    checks = []
+    try:
+        with database.get_db_session() as s:
+            s.execute(text("SELECT 1"))
+        checks.append(("ok", "Database (Supabase)", "Connected"))
+    except Exception as e:
+        checks.append(("fail", "Database", str(e)[:80]))
+    for label, env in [("OpenAI", "OPENAI_API_KEY"), ("Twilio", "TWILIO_ACCOUNT_SID"),
+                       ("Stripe", "STRIPE_SECRET_KEY"), ("Stripe webhook", "STRIPE_WEBHOOK_SECRET"),
+                       ("Resend", "RESEND_API_KEY"), ("Email sender", "EMAIL_SENDER")]:
+        checks.append(("ok", label, "Configured") if os.environ.get(env)
+                      else ("warn", label, f"{env} missing"))
+    return checks
+
+
+def orphaned_calls():
+    """Twilio recordings with no matching draft/project — nothing gets lost."""
+    calls = ai_engine.get_all_twilio_recordings(limit=50)
+    if not calls:
+        return []
+    known = set()
+    try:
+        with database.get_db_session() as session:
+            for tbl in ("letter_drafts", "projects"):
+                for row in session.execute(text(
+                        f"SELECT call_sid FROM {tbl} WHERE call_sid IS NOT NULL")).fetchall():
+                    known.add(row[0])
+    except Exception as e:
+        logger.error(f"Orphan scan DB error: {e}")
+        return []
+    return [c for c in calls if c["sid"] not in known]
+
+
+# ---------- routes ----------
+
+@router.get("", response_class=HTMLResponse)
+def dashboard(request: Request):
+    if not _require_admin(request):
+        return _deny()
+    from app.main import templates
+    ghosts = orphaned_calls() if request.query_params.get("scan") else None
+    return templates.TemplateResponse(request, "admin.html", {
+        "health": health_report(),
+        "queue": load_queue(),
+        "ghosts": ghosts,
+        "notice": request.query_params.get("notice"),
+    })
+
+
+@router.get("/letter/{kind}/{item_id}.pdf")
+def letter_pdf(request: Request, kind: str, item_id: int):
+    if not _require_admin(request):
+        return _deny()
+    item = _queue_item(kind, item_id)
+    if not item:
+        return Response(status_code=404)
+    meta = item["meta"]
+    pdf = letter_format.create_pdf(
+        body_text=item["content"], to_addr={},
+        from_addr={"name": meta.get("storyteller", "The Family")},
+        advisor_firm=meta.get("firm_name", "VerbaPost"),
+        audio_url=str(item["id"]) if kind == "heirloom" else None,
+        is_marketing=False, question_text=meta.get("prompt"))
+    return Response(content=bytes(pdf), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="letter_{item_id}.pdf"'})
+
+
+@router.get("/envelope/{kind}/{item_id}.pdf")
+def envelope_pdf(request: Request, kind: str, item_id: int, recipient: int = -1):
+    """recipient=-1 -> the heir; 0..n -> index into the extra recipients."""
+    if not _require_admin(request):
+        return _deny()
+    item = _queue_item(kind, item_id)
+    if not item:
+        return Response(status_code=404)
+    meta = item["meta"]
+    if kind == "heirloom":
+        adv = database.get_user_profile(item["who"].split("via ")[-1].rstrip(")"))
+        from_obj = {"name": meta.get("firm_name") or "VerbaPost",
+                    "address_line1": (adv or {}).get("address_line1", ""),
+                    "city": (adv or {}).get("address_city", ""),
+                    "state": (adv or {}).get("address_state", ""),
+                    "zip_code": (adv or {}).get("address_zip", "")}
+        if recipient >= 0 and recipient < len(meta.get("recipients", [])):
+            r = meta["recipients"][recipient]
+            to_obj = {"name": r.get("name"), "address_line1": r.get("street", ""),
+                      "city": r.get("city", ""), "state": r.get("state", ""),
+                      "zip_code": r.get("zip_code", "")}
+        else:
+            a = meta.get("address", {})
+            to_obj = {"name": meta.get("heir_name"), "address_line1": a.get("line1") or "",
+                      "city": a.get("city") or "", "state": a.get("state") or "",
+                      "zip_code": a.get("zip") or ""}
+    else:
+        from_obj = {"name": "VerbaPost Fulfillment", "address_line1": "",
+                    "city": "Nashville", "state": "TN", "zip_code": "37203"}
+        prof = database.get_user_profile(item["who"])
+        to_obj = {"name": (prof or {}).get("full_name") or item["who"],
+                  "address_line1": (prof or {}).get("address_line1", ""),
+                  "city": (prof or {}).get("address_city", ""),
+                  "state": (prof or {}).get("address_state", ""),
+                  "zip_code": (prof or {}).get("address_zip", "")}
+    env = envelope_format.create_envelope(to_obj, from_obj)
+    if not env:
+        return Response(status_code=500)
+    return Response(content=bytes(env), media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="envelope_{item_id}_{recipient}.pdf"'})
+
+
+@router.post("/queue/{kind}/{item_id}/sent")
+def mark_sent(request: Request, kind: str, item_id: int):
+    if not _require_admin(request):
+        return _deny()
+    table = "projects" if kind == "heirloom" else "letter_drafts"
+    try:
+        with database.get_db_session() as session:
+            session.execute(text(f"UPDATE {table} SET status = 'Sent' WHERE id = :id"),  # noqa: S608 — table from fixed map
+                            {"id": item_id})
+        audit_engine.log_event(request.session.get("email", "admin"), "Order Marked Sent",
+                               metadata={"kind": kind, "id": item_id})
+    except Exception as e:
+        logger.error(f"Mark sent failed: {e}")
+    return RedirectResponse("/admin?notice=Order+closed", status_code=303)
+
+
+@router.post("/credits")
+def grant_credits(request: Request, email: str = Form(...), amount: int = Form(...)):
+    if not _require_admin(request):
+        return _deny()
+    email = email.strip().lower()
+    granted = False
+    try:
+        with database.get_db_session() as session:
+            for tbl in ("user_profiles", "advisors"):
+                row = session.execute(text(f"SELECT credits FROM {tbl} WHERE email = :e"),
+                                      {"e": email}).fetchone()
+                if row is not None:
+                    session.execute(text(f"UPDATE {tbl} SET credits = :v WHERE email = :e"),
+                                    {"v": (row[0] or 0) + amount, "e": email})
+                    granted = True
+    except Exception as e:
+        logger.error(f"Credit grant failed: {e}")
+    if granted:
+        audit_engine.log_event(request.session.get("email", "admin"), "Manual Credit Grant",
+                               metadata={"target": email, "amount": amount})
+        return RedirectResponse(f"/admin?notice=Granted+{amount}+to+{email}", status_code=303)
+    return RedirectResponse("/admin?notice=User+not+found", status_code=303)
+
+
+@router.post("/marketing/letter.pdf")
+def marketing_letter(request: Request, name: str = Form(""), address: str = Form(""),
+                     return_address: str = Form(""), body: str = Form("")):
+    if not _require_admin(request):
+        return _deny()
+    pdf = letter_format.create_pdf(
+        body_text=body, to_addr=_parse_addr(f"{name}\n{address}"),
+        from_addr=_parse_addr(return_address),
+        advisor_firm="VerbaPost Marketing", is_marketing=True)
+    return Response(content=bytes(pdf), media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="marketing_letter.pdf"'})
+
+
+@router.post("/marketing/envelope.pdf")
+def marketing_envelope(request: Request, name: str = Form(""), address: str = Form(""),
+                       return_address: str = Form("")):
+    if not _require_admin(request):
+        return _deny()
+    env = envelope_format.create_envelope(
+        _parse_addr(f"{name}\n{address}"), _parse_addr(return_address))
+    return Response(content=bytes(env or b""), media_type="application/pdf",
+                    headers={"Content-Disposition": 'attachment; filename="marketing_envelope.pdf"'})
+
+
+@router.get("/orphan-audio")
+def orphan_audio(request: Request, uri: str = ""):
+    if not _require_admin(request):
+        return _deny()
+    if not uri.startswith("/"):
+        return Response(status_code=400)
+    audio = ai_engine.fetch_recording_audio(uri)
+    if not audio:
+        return Response(status_code=502)
+    return Response(content=audio, media_type="audio/mpeg")
+
+
+def _parse_addr(raw: str):
+    """Text block -> envelope dict (ported from ui_admin.parse_address_text)."""
+    parts = [p.strip() for p in (raw or "").split("\n") if p.strip()]
+    data = {"name": "", "address_line1": "", "city": "", "state": "", "zip_code": ""}
+    if parts:
+        data["name"] = parts[0]
+    if len(parts) >= 2:
+        data["address_line1"] = parts[1]
+    if len(parts) >= 3 and "," in parts[2]:
+        city, rest = parts[2].split(",", 1)
+        data["city"] = city.strip()
+        bits = rest.strip().rsplit(" ", 1)
+        data["state"] = bits[0] if bits else rest.strip()
+        data["zip_code"] = bits[1] if len(bits) > 1 else ""
+    elif len(parts) >= 3:
+        data["city"] = parts[2]
+    return data

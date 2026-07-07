@@ -48,6 +48,8 @@ MESSAGES = {
     "denied": ("error", "That story does not belong to this account."),
     "details_saved": ("notice", "Interview details saved. You can now send the prep email and start the call."),
     "no_details": ("error", "Save the interview details (phone and question) first."),
+    "recipient_added": ("notice", "Recipient added — they'll receive their own copy of each mailed story."),
+    "recipient_fail": ("error", "Could not add that recipient. Check the fields, or you may have reached the limit of 4."),
 }
 
 
@@ -120,9 +122,13 @@ def dashboard(request: Request):
     iv_question = request.session.get("iv_question") or ""
     details_saved = bool(iv_phone and iv_question)
 
+    recipients = database.get_recipients(email) if is_sponsored else []
+
     return templates.TemplateResponse(request, "heirloom.html", {
         "iv_phone": iv_phone, "iv_email": iv_email, "iv_question": iv_question,
         "details_saved": details_saved,
+        "recipients": recipients,
+        "max_recipients": database.MAX_EXTRA_RECIPIENTS,
         "profile": profile,
         "is_sponsored": is_sponsored,
         "advisor_firm": profile.get("advisor_firm") or "VerbaPost",
@@ -239,6 +245,27 @@ def save_address(request: Request, street: str = Form(...), city: str = Form(...
     return RedirectResponse("/heirloom?m=addr_saved", status_code=303)
 
 
+@router.post("/heirloom/recipients/add")
+def add_recipient(request: Request, name: str = Form(...), street: str = Form(...),
+                  city: str = Form(...), state: str = Form(...),
+                  zip_code: str = Form(...)):
+    email = request.session.get("email")
+    if not email:
+        return RedirectResponse("/login", status_code=302)
+    ok, msg = database.add_recipient(email, name, street, city, state, zip_code)
+    return RedirectResponse("/heirloom?m=" + ("recipient_added" if ok else "recipient_fail"),
+                            status_code=303)
+
+
+@router.post("/heirloom/recipients/{rid}/delete")
+def remove_recipient(request: Request, rid: int):
+    email = request.session.get("email")
+    if not email:
+        return RedirectResponse("/login", status_code=302)
+    database.delete_recipient(rid, email)  # ownership enforced in the query
+    return RedirectResponse("/heirloom", status_code=303)
+
+
 @router.post("/heirloom/draft/{draft_id}/save")
 def save_draft(request: Request, draft_id: int, content: str = Form(...)):
     email = request.session.get("email")
@@ -279,9 +306,17 @@ def queue_letter(request: Request, draft_id: int, content: str = Form("")):
             database.update_draft(draft_id, content)
         database.update_user_credits(email, credits - CREDIT_COST)
         database.update_project_details(draft_id, status="Approved")
-        audit_engine.log_event(email, "Manual Print Queued", metadata={"draft_id": draft_id})
+        # Build the full mailing list: heir's own address + saved recipients
+        mailing_list = [{
+            "name": profile.get("full_name") or email,
+            "street": profile.get("address_line1"), "city": profile.get("address_city"),
+            "state": profile.get("address_state"), "zip_code": profile.get("address_zip"),
+        }] + database.get_recipients(email)
+        audit_engine.log_event(email, "Manual Print Queued",
+                               metadata={"draft_id": draft_id, "letters": len(mailing_list)})
         email_engine.send_admin_print_ready_alert(
-            user_email=email, draft_id=draft_id, content_preview=content[:500])
+            user_email=email, draft_id=draft_id, content_preview=content[:500],
+            mailing_list=mailing_list)
         return RedirectResponse("/heirloom?m=queued", status_code=303)
     except Exception as e:
         logger.error(f"Queue failed for draft {draft_id}: {e}")

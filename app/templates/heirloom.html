@@ -147,10 +147,56 @@
         <p class="meta" style="margin-top:10px;">
             Mailing to: {{ profile.get('address_line1') }}, {{ profile.get('address_city') }},
             {{ profile.get('address_state') }} {{ profile.get('address_zip') }}
+            {% if recipients %} — plus {{ recipients|length }} additional recipient{{ 's' if recipients|length != 1 }}{% endif %}
         </p>
         {% endif %}
     </div>
     {% endfor %}
+
+    {% if has_address %}
+    <div class="card" style="margin-top:32px;">
+        <h2>Family Recipients</h2>
+        <p class="steps">Each recipient below receives their own printed copy of every story
+        you mail — on the same linen paper, with the same recording code.
+        <strong>Included with your archive, no extra fee</strong> (up to {{ max_recipients }} in
+        addition to yourself).</p>
+
+        {% if recipients %}
+        <ul style="list-style:none; padding:0; margin:12px 0;">
+            {% for r in recipients %}
+            <li style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding:10px 0;">
+                <span><strong>{{ r.get('name') }}</strong>
+                    <span class="steps"> — {{ r.get('street') }}, {{ r.get('city') }}, {{ r.get('state') }} {{ r.get('zip_code') }}</span></span>
+                <form method="post" action="/heirloom/recipients/{{ r.get('id') }}/delete" style="margin:0;">
+                    <button class="btn btn-outline btn-sm" type="submit"
+                        onclick="return confirm('Remove {{ r.get('name') }} from the mailing list?');">Remove</button>
+                </form>
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if recipients|length < max_recipients %}
+        <details style="margin-top:8px;">
+            <summary class="btn btn-outline" style="display:inline-block; cursor:pointer;">+ Add a recipient</summary>
+            <form method="post" action="/heirloom/recipients/add" style="margin-top:16px;">
+                <label class="f">Name</label>
+                <input class="f" name="name" placeholder="Sarah Jones" required>
+                <label class="f">Street address</label>
+                <input class="f" name="street" required>
+                <div class="row2" style="grid-template-columns:2fr 1fr 1fr;">
+                    <div><label class="f">City</label><input class="f" name="city" required></div>
+                    <div><label class="f">State</label><input class="f" name="state" required></div>
+                    <div><label class="f">Zip</label><input class="f" name="zip_code" required></div>
+                </div>
+                <button class="btn btn-primary btn-sm" type="submit" style="margin-top:12px;">Save Recipient</button>
+            </form>
+        </details>
+        {% else %}
+        <p class="steps">Recipient limit reached ({{ max_recipients }} additional).</p>
+        {% endif %}
+    </div>
+    {% endif %}
     {% endif %}
 
     <p style="margin-top:40px;"><a href="/logout" style="color:var(--slate); font-size:0.9rem;">Log out</a></p>
