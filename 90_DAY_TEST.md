@@ -16,15 +16,17 @@ Every letter puts the advisor's name, on linen paper with a real stamp, into the
 
 **Pilot lever (optional):** Up to 3 free pilot engagements total across all prospects — one favorite client each, full service, in exchange for a debrief call and, if the family reacts well, a testimonial and conversion to paid.
 
-## The Segment
+## The Segment (updated Jul 7 — founder's call: CFPs are the customer)
 
-**YES:** Independent estate planning attorneys (first priority — local, own their client experience, no compliance wall, episodic relationships they need to stay memorable in). Independent CFPs / solo RIAs (second priority — own their marketing budget).
+**PRIMARY:** Independent CFP® professionals — solo and small fee-only/RIA practices (Nashville metro: Brentwood, Franklin, Green Hills). They own their marketing budget, live on long-term client relationships, and feel heir-attrition risk directly in AUM. The website, pitch, and demo all speak their language.
+
+**SECONDARY:** Estate planning attorneys — approach as referral partners and EPCMT warm doors rather than primary buyers.
 
 **NO:** Captive/branded advisors (Edward Jones, Merrill, etc.) — compliance-blocked, no discretion. Already tested; do not spend more cycles here.
 
 ## The Protocol
 
-1. **List:** 30 named targets (20 attorneys, 10 independent CFPs/RIAs), Nashville metro.
+1. **List:** 30 named targets (25 independent CFPs/RIAs, 5 estate attorneys as referral doors), Nashville metro. Seed names in TARGET_LIST_DRAFT.md; fill the rest from napfa.org and feeonlynetwork.com directories.
 2. **The artifact IS the pitch:** each target receives a real VerbaPost letter — linen, typewriter font, real stamp, addressed to them personally, QR to a sample story.
 3. **The follow-up call — mandatory.** 3–5 business days after the letter lands. No exceptions. (The 25-letter campaign failed the last time only because this step was skipped; letters without calls are half a test.)
 4. **The ask:** a 20-minute meeting → pilot or paid engagement. Track every response verbatim, especially objections.
@@ -42,7 +44,7 @@ If the window closes without this effort, the market has NOT spoken — the conc
 ## What Counts as a "Paying Customer"
 
 ALL of the following:
-1. An in-segment professional (not a friend, relative, or pity purchase)
+1. An in-segment professional — an independent CFP/RIA (or attorney) — not a friend, relative, or pity purchase
 2. Paid ≥ $99 of their own or their firm's money
 3. For a real client engagement that was actually delivered (interview done, letters mailed to heirs)
 
