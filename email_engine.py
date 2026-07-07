@@ -1,4 +1,15 @@
-import streamlit as st
+# Optional Streamlit: the FastAPI backend runs without it.
+try:
+    import streamlit as st
+except ImportError:
+    class _StreamlitStub:
+        secrets = {}
+        def __getattr__(self, _name):
+            def _noop(*args, **kwargs):
+                return None
+            return _noop
+    st = _StreamlitStub()
+
 import logging
 import os
 import requests

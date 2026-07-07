@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block title %}The Family Legacy Project | VerbaPost{% endblock %}
+
+{% block extra_css %}
+        .msg-error { background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:12px 16px; border-radius:8px; margin:16px 0; font-size:0.92rem; }
+        .msg-notice { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:12px 16px; border-radius:8px; margin:16px 0; font-size:0.92rem; }
+        label.f { display:block; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin:14px 0 4px; }
+        input.f, textarea.f { width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; font-size:1rem; box-sizing:border-box; font-family:inherit; }
+        .steps { color:var(--slate); font-size:0.92rem; }
+        .story { border:1px solid var(--line); border-radius:12px; background:#fff; padding:20px 24px; margin:16px 0; }
+        .story .meta { color:var(--slate); font-size:0.85rem; }
+        .expiry-warn { color:#b45309; font-size:0.82rem; font-family:Helvetica,Arial,sans-serif; font-weight:600; }
+        .expiry-dead { color:#b91c1c; font-size:0.82rem; font-family:Helvetica,Arial,sans-serif; font-weight:600; }
+        .row2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+        @media (max-width:680px){ .row2 { grid-template-columns:1fr; } }
+        .btn-sm { padding:8px 16px; font-size:0.88rem; }
+{% endblock %}
+
+{% block content %}
+    <h1>The Family Legacy Project</h1>
+    <p style="color:var(--slate);">Sponsored by <strong>{{ advisor_firm }}</strong>
+       · Letter credits: <strong>{{ credits }}</strong></p>
+
+    {% if msg_kind == "error" %}<div class="msg-error">{{ msg_text }}</div>{% endif %}
+    {% if msg_kind == "notice" %}<div class="msg-notice">{{ msg_text }}</div>{% endif %}
+
+    {% if not is_sponsored %}
+    <div class="card" style="max-width:520px; margin:40px auto; text-align:center;">
+        <h3>Account Verification Pending</h3>
+        <p style="color:var(--slate);">Your account is in guest mode. Please contact your
+        advisor to activate your Family Archive.</p>
+        <a class="btn btn-outline" href="/heirloom">Refresh Status</a>
+    </div>
+    {% else %}
+
+    <div class="card" style="margin-top:24px;">
+        <h2>Start a New Interview</h2>
+        <p class="steps">
+            1. Enter the storyteller's phone and email, and choose the question. &nbsp;
+            2. Send the preparation email. &nbsp; 3. Start the call — we do the interview. &nbsp;
+            4. Edit the transcript below when it arrives. &nbsp; 5. Mail the letter.
+        </p>
+
+        <form method="post" action="/heirloom/call" id="call-form">
+            <div class="row2">
+                <div>
+                    <label class="f">Storyteller's phone number</label>
+                    <input class="f" name="target_phone" value="{{ profile.get('parent_phone') or '' }}" placeholder="(615) 555-0100" required>
+                </div>
+                <div>
+                    <label class="f">Interview question</label>
+                    <textarea class="f" name="question" rows="2">Please share a favorite memory from your childhood.</textarea>
+                </div>
+            </div>
+            <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn btn-primary" type="submit">Start Interview Call</button>
+            </div>
+        </form>
+
+        <form method="post" action="/heirloom/prep-email" style="margin-top:14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+            <div style="flex:1; min-width:220px;">
+                <label class="f">Storyteller's email (for the heads-up note)</label>
+                <input class="f" name="target_email" type="email" placeholder="grandma@example.com">
+            </div>
+            <input type="hidden" name="question" value="">
+            <button class="btn btn-outline btn-sm" type="submit" style="margin-bottom:2px;">Send Prep Email</button>
+        </form>
+    </div>
+
+    <h2 style="margin-top:40px;">Story Archive</h2>
+    <p class="steps">Recordings appear here automatically a minute or two after the call ends.</p>
+
+    {% if not drafts %}
+        <p style="color:var(--slate);">No stories recorded yet — start an interview above.</p>
+    {% endif %}
+
+    {% for d in drafts %}
+    <div class="story">
+        <div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+            <span class="meta">Recorded: {{ d.get('created_at') or 'Unknown date' }}</span>
+            {% if d.days_left > 0 %}
+                <span class="expiry-warn">Audio expires in {{ d.days_left }} days — download a copy</span>
+            {% else %}
+                <span class="expiry-dead">Archived (audio offline)</span>
+            {% endif %}
+        </div>
+
+        {% if d.audio_src %}
+            <audio controls preload="none" style="width:100%; margin-top:12px;" src="{{ d.audio_src }}"></audio>
+            <a href="{{ d.audio_src }}" download style="font-size:0.85rem;">Download audio (.mp3)</a>
+        {% elif d.get('status') == 'Pending' %}
+            <p class="meta" style="margin-top:10px;">Waiting for the recording — this page updates once the call finishes.</p>
+        {% endif %}
+
+        <form method="post" action="/heirloom/draft/{{ d.get('id') }}/save" id="edit-{{ d.get('id') }}">
+            <label class="f">Transcript</label>
+            <textarea class="f" name="content" rows="8">{{ d.get('content') or '' }}</textarea>
+            <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm" type="submit">Save Changes</button>
+                <button class="btn btn-outline btn-sm" type="submit"
+                        formaction="/heirloom/draft/{{ d.get('id') }}/polish">AI Polish</button>
+                {% if has_address %}
+                <button class="btn btn-primary btn-sm" type="submit"
+                        formaction="/heirloom/draft/{{ d.get('id') }}/mail"
+                        {% if credits < 1 %}disabled title="No letter credits remaining"{% endif %}
+                        onclick="return confirm('Queue this letter for printing on linen stock? This uses 1 credit.');">
+                    Mail Letter (1 credit)
+                </button>
+                {% endif %}
+            </div>
+        </form>
+
+        {% if not has_address %}
+        <div style="border-top:1px solid var(--line); margin-top:16px; padding-top:12px;">
+            <p style="color:#b91c1c; font-family:Helvetica,Arial,sans-serif; font-size:0.88rem; font-weight:600;">
+                Shipping address required before mailing</p>
+            <form method="post" action="/heirloom/address">
+                <label class="f">Street address</label>
+                <input class="f" name="street" required>
+                <div class="row2" style="grid-template-columns:2fr 1fr 1fr;">
+                    <div><label class="f">City</label><input class="f" name="city" required></div>
+                    <div><label class="f">State</label><input class="f" name="state" required></div>
+                    <div><label class="f">Zip</label><input class="f" name="zip_code" required></div>
+                </div>
+                <button class="btn btn-outline btn-sm" type="submit" style="margin-top:12px;">Save Address</button>
+            </form>
+        </div>
+        {% else %}
+        <p class="meta" style="margin-top:10px;">
+            Mailing to: {{ profile.get('address_line1') }}, {{ profile.get('address_city') }},
+            {{ profile.get('address_state') }} {{ profile.get('address_zip') }}
+        </p>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    <p style="margin-top:40px;"><a href="/logout" style="color:var(--slate); font-size:0.9rem;">Log out</a></p>
+{% endblock %}

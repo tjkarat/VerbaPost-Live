@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+
+{% block title %}Advisor Portal | VerbaPost{% endblock %}
+
+{% block extra_css %}
+        .port-head { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; }
+        .credit-box { text-align: right; }
+        .credit-box .num { font-size: 2.4rem; font-weight: 700; line-height: 1; }
+        .credit-box .lbl { color: var(--slate); font-size: 0.85rem; font-family: Helvetica, Arial, sans-serif; }
+        .msg-error { background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:12px 16px; border-radius:8px; margin:16px 0; font-size:0.92rem; }
+        .msg-notice { background:#f0fdf4; border:1px solid #bbf7d0; color:#166534; padding:12px 16px; border-radius:8px; margin:16px 0; font-size:0.92rem; }
+        .section { margin-top: 36px; }
+        .section h2 { margin-bottom: 6px; }
+        .section .sub { color: var(--slate); font-size: 0.92rem; margin-bottom: 16px; }
+        label.f { display:block; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin:14px 0 4px; }
+        input.f { width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; font-size:1rem; box-sizing:border-box; }
+        table.roster { width:100%; border-collapse: collapse; font-size:0.95rem; }
+        table.roster th { text-align:left; font-family:Helvetica,Arial,sans-serif; font-size:0.8rem;
+            text-transform:uppercase; letter-spacing:0.5px; color:var(--slate); padding:10px 8px; border-bottom:2px solid var(--line); }
+        table.roster td { padding:12px 8px; border-bottom:1px solid var(--line); }
+        .btn-sm { padding:7px 14px; font-size:0.85rem; }
+        .locker-item { border:1px solid var(--line); border-radius:10px; padding:16px 20px; margin-bottom:12px; background:#fff; }
+        .locker-item .meta { color:var(--slate); font-size:0.85rem; }
+        .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:0.75rem;
+            font-family:Helvetica,Arial,sans-serif; font-weight:700; }
+        .pill-open { background:#dcfce7; color:#166534; }
+        .pill-locked { background:#f1f5f9; color:#475569; }
+{% endblock %}
+
+{% block content %}
+    <div class="port-head">
+        <div>
+            <h1>Advisor Portal</h1>
+            {% if firm_name %}
+                <p style="color:var(--slate);">Operating as <strong>{{ firm_name }}</strong></p>
+            {% else %}
+                <p class="msg-error" style="margin:8px 0;">Firm name not set — complete Step 1 below.</p>
+            {% endif %}
+        </div>
+        <div class="credit-box">
+            <div class="num">{{ credits }}</div>
+            <div class="lbl">Available Credits</div>
+            <a class="btn btn-primary btn-sm" href="/advisor/checkout" style="margin-top:8px;">Purchase Credit ($99)</a>
+            <div class="lbl" style="margin-top:6px;">1 credit = 1 client gift</div>
+        </div>
+    </div>
+
+    {% if error %}<div class="msg-error">{{ error }}</div>{% endif %}
+    {% if notice %}<div class="msg-notice">{{ notice }}</div>{% endif %}
+
+    <div class="section card">
+        <h2>Step 1 — Firm Branding</h2>
+        <p class="sub">This name appears on the letters and in the welcome email your client receives.
+        Make it recognizable (e.g., "Smith Wealth Management").</p>
+        <form method="post" action="/advisor/firm" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+            <div style="flex:1; min-width:240px;">
+                <label class="f" for="firm">Firm name</label>
+                <input class="f" id="firm" name="firm_name" value="{{ firm_name }}" placeholder="Smith Wealth Management">
+            </div>
+            <button class="btn btn-outline btn-sm" type="submit" style="margin-bottom:2px;">Save</button>
+        </form>
+    </div>
+
+    <div class="section card">
+        <h2>Step 2 — Activate a Client</h2>
+        <p class="sub">
+            Sending a gift costs <strong>1 credit</strong>. We email the recipient a welcome
+            invitation from {{ firm_name or "your firm" }}; they log in, enter the storyteller's
+            phone number, and schedule the interview. No physical card is sent at this stage —
+            we recommend a personal note telling them to watch for the email.
+        </p>
+        <form method="post" action="/advisor/activate">
+            <label class="f" for="cn">Recipient name (the heir)</label>
+            <input class="f" id="cn" name="client_name" placeholder="Sarah Jones" required>
+            <label class="f" for="ce">Recipient email</label>
+            <input class="f" id="ce" name="client_email" type="email" placeholder="sarah@example.com" required>
+            <button class="btn btn-primary" type="submit" style="margin-top:16px;"
+                {% if credits < 1 %}disabled title="Purchase a credit first"{% endif %}>
+                Send Gift (uses 1 credit)
+            </button>
+            {% if credits < 1 %}
+                <span style="color:#b91c1c; font-size:0.85rem; margin-left:10px;">Balance is 0 — purchase a credit above first.</span>
+            {% endif %}
+        </form>
+    </div>
+
+    <div class="section">
+        <h2>Client Roster</h2>
+        <p class="sub">Everyone you've sponsored. Use Resend if a client missed their welcome email.</p>
+        {% if clients %}
+        <table class="roster">
+            <tr><th>Name</th><th>Email</th><th></th></tr>
+            {% for c in clients %}
+            <tr>
+                <td>{{ c.get('full_name') or 'Unknown' }}</td>
+                <td>{{ c.get('email') or 'Unknown' }}</td>
+                <td>
+                    <form method="post" action="/advisor/resend" style="margin:0;">
+                        <input type="hidden" name="client_email" value="{{ c.get('email') }}">
+                        <button class="btn btn-outline btn-sm" type="submit">Resend Invite</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+        {% else %}
+        <p style="color:var(--slate);">No sponsored clients yet.</p>
+        {% endif %}
+    </div>
+
+    <div class="section">
+        <h2>Media Locker</h2>
+        <p class="sub">Quality control. New recordings appear here locked; review, then release
+        to make the audio available to the family.</p>
+        {% if projects %}
+            {% for p in projects %}
+            <div class="locker-item">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+                    <div>
+                        <strong>{{ p.get('heir_name') or 'Unknown' }}</strong>
+                        <span class="meta"> · {{ p.get('created_at') or 'undated' }}</span><br>
+                        {% if p.get('audio_released') %}
+                            <span class="pill pill-open">Released to family</span>
+                        {% else %}
+                            <span class="pill pill-locked">Locked</span>
+                        {% endif %}
+                    </div>
+                    <form method="post" action="/advisor/release/{{ p.get('id') }}" style="margin:0;">
+                        {% if p.get('audio_released') %}
+                            <input type="hidden" name="release" value="off">
+                            <button class="btn btn-outline btn-sm" type="submit">Lock Audio</button>
+                        {% else %}
+                            <input type="hidden" name="release" value="on">
+                            <button class="btn btn-primary btn-sm" type="submit">Release Audio</button>
+                        {% endif %}
+                    </form>
+                </div>
+                {% if p.get('content') %}
+                <p class="meta" style="margin-top:10px;">{{ (p.get('content') or '')[:180] }}…</p>
+                {% endif %}
+                {% set audio = p.get('audio_ref') or p.get('tracking_number') %}
+                {% if audio and 'http' in audio|string %}
+                    {% if 'api.twilio.com' in audio|string %}
+                        <audio controls preload="none" style="width:100%; margin-top:8px;" src="/play/{{ p.get('id') }}/audio.mp3"></audio>
+                    {% else %}
+                        <audio controls preload="none" style="width:100%; margin-top:8px;" src="{{ audio }}"></audio>
+                    {% endif %}
+                {% else %}
+                    <p class="meta" style="margin-top:8px;">Audio processing…</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        {% else %}
+        <p style="color:var(--slate);">No recordings pending review.</p>
+        {% endif %}
+    </div>
+
+    <p style="margin-top:40px;"><a href="/logout" style="color:var(--slate); font-size:0.9rem;">Log out</a></p>
+{% endblock %}

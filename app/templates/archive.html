@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Your Family Archive | VerbaPost{% endblock %}
+
+{% block content %}
+    <div style="text-align:center; padding-top:30px;">
+        <h1>Your Family Archive</h1>
+        <p style="color:var(--slate); font-size:1.1rem;">Preserved by <strong>{{ firm_name }}</strong></p>
+    </div>
+
+    <div style="max-width:620px; margin:30px auto;">
+        <h3>Welcome, {{ heir_name }}</h3>
+        <p>You have received a physical Legacy Letter from <strong>{{ parent_name }}</strong>.
+        This digital vault contains the original audio recording of those stories.</p>
+
+        <div class="card" style="margin-top:20px;">
+            <h3 style="margin-top:0;">Voice Recording</h3>
+            {% if released and audio_src %}
+                <p style="color:#166534; font-family:Helvetica,Arial,sans-serif; font-size:0.88rem; font-weight:600;">
+                    Unlocked — ready to play</p>
+                <audio controls preload="metadata" style="width:100%;" src="{{ audio_src }}"></audio>
+            {% elif released %}
+                <p style="color:var(--slate);">The audio file is pending upload. Please check back shortly.</p>
+            {% else %}
+                <p style="color:var(--slate);">
+                    This audio archive is currently secured. To protect family privacy, the
+                    recording is held in the <strong>{{ firm_name }}</strong> vault.
+                    Please contact your advisor to request access.</p>
+            {% endif %}
+        </div>
+
+        <p style="text-align:center; color:#94a3b8; font-size:0.8rem; margin-top:40px;">
+            Securely hosted by VerbaPost in partnership with {{ firm_name }}.</p>
+    </div>
+{% endblock %}
