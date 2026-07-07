@@ -221,8 +221,18 @@ def get_user_profile(email):
             if p.get("role") != "advisor":
                 client = session.query(Client).filter_by(email=email).order_by(Client.created_at.desc()).first()
                 if client:
-                    adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
-                    firm = adv.firm_name if adv else "VerbaPost"
+                    # Firm lookup: the advisor's CURRENT profile first (where
+                    # firm branding is actually edited), then the legacy
+                    # advisors table, then whatever the heir profile carries.
+                    firm = None
+                    adv_profile = session.query(UserProfile).filter_by(email=client.advisor_email).first()
+                    if adv_profile and adv_profile.advisor_firm:
+                        firm = adv_profile.advisor_firm
+                    if not firm:
+                        adv = session.query(Advisor).filter_by(email=client.advisor_email).first()
+                        firm = adv.firm_name if adv else None
+                    if not firm:
+                        firm = p.get("advisor_firm") or "VerbaPost"
                     p["role"] = "heir"
                     p["status"] = "Active" 
                     p["advisor_firm"] = firm
@@ -446,7 +456,7 @@ def get_user_drafts(user_email):
         return []
 
 # --- 🚨 CRITICAL FIX: UPDATED LOGIC FOR EXISTING USERS 🚨 ---
-def create_sponsored_user(advisor_email, client_name, client_email, client_phone):
+def create_sponsored_user(advisor_email, client_name, client_email, client_phone, advisor_firm=None):
     if not supabase: return False, "DB Offline"
     try:
         # 1. Check if the User Profile already exists
@@ -458,10 +468,10 @@ def create_sponsored_user(advisor_email, client_name, client_email, client_phone
                 "email": client_email, 
                 "full_name": client_name, 
                 "parent_phone": client_phone,
-                "created_by": advisor_email, 
-                "role": "heirloom", 
+                "created_by": advisor_email,
+                "role": "heirloom",
                 "credits": 0, # Changed to 0 so you don't give away free credits unless intended
-                "advisor_firm": "Robbana and Associates" # Default firm fallback
+                "advisor_firm": advisor_firm or "VerbaPost"  # sponsoring firm's branding
             }
             supabase.table("user_profiles").insert(new_profile).execute()
             

@@ -42,30 +42,47 @@
             4. Edit the transcript below when it arrives. &nbsp; 5. Mail the letter.
         </p>
 
-        <form method="post" action="/heirloom/call" id="call-form">
+        <form method="post" action="/heirloom/interview/save">
             <div class="row2">
                 <div>
                     <label class="f">Storyteller's phone number</label>
-                    <input class="f" name="target_phone" value="{{ profile.get('parent_phone') or '' }}" placeholder="(615) 555-0100" required>
+                    <input class="f" name="target_phone" value="{{ iv_phone }}" placeholder="(615) 555-0100" required>
+                    <label class="f">Storyteller's email (for the heads-up note)</label>
+                    <input class="f" name="target_email" type="email" value="{{ iv_email }}" placeholder="grandma@example.com">
                 </div>
                 <div>
                     <label class="f">Interview question</label>
-                    <textarea class="f" name="question" rows="2">Please share a favorite memory from your childhood.</textarea>
+                    <textarea class="f" name="question" rows="4">{{ iv_question or "Please share a favorite memory from your childhood." }}</textarea>
                 </div>
             </div>
-            <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
-                <button class="btn btn-primary" type="submit">Start Interview Call</button>
+            <div style="margin-top:16px;">
+                <button class="btn btn-outline" type="submit">Save Interview Details</button>
+                {% if details_saved %}
+                <span style="color:#166534; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin-left:10px;">Details saved</span>
+                {% endif %}
             </div>
         </form>
 
-        <form method="post" action="/heirloom/prep-email" style="margin-top:14px; display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
-            <div style="flex:1; min-width:220px;">
-                <label class="f">Storyteller's email (for the heads-up note)</label>
-                <input class="f" name="target_email" type="email" placeholder="grandma@example.com">
-            </div>
-            <input type="hidden" name="question" value="">
-            <button class="btn btn-outline btn-sm" type="submit" style="margin-bottom:2px;">Send Prep Email</button>
-        </form>
+        <div style="border-top:1px solid var(--line); margin-top:20px; padding-top:16px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <form method="post" action="/heirloom/prep-email" style="margin:0;">
+                <button class="btn btn-outline" type="submit"
+                    {% if not (details_saved and iv_email) %}disabled
+                    title="Save the phone, email, and question above first"{% endif %}>
+                    Send Prep Email</button>
+            </form>
+            <form method="post" action="/heirloom/call" style="margin:0;">
+                <button class="btn btn-primary" type="submit"
+                    {% if not details_saved %}disabled
+                    title="Save the interview details above first"{% endif %}
+                    onclick="return confirm('Call the storyteller now?');">
+                    Start Interview Call</button>
+            </form>
+            {% if not details_saved %}
+            <span class="steps">Save the details above to unlock these.</span>
+            {% elif not iv_email %}
+            <span class="steps">Add the storyteller's email above to enable the prep note.</span>
+            {% endif %}
+        </div>
     </div>
 
     <h2 style="margin-top:40px;">Story Archive</h2>

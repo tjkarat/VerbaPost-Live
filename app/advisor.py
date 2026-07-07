@@ -99,7 +99,8 @@ def activate_client(request: Request, client_name: str = Form(...),
 
     ok, msg = database.create_sponsored_user(
         advisor_email=email, client_name=client_name.strip(),
-        client_email=client_email.strip().lower(), client_phone="")
+        client_email=client_email.strip().lower(), client_phone="",
+        advisor_firm=firm)
     if not ok:
         return _render(request, email, profile, error=f"Activation failed: {msg}")
 

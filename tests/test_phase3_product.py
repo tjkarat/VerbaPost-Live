@@ -194,6 +194,45 @@ def test_start_call_creates_pending_draft():
     assert mock_draft.call_args.kwargs["call_sid"] == "CA123"
 
 
+def test_save_details_then_actions_use_saved_values():
+    """Save-first flow (E2E finding Jul 7): prep email and call must use the
+    SAVED question/phone — the prep email once went out with the default
+    question while the user's custom one sat unsent in another form."""
+    c = _login(HEIR_PROFILE)
+    with patch("app.heirloom.database.get_user_profile", return_value=HEIR_PROFILE), \
+         patch("app.heirloom.database.supabase", None):
+        r = c.post("/heirloom/interview/save",
+                   data={"target_phone": "(615) 239-9366",
+                         "target_email": "grandma@x.com",
+                         "question": "Tell me about your mother."},
+                   follow_redirects=False)
+        assert "details_saved" in r.headers["location"]
+
+    # Prep email posts NO fields — must fall back to the saved details
+    with patch("app.heirloom.database.get_user_profile", return_value=HEIR_PROFILE), \
+         patch("app.heirloom.email_engine.send_interview_prep_email",
+               return_value=True) as mock_prep, \
+         patch("app.heirloom.audit_engine.log_event"):
+        r = c.post("/heirloom/prep-email", data={}, follow_redirects=False)
+        assert "prep_sent" in r.headers["location"]
+        args = mock_prep.call_args[0]
+        assert args[0] == "grandma@x.com"
+        assert args[2] == "Tell me about your mother."
+
+    # Call posts NO fields — must use the saved phone and question
+    with patch("app.heirloom.database.get_user_profile", return_value=HEIR_PROFILE), \
+         patch("app.heirloom.ai_engine.trigger_outbound_call",
+               return_value=("CA9", None)) as mock_call, \
+         patch("app.heirloom.database.create_draft", return_value=True) as mock_draft, \
+         patch("app.heirloom.audit_engine.log_event"), \
+         patch("app.heirloom.email_engine.send_advisor_heir_started_alert"):
+        r = c.post("/heirloom/call", data={}, follow_redirects=False)
+        assert "call_started" in r.headers["location"]
+        assert mock_call.call_args.kwargs["to_phone"] == "6152399366"
+        assert mock_call.call_args.kwargs["question_text"] == "Tell me about your mother."
+        assert mock_draft.call_args.kwargs["prompt"] == "Tell me about your mother."
+
+
 def test_start_call_rejects_bad_phone():
     c = _login(HEIR_PROFILE)
     with patch("app.heirloom.database.get_user_profile", return_value=HEIR_PROFILE), \

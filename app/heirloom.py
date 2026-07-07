@@ -46,6 +46,8 @@ MESSAGES = {
     "no_credits": ("error", "No story credits remaining for this archive. Your advisor can commission an additional story for your family."),
     "queue_fail": ("error", "Could not queue the letter. Please try again."),
     "denied": ("error", "That story does not belong to this account."),
+    "details_saved": ("notice", "Interview details saved. You can now send the prep email and start the call."),
+    "no_details": ("error", "Save the interview details (phone and question) first."),
 }
 
 
@@ -112,7 +114,15 @@ def dashboard(request: Request):
     has_address = all(profile.get(k) for k in
                       ("address_line1", "address_city", "address_state", "address_zip"))
 
+    # Saved interview details (session-first, profile fallback for phone)
+    iv_phone = request.session.get("iv_phone") or profile.get("parent_phone") or ""
+    iv_email = request.session.get("iv_email") or ""
+    iv_question = request.session.get("iv_question") or ""
+    details_saved = bool(iv_phone and iv_question)
+
     return templates.TemplateResponse(request, "heirloom.html", {
+        "iv_phone": iv_phone, "iv_email": iv_email, "iv_question": iv_question,
+        "details_saved": details_saved,
         "profile": profile,
         "is_sponsored": is_sponsored,
         "advisor_firm": profile.get("advisor_firm") or "VerbaPost",
@@ -123,17 +133,49 @@ def dashboard(request: Request):
     })
 
 
+@router.post("/heirloom/interview/save")
+def save_interview_details(request: Request, target_phone: str = Form(""),
+                           target_email: str = Form(""), question: str = Form("")):
+    """Save-first flow: details are stored (phone also persisted to the
+    profile), and only then do the prep-email / call buttons unlock."""
+    auth = _profile(request)
+    if not auth:
+        return RedirectResponse("/login", status_code=302)
+    email, _ = auth
+    clean_phone = "".join(filter(str.isdigit, target_phone))
+    if len(clean_phone) < 10:
+        return RedirectResponse("/heirloom?m=bad_phone", status_code=303)
+    if target_email and "@" not in target_email:
+        return RedirectResponse("/heirloom?m=bad_email", status_code=303)
+    request.session["iv_phone"] = clean_phone
+    request.session["iv_email"] = target_email.strip()
+    request.session["iv_question"] = question.strip() or \
+        "Please share a favorite memory from your childhood."
+    try:
+        from database import supabase
+        if supabase:
+            supabase.table("user_profiles").update(
+                {"parent_phone": clean_phone}).eq("email", email).execute()
+    except Exception as e:
+        logger.error(f"Phone persist failed for {email}: {e}")
+    return RedirectResponse("/heirloom?m=details_saved", status_code=303)
+
+
 @router.post("/heirloom/prep-email")
-def prep_email(request: Request, target_email: str = Form(...), question: str = Form("")):
+def prep_email(request: Request, target_email: str = Form(""), question: str = Form("")):
     auth = _profile(request)
     if not auth:
         return RedirectResponse("/login", status_code=302)
     email, profile = auth
+    # Posted values win (API/backward compat); saved details otherwise.
+    target_email = (target_email or request.session.get("iv_email") or "").strip()
+    question = (question or request.session.get("iv_question") or "").strip()
     if "@" not in target_email:
         return RedirectResponse("/heirloom?m=bad_email", status_code=303)
+    if not question:
+        return RedirectResponse("/heirloom?m=no_details", status_code=303)
     sent = email_engine.send_interview_prep_email(
-        target_email.strip(), profile.get("advisor_firm") or "Your Advisor",
-        question.strip() or "Please share a favorite memory from your childhood.")
+        target_email, profile.get("advisor_firm") or "Your Advisor", question)
     if sent:
         audit_engine.log_event(email, "Prep Email Sent", metadata={"target": target_email})
         return RedirectResponse("/heirloom?m=prep_sent", status_code=303)
@@ -141,16 +183,19 @@ def prep_email(request: Request, target_email: str = Form(...), question: str = 
 
 
 @router.post("/heirloom/call")
-def start_call(request: Request, target_phone: str = Form(...), question: str = Form("")):
+def start_call(request: Request, target_phone: str = Form(""), question: str = Form("")):
     auth = _profile(request)
     if not auth:
         return RedirectResponse("/login", status_code=302)
     email, profile = auth
 
+    # Posted values win (API/backward compat); saved details otherwise.
+    target_phone = target_phone or request.session.get("iv_phone") or ""
     clean_phone = "".join(filter(str.isdigit, target_phone))
     if len(clean_phone) < 10:
         return RedirectResponse("/heirloom?m=bad_phone", status_code=303)
-    q = question.strip() or "Please share a favorite memory from your childhood."
+    q = (question or request.session.get("iv_question") or "").strip() \
+        or "Please share a favorite memory from your childhood."
 
     sid, err = ai_engine.trigger_outbound_call(
         to_phone=clean_phone,

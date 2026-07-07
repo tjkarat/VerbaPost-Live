@@ -111,7 +111,10 @@ def send_interview_prep_email(to_email, advisor_name, question_text):
     """
     Sends a prep email to the interviewee so they know what to say.
     """
-    subject = f"Upcoming Legacy Interview: Prep for your call"
+    # Subject carries the actual question so the storyteller can start
+    # thinking about their answer from the inbox itself.
+    _q = (question_text or "").strip().rstrip(".?!")
+    subject = f'Your upcoming interview: "{_q[:70]}"' if _q else "Prep for your upcoming legacy interview"
     
     # Simple, elegant HTML styling
     html_content = f"""
