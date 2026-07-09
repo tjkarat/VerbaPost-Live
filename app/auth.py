@@ -69,8 +69,9 @@ def _render_login(request: Request, **ctx):
 @router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request):
     if request.session.get("email"):
-        return RedirectResponse("/advisor" if request.session.get("role") == "advisor"
-                                else "/heirloom", status_code=302)
+        role = request.session.get("role")
+        dest = "/admin" if role == "admin" else "/advisor" if role == "advisor" else "/heirloom"
+        return RedirectResponse(dest, status_code=302)
     return _render_login(request)
 
 
