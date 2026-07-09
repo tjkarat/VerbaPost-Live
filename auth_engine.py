@@ -142,6 +142,26 @@ def verify_otp(email, token, type="recovery"):
         return res.session, None
     except Exception as e: return None, str(e)
 
+def complete_recovery(access_token, refresh_token, new_password):
+    """Finish a password reset that arrived via Supabase's email LINK
+    (tokens come from the URL fragment). Sets the session, updates the
+    password, returns (email, error)."""
+    client = get_client()
+    if not client: return None, "Client Missing"
+    try:
+        client.auth.set_session(access_token, refresh_token)
+        res = client.auth.update_user({"password": new_password})
+        email = res.user.email if res and res.user else None
+        try:
+            client.auth.sign_out()
+        except Exception:
+            pass
+        return email, None
+    except Exception as e:
+        logger.error(f"Recovery completion failed: {e}")
+        return None, str(e)
+
+
 def update_user_password(new_password):
     client = get_client()
     if not client: return False, "Client Missing"

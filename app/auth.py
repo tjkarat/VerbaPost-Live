@@ -134,6 +134,32 @@ def reset_submit(request: Request, email: str = Form(...), token: str = Form(...
     return _render_login(request, notice="Password updated. Log in with your new password.")
 
 
+# ---------- Recovery via Supabase email link ----------
+# Supabase reset emails carry tokens in the URL *fragment* (#access_token=...),
+# which never reaches the server. base.html catches the fragment client-side
+# and forwards here; this page moves the tokens into a real POST.
+
+@router.get("/auth/recovery", response_class=HTMLResponse)
+def recovery_page(request: Request):
+    from app.main import templates
+    return templates.TemplateResponse(request, "recovery.html", {"error": None})
+
+
+@router.post("/auth/recovery", response_class=HTMLResponse)
+def recovery_submit(request: Request, access_token: str = Form(...),
+                    refresh_token: str = Form(""), new_password: str = Form(...)):
+    from app.main import templates
+    if len(new_password) < 8:
+        return templates.TemplateResponse(
+            request, "recovery.html", {"error": "Password must be at least 8 characters."})
+    email, err = auth_engine.complete_recovery(access_token, refresh_token, new_password)
+    if err:
+        return templates.TemplateResponse(
+            request, "recovery.html",
+            {"error": "This reset link is invalid or expired — request a new one from the login page."})
+    return _render_login(request, notice="Password updated. Log in with your new password.")
+
+
 # ---------- Google OAuth (PKCE) ----------
 
 @router.get("/auth/google")

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+
+{% block title %}Set a new password | VerbaPost{% endblock %}
+
+{% block content %}
+<div style="max-width: 420px; margin: 40px auto;">
+    <h2 style="text-align:center;">Set a new password</h2>
+
+    {% if error %}
+    <div style="background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:12px; border-radius:8px; margin-bottom:12px; font-size:0.9rem;">{{ error }}</div>
+    {% endif %}
+
+    <div class="card">
+        <form method="post" action="/auth/recovery" id="recovery-form">
+            <input type="hidden" name="access_token" id="rec-at" value="">
+            <input type="hidden" name="refresh_token" id="rec-rt" value="">
+            <label style="display:block; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin:14px 0 4px;">New password (8+ characters)</label>
+            <input name="new_password" type="password" required minlength="8" autocomplete="new-password"
+                   style="width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; box-sizing:border-box;">
+            <button class="btn btn-primary" type="submit" style="width:100%; margin-top:18px;">Set new password</button>
+        </form>
+        <p id="rec-missing" style="display:none; color:#b91c1c; font-size:0.9rem; margin-top:12px;">
+            This page needs to be opened from the reset link in your email.
+            <a href="/login">Request a new reset email →</a>
+        </p>
+    </div>
+</div>
+
+<script>
+(function () {
+    var params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    var at = params.get("access_token"), rt = params.get("refresh_token");
+    if (at) {
+        document.getElementById("rec-at").value = at;
+        document.getElementById("rec-rt").value = rt || "";
+        history.replaceState(null, "", window.location.pathname); // scrub tokens from the URL bar
+    } else {
+        document.getElementById("recovery-form").style.display = "none";
+        document.getElementById("rec-missing").style.display = "block";
+    }
+})();
+</script>
+{% endblock %}

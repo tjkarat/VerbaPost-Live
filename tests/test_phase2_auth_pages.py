@@ -132,6 +132,30 @@ def test_reset_with_bad_code_shows_error():
         assert "Invalid or expired code" in r.text
 
 
+def test_recovery_link_flow_updates_password():
+    """Supabase reset emails deliver tokens in the URL fragment; the recovery
+    page moves them into a POST and the engine sets the new password."""
+    r = client.get("/auth/recovery")
+    assert r.status_code == 200
+    assert "Set a new password" in r.text
+    with patch("app.auth.auth_engine.complete_recovery",
+               return_value=("a@b.com", None)) as mock_rec:
+        r = client.post("/auth/recovery",
+                        data={"access_token": "tok123", "refresh_token": "ref456",
+                              "new_password": "newpass123"})
+        assert "Password updated" in r.text
+        mock_rec.assert_called_once_with("tok123", "ref456", "newpass123")
+
+
+def test_recovery_with_expired_token_shows_error():
+    with patch("app.auth.auth_engine.complete_recovery",
+               return_value=(None, "token expired")):
+        r = client.post("/auth/recovery",
+                        data={"access_token": "old", "refresh_token": "",
+                              "new_password": "newpass123"})
+        assert "invalid or expired" in r.text
+
+
 # ============================================================
 # 🔗 Google OAuth
 # ============================================================

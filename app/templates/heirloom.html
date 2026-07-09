@@ -110,23 +110,36 @@
             <p class="meta" style="margin-top:10px;">Waiting for the recording — this page updates once the call finishes.</p>
         {% endif %}
 
+        {% if d.get('status') == 'Pending' and not d.audio_src %}
+        <p class="meta" style="margin-top:10px;">The transcript and mailing options appear here
+        once the recording arrives.</p>
+        {% else %}
         <form method="post" action="/heirloom/draft/{{ d.get('id') }}/save" id="edit-{{ d.get('id') }}">
             <label class="f">Transcript</label>
             <textarea class="f" name="content" rows="8">{{ d.get('content') or '' }}</textarea>
-            <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap;">
+            <div style="margin-top:12px; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                 <button class="btn btn-outline btn-sm" type="submit">Save Changes</button>
                 <button class="btn btn-outline btn-sm" type="submit"
                         formaction="/heirloom/draft/{{ d.get('id') }}/polish">AI Polish</button>
                 {% if has_address %}
-                <button class="btn btn-primary btn-sm" type="submit"
-                        formaction="/heirloom/draft/{{ d.get('id') }}/mail"
-                        {% if credits < 1 %}disabled title="No letter credits remaining"{% endif %}
-                        onclick="return confirm('Queue this letter for printing on linen stock? This uses 1 credit.');">
-                    Mail Letter (1 credit)
-                </button>
+                    {% if credits >= 1 %}
+                    <button class="btn btn-primary btn-sm" type="submit"
+                            formaction="/heirloom/draft/{{ d.get('id') }}/mail"
+                            onclick="return confirm('Queue this letter for printing on linen stock? This uses 1 credit.');">
+                        Mail Letter (1 credit)
+                    </button>
+                    {% else %}
+                    <span style="background:#fef2f2; border:1px solid #fecaca; color:#b91c1c;
+                                 border-radius:8px; padding:8px 14px; font-size:0.85rem;
+                                 font-family:Helvetica,Arial,sans-serif;">
+                        You're out of story credits — contact your advisor to commission
+                        an additional story for your family.
+                    </span>
+                    {% endif %}
                 {% endif %}
             </div>
         </form>
+        {% endif %}
 
         {% if not has_address %}
         <div style="border-top:1px solid var(--line); margin-top:16px; padding-top:12px;">
