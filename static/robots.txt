@@ -1,4 +1,19 @@
+# VerbaPost app (app.verbapost.com)
+# The marketing site at the verbapost.com apex is served separately by Netlify
+# and has its own robots.txt / sitemap.
+
 User-agent: *
 Allow: /
 
-Sitemap: https://verbapost.com/sitemap.xml
+# Public, indexable content: /, /blog, /blog/*, /legal
+# Keep crawlers out of auth, portals, API plumbing, and private family pages.
+Disallow: /admin
+Disallow: /advisor
+Disallow: /heirloom
+Disallow: /archive
+Disallow: /login
+Disallow: /auth/
+Disallow: /webhooks/
+Disallow: /play/
+
+Sitemap: https://app.verbapost.com/sitemap.xml
