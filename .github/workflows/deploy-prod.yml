@@ -79,6 +79,7 @@ jobs:
             --image "$IMAGE" \
             --region "$REGION" \
             --project "$PROJECT_ID" \
+            --no-cpu-throttling \
             --quiet
 
       - name: Smoke test
