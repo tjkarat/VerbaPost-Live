@@ -1,13 +1,18 @@
 {% extends "base.html" %}
 
 {% block extra_css %}
-        .hero { text-align: center; padding: 40px 0 20px; }
-        .hero h1 { font-size: 3rem; margin-bottom: 4px; }
-        .hero .sub { color: var(--slate); font-size: 1.2rem; margin-bottom: 24px; }
-        .hero p.lede { max-width: 700px; margin: 0 auto 40px; }
+        .hero { text-align: center; padding: 48px 0 20px; }
+        .hero h1 { font-size: 2.5rem; margin-bottom: 18px; }
+        .hero p.lede { max-width: 700px; margin: 0 auto 40px; color: var(--slate); font-size: 1.15rem; }
         .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
         .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 20px; }
         @media (max-width: 720px) { .grid-3, .grid-2 { grid-template-columns: 1fr; } }
+        @media (max-width: 600px) {
+            .hero { padding: 24px 0 8px; }
+            .hero h1 { font-size: 1.9rem; }
+            .hero p.lede { font-size: 1.05rem; margin-bottom: 28px; }
+            h2.section { margin: 32px 0 16px; font-size: 1.4rem; }
+        }
         h2.section { margin: 50px 0 20px; }
         .step-card { background: var(--paper); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
         .portal-family { border-left: 5px solid #0ea5e9; }
@@ -17,8 +22,7 @@
 
 {% block content %}
     <section class="hero">
-        <h1>VerbaPost</h1>
-        <p class="sub">The Family Legacy Archive</p>
+        <h1>The Family Legacy Archive</h1>
         <p class="lede">
             We interview your parents over the phone, transcribe their stories, and mail you
             a physical manuscript on archival linen paper for your family archive.

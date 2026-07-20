@@ -4,6 +4,7 @@ import openai
 import requests
 import time
 from datetime import datetime
+from xml.sax.saxutils import escape as _xml_escape
 
 # --- IMPORTS ---
 try: import secrets_manager
@@ -44,7 +45,12 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
     if not question_text:
         question_text = "Please share a favorite memory from your childhood."
 
-    safe_advisor = advisor_name or "your financial advisor"
+    # 🔒 XML-escape every value interpolated into the TwiML below. These come
+    # from user input (the heir's interview question) and must never be able to
+    # inject TwiML verbs like <Dial> — otherwise an attacker could redirect the
+    # call or dial premium/international numbers billed to our Twilio account.
+    question_text = _xml_escape(question_text)
+    safe_advisor = _xml_escape(advisor_name or "your financial advisor")
 
     # NEW (Phase 1): tell Twilio to POST to our webhook the moment the
     # recording is ready, instead of us polling "Check for New Stories".

@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import time
 import ui_login
@@ -105,12 +106,14 @@ def main():
             st.success(f"🟢 Online: {st.session_state.user_email}")
             st.caption(f"Role: {st.session_state.user_role}")
             
-            user_email = st.session_state.user_email
+            user_email = (st.session_state.user_email or "").strip().lower()
+            # Admin is granted by the DB role or a single configured ADMIN_EMAIL
+            # env var — never by hardcoded addresses (a typo'd/typosquatted or
+            # generic address in code is a privilege-escalation risk).
+            admin_email = (os.environ.get("ADMIN_EMAIL") or "").strip().lower()
             is_admin = (
-                (st.session_state.user_role == "admin") or 
-                (user_email == "tjkarat@gmail.com") or 
-                (user_email == "tjkarat@gmai.com") or
-                (user_email == "pat@gmail.com")
+                (st.session_state.user_role == "admin") or
+                (bool(admin_email) and user_email == admin_email)
             )
             
             if is_admin:

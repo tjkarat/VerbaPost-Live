@@ -31,12 +31,25 @@ TEMPLATES_DIR = APP_DIR / "templates"
 # --- Config ---
 ENV = os.environ.get("ENV", "development")
 
+# Session signing key. In production this MUST be provided — never fall back to
+# a known/default value, or anyone reading the source could forge signed session
+# cookies (including {"role": "admin"}) and take over the admin console.
+SESSION_SECRET = os.environ.get("SESSION_SECRET")
+if not SESSION_SECRET:
+    if ENV == "production":
+        raise RuntimeError(
+            "SESSION_SECRET is not set. Refusing to start in production with a "
+            "default signing key (would allow session-cookie forgery)."
+        )
+    # Non-production only: a fixed dev key is fine and keeps local logins stable.
+    SESSION_SECRET = "dev-only-secret-not-for-production"
+
 app = FastAPI(title="VerbaPost", docs_url=None, redoc_url=None)
 
 # Signed session cookie (replaces Streamlit session_state for auth in Phase 2)
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.environ.get("SESSION_SECRET", "dev-only-secret-not-for-production"),
+    secret_key=SESSION_SECRET,
     https_only=(ENV != "development"),
     same_site="lax",
 )

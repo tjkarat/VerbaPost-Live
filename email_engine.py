@@ -14,6 +14,7 @@ import logging
 import os
 import requests
 import json
+from html import escape as _esc  # HTML-escape user/advisor values before interpolating into email bodies
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
@@ -115,7 +116,11 @@ def send_interview_prep_email(to_email, advisor_name, question_text):
     # thinking about their answer from the inbox itself.
     _q = (question_text or "").strip().rstrip(".?!")
     subject = f'Your upcoming interview: "{_q[:70]}"' if _q else "Prep for your upcoming legacy interview"
-    
+
+    # 🔒 Escape user/advisor-controlled values before they enter the HTML body.
+    advisor_name = _esc(advisor_name or "")
+    question_text = _esc(question_text or "")
+
     # Simple, elegant HTML styling
     html_content = f"""
     <div style="font-family: 'Times New Roman', serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #eee;">
@@ -143,7 +148,9 @@ def send_admin_alert(trigger_event, details_html):
     """
     admin_email = get_admin_email()
     if not admin_email: return False
-        
+
+    # details_html is trusted (built internally); trigger_event may carry input.
+    trigger_event = _esc(trigger_event or "")
     subject = f"🔔 ACTION REQUIRED: {trigger_event}"
     html = f"""
     <div style="font-family:sans-serif; border:1px solid #d93025; padding:20px;">
@@ -163,8 +170,16 @@ def send_heir_welcome_email(to_email, advisor_firm, advisor_name, heir_name=None
     Notifies the Heir that their Advisor has commissioned a legacy archive.
     Tone: engraved invitation — formal, restrained, private-bank register.
     """
-    subject = f"{advisor_firm} — An Invitation to Your Family Legacy Archive"
     base_url = os.environ.get("BASE_URL", "https://app.verbapost.com").rstrip("/")
+
+    # Subject is a plain-text header — use the raw firm name here.
+    subject = f"{advisor_firm or ''} — An Invitation to Your Family Legacy Archive"
+
+    # 🔒 Escape user/advisor-controlled values before they enter the HTML body.
+    advisor_firm = _esc(advisor_firm or "")
+    advisor_name = _esc(advisor_name or "")
+    heir_name = _esc(heir_name) if heir_name else None
+
     salutation = f"Dear {heir_name}," if heir_name else "Dear Recipient,"
 
     html_content = f"""
@@ -216,6 +231,9 @@ def send_advisor_heir_started_alert(advisor_email, heir_name, client_name):
     """
     Notifies the Advisor that their client has logged in and started a story.
     """
+    # 🔒 Escape user-controlled values before they enter the HTML body.
+    heir_name = _esc(heir_name or "")
+    client_name = _esc(client_name or "")
     subject = f"🔔 Activity Alert: {heir_name} started a story"
     html_content = f"""
     <div style="font-family: sans-serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0;">
@@ -239,11 +257,15 @@ def send_admin_print_ready_alert(user_email, draft_id, content_preview, mailing_
     admin_email = get_admin_email()
     if not admin_email: return False
 
+    # 🔒 Escape user-controlled values before they enter the HTML body.
+    user_email = _esc(user_email or "")
+    content_preview = _esc(content_preview or "")
+
     addresses_html = ""
     if mailing_list:
         rows = "".join(
-            f"<li><strong>{a.get('name','')}</strong> — {a.get('street','')}, "
-            f"{a.get('city','')}, {a.get('state','')} {a.get('zip_code','')}</li>"
+            f"<li><strong>{_esc(a.get('name','') or '')}</strong> — {_esc(a.get('street','') or '')}, "
+            f"{_esc(a.get('city','') or '')}, {_esc(a.get('state','') or '')} {_esc(a.get('zip_code','') or '')}</li>"
             for a in mailing_list)
         addresses_html = f"""
         <p><strong>Print &amp; mail {len(mailing_list)} cop{'ies' if len(mailing_list) != 1 else 'y'}:</strong></p>
