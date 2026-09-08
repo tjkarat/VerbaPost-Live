@@ -88,6 +88,36 @@ def load_queue():
                     }})
     except Exception as e:
         logger.error(f"Queue load error: {e}")
+    # Prospect acquisition letters (advisor-branded gift letters). Same manual
+    # linen workflow; the envelope carries the ADVISOR's name and return address.
+    try:
+        pages = {}
+        for r in database.list_prospect_letters(statuses=["Approved"]):
+            adv = r.get("advisor_email") or ""
+            if adv not in pages:
+                pages[adv] = database.get_advisor_page_by_email(adv) or {}
+            page = pages[adv]
+            created = r.get("created_at")
+            items.append({
+                "kind": "prospect", "id": r.get("id"),
+                "who": f"{r.get('prospect_name')} -> {r.get('recipient_name')} (gift from {page.get('display_name') or adv})",
+                "content": r.get("letter_text") or r.get("transcript_raw") or "",
+                "meta": {
+                    "firm_name": page.get("firm_name") or "",
+                    "advisor_name": page.get("display_name") or adv,
+                    "advisor_email": adv,
+                    "storyteller": r.get("prospect_name"),
+                    "heir_name": r.get("recipient_name"),
+                    "prompt": page.get("prompt") or "",
+                    "date": created.strftime("%B %d, %Y") if hasattr(created, "strftime") else "Undated",
+                    "address": {"line1": r.get("recipient_line1"), "city": r.get("recipient_city"),
+                                "state": r.get("recipient_state"), "zip": r.get("recipient_zip")},
+                    "return": {"line1": page.get("return_line1") or "", "city": page.get("return_city") or "",
+                               "state": page.get("return_state") or "", "zip": page.get("return_zip") or ""},
+                    "recipients": [],
+                }})
+    except Exception as e:
+        logger.error(f"Prospect queue load error: {e}")
     return items
 
 
@@ -156,6 +186,19 @@ def letter_pdf(request: Request, kind: str, item_id: int):
     if not item:
         return Response(status_code=404)
     meta = item["meta"]
+    if kind == "prospect":
+        who = meta.get("advisor_name") or "Your Advisor"
+        if meta.get("firm_name"):
+            who = f"{who}, {meta['firm_name']}"
+        pdf = letter_format.create_pdf(
+            body_text=item["content"], to_addr={},
+            from_addr={"name": meta.get("storyteller", "A Friend")},
+            advisor_firm=meta.get("firm_name") or who,
+            audio_url=f"p{item['id']}",          # QR -> /play/p{id} (always released)
+            is_marketing=False, question_text=meta.get("prompt"),
+            compliments_of=who, recipient_name=meta.get("heir_name"))
+        return Response(content=bytes(pdf), media_type="application/pdf",
+                        headers={"Content-Disposition": f'attachment; filename="prospect_letter_{item_id}.pdf"'})
     pdf = letter_format.create_pdf(
         body_text=item["content"], to_addr={},
         from_addr={"name": meta.get("storyteller", "The Family")},
@@ -175,7 +218,20 @@ def envelope_pdf(request: Request, kind: str, item_id: int, recipient: int = -1)
     if not item:
         return Response(status_code=404)
     meta = item["meta"]
-    if kind == "heirloom":
+    if kind == "prospect":
+        # Advisor's name (and firm) as the return address — the gift is theirs.
+        ret = meta.get("return", {})
+        from_name = meta.get("advisor_name") or "Your Advisor"
+        if meta.get("firm_name"):
+            from_name = f"{from_name}\n{meta['firm_name']}"
+        from_obj = {"name": from_name, "address_line1": ret.get("line1", ""),
+                    "city": ret.get("city", ""), "state": ret.get("state", ""),
+                    "zip_code": ret.get("zip", "")}
+        a = meta.get("address", {})
+        to_obj = {"name": meta.get("heir_name"), "address_line1": a.get("line1") or "",
+                  "city": a.get("city") or "", "state": a.get("state") or "",
+                  "zip_code": a.get("zip") or ""}
+    elif kind == "heirloom":
         adv = database.get_user_profile(item["who"].split("via ")[-1].rstrip(")"))
         from_obj = {"name": meta.get("firm_name") or "VerbaPost",
                     "address_line1": (adv or {}).get("address_line1", ""),
@@ -212,6 +268,12 @@ def envelope_pdf(request: Request, kind: str, item_id: int, recipient: int = -1)
 def mark_sent(request: Request, kind: str, item_id: int):
     if not _require_admin(request):
         return _deny()
+    if kind == "prospect":
+        from datetime import datetime as _dt
+        database.update_prospect_letter(item_id, status="Sent", sent_at=_dt.utcnow())
+        audit_engine.log_event(request.session.get("email", "admin"), "Order Marked Sent",
+                               metadata={"kind": kind, "id": item_id})
+        return RedirectResponse("/admin?notice=Order+closed", status_code=303)
     table = "projects" if kind == "heirloom" else "letter_drafts"
     try:
         with database.get_db_session() as session:
@@ -270,6 +332,35 @@ def marketing_envelope(request: Request, name: str = Form(""), address: str = Fo
         _parse_addr(f"{name}\n{address}"), _parse_addr(return_address))
     return Response(content=bytes(env or b""), media_type="application/pdf",
                     headers={"Content-Disposition": 'attachment; filename="marketing_envelope.pdf"'})
+
+
+@router.post("/prospect/grant")
+def grant_prospect_letters(request: Request, email: str = Form(...), amount: int = Form(...),
+                           note: str = Form("")):
+    """Central Bank for the acquisition path: letter credits for deals closed
+    in person / invoiced by hand. Writes a 'grant' ledger row (not a purchase,
+    so it does NOT flip the advisor to repeat pricing)."""
+    if not _require_admin(request):
+        return _deny()
+    email = email.strip().lower()
+    if amount == 0 or "@" not in email:
+        return RedirectResponse("/admin?notice=Invalid+grant", status_code=303)
+    ok = database.add_prospect_credits(email, amount, "grant",
+                                       f"admin:{request.session.get('email', 'admin')} {note.strip()[:80]}")
+    if ok:
+        audit_engine.log_event(request.session.get("email", "admin"), "Prospect Letters Granted",
+                               metadata={"target": email, "amount": amount, "note": note[:80]})
+        return RedirectResponse(f"/admin?notice=Granted+{amount}+prospect+letters+to+{email}", status_code=303)
+    return RedirectResponse("/admin?notice=Grant+failed", status_code=303)
+
+
+@router.get("/prospect/export.csv")
+def prospect_export_all(request: Request):
+    """Every advisor's send log — the advertising-records export for the house."""
+    if not _require_admin(request):
+        return _deny()
+    from app.advisor import prospect_csv
+    return prospect_csv(database.list_prospect_letters(), filename="verbapost_prospect_send_log.csv")
 
 
 @router.get("/orphan-audio")

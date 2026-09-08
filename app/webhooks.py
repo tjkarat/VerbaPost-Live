@@ -153,7 +153,23 @@ def _process_recording(call_sid: str, recording_url: str):
     if database.update_draft_by_sid(call_sid, transcript, audio_url):
         database.log_event("system", "Recording Processed",
                            {"call_sid": call_sid, "chars": len(transcript)})
-    else:
-        # No draft waiting for this SID — keep the data, flag for admin.
-        database.log_event("system", "Orphan Recording",
-                           {"call_sid": call_sid, "url": audio_url})
+        return
+
+    # Prospect acquisition path: the SID may belong to a prospect letter.
+    # Same recording plumbing; different finish (auto-polish -> print queue).
+    letter_id = database.update_prospect_by_sid(call_sid, transcript, audio_url)
+    if letter_id:
+        from app.prospect import finalize_recording
+        try:
+            status = finalize_recording(letter_id)
+        except Exception:
+            logger.exception(f"Prospect finalize crashed for letter {letter_id}")
+            status = "error"
+        database.log_event("system", "Prospect Recording Processed",
+                           {"call_sid": call_sid, "letter_id": letter_id,
+                            "chars": len(transcript), "status": status})
+        return
+
+    # No draft waiting for this SID — keep the data, flag for admin.
+    database.log_event("system", "Orphan Recording",
+                       {"call_sid": call_sid, "url": audio_url})

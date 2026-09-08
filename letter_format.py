@@ -64,10 +64,13 @@ def _safe_get(obj, key, default=""):
     if isinstance(obj, dict): return obj.get(key, default)
     return getattr(obj, key, default)
 
-def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives", audio_url=None, is_marketing=False, question_text=None):
+def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives", audio_url=None, is_marketing=False, question_text=None, compliments_of=None, recipient_name=None):
     """
     Generates the Single Standard 'Manuscript' PDF.
     Now supports 'question_text' to appear in the dedication block.
+    compliments_of (prospect acquisition path): replaces the "Preserved by"
+    line with "With the compliments of: <advisor, firm>" and, with
+    recipient_name, adds a "For: <name>" line — the letter is a gift.
     """
     try:
         # Disable footer for Marketing
@@ -132,6 +135,11 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             
             # 1. Storyteller
             pdf.cell(0, 5, f"Storyteller: {storyteller}", align='C', ln=1)
+
+            # 1b. Recipient (gift letters only)
+            if recipient_name:
+                pdf.set_x(MARGIN_MM)
+                pdf.cell(0, 5, f"For: {_sanitize_text(recipient_name)}", align='C', ln=1)
             
             # 2. Question
             if question_text:
@@ -144,9 +152,12 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             pdf.set_x(MARGIN_MM) # <--- Force cursor back to left margin to prevent offset
             pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
             
-            # 4. Preserved By
+            # 4. Preserved By (or, for gift letters, With the compliments of)
             pdf.set_x(MARGIN_MM) # <--- Force cursor back to left margin
-            pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
+            if compliments_of:
+                pdf.cell(0, 5, f"With the compliments of: {_sanitize_text(compliments_of)}", align='C', ln=1)
+            else:
+                pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
             
             pdf.ln(15) 
 

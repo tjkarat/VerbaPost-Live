@@ -85,6 +85,187 @@
         </form>
     </div>
 
+    <div class="section card" id="campaign" style="border-left:5px solid #b45309;">
+        <h2>Prospect Campaign — direct mail that replaces the seminar</h2>
+        <p class="sub">
+            You upload a mailing list. We mail each person a letter from you with their own private link.
+            They visit it, we call them, they record a story for someone they love, and we mail that story
+            on linen paper with <strong>your name on the envelope</strong> — the story letter is included, no extra charge.
+            First campaign: <strong>${{ first_campaign_price }} for {{ first_campaign_letters }} invitations</strong>.
+            After that: <strong>${{ letter_price }} per invitation</strong>.
+        </p>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:16px 20px;">
+            <div>
+                <div class="lbl">Invitations remaining</div>
+                <div class="num" style="font-size:2rem; font-weight:700; line-height:1.1;">{{ campaign_balance }}</div>
+                {% if campaign_url %}
+                    <div style="margin-top:6px; font-size:0.92rem;">Your page:
+                        <a href="{{ campaign_url }}" target="_blank" rel="noopener"><strong>{{ campaign_url }}</strong></a>
+                        {% if not campaign.get('active', True) %}<span class="pill pill-locked" style="margin-left:6px;">Paused</span>{% endif %}
+                        {% if campaign_balance <= 0 %}<span class="pill pill-locked" style="margin-left:6px;">0 invitations left</span>{% endif %}
+                    </div>
+                {% else %}
+                    <div style="margin-top:6px; color:var(--slate); font-size:0.9rem;">Set up your page below to get a link.</div>
+                {% endif %}
+            </div>
+            <div style="text-align:right;">
+                {% if not campaign_has_prior %}
+                    <a class="btn btn-primary btn-sm" href="/advisor/campaign/checkout">Start first campaign (${{ first_campaign_price }} · {{ first_campaign_letters }} invitations)</a>
+                {% else %}
+                    <form method="get" action="/advisor/campaign/checkout" style="display:flex; gap:8px; align-items:center; justify-content:flex-end;">
+                        <input class="f" type="number" name="letters" value="25" min="1" max="{{ repeat_max }}" style="width:90px; padding:8px;">
+                        <button class="btn btn-primary btn-sm" type="submit">Buy invitations (${{ letter_price }} each)</button>
+                    </form>
+                {% endif %}
+                <div style="margin-top:8px;">
+                    <a href="/advisor/campaign/export.csv" style="font-size:0.9rem; color:var(--slate);">Download send log (CSV)</a>
+                </div>
+            </div>
+        </div>
+
+        {% if campaign_url %}
+        <div style="margin-top:20px; border-top:1px solid var(--line); padding-top:18px;">
+            <h3 style="font-size:1.1rem;">Mail your list</h3>
+            <p class="sub" style="margin-top:4px;">
+                Upload a CSV of names and addresses. Every person gets a letter from you with their own private link
+                and QR code, mailed first class. One name mailed = one invitation. The story letter for anyone who
+                responds is included.
+                {% if postgrid_test_mode %}<strong style="color:#b45309;">Mail is in TEST MODE — nothing is physically printed.</strong>{% endif %}
+            </p>
+
+            {% if review_campaign %}
+            <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:10px; padding:16px 20px; margin:14px 0;">
+                <h4 style="margin:0 0 6px;">Review "{{ review_campaign.name }}" — {{ review_campaign.total_rows }} addresses</h4>
+                <p class="lbl">Nothing has been mailed yet and no credits are spent until you send.</p>
+                <table style="width:100%; border-collapse:collapse; font-size:0.85rem; margin:10px 0;">
+                    <tr style="text-align:left; color:var(--slate);"><th>Name</th><th>Address</th></tr>
+                    {% for r in review_rows %}
+                    <tr><td style="padding:3px 8px 3px 0;">{{ r.full_name }}</td>
+                        <td>{{ r.line1 }}{% if r.line2 %}, {{ r.line2 }}{% endif %}, {{ r.city }} {{ r.state }} {{ r.zip_code }}</td></tr>
+                    {% endfor %}
+                </table>
+                {% if review_campaign.total_rows > review_rows|length %}
+                <p class="lbl">…and {{ review_campaign.total_rows - review_rows|length }} more.</p>
+                {% endif %}
+                {% if review_problems %}
+                <details style="margin-top:8px;"><summary style="cursor:pointer; color:#b45309; font-size:0.88rem;">{{ review_problems|length }} row(s) skipped</summary>
+                    <ul style="margin:6px 0 0 18px; font-size:0.85rem; color:var(--slate);">
+                    {% for line, why in review_problems %}<li>Line {{ line }}: {{ why }}</li>{% endfor %}
+                    </ul>
+                </details>
+                {% endif %}
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px; align-items:center;">
+                    <a class="btn btn-outline btn-sm" href="/advisor/campaign/{{ review_campaign.id }}/proof.pdf" target="_blank" rel="noopener">Preview the letter</a>
+                    <form method="post" action="/advisor/campaign/{{ review_campaign.id }}/send" style="margin:0;">
+                        <button class="btn btn-primary btn-sm" type="submit"
+                            onclick="return confirm('Mail {{ review_campaign.total_rows }} invitation(s)? This spends {{ review_campaign.total_rows }} of your {{ campaign_balance }} remaining.');">
+                            Send {{ review_campaign.total_rows }} invitations
+                        </button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
+
+            <form method="post" action="/advisor/campaign/upload" enctype="multipart/form-data"
+                  style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+                <div style="flex:2; min-width:200px;">
+                    <label class="f" for="mlname">Mailing name</label>
+                    <input class="f" id="mlname" name="list_name" placeholder="e.g., Williamson County homeowners">
+                </div>
+                <div style="flex:2; min-width:200px;">
+                    <label class="f" for="mlfile">CSV file (max {{ max_rows }} rows)</label>
+                    <input class="f" id="mlfile" name="mailing_list" type="file" accept=".csv,text/csv" required>
+                </div>
+                <button class="btn btn-outline btn-sm" type="submit" style="margin-bottom:2px;">Upload &amp; review</button>
+            </form>
+            <p class="lbl" style="margin-top:6px;">
+                Columns: <strong>Name</strong> (or First / Last), <strong>Address</strong>, <strong>City</strong>,
+                <strong>State</strong>, <strong>ZIP</strong>. Extra columns are ignored; duplicates and addresses you've
+                already mailed are dropped automatically.
+            </p>
+
+            {% if mailings %}
+            <table style="width:100%; border-collapse:collapse; font-size:0.9rem; margin-top:16px;">
+                <tr style="text-align:left; color:var(--slate); font-size:0.82rem;">
+                    <th>Mailing</th><th>Addresses</th><th>Sent</th><th>Failed</th><th>Status</th><th></th>
+                </tr>
+                {% for m in mailings %}
+                <tr style="border-top:1px solid var(--line);">
+                    <td style="padding:7px 8px 7px 0;">{{ m.name }}</td>
+                    <td>{{ m.total_rows }}</td>
+                    <td>{{ m.sent_count or 0 }}</td>
+                    <td>{% if m.failed_count %}<span style="color:#b91c1c;">{{ m.failed_count }}</span>{% else %}0{% endif %}</td>
+                    <td>{{ m.status }}</td>
+                    <td style="text-align:right;">
+                        <a href="/advisor/campaign/{{ m.id }}/rows.csv" style="font-size:0.85rem;">CSV</a>
+                        {% if m.status in ('draft', 'partial') %}
+                        &nbsp;<form method="post" action="/advisor/campaign/{{ m.id }}/send" style="display:inline;">
+                            <button type="submit" style="background:none;border:none;color:var(--ink);text-decoration:underline;cursor:pointer;font:inherit;font-size:0.85rem;padding:0;">
+                                {{ 'Send' if m.status == 'draft' else 'Retry' }}</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            <p class="lbl" style="margin-top:8px;">
+                <strong>{{ mailed_total }}</strong> invitations mailed · <strong>{{ response_total }}</strong> stories recorded
+                {%- if mailed_total %} · {{ (100 * response_total / mailed_total)|round(1) }}% response{% endif %}
+            </p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <details style="margin-top:18px;" {% if not campaign %}open{% endif %}>
+            <summary style="cursor:pointer; font-family:Helvetica,Arial,sans-serif; font-weight:600; font-size:0.95rem;">
+                {{ "Edit your page" if campaign else "Set up your page" }}
+            </summary>
+            <form method="post" action="/advisor/campaign/page" enctype="multipart/form-data" style="margin-top:8px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 18px;">
+                    <div>
+                        <label class="f" for="cslug">Page address</label>
+                        <div style="display:flex; align-items:center; gap:6px; font-size:0.9rem; color:var(--slate);">
+                            <span>app.verbapost.com/a/</span>
+                            <input class="f" id="cslug" name="slug" value="{{ campaign.get('slug') or default_slug }}" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]" required style="flex:1;">
+                        </div>
+                        <label class="f" for="cname">Your name (on the page and the envelope)</label>
+                        <input class="f" id="cname" name="display_name" value="{{ campaign.get('display_name') or advisor_name }}" required>
+                        <label class="f" for="cfirm">Firm</label>
+                        <input class="f" id="cfirm" name="firm_name" value="{{ campaign.get('firm_name') or firm_name }}">
+                        <label class="f" for="cphoto">Your photo (JPEG/PNG, under 2 MB)</label>
+                        <input class="f" id="cphoto" name="photo" type="file" accept="image/jpeg,image/png,image/webp">
+                        {% if campaign.get('photo_data') %}<div class="lbl" style="margin-top:4px;">Photo on file — upload to replace.</div>{% endif %}
+                    </div>
+                    <div>
+                        <label class="f">Return address (printed on the envelope)</label>
+                        <input class="f" name="return_line1" placeholder="Street" value="{{ campaign.get('return_line1') or '' }}">
+                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; margin-top:8px;">
+                            <input class="f" name="return_city" placeholder="City" value="{{ campaign.get('return_city') or '' }}">
+                            <input class="f" name="return_state" placeholder="ST" maxlength="2" value="{{ campaign.get('return_state') or '' }}">
+                            <input class="f" name="return_zip" placeholder="ZIP" value="{{ campaign.get('return_zip') or '' }}">
+                        </div>
+                        <label class="f" for="cdisc">Compliance footer (optional)</label>
+                        <input class="f" id="cdisc" name="disclosure" placeholder="Securities offered through …" value="{{ campaign.get('disclosure') or '' }}">
+                        <label class="f" style="display:flex; align-items:center; gap:8px; margin-top:18px;">
+                            <input type="checkbox" name="active" {% if campaign.get('active', True) %}checked{% endif %}> Page is live
+                        </label>
+                    </div>
+                </div>
+                <label class="f" for="chead">Headline (optional)</label>
+                <input class="f" id="chead" name="headline" placeholder="Tell someone you love a story they'll keep forever." value="{{ campaign.get('headline') or '' }}">
+                <label class="f" for="cintro">Intro (optional)</label>
+                <textarea class="f" id="cintro" name="intro" rows="2" style="width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; font-family:inherit; font-size:1rem;">{{ campaign.get('intro') or '' }}</textarea>
+                <label class="f" for="cinvite">Invitation letter body (optional — this is what gets mailed)</label>
+                <textarea class="f" id="cinvite" name="invite_body" rows="5" placeholder="Leave blank to use our default invitation." style="width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; font-family:inherit; font-size:1rem;">{{ campaign.get('invite_body') or '' }}</textarea>
+
+                <label class="f" for="cprompt">The question our biographer asks (optional)</label>
+                <input class="f" id="cprompt" name="prompt" placeholder="Tell them about a memory you hope they'll carry for the rest of their life." value="{{ campaign.get('prompt') or '' }}">
+                <button class="btn btn-primary" type="submit" style="margin-top:16px;">Save page</button>
+            </form>
+        </details>
+    </div>
+
     <div class="section">
         <h2>Client Roster</h2>
         <p class="sub">Everyone you've sponsored. Use Resend if a client missed their welcome email.</p>
