@@ -392,10 +392,10 @@ def pcm_probe(request: Request):
     base_url = os.environ.get("BASE_URL", "https://app.verbapost.com").rstrip("/")
     result = mailer.pcm_probe(
         f"{base_url}/admin/pcm/probe.pdf",
-        {"name": "Probe Recipient", "line1": "123 Test St", "city": "Nashville",
-         "state": "TN", "zip": "37203"},
-        {"name": "VerbaPost", "company": "VerbaPost Inc.", "line1": "123 Test St",
-         "city": "Nashville", "state": "TN", "zip": "37203"})
+        {"name": "Tarak Robbana", "line1": "1008 Brandon Court", "city": "Mt. Juliet",
+         "state": "TN", "zip": "37122"},
+        {"name": "VerbaPost", "company": "VerbaPost Inc.", "line1": "1008 Brandon Court",
+         "city": "Mt. Juliet", "state": "TN", "zip": "37122"})
     audit_engine.log_event(request.session.get("email", "admin"), "PCM Probe",
                            metadata={"status": result.get("status"), "ok": result.get("ok")})
     import json as _json
