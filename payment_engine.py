@@ -98,11 +98,15 @@ def get_base_url():
         
     return url.rstrip("/")
 
-def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None, success_path=None, payer_email=None):
+def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="payment", promo_code=None, success_path=None, payer_email=None, service=None, extra_metadata=None):
     """
     user_email  -> fulfillment target (webhook credits THIS account)
     payer_email -> who Stripe bills (defaults to user_email). Lets an advisor
                    pay for a story that is credited to the client family.
+    service     -> metadata tag the webhook branches on. Default "VerbaPost"
+                   (legacy: +1 engagement credit). "prospect_letters" credits
+                   the advisor's prospect-letter ledger instead.
+    extra_metadata -> additional string metadata for the session (e.g. letters).
     """
     """
     Creates a Stripe Checkout Session.
@@ -129,8 +133,11 @@ def create_checkout_session(line_items, user_email, draft_id="Unknown", mode="pa
     metadata = {
         "user_email": user_email,
         "draft_id": str(draft_id),
-        "service": "VerbaPost"
+        "service": service or "VerbaPost"
     }
+    if extra_metadata:
+        for _k, _v in extra_metadata.items():
+            metadata[str(_k)] = str(_v)
     
     # Add Promo Code to Metadata if present
     if promo_code:
@@ -248,6 +255,29 @@ def handle_payment_return(session_id):
         
     if not user_email:
         return False, "No Email Found in Transaction"
+
+    # 3b. PROSPECT ACQUISITION PATH: letter credits, not engagement credits.
+    #     Ledger row reason="purchase" is what flips the advisor to repeat pricing.
+    if _sget(session.metadata, "service") == "prospect_letters":
+        try:
+            letters = int(_sget(session.metadata, "letters") or 0)
+        except (TypeError, ValueError):
+            letters = 0
+        if letters <= 0:
+            return False, "Prospect purchase carries no letter count"
+        try:
+            if not database.add_prospect_credits(user_email, letters, "purchase", session_id):
+                return False, "Ledger write failed"
+            database.record_stripe_fulfillment(session_id, f"Prospect Letters x{letters}", user_email)
+            if audit_engine:
+                audit_engine.log_event(user_email, "Prospect Letters Purchased",
+                                       metadata={"session_id": session_id, "letters": letters,
+                                                 "amount": session.amount_total,
+                                                 "kind": _sget(session.metadata, "kind")})
+            return True, f"{letters} prospect letters added"
+        except Exception as e:
+            logger.error(f"Prospect fulfillment error: {e}")
+            return False, f"DB Error: {e}"
 
     # 4. Fulfill (Add 1 Credit per $99 item roughly, or just 1 for now)
     # For MVP, we assume 1 credit purchase.

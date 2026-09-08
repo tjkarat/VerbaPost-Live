@@ -9,19 +9,25 @@ POST /advisor/release/{pid}      toggle media release for heirs
 GET  /advisor/checkout           create Stripe session ($99 credit) and redirect
 """
 
+import base64
+import csv
+import io
 import logging
+import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 
 import audit_engine
 import database
 import email_engine
 import payment_engine
+import pricing_engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/advisor")
@@ -50,8 +56,33 @@ def _render(request: Request, email: str, profile: dict, **extra):
         "projects": database.get_advisor_projects_for_media(email),
         "error": None, "notice": None,
     }
+    ctx.update(_campaign_ctx(email, profile))
     ctx.update(extra)
     return templates.TemplateResponse(request, "advisor.html", ctx)
+
+
+def _campaign_ctx(email: str, profile: dict):
+    """Prospect acquisition path: page config, letter balance, next quote."""
+    page = database.get_advisor_page_by_email(email) or {}
+    prior = database.prospect_has_prior_purchase(email)
+    base = os.environ.get("BASE_URL", "https://app.verbapost.com").rstrip("/")
+    return {
+        "campaign": page,
+        "campaign_url": f"{base}/a/{page['slug']}" if page.get("slug") else None,
+        "campaign_balance": database.prospect_credit_balance(email) if page or prior else 0,
+        "campaign_has_prior": prior,
+        "campaign_quote": pricing_engine.prospect_quote(prior),
+        "letter_price": pricing_engine.PROSPECT_LETTER_PRICE_CENTS // 100,
+        "first_campaign_price": pricing_engine.FIRST_CAMPAIGN_PRICE_CENTS // 100,
+        "first_campaign_letters": pricing_engine.FIRST_CAMPAIGN_LETTERS,
+        "repeat_max": pricing_engine.REPEAT_MAX_LETTERS,
+        "default_slug": _suggest_slug(profile.get("full_name") or email.split("@")[0]),
+    }
+
+
+def _suggest_slug(name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return slug[:40] or "advisor"
 
 
 @router.get("", response_class=HTMLResponse)
@@ -210,3 +241,167 @@ def buy_credit(request: Request):
     if not url:
         return RedirectResponse("/advisor?checkout=failed", status_code=302)
     return RedirectResponse(url, status_code=303)
+
+
+# ============================================================
+# PROSPECT ACQUISITION PATH — page setup, letter purchase, send log
+# ============================================================
+
+SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$")
+PHOTO_MAX_BYTES = 2 * 1024 * 1024
+PHOTO_TYPES = {"image/jpeg", "image/png", "image/webp"}
+
+
+def _process_photo(data: bytes, mime: str):
+    """Shrink to a 400px square JPEG when Pillow is available (fpdf2 pulls it
+    in); otherwise store the upload as-is under the size cap."""
+    try:
+        from PIL import Image, ImageOps
+        img = Image.open(io.BytesIO(data))
+        img = ImageOps.exif_transpose(img).convert("RGB")
+        img = ImageOps.fit(img, (400, 400))
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=85)
+        return out.getvalue(), "image/jpeg"
+    except Exception as e:
+        logger.warning(f"Photo resize skipped: {e}")
+        return data, mime
+
+
+@router.post("/campaign/page")
+async def save_campaign_page(request: Request,
+                             slug: str = Form(""), display_name: str = Form(""),
+                             firm_name: str = Form(""), headline: str = Form(""),
+                             intro: str = Form(""), prompt: str = Form(""),
+                             return_line1: str = Form(""), return_city: str = Form(""),
+                             return_state: str = Form(""), return_zip: str = Form(""),
+                             disclosure: str = Form(""), active: str = Form("on"),
+                             photo: UploadFile = File(None)):
+    auth = _require_advisor(request)
+    if not auth:
+        return RedirectResponse("/login", status_code=302)
+    email, profile = auth
+
+    slug = slug.strip().lower()
+    if not SLUG_RE.match(slug):
+        return _render(request, email, profile,
+                       error="Page address must be 3-40 characters: letters, numbers and dashes only.")
+    if len(display_name.strip()) < 2:
+        return _render(request, email, profile, error="Your display name is required.")
+
+    fields = {
+        "slug": slug, "display_name": display_name.strip()[:120],
+        "firm_name": firm_name.strip()[:120] or None,
+        "headline": headline.strip()[:160] or None,
+        "intro": intro.strip()[:600] or None,
+        "prompt": prompt.strip()[:400] or None,
+        "return_line1": return_line1.strip()[:120] or None,
+        "return_city": return_city.strip()[:80] or None,
+        "return_state": return_state.strip().upper()[:2] or None,
+        "return_zip": return_zip.strip()[:10] or None,
+        "disclosure": disclosure.strip()[:600] or None,
+        "active": active == "on",
+    }
+    if photo is not None and photo.filename:
+        data = await photo.read()
+        mime = (photo.content_type or "").lower()
+        if mime not in PHOTO_TYPES:
+            return _render(request, email, profile, error="Photo must be a JPEG, PNG or WebP image.")
+        if len(data) > PHOTO_MAX_BYTES:
+            return _render(request, email, profile, error="Photo must be under 2 MB.")
+        data, mime = _process_photo(data, mime)
+        fields["photo_data"] = base64.b64encode(data).decode("ascii")
+        fields["photo_mime"] = mime
+
+    ok, msg = database.upsert_advisor_page(email, **fields)
+    if not ok:
+        return _render(request, email, profile, error=msg)
+    audit_engine.log_event(email, "Prospect Page Saved", metadata={"slug": slug})
+    return _render(request, email, profile, notice="Your prospect page is saved.")
+
+
+@router.get("/campaign/checkout")
+def buy_prospect_letters(request: Request, letters: int = 0):
+    """First campaign: flat $500 for 25 letters. After that: $20 per letter.
+    The quote is computed server-side from the ledger — the button can't
+    pick its own price."""
+    auth = _require_advisor(request)
+    if not auth:
+        return RedirectResponse("/login", status_code=302)
+    email, _profile = auth
+    quote = pricing_engine.prospect_quote(database.prospect_has_prior_purchase(email), letters)
+    url = payment_engine.create_checkout_session(
+        line_items=[{
+            "price_data": {
+                "currency": "usd",
+                "product_data": {
+                    "name": quote["label"],
+                    "description": "Advisor-branded prospect letters: outbound call, transcription, "
+                                   "linen letter with audio QR, postage, your name on the envelope.",
+                },
+                "unit_amount": quote["total_cents"],
+            },
+            "quantity": 1,
+        }],
+        user_email=email,
+        mode="payment",
+        success_path="/advisor",
+        service="prospect_letters",
+        extra_metadata={"letters": str(quote["letters"]), "kind": quote["kind"]},
+    )
+    if not url:
+        return RedirectResponse("/advisor?checkout=failed", status_code=302)
+    return RedirectResponse(url, status_code=303)
+
+
+CSV_COLUMNS = [
+    "id", "created_at_utc", "status", "advisor_email",
+    "prospect_name", "prospect_phone",
+    "recipient_name", "recipient_line1", "recipient_city", "recipient_state", "recipient_zip",
+    "consent_version", "consent_at_utc", "consent_ip", "consent_user_agent", "consent_text",
+    "dnc_status", "dnc_provider", "dnc_checked_at_utc",
+    "call_sid", "call_attempts", "last_call_at_utc", "audio_url",
+    "letter_version", "queued_at_utc", "sent_at_utc", "letter_text", "transcript_raw",
+]
+_CSV_SOURCE = {
+    "created_at_utc": "created_at", "consent_at_utc": "consent_at",
+    "dnc_checked_at_utc": "dnc_checked_at", "last_call_at_utc": "last_call_at",
+    "queued_at_utc": "queued_at", "sent_at_utc": "sent_at",
+}
+
+
+def _csv_cell(v):
+    if v is None:
+        return ""
+    if hasattr(v, "isoformat"):
+        return v.isoformat(timespec="seconds")
+    s = str(v)
+    # Formula-injection guard: Excel executes cells starting with = + - @.
+    # E.164 phone numbers ("+1615...") are digits only and stay as-is.
+    if s and s[0] in "=+-@" and not re.match(r"^\+\d+$", s):
+        s = "'" + s
+    return s
+
+
+def prospect_csv(rows, filename="prospect_send_log.csv"):
+    """Send log -> CSV. One row per intake, every column that a records
+    reviewer could ask for, including the letter text itself."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(CSV_COLUMNS)
+    for r in rows:
+        w.writerow([_csv_cell(r.get(_CSV_SOURCE.get(col, col))) for col in CSV_COLUMNS])
+    buf.seek(0)
+    return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.get("/campaign/export.csv")
+def export_send_log(request: Request):
+    auth = _require_advisor(request)
+    if not auth:
+        return RedirectResponse("/login", status_code=302)
+    email, _profile = auth
+    audit_engine.log_event(email, "Prospect Send Log Exported")
+    return prospect_csv(database.list_prospect_letters(advisor_email=email),
+                        filename=f"prospect_send_log_{email.split('@')[0]}.csv")

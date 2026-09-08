@@ -35,3 +35,43 @@ def calculate_total(tier, is_intl=False, is_certified=False, qty=1):
         total += 12.00
     
     return round(total, 2)
+
+# ==========================================
+# 🆕 PROSPECT ACQUISITION PRICING (advisor-branded free letter)
+# ==========================================
+# $20 per letter. An advisor's FIRST campaign is a flat $500 that unlocks
+# exactly 25 letters. Every campaign after that is full price per letter.
+
+PROSPECT_LETTER_PRICE_CENTS = 2000
+FIRST_CAMPAIGN_PRICE_CENTS = 50000
+FIRST_CAMPAIGN_LETTERS = 25
+REPEAT_MIN_LETTERS = 1
+REPEAT_MAX_LETTERS = 100
+
+
+def prospect_quote(has_prior_purchase, letters=None):
+    """
+    Server-side quote for a prospect-letter purchase.
+    Returns dict: kind, letters, unit_cents, total_cents, label.
+    First campaign ignores `letters` — it is always the 25-letter bundle.
+    """
+    if not has_prior_purchase:
+        return {
+            "kind": "first_campaign",
+            "letters": FIRST_CAMPAIGN_LETTERS,
+            "unit_cents": FIRST_CAMPAIGN_PRICE_CENTS // FIRST_CAMPAIGN_LETTERS,
+            "total_cents": FIRST_CAMPAIGN_PRICE_CENTS,
+            "label": f"First Prospect Campaign — {FIRST_CAMPAIGN_LETTERS} letters",
+        }
+    try:
+        qty = int(letters or REPEAT_MIN_LETTERS)
+    except (TypeError, ValueError):
+        qty = REPEAT_MIN_LETTERS
+    qty = max(REPEAT_MIN_LETTERS, min(REPEAT_MAX_LETTERS, qty))
+    return {
+        "kind": "repeat",
+        "letters": qty,
+        "unit_cents": PROSPECT_LETTER_PRICE_CENTS,
+        "total_cents": PROSPECT_LETTER_PRICE_CENTS * qty,
+        "label": f"Prospect Letters — {qty} × ${PROSPECT_LETTER_PRICE_CENTS / 100:.0f}",
+    }

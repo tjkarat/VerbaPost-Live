@@ -126,6 +126,7 @@ from app.auth import router as auth_router          # noqa: E402
 from app.heirloom import router as heirloom_router  # noqa: E402
 from app.pages import router as pages_router        # noqa: E402
 from app.player import router as player_router      # noqa: E402
+from app.prospect import router as prospect_router  # noqa: E402
 from app.webhooks import router as webhooks_router  # noqa: E402
 
 app.include_router(auth_router)      # /login /signup /forgot /reset /auth/* /logout
@@ -134,6 +135,7 @@ app.include_router(advisor_router)   # /advisor dashboard + actions + checkout
 app.include_router(heirloom_router)  # /heirloom dashboard + /archive/{pid}
 app.include_router(pages_router)     # /legal /blog /blog/{slug}
 app.include_router(player_router)    # /play/{id}, /play/{id}/audio.mp3
+app.include_router(prospect_router)  # /a/{slug} advisor-branded prospect intake (acquisition path)
 app.include_router(webhooks_router)  # /webhooks/stripe, /webhooks/twilio/recording
 
 

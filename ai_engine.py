@@ -242,3 +242,89 @@ def fetch_recording_audio(partial_uri):
         logger.error(f"Audio Fetch Error: {e}")
         
     return None
+
+# ==========================================
+# 📞 PROSPECT ACQUISITION CALL (advisor-branded free letter)
+# ==========================================
+
+PROSPECT_CALL_TIMEOUT_SECONDS = 20   # stop ringing before most voicemails pick up
+PROSPECT_MAX_RECORD_SECONDS = 600
+
+
+def trigger_prospect_call(to_phone, prospect_name, advisor_name, firm_name,
+                          recipient_name, question_text=None):
+    """
+    Outbound call to a PROSPECT who asked (with express written consent) to
+    record a story for someone they named. Same Twilio plumbing as
+    trigger_outbound_call; different script — the prospect is the storyteller,
+    the call is a gift from the advisor, and recording is disclosed up front.
+    Returns (call_sid, None) or (None, error).
+    """
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    from_number = get_secret("twilio.from_number") or "+16156567667"
+
+    if not sid or not token:
+        logger.error("Twilio Credentials Missing")
+        return None, "Missing Credentials"
+
+    if not question_text:
+        question_text = (f"Tell {recipient_name} about a memory you hope they will "
+                         "carry with them for the rest of their life.")
+
+    # 🔒 XML-escape everything interpolated into TwiML (prospect-supplied
+    # names could otherwise inject <Dial> or <Redirect>).
+    safe_q = _xml_escape(question_text)
+    safe_prospect = _xml_escape((prospect_name or "").split(" ")[0] or "there")
+    safe_advisor = _xml_escape(advisor_name or "your financial advisor")
+    safe_firm = _xml_escape(firm_name or "")
+    safe_recipient = _xml_escape(recipient_name or "your loved one")
+    firm_clause = f" at {safe_firm}" if safe_firm else ""
+
+    callback_base = (get_secret("WEBHOOK_BASE_URL") or get_secret("BASE_URL")
+                     or "https://app.verbapost.com").rstrip("/")
+    recording_callback = f"{callback_base}/webhooks/twilio/recording"
+
+    twiml = f"""
+    <Response>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            Hello {safe_prospect}. This is the VerbaPost biographer, calling because you asked us to,
+            on behalf of {safe_advisor}{firm_clause}.
+        </Say>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            This call is being recorded, so that your story can be printed as a letter and mailed to {safe_recipient}.
+            If you would rather not continue, simply hang up now.
+        </Say>
+        <Pause length="1"/>
+        <Say voice="Polly.Joanna-Neural">
+            Here is your question: {safe_q}
+        </Say>
+        <Pause length="2"/>
+        <Say voice="Polly.Joanna-Neural">
+            Take a moment to think. Then speak after the beep. You have up to ten minutes.
+            When you are finished, press the pound key, or simply hang up.
+        </Say>
+        <Pause length="1"/>
+        <Record maxLength="{PROSPECT_MAX_RECORD_SECONDS}" finishOnKey="#" playBeep="true"
+                recordingStatusCallback="{recording_callback}" recordingStatusCallbackMethod="POST" />
+        <Say voice="Polly.Joanna-Neural">
+            Thank you. Your letter for {safe_recipient} will be printed and mailed, with the compliments of {safe_advisor}. Goodbye.
+        </Say>
+    </Response>
+    """
+
+    try:
+        from twilio.rest import Client
+        client = Client(sid, token)
+        call = client.calls.create(
+            twiml=twiml,
+            to=to_phone,
+            from_=from_number,
+            timeout=PROSPECT_CALL_TIMEOUT_SECONDS,
+        )
+        return call.sid, None
+    except Exception as e:
+        logger.error(f"Twilio Error (prospect): {e}")
+        return None, str(e)

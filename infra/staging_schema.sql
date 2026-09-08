@@ -105,3 +105,83 @@ CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);
 -- bucket named exactly:  heirloom-audio
 -- (Storage -> New bucket -> name: heirloom-audio -> Private)
 -- ============================================================
+
+-- ============================================================
+-- PROSPECT ACQUISITION PATH (advisor-branded free letter)
+-- database.py creates these via Base.metadata.create_all on first
+-- connection; this block keeps the SQL editor path in sync.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS advisor_pages (
+    id              serial PRIMARY KEY,
+    advisor_email   text UNIQUE NOT NULL,
+    slug            text UNIQUE NOT NULL,
+    display_name    text NOT NULL,
+    firm_name       text,
+    headline        text,
+    intro           text,
+    prompt          text,
+    photo_data      text,
+    photo_mime      text,
+    return_line1    text,
+    return_city     text,
+    return_state    text,
+    return_zip      text,
+    disclosure      text,
+    active          boolean DEFAULT true,
+    created_at      timestamp DEFAULT now(),
+    updated_at      timestamp DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS prospect_letters (
+    id                  serial PRIMARY KEY,
+    advisor_email       text NOT NULL,
+    page_id             integer REFERENCES advisor_pages(id),
+    prospect_name       text NOT NULL,
+    prospect_phone      text NOT NULL,
+    recipient_name      text NOT NULL,
+    recipient_line1     text NOT NULL,
+    recipient_city      text NOT NULL,
+    recipient_state     text NOT NULL,
+    recipient_zip       text NOT NULL,
+    consent_version     text,
+    consent_text        text,
+    consent_at          timestamp,
+    consent_ip          text,
+    consent_user_agent  text,
+    dnc_status          text,
+    dnc_provider        text,
+    dnc_checked_at      timestamp,
+    call_sid            text,
+    call_attempts       integer DEFAULT 0,
+    last_call_at        timestamp,
+    audio_url           text,
+    transcript_raw      text,
+    letter_text         text,
+    letter_version      text,
+    status              text DEFAULT 'consented',
+    queued_at           timestamp,
+    sent_at             timestamp,
+    created_at          timestamp DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS prospect_credit_ledger (
+    id             serial PRIMARY KEY,
+    advisor_email  text NOT NULL,
+    delta          integer NOT NULL,
+    reason         text,
+    reference      text,
+    created_at     timestamp DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS dnc_suppressions (
+    id          serial PRIMARY KEY,
+    phone       text UNIQUE NOT NULL,
+    reason      text,
+    added_by    text,
+    created_at  timestamp DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_prospect_letters_call_sid ON prospect_letters(call_sid);
+CREATE INDEX IF NOT EXISTS idx_prospect_letters_advisor ON prospect_letters(advisor_email, created_at);
+CREATE INDEX IF NOT EXISTS idx_prospect_ledger_advisor ON prospect_credit_ledger(advisor_email);

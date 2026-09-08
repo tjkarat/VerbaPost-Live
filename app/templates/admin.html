@@ -51,6 +51,19 @@
 
             <div class="q-content">{{ item.content[:600] }}{% if item.content|length > 600 %}…{% endif %}</div>
 
+            {% if item.kind == 'prospect' %}
+            <div class="addr-list">
+                <strong>Prospect gift letter — mail 1 copy:</strong>
+                <ol style="margin:6px 0 0 18px; padding:0;">
+                    <li>{{ item.meta.get('heir_name') }} — {{ item.meta.get('address', {}).get('line1') or 'NO ADDRESS' }},
+                        {{ item.meta.get('address', {}).get('city') or '' }} {{ item.meta.get('address', {}).get('state') or '' }} {{ item.meta.get('address', {}).get('zip') or '' }}
+                        &nbsp;<a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf">envelope</a></li>
+                </ol>
+                <div style="margin-top:6px;">Return address on envelope: <strong>{{ item.meta.get('advisor_name') }}</strong>{% if item.meta.get('firm_name') %}, {{ item.meta.get('firm_name') }}{% endif %}
+                    {% if not item.meta.get('return', {}).get('line1') %}<span style="color:#b91c1c;"> — advisor has NOT set a return address</span>{% endif %}</div>
+            </div>
+            {% endif %}
+
             {% if item.kind == 'heirloom' %}
             <div class="addr-list">
                 <strong>Mail {{ 1 + item.meta.get('recipients', [])|length }} cop{{ 'ies' if item.meta.get('recipients') else 'y' }}:</strong>
@@ -68,7 +81,7 @@
 
             <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
                 <a class="btn btn-outline btn-sm" href="/admin/letter/{{ item.kind }}/{{ item.id }}.pdf">Letter PDF</a>
-                {% if item.kind != 'heirloom' %}
+                {% if item.kind not in ('heirloom', 'prospect') %}
                 <a class="btn btn-outline btn-sm" href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf">Envelope PDF</a>
                 {% endif %}
             </div>
@@ -104,6 +117,22 @@
                 <input class="f" name="amount" type="number" value="1" min="1" required></div>
             <button class="btn btn-primary btn-sm" type="submit" style="margin-bottom:2px;">Grant</button>
         </form>
+    </div>
+
+    <div class="section card">
+        <h2>Prospect Campaigns</h2>
+        <p style="color:var(--slate); font-size:0.92rem;">Acquisition path. Grant letter credits for deals invoiced by hand
+        (a grant does not count as the advisor's first purchase), and export the house-wide send log for advertising records.</p>
+        <form method="post" action="/admin/prospect/grant" style="display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;">
+            <div style="flex:2; min-width:220px;"><label class="f">Advisor email</label>
+                <input class="f" name="email" type="email" required></div>
+            <div style="flex:1; min-width:100px;"><label class="f">Letters (+/-)</label>
+                <input class="f" name="amount" type="number" value="25" required></div>
+            <div style="flex:2; min-width:160px;"><label class="f">Note</label>
+                <input class="f" name="note" placeholder="Invoice #, pilot, refund…"></div>
+            <button class="btn btn-primary btn-sm" type="submit" style="margin-bottom:2px;">Grant</button>
+        </form>
+        <p style="margin-top:14px;"><a class="btn btn-outline btn-sm" href="/admin/prospect/export.csv">Export all advisors' send log (CSV)</a></p>
     </div>
 
     <div class="section card">

@@ -286,3 +286,38 @@ def send_admin_print_ready_alert(user_email, draft_id, content_preview, mailing_
     </div>
     """
     return send_email(admin_email, subject, html_content)
+# --- ADVISOR ALERT: PROSPECT LETTER QUEUED (acquisition path) ---
+def send_advisor_prospect_letter_alert(advisor_email, advisor_name, prospect_name,
+                                       recipient_name, letters_left=None):
+    """
+    Tells the advisor a prospect recorded a story on their branded page and
+    the letter is headed to print under the advisor's name. No dashboard —
+    this email (and the CSV export) is how they know.
+    """
+    advisor_name = _esc(advisor_name or "")
+    prospect_name = _esc(prospect_name or "")
+    recipient_name = _esc(recipient_name or "")
+    subject = f"New prospect letter: {prospect_name} recorded a story"
+    left_html = ""
+    if letters_left is not None:
+        try:
+            left_html = f"<p>Letters remaining in your campaign: <strong>{int(letters_left)}</strong>.</p>"
+            if int(letters_left) <= 0:
+                left_html += ("<p style='color:#b45309;'><strong>Your page is now closed to new "
+                              "requests.</strong> Buy more letters from your portal to reopen it.</p>")
+        except (TypeError, ValueError):
+            pass
+    html_content = f"""
+    <div style="font-family: sans-serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0;">
+        <h3 style="color: #166534;">A prospect just recorded a story</h3>
+        <p>Hello {advisor_name},</p>
+        <p><strong>{prospect_name}</strong> used your page to record a story for
+        <strong>{recipient_name}</strong>. The letter is being prepared and will be mailed
+        with your name on the envelope.</p>
+        {left_html}
+        <p>Full details are in your send log: <a href="https://app.verbapost.com/advisor/campaign/export.csv">download the CSV</a>.</p>
+        <hr>
+        <p style="font-size: 12px; color: #64748b;">VerbaPost Advisor Notifications</p>
+    </div>
+    """
+    return send_email(advisor_email, subject, html_content)

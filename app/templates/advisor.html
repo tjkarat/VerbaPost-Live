@@ -85,6 +85,90 @@
         </form>
     </div>
 
+    <div class="section card" id="campaign" style="border-left:5px solid #b45309;">
+        <h2>Prospect Campaign — your branded free-letter page</h2>
+        <p class="sub">
+            Replace the free-dinner seminar. Prospects visit <em>your</em> page, we call them, they record a
+            story for someone they love, and we mail it on linen paper with <strong>your name on the envelope</strong>.
+            First campaign: <strong>${{ first_campaign_price }} for {{ first_campaign_letters }} letters</strong>.
+            After that: <strong>${{ letter_price }} per letter</strong>.
+        </p>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:16px 20px;">
+            <div>
+                <div class="lbl">Letters remaining</div>
+                <div class="num" style="font-size:2rem; font-weight:700; line-height:1.1;">{{ campaign_balance }}</div>
+                {% if campaign_url %}
+                    <div style="margin-top:6px; font-size:0.92rem;">Your page:
+                        <a href="{{ campaign_url }}" target="_blank" rel="noopener"><strong>{{ campaign_url }}</strong></a>
+                        {% if not campaign.get('active', True) %}<span class="pill pill-locked" style="margin-left:6px;">Paused</span>{% endif %}
+                        {% if campaign_balance <= 0 %}<span class="pill pill-locked" style="margin-left:6px;">Closed (0 letters)</span>{% endif %}
+                    </div>
+                {% else %}
+                    <div style="margin-top:6px; color:var(--slate); font-size:0.9rem;">Set up your page below to get a link.</div>
+                {% endif %}
+            </div>
+            <div style="text-align:right;">
+                {% if not campaign_has_prior %}
+                    <a class="btn btn-primary btn-sm" href="/advisor/campaign/checkout">Start first campaign (${{ first_campaign_price }} · {{ first_campaign_letters }} letters)</a>
+                {% else %}
+                    <form method="get" action="/advisor/campaign/checkout" style="display:flex; gap:8px; align-items:center; justify-content:flex-end;">
+                        <input class="f" type="number" name="letters" value="25" min="1" max="{{ repeat_max }}" style="width:90px; padding:8px;">
+                        <button class="btn btn-primary btn-sm" type="submit">Buy letters (${{ letter_price }} each)</button>
+                    </form>
+                {% endif %}
+                <div style="margin-top:8px;">
+                    <a href="/advisor/campaign/export.csv" style="font-size:0.9rem; color:var(--slate);">Download send log (CSV)</a>
+                </div>
+            </div>
+        </div>
+
+        <details style="margin-top:18px;" {% if not campaign %}open{% endif %}>
+            <summary style="cursor:pointer; font-family:Helvetica,Arial,sans-serif; font-weight:600; font-size:0.95rem;">
+                {{ "Edit your page" if campaign else "Set up your page" }}
+            </summary>
+            <form method="post" action="/advisor/campaign/page" enctype="multipart/form-data" style="margin-top:8px;">
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0 18px;">
+                    <div>
+                        <label class="f" for="cslug">Page address</label>
+                        <div style="display:flex; align-items:center; gap:6px; font-size:0.9rem; color:var(--slate);">
+                            <span>app.verbapost.com/a/</span>
+                            <input class="f" id="cslug" name="slug" value="{{ campaign.get('slug') or default_slug }}" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]" required style="flex:1;">
+                        </div>
+                        <label class="f" for="cname">Your name (on the page and the envelope)</label>
+                        <input class="f" id="cname" name="display_name" value="{{ campaign.get('display_name') or advisor_name }}" required>
+                        <label class="f" for="cfirm">Firm</label>
+                        <input class="f" id="cfirm" name="firm_name" value="{{ campaign.get('firm_name') or firm_name }}">
+                        <label class="f" for="cphoto">Your photo (JPEG/PNG, under 2 MB)</label>
+                        <input class="f" id="cphoto" name="photo" type="file" accept="image/jpeg,image/png,image/webp">
+                        {% if campaign.get('photo_data') %}<div class="lbl" style="margin-top:4px;">Photo on file — upload to replace.</div>{% endif %}
+                    </div>
+                    <div>
+                        <label class="f">Return address (printed on the envelope)</label>
+                        <input class="f" name="return_line1" placeholder="Street" value="{{ campaign.get('return_line1') or '' }}">
+                        <div style="display:grid; grid-template-columns:2fr 1fr 1fr; gap:8px; margin-top:8px;">
+                            <input class="f" name="return_city" placeholder="City" value="{{ campaign.get('return_city') or '' }}">
+                            <input class="f" name="return_state" placeholder="ST" maxlength="2" value="{{ campaign.get('return_state') or '' }}">
+                            <input class="f" name="return_zip" placeholder="ZIP" value="{{ campaign.get('return_zip') or '' }}">
+                        </div>
+                        <label class="f" for="cdisc">Compliance footer (optional)</label>
+                        <input class="f" id="cdisc" name="disclosure" placeholder="Securities offered through …" value="{{ campaign.get('disclosure') or '' }}">
+                        <label class="f" style="display:flex; align-items:center; gap:8px; margin-top:18px;">
+                            <input type="checkbox" name="active" {% if campaign.get('active', True) %}checked{% endif %}> Page is live
+                        </label>
+                    </div>
+                </div>
+                <label class="f" for="chead">Headline (optional)</label>
+                <input class="f" id="chead" name="headline" placeholder="Tell someone you love a story they'll keep forever." value="{{ campaign.get('headline') or '' }}">
+                <label class="f" for="cintro">Intro (optional)</label>
+                <textarea class="f" id="cintro" name="intro" rows="2" style="width:100%; padding:11px; border:1px solid var(--line); border-radius:8px; font-family:inherit; font-size:1rem;">{{ campaign.get('intro') or '' }}</textarea>
+                <label class="f" for="cprompt">The question our biographer asks (optional)</label>
+                <input class="f" id="cprompt" name="prompt" placeholder="Tell them about a memory you hope they'll carry for the rest of their life." value="{{ campaign.get('prompt') or '' }}">
+                <button class="btn btn-primary" type="submit" style="margin-top:16px;">Save page</button>
+            </form>
+        </details>
+    </div>
+
     <div class="section">
         <h2>Client Roster</h2>
         <p class="sub">Everyone you've sponsored. Use Resend if a client missed their welcome email.</p>

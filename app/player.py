@@ -34,6 +34,22 @@ DEMO = {
 def _load_story(audio_id: str):
     if audio_id in ("demo", "sample"):
         return dict(DEMO)
+    # Prospect letters carry a "p" prefix on the QR code (/play/p123).
+    # Their audio is always playable — the recipient hearing the prospect's
+    # voice IS the gift; there is no advisor release gate on this path.
+    if audio_id.startswith("p") and audio_id[1:].isdigit():
+        letter = database.get_prospect_letter(audio_id[1:])
+        if letter and letter.get("audio_url") and letter.get("status") in ("Approved", "Sent"):
+            created = letter.get("created_at")
+            return {
+                "id": audio_id,
+                "url": letter["audio_url"],
+                "title": f"A story from {letter.get('prospect_name') or 'a friend'}",
+                "date": created.strftime("%B %d, %Y") if hasattr(created, "strftime") else "",
+                "storyteller": letter.get("prospect_name") or "Storyteller",
+                "released": True,
+            }
+        return None
     data = database.get_public_draft(audio_id)
     if data and data.get("url"):
         return data
