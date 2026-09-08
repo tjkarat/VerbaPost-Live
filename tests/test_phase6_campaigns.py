@@ -284,7 +284,155 @@ def test_send_campaign_refuses_without_a_page():
     assert upd.call_args.kwargs["status"] == "failed"
 
 
-def test_mailer_send_invitation_posts_expected_postgrid_fields():
+def test_provider_selection_prefers_pcm_when_configured(monkeypatch):
+    import mailer
+    monkeypatch.delenv("MAIL_PROVIDER", raising=False)
+    monkeypatch.setenv("PCM_API_KEY", "pcm_live_x")
+    assert mailer.get_mail_provider() == "pcm"
+    monkeypatch.delenv("PCM_API_KEY", raising=False)
+    assert mailer.get_mail_provider() == "postgrid"
+    monkeypatch.setenv("MAIL_PROVIDER", "postgrid")
+    monkeypatch.setenv("PCM_API_KEY", "pcm_live_x")
+    assert mailer.get_mail_provider() == "postgrid"      # explicit wins
+
+
+def _pcm_login_response():
+    from datetime import datetime, timedelta, timezone
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {
+        "token": "jwt.test.token",
+        "expires": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
+    }
+    return resp
+
+
+def test_pcm_send_logs_in_then_posts_bearer_json_to_order_letter(monkeypatch):
+    import mailer
+    mailer._pcm_token_cache.update({"token": None, "expires": None})
+    monkeypatch.setenv("MAIL_PROVIDER", "pcm")
+    monkeypatch.setenv("PCM_API_KEY", "pcm_key_x")
+    monkeypatch.setenv("PCM_API_SECRET", "pcm_secret_x")
+    monkeypatch.setenv("PCM_BASE_URL", "https://v3.pcmintegrations.com")
+    login_resp = _pcm_login_response()
+    order_resp = MagicMock(status_code=201)
+    order_resp.json.return_value = {"batchID": 23866, "orderID": 12814530, "extRefNbr": "invite:11"}
+    with patch("mailer.requests.post", side_effect=[login_resp, order_resp]) as post:
+        pcm_id, err = mailer.send_invitation_letter(
+            b"%PDF-x", {"name": "Margaret Wilson", "line1": "12 Oak St", "city": "Franklin",
+                        "state": "TN", "zip": "37064"},
+            {"name": "Ada Advisor", "company": "Ada Wealth", "line1": "9 Money Ln",
+             "city": "Nashville", "state": "TN", "zip": "37203"},
+            description="test", idempotency_key="invite:11",
+            pdf_url="https://app.verbapost.com/a/ada/i/tok123/pdf")
+    assert err is None and pcm_id == "12814530"          # orderID, not batchID
+    assert post.call_args_list[0][0][0] == "https://v3.pcmintegrations.com/auth/login"
+    assert post.call_args_list[0].kwargs["json"] == {"apiKey": "pcm_key_x", "apiSecret": "pcm_secret_x"}
+    assert post.call_args_list[1][0][0] == "https://v3.pcmintegrations.com/order/letter"
+    headers = post.call_args_list[1].kwargs["headers"]
+    assert headers["Authorization"] == "Bearer jwt.test.token"
+    assert headers["Content-Type"] == "application/json"
+    body = post.call_args_list[1].kwargs["json"]
+    assert body["extRefNbr"] == "invite:11"              # our join key on webhooks
+    assert body["letter"] == "https://app.verbapost.com/a/ada/i/tok123/pdf"
+    assert len(body["recipients"]) == 1
+    assert body["recipients"][0]["firstName"] == "Margaret"
+    assert body["recipients"][0]["zipCode"] == "37064"
+    assert body["recipients"][0]["extRefNbr"] == "invite:11"
+    assert body["insertAddressingPage"] is True
+    assert body["envelope"] == {"type": "fullWindow"}
+    assert body["returnAddress"]["city"] == "Nashville"
+    for req_field in ("mailClass", "recipients", "letterStock", "color",
+                      "printOnBothSides", "insertAddressingPage", "envelope"):
+        assert req_field in body                          # required by PCM's LetterOrderRequest
+
+
+def test_pcm_reuses_cached_token_across_sends(monkeypatch):
+    import mailer
+    mailer._pcm_token_cache.update({"token": None, "expires": None})
+    monkeypatch.setenv("MAIL_PROVIDER", "pcm")
+    monkeypatch.setenv("PCM_API_KEY", "pcm_key_x")
+    monkeypatch.setenv("PCM_API_SECRET", "pcm_secret_x")
+    login_resp = _pcm_login_response()
+    order_resp = MagicMock(status_code=201)
+    order_resp.json.return_value = {"orderID": 1, "extRefNbr": "invite:1"}
+    with patch("mailer.requests.post", side_effect=[login_resp, order_resp, order_resp]) as post:
+        mailer.send_invitation_letter(b"x", {"name": "A", "line1": "1 St", "city": "C",
+                                             "state": "TN", "zip": "37203"}, {},
+                                      "d", "invite:1", pdf_url="https://x/1.pdf")
+        mailer.send_invitation_letter(b"x", {"name": "A", "line1": "1 St", "city": "C",
+                                             "state": "TN", "zip": "37203"}, {},
+                                      "d", "invite:2", pdf_url="https://x/2.pdf")
+    # Only ONE /auth/login call for two orders: the cached JWT is reused.
+    assert post.call_count == 3
+    assert post.call_args_list[0][0][0].endswith("/auth/login")
+    assert post.call_args_list[1][0][0].endswith("/order/letter")
+    assert post.call_args_list[2][0][0].endswith("/order/letter")
+
+
+def test_pcm_errors_surface_and_cost_nothing(monkeypatch):
+    import mailer
+    mailer._pcm_token_cache.update({"token": None, "expires": None})
+    monkeypatch.setenv("MAIL_PROVIDER", "pcm")
+    monkeypatch.setenv("PCM_API_KEY", "pcm_key_x")
+    monkeypatch.setenv("PCM_API_SECRET", "pcm_secret_x")
+    login_resp = _pcm_login_response()
+    bad_resp = MagicMock(status_code=422, text='{"error":{"message":"address failed verification"}}')
+    with patch("mailer.requests.post", side_effect=[login_resp, bad_resp]):
+        pcm_id, err = mailer.send_invitation_letter(b"x", {}, {}, "d", "invite:1",
+                                                     pdf_url="https://x/1.pdf")
+    assert pcm_id is None and "verification" in err
+
+    # Token is already cached from the call above, so no second /auth/login.
+    dup_resp = MagicMock(status_code=409, text='{"error":{"message":"duplicate extRefNbr"}}')
+    with patch("mailer.requests.post", return_value=dup_resp):
+        pcm_id, err = mailer.send_invitation_letter(b"x", {}, {}, "d", "invite:1",
+                                                     pdf_url="https://x/1.pdf")
+    assert pcm_id is None and "duplicate" in err.lower()
+
+    # Clearing the cached token simulates a fresh process with no key/secret.
+    mailer._pcm_token_cache.update({"token": None, "expires": None})
+    monkeypatch.delenv("PCM_API_SECRET", raising=False)
+    pcm_id, err = mailer.send_invitation_letter(b"x", {}, {}, "d", "invite:1",
+                                                 pdf_url="https://x/1.pdf")
+    assert pcm_id is None and "PCM_API_KEY" in err
+
+    monkeypatch.setenv("PCM_API_SECRET", "pcm_secret_x")
+    pcm_id, err = mailer.send_invitation_letter(b"x", {}, {}, "d", "invite:1", pdf_url=None)
+    assert pcm_id is None and "URL" in err               # PCM needs a fetchable URL, not bytes
+
+
+def test_pcm_test_mode_follows_explicit_environment_flag(monkeypatch):
+    # PCM gives no API signal for Sandbox vs Production (it's a property of
+    # which apiKey/apiSecret pair you used), so this is operator-set.
+    import mailer
+    monkeypatch.setenv("MAIL_PROVIDER", "pcm")
+    monkeypatch.setenv("PCM_API_KEY", "k")
+    monkeypatch.setenv("PCM_API_SECRET", "s")
+    monkeypatch.setenv("PCM_ENVIRONMENT", "sandbox")
+    assert mailer.is_test_mode()
+    monkeypatch.setenv("PCM_ENVIRONMENT", "production")
+    assert not mailer.is_test_mode()
+    monkeypatch.delenv("PCM_ENVIRONMENT", raising=False)
+    assert not mailer.is_test_mode()                     # default: assume real mail
+
+
+def test_pcm_probe_places_one_live_test_order(monkeypatch):
+    import mailer
+    mailer._pcm_token_cache.update({"token": None, "expires": None})
+    monkeypatch.setenv("PCM_API_KEY", "k")
+    monkeypatch.setenv("PCM_API_SECRET", "s")
+    login_resp = _pcm_login_response()
+    order_resp = MagicMock(status_code=201)
+    order_resp.json.return_value = {"orderID": 99, "extRefNbr": "probe:1"}
+    with patch("mailer.requests.post", side_effect=[login_resp, order_resp]):
+        out = mailer.pcm_probe("https://app.verbapost.com/admin/pcm/probe.pdf",
+                               {"name": "A"}, {"name": "B"})
+    assert out["ok"] is True and out["status"] == 201
+    assert out["sent_payload"]["letter"] == "https://app.verbapost.com/admin/pcm/probe.pdf"
+
+
+def test_mailer_send_invitation_posts_expected_postgrid_fields(monkeypatch):
+    monkeypatch.setenv("MAIL_PROVIDER", "postgrid")
     import mailer
     resp = MagicMock(status_code=201)
     resp.json.return_value = {"id": "letter_abc"}
@@ -304,8 +452,9 @@ def test_mailer_send_invitation_posts_expected_postgrid_fields():
     assert post.call_args.kwargs["headers"]["Idempotency-Key"] == "invite:11"
 
 
-def test_mailer_reports_error_text_instead_of_raising():
+def test_mailer_reports_error_text_instead_of_raising(monkeypatch):
     import mailer
+    monkeypatch.setenv("MAIL_PROVIDER", "postgrid")
     resp = MagicMock(status_code=422, text='{"error": {"message": "invalid address"}}')
     resp.json.return_value = {"error": {"message": "invalid address"}}
     with patch("mailer.get_api_key", return_value="live_sk_x"), \
@@ -317,8 +466,9 @@ def test_mailer_reports_error_text_instead_of_raising():
     assert pg_id is None and "POSTGRID_API_KEY" in err
 
 
-def test_mailer_test_mode_detection():
+def test_mailer_test_mode_detection(monkeypatch):
     import mailer
+    monkeypatch.setenv("MAIL_PROVIDER", "postgrid")
     with patch("mailer.get_api_key", return_value="test_sk_123"):
         assert mailer.is_test_mode()
     with patch("mailer.get_api_key", return_value="live_sk_123"):
@@ -556,6 +706,27 @@ def test_intake_ignores_a_token_belonging_to_another_advisor():
         _client().post("/a/ada", data=form, follow_redirects=False)
     assert create.call_args.kwargs["invitation_id"] is None
     responded.assert_not_called()
+
+
+def test_invitation_pdf_route_serves_pcm_the_actual_artwork():
+    """This is the URL mailer.py hands PCM as `letter` — PCM's mail API
+    fetches artwork by URL, unauthenticated, so this route must serve the
+    real PDF with no login required."""
+    with patch("app.prospect.database.get_invitation_by_token", return_value=dict(INVITE_ROW)), \
+         patch("app.prospect.database.get_advisor_page_by_slug", return_value=dict(PAGE)):
+        r = _client().get("/a/ada/i/Tok1/pdf")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content.startswith(b"%PDF")
+
+
+def test_invitation_pdf_route_404s_on_bad_or_foreign_token():
+    with patch("app.prospect.database.get_invitation_by_token", return_value=None):
+        assert _client().get("/a/ada/i/nope/pdf").status_code == 404
+    foreign = dict(INVITE_ROW, advisor_email="someone@else.com")
+    with patch("app.prospect.database.get_invitation_by_token", return_value=foreign), \
+         patch("app.prospect.database.get_advisor_page_by_slug", return_value=dict(PAGE)):
+        assert _client().get("/a/ada/i/Tok1/pdf").status_code == 404
 
 
 # ============================================================

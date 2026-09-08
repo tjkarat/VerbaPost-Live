@@ -234,3 +234,6 @@ CREATE INDEX IF NOT EXISTS idx_prospect_campaigns_advisor ON prospect_campaigns(
 
 ALTER TABLE prospect_campaigns   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE campaign_invitations ENABLE ROW LEVEL SECURITY;
+
+-- Mail provider columns are reused as-is: campaign_invitations.postgrid_id
+-- holds whichever provider's id came back (PCM orderID, or PostGrid letter id).

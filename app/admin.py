@@ -28,7 +28,9 @@ import ai_engine
 import audit_engine
 import database
 import envelope_format
+import invitation_format
 import letter_format
+import mailer
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin")
@@ -361,6 +363,43 @@ def prospect_export_all(request: Request):
         return _deny()
     from app.advisor import prospect_csv
     return prospect_csv(database.list_prospect_letters(), filename="verbapost_prospect_send_log.csv")
+
+
+@router.get("/pcm/probe.pdf")
+def pcm_probe_pdf():
+    """The artwork the probe order below points PCM at. Unauthenticated on
+    purpose, same reasoning as /a/{slug}/i/{token}/pdf: PCM's mail API fetches
+    artwork by URL, it has no way to send our admin session cookie, and this
+    is a fixed, harmless test letter — never real prospect data."""
+    pdf = invitation_format.create_invitation_pdf(
+        first_name="Probe", personal_url="https://app.verbapost.com/a/probe/i/PROBE",
+        advisor_name="VerbaPost Probe", firm_name="VerbaPost")
+    if not pdf:
+        return Response(status_code=500)
+    return Response(content=pdf, media_type="application/pdf")
+
+
+@router.get("/pcm/probe")
+def pcm_probe(request: Request):
+    """Places ONE real PCM letter order addressed to VerbaPost itself, so a
+    credentials/connectivity problem surfaces before a real advisor mailing
+    does. The request schema is confirmed from PCM's own OpenAPI spec (see
+    mailer.py); this is not schema discovery, it is a live smoke test — so
+    run it against a Sandbox apiKey/apiSecret pair first, never straight
+    against Production."""
+    if not _require_admin(request):
+        return _deny()
+    base_url = os.environ.get("BASE_URL", "https://app.verbapost.com").rstrip("/")
+    result = mailer.pcm_probe(
+        f"{base_url}/admin/pcm/probe.pdf",
+        {"name": "Probe Recipient", "line1": "123 Test St", "city": "Nashville",
+         "state": "TN", "zip": "37203"},
+        {"name": "VerbaPost", "company": "VerbaPost Inc.", "line1": "123 Test St",
+         "city": "Nashville", "state": "TN", "zip": "37203"})
+    audit_engine.log_event(request.session.get("email", "admin"), "PCM Probe",
+                           metadata={"status": result.get("status"), "ok": result.get("ok")})
+    import json as _json
+    return Response(content=_json.dumps(result, indent=2), media_type="application/json")
 
 
 @router.get("/orphan-audio")

@@ -1,12 +1,16 @@
 """
 Invitation letter — the direct-mail piece that replaces the free-dinner
-seminar invite. One page, mailed through PostGrid to every name on the
-advisor's uploaded list. Each copy carries that person's OWN link and QR
-(/a/{slug}/i/{token}) so the response can be attributed to the mailing.
+seminar invite. One page, mailed to every name on the advisor's uploaded
+list. Each copy carries that person's OWN link and QR (/a/{slug}/i/{token})
+so the response can be attributed to the mailing.
 
-Layout follows the PostGrid #10 double-window rule in AI_RULES.md: PostGrid
-overlays the recipient/return address on the top of page one, so all of our
-content starts at y = 115mm.
+ADDRESS PLACEMENT: the top 115mm of page one is left deliberately blank so
+PostGrid can overlay the recipient and return address for a #10 double-window
+envelope (the PostGrid rule in AI_RULES.md). PCM does not need this: its
+`insertAddressingPage`/`envelope.type=fullWindow` options make PCM generate
+and insert its own address page ahead of this artwork, so on a PCM send the
+blank zone is simply unused space at the top of the letter, not a problem to
+fix.
 """
 
 import logging
