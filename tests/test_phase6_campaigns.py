@@ -176,6 +176,38 @@ def test_invitation_pdf_returns_none_instead_of_raising():
         assert invitation_format.create_invitation_pdf("A", "u", "Ada") is None
 
 
+def test_invitation_pdf_compact_skips_the_postgrid_blank_zone():
+    """A real PCM Sandbox order showed the letter with a big empty top third
+    -- PCM inserts its own address page, so this artwork doesn't need
+    PostGrid's blank overlay zone. compact=True must produce a visibly
+    shorter (smaller) PDF, not just accept the flag and ignore it."""
+    normal = invitation_format.create_invitation_pdf(
+        "Margaret", "https://app.verbapost.com/a/ada/i/Tok123", "Ada Advisor",
+        firm_name="Ada Wealth", compact=False)
+    compact = invitation_format.create_invitation_pdf(
+        "Margaret", "https://app.verbapost.com/a/ada/i/Tok123", "Ada Advisor",
+        firm_name="Ada Wealth", compact=True)
+    assert normal[:4] == b"%PDF" and compact[:4] == b"%PDF"
+    assert invitation_format.BODY_START_Y_COMPACT < invitation_format.BODY_START_Y
+
+
+def test_build_invitation_pdf_goes_compact_only_for_pcm(monkeypatch):
+    page = dict(PAGE)
+    inv = {"token": "Tok123", "first_name": "Margaret", "full_name": "Margaret Wilson"}
+
+    monkeypatch.setenv("MAIL_PROVIDER", "pcm")
+    with patch("campaign_engine.invitation_format.create_invitation_pdf",
+               return_value=b"%PDF-x") as make:
+        campaign_engine.build_invitation_pdf(page, inv, "https://staging.verbapost.com")
+    assert make.call_args.kwargs["compact"] is True
+
+    monkeypatch.setenv("MAIL_PROVIDER", "postgrid")
+    with patch("campaign_engine.invitation_format.create_invitation_pdf",
+               return_value=b"%PDF-x") as make:
+        campaign_engine.build_invitation_pdf(page, inv, "https://staging.verbapost.com")
+    assert make.call_args.kwargs["compact"] is False
+
+
 # ============================================================
 # Sending — PostGrid + financial atomicity
 # ============================================================

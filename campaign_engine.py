@@ -159,11 +159,15 @@ def personal_url(base_url, slug, token):
 
 
 def build_invitation_pdf(page, invitation, base_url):
+    # PCM inserts its own address page ahead of this artwork; PostGrid
+    # overlays the address onto this artwork's blank top zone instead. Only
+    # one of those needs the blank zone -- see invitation_format.py.
     return invitation_format.create_invitation_pdf(
         first_name=invitation.get("first_name") or invitation.get("full_name"),
         personal_url=personal_url(base_url, page["slug"], invitation["token"]),
         advisor_name=page.get("display_name"), firm_name=page.get("firm_name"),
-        body=page.get("invite_body"), disclosure=page.get("disclosure"))
+        body=page.get("invite_body"), disclosure=page.get("disclosure"),
+        compact=(mailer.get_mail_provider() == "pcm"))
 
 
 def send_campaign(campaign_id, base_url):

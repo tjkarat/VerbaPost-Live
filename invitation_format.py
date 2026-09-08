@@ -4,13 +4,16 @@ seminar invite. One page, mailed to every name on the advisor's uploaded
 list. Each copy carries that person's OWN link and QR (/a/{slug}/i/{token})
 so the response can be attributed to the mailing.
 
-ADDRESS PLACEMENT: the top 115mm of page one is left deliberately blank so
-PostGrid can overlay the recipient and return address for a #10 double-window
-envelope (the PostGrid rule in AI_RULES.md). PCM does not need this: its
-`insertAddressingPage`/`envelope.type=fullWindow` options make PCM generate
-and insert its own address page ahead of this artwork, so on a PCM send the
-blank zone is simply unused space at the top of the letter, not a problem to
-fix.
+ADDRESS PLACEMENT: PostGrid overlays the recipient/return address onto the
+top of page one for a #10 double-window envelope (the PostGrid rule in
+AI_RULES.md), so a PostGrid send needs BODY_START_Y left blank. PCM instead
+generates and inserts its OWN address page ahead of this artwork
+(insertAddressingPage + envelope.type=fullWindow), so a PCM send should NOT
+reserve that blank zone -- confirmed against a real Sandbox order, where the
+reserved space just left an empty top half of the letter with nothing to
+show through it. create_invitation_pdf(compact=True) starts the letterhead
+near the top of the page instead; campaign_engine picks it automatically
+based on which mail provider is active.
 """
 
 import logging
@@ -27,6 +30,8 @@ PAGE_W = 215.9
 PAGE_H = 279.4
 MARGIN = 25.4            # 1 inch
 BODY_START_Y = 115.0     # PostGrid address safe zone (see AI_RULES.md)
+BODY_START_Y_COMPACT = 20.0  # PCM: it inserts its own address page, so this
+                             # page can start near the top (still below MARGIN)
 
 DEFAULT_INVITE_BODY = (
     "I'd like to give you something that has nothing to do with money.\n\n"
@@ -66,10 +71,15 @@ def _load_serif(pdf):
 
 
 def create_invitation_pdf(first_name, personal_url, advisor_name, firm_name=None,
-                          body=None, disclosure=None, date=None):
+                          body=None, disclosure=None, date=None, compact=False):
     """
     Returns PDF bytes for one invitation. Never raises: on failure returns
     None so the caller marks the row failed instead of mailing garbage.
+
+    compact: True when the mail provider inserts its own address page (PCM)
+    so this page shouldn't waste its top third on a blank overlay zone meant
+    for a provider (PostGrid) that prints the address onto this artwork
+    directly. campaign_engine sets this from mailer.get_mail_provider().
     """
     try:
         pdf = FPDF(orientation="P", unit="mm", format="Letter")
@@ -78,9 +88,11 @@ def create_invitation_pdf(first_name, personal_url, advisor_name, firm_name=None
         pdf.add_page()
         serif = _load_serif(pdf)
         width = PAGE_W - 2 * MARGIN
+        body_start_y = BODY_START_Y_COMPACT if compact else BODY_START_Y
 
-        # --- letterhead (sits below the PostGrid address zone) ---
-        pdf.set_xy(MARGIN, BODY_START_Y)
+        # --- letterhead (sits below the address zone on a PostGrid send;
+        # near the top on a PCM send, which handles addressing separately) ---
+        pdf.set_xy(MARGIN, body_start_y)
         pdf.set_font("Helvetica", "B", 13)
         pdf.cell(width, 6, _sanitize(advisor_name or "Your Advisor"), ln=1)
         if firm_name:

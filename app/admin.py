@@ -373,7 +373,8 @@ def pcm_probe_pdf():
     is a fixed, harmless test letter — never real prospect data."""
     pdf = invitation_format.create_invitation_pdf(
         first_name="Probe", personal_url="https://app.verbapost.com/a/probe/i/PROBE",
-        advisor_name="VerbaPost Probe", firm_name="VerbaPost")
+        advisor_name="VerbaPost Probe", firm_name="VerbaPost",
+        compact=(mailer.get_mail_provider() == "pcm"))
     if not pdf:
         return Response(status_code=500)
     return Response(content=pdf, media_type="application/pdf")
