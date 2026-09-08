@@ -16,6 +16,10 @@
         .fine button { background:none; border:none; color:#94a3b8; text-decoration:underline; cursor:pointer; font:inherit; padding:0; }
 {% endblock %}
 
+{% block analytics %}
+        gtag('event', 'prospect_call_status', { 'advisor_slug': '{{ slug }}', 'status': '{{ letter.status }}' });
+{% endblock %}
+
 {% block header %}
     <div class="adv-head">
         <div class="who">

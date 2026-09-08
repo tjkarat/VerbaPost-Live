@@ -24,6 +24,9 @@
         function gtag(){dataLayer.push(arguments);}
         gtag('js', new Date());
         gtag('config', '{{ GA_ID }}', { 'anonymize_ip': true });
+        {# Per-page funnel events. Rendered only when GA_ID is set, so
+           templates can call gtag() here without guarding for its absence. #}
+        {% block analytics %}{% endblock %}
     </script>
     {% endif %}
     <style>
