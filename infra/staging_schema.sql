@@ -185,3 +185,52 @@ CREATE TABLE IF NOT EXISTS dnc_suppressions (
 CREATE INDEX IF NOT EXISTS idx_prospect_letters_call_sid ON prospect_letters(call_sid);
 CREATE INDEX IF NOT EXISTS idx_prospect_letters_advisor ON prospect_letters(advisor_email, created_at);
 CREATE INDEX IF NOT EXISTS idx_prospect_ledger_advisor ON prospect_credit_ledger(advisor_email);
+
+-- ============================================================
+-- INVITATION CAMPAIGNS (uploaded mailing list -> PostGrid)
+-- ============================================================
+
+ALTER TABLE advisor_pages    ADD COLUMN IF NOT EXISTS invite_body text;
+ALTER TABLE prospect_letters ADD COLUMN IF NOT EXISTS invitation_id integer;
+
+CREATE TABLE IF NOT EXISTS prospect_campaigns (
+    id             serial PRIMARY KEY,
+    advisor_email  text NOT NULL,
+    page_id        integer REFERENCES advisor_pages(id),
+    name           text,
+    status         text DEFAULT 'draft',
+    total_rows     integer DEFAULT 0,
+    sent_count     integer DEFAULT 0,
+    failed_count   integer DEFAULT 0,
+    created_at     timestamp DEFAULT now(),
+    sent_at        timestamp
+);
+
+CREATE TABLE IF NOT EXISTS campaign_invitations (
+    id                  serial PRIMARY KEY,
+    campaign_id         integer NOT NULL REFERENCES prospect_campaigns(id),
+    advisor_email       text NOT NULL,
+    token               text UNIQUE NOT NULL,
+    full_name           text NOT NULL,
+    first_name          text,
+    line1               text NOT NULL,
+    line2               text,
+    city                text NOT NULL,
+    state               text NOT NULL,
+    zip_code            text NOT NULL,
+    status              text DEFAULT 'pending',
+    skip_reason         text,
+    postgrid_id         text,
+    error               text,
+    sent_at             timestamp,
+    responded_letter_id integer,
+    responded_at        timestamp,
+    created_at          timestamp DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_invitations_campaign ON campaign_invitations(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_invitations_advisor ON campaign_invitations(advisor_email, status);
+CREATE INDEX IF NOT EXISTS idx_prospect_campaigns_advisor ON prospect_campaigns(advisor_email, created_at);
+
+ALTER TABLE prospect_campaigns   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE campaign_invitations ENABLE ROW LEVEL SECURITY;

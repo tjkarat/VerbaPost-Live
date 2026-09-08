@@ -233,6 +233,7 @@ class AdvisorPage(Base):
     return_state = Column(String)
     return_zip = Column(String)
     disclosure = Column(Text)             # advisor's compliance footer (e.g. "Securities offered through…")
+    invite_body = Column(Text)            # invitation letter body (mailed to the uploaded list)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -276,6 +277,49 @@ class ProspectLetter(Base):
     status = Column(String, default='consented')
     queued_at = Column(DateTime)
     sent_at = Column(DateTime)
+    invitation_id = Column(Integer)      # set when the prospect arrived via a mailed invitation's personal link
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class ProspectCampaign(Base):
+    """One uploaded mailing list = one campaign. Invitations are the billable
+    unit: every invitation mailed consumes one ledger credit."""
+    __tablename__ = 'prospect_campaigns'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    advisor_email = Column(String, nullable=False)
+    page_id = Column(Integer, ForeignKey('advisor_pages.id'))
+    name = Column(String)
+    status = Column(String, default='draft')     # draft | sending | sent | partial
+    total_rows = Column(Integer, default=0)
+    sent_count = Column(Integer, default=0)
+    failed_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    sent_at = Column(DateTime)
+
+
+class CampaignInvitation(Base):
+    """One row of the uploaded list. `token` is the personal link/QR printed
+    on that person's invitation (/a/{slug}/i/{token}); when they respond,
+    responded_letter_id ties the mailing to the story letter it produced."""
+    __tablename__ = 'campaign_invitations'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    campaign_id = Column(Integer, ForeignKey('prospect_campaigns.id'), nullable=False)
+    advisor_email = Column(String, nullable=False)
+    token = Column(String, unique=True, nullable=False)
+    full_name = Column(String, nullable=False)
+    first_name = Column(String)
+    line1 = Column(String, nullable=False)
+    line2 = Column(String)
+    city = Column(String, nullable=False)
+    state = Column(String, nullable=False)
+    zip_code = Column(String, nullable=False)
+    status = Column(String, default='pending')   # pending | sent | failed | skipped
+    skip_reason = Column(String)
+    postgrid_id = Column(String)
+    error = Column(Text)
+    sent_at = Column(DateTime)
+    responded_letter_id = Column(Integer)
+    responded_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -861,8 +905,32 @@ def prospect_open_reservations(advisor_email):
         return 0
 
 
+def prospect_story_allowance(advisor_email):
+    """Every invitation the advisor has bought (or been granted) includes ONE
+    story letter. Allowance = all positive ledger entries - story letters
+    already produced - intakes still in flight. This is what gates the
+    landing page, so a link shared on social media can't run up unlimited
+    Twilio + linen costs on a $500 campaign."""
+    email = advisor_email.strip().lower()
+    try:
+        with get_db_session() as session:
+            bought = session.query(_sa_func.coalesce(_sa_func.sum(ProspectCreditLedger.delta), 0)) \
+                .filter(ProspectCreditLedger.advisor_email == email,
+                        ProspectCreditLedger.delta > 0).scalar() or 0
+            produced = session.query(ProspectLetter).filter(
+                ProspectLetter.advisor_email == email,
+                ProspectLetter.status.in_(("recorded", "Approved", "Sent"))).count()
+        return int(bought) - int(produced) - prospect_open_reservations(email)
+    except Exception as e:
+        logger.error(f"Story allowance failed: {e}")
+        return 0
+
+
 def prospect_letters_available(advisor_email):
-    return prospect_credit_balance(advisor_email) - prospect_open_reservations(advisor_email)
+    """Landing-page gate (name kept for the router). Story letters are
+    included with invitations, so this is the story allowance, not the
+    invitation balance."""
+    return prospect_story_allowance(advisor_email)
 
 
 # --- the send log ---
@@ -974,4 +1042,152 @@ def add_dnc_suppression(phone_e164, reason="opt-out", added_by="system"):
             return True
     except Exception as e:
         logger.error(f"DNC add failed: {e}")
+        return False
+
+
+# ==========================================
+# 🆕 INVITATION CAMPAIGNS (uploaded mailing list -> PostGrid)
+# ==========================================
+
+import secrets as _secrets
+
+
+def _invite_token():
+    """URL-safe, but never starting with '-' or '_': a leading dash makes the
+    token look like a formula to Excel (the CSV export escapes it) and reads
+    badly when a prospect types the link off the printed letter."""
+    while True:
+        t = _secrets.token_urlsafe(8)
+        if t[0].isalnum():
+            return t
+
+
+def create_campaign(advisor_email, page_id, name, rows):
+    """rows: list of dicts {full_name, first_name, line1, line2, city, state, zip_code}.
+    Every row gets a unique personal token. Returns campaign id or None."""
+    advisor_email = advisor_email.strip().lower()
+    try:
+        with get_db_session() as session:
+            camp = ProspectCampaign(advisor_email=advisor_email, page_id=page_id, name=name,
+                                    status="draft", total_rows=len(rows))
+            session.add(camp)
+            session.flush()
+            for r in rows:
+                session.add(CampaignInvitation(
+                    campaign_id=camp.id, advisor_email=advisor_email,
+                    token=_invite_token(),
+                    full_name=r["full_name"], first_name=r.get("first_name"),
+                    line1=r["line1"], line2=r.get("line2"), city=r["city"],
+                    state=r["state"], zip_code=r["zip_code"], status="pending"))
+            session.flush()
+            return camp.id
+    except Exception as e:
+        logger.error(f"Create campaign failed: {e}")
+        return None
+
+
+def get_campaign(campaign_id, advisor_email=None):
+    try:
+        with get_db_session() as session:
+            q = session.query(ProspectCampaign).filter_by(id=int(campaign_id))
+            if advisor_email:
+                q = q.filter_by(advisor_email=advisor_email.strip().lower())
+            row = q.first()
+            return to_dict(row) if row else None
+    except Exception:
+        return None
+
+
+def list_campaigns(advisor_email):
+    try:
+        with get_db_session() as session:
+            rows = session.query(ProspectCampaign).filter_by(
+                advisor_email=advisor_email.strip().lower()).order_by(ProspectCampaign.created_at.desc()).all()
+            return [to_dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def update_campaign(campaign_id, **fields):
+    try:
+        with get_db_session() as session:
+            row = session.query(ProspectCampaign).filter_by(id=int(campaign_id)).first()
+            if not row:
+                return False
+            for k, v in fields.items():
+                if hasattr(row, k):
+                    setattr(row, k, v)
+            return True
+    except Exception as e:
+        logger.error(f"Update campaign failed: {e}")
+        return False
+
+
+def list_invitations(campaign_id=None, advisor_email=None, statuses=None):
+    try:
+        with get_db_session() as session:
+            q = session.query(CampaignInvitation)
+            if campaign_id is not None:
+                q = q.filter(CampaignInvitation.campaign_id == int(campaign_id))
+            if advisor_email:
+                q = q.filter(CampaignInvitation.advisor_email == advisor_email.strip().lower())
+            if statuses:
+                q = q.filter(CampaignInvitation.status.in_(statuses))
+            return [to_dict(r) for r in q.order_by(CampaignInvitation.id).all()]
+    except Exception as e:
+        logger.error(f"List invitations failed: {e}")
+        return []
+
+
+def get_invitation_by_token(token):
+    if not token:
+        return None
+    try:
+        with get_db_session() as session:
+            row = session.query(CampaignInvitation).filter_by(token=str(token).strip()).first()
+            return to_dict(row) if row else None
+    except Exception:
+        return None
+
+
+def update_invitation(invitation_id, **fields):
+    try:
+        with get_db_session() as session:
+            row = session.query(CampaignInvitation).filter_by(id=int(invitation_id)).first()
+            if not row:
+                return False
+            for k, v in fields.items():
+                if hasattr(row, k):
+                    setattr(row, k, v)
+            return True
+    except Exception as e:
+        logger.error(f"Update invitation failed: {e}")
+        return False
+
+
+def previously_mailed_addresses(advisor_email):
+    """Set of normalized (line1, zip5) already SENT by this advisor — so a
+    re-uploaded list doesn't mail the same household twice."""
+    try:
+        with get_db_session() as session:
+            rows = session.query(CampaignInvitation.line1, CampaignInvitation.zip_code).filter(
+                CampaignInvitation.advisor_email == advisor_email.strip().lower(),
+                CampaignInvitation.status == "sent").all()
+            return {(l.strip().lower(), (z or "")[:5]) for l, z in rows if l}
+    except Exception:
+        return set()
+
+
+def mark_invitation_responded(invitation_id, letter_id):
+    try:
+        with get_db_session() as session:
+            row = session.query(CampaignInvitation).filter_by(id=int(invitation_id)).first()
+            if not row:
+                return False
+            if row.responded_letter_id is None:
+                row.responded_letter_id = int(letter_id)
+                row.responded_at = datetime.utcnow()
+            return True
+    except Exception as e:
+        logger.error(f"Mark responded failed: {e}")
         return False

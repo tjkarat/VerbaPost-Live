@@ -8,6 +8,8 @@ story is transcribed and mailed as a keepsake letter with the advisor's name
 on the envelope. The prospect is the storyteller; there is no login.
 
 GET  /a/{slug}                 advisor-branded landing page + intake form
+GET  /a/{slug}/i/{token}       same page reached from a mailed invitation's personal
+                               link/QR — greets them by name and attributes the response
 GET  /a/{slug}/photo           advisor photo (served from the DB)
 POST /a/{slug}                 intake: validate -> consent record -> DNC scrub -> dial
 GET  /a/{slug}/thanks/{id}     "your phone will ring" page (session-bound)
@@ -144,6 +146,7 @@ def _render_page(request: Request, page: dict, **extra):
         "error": MESSAGES.get(code),
         "form": {},
         "states": STATE_NAMES,
+        "invitation": None,
     }
     ctx.update(extra)
     return templates.TemplateResponse(request, "prospect.html", ctx)
@@ -159,6 +162,24 @@ def landing(request: Request, slug: str):
     if err:
         return err
     return _render_page(request, page)
+
+
+@router.get("/{slug}/i/{token}", response_class=HTMLResponse)
+def landing_from_invitation(request: Request, slug: str, token: str):
+    """The personal link printed on a mailed invitation. Same page and same
+    intake; it just knows who was mailed, so it can greet them by name and
+    tie the response back to the campaign."""
+    page, err = _page_or_404(request, slug)
+    if err:
+        return err
+    inv = database.get_invitation_by_token(token)
+    if not inv or inv.get("advisor_email") != page["advisor_email"]:
+        # Bad or foreign token — never a dead end, just the ordinary page.
+        return RedirectResponse(f"/a/{slug}", status_code=302)
+    # Remember it for the POST; the form itself carries the token too.
+    request.session["invite_token"] = inv["token"]
+    return _render_page(request, page, invitation=inv,
+                        form={"prospect_name": inv.get("full_name") or ""})
 
 
 @router.get("/{slug}/photo")
@@ -184,7 +205,7 @@ def intake(request: Request, slug: str,
            recipient_name: str = Form(""), line1: str = Form(""), city: str = Form(""),
            state: str = Form(""), zip_code: str = Form(""),
            consent: str = Form(""), consent_version: str = Form(""),
-           website: str = Form("")):
+           website: str = Form(""), invite_token: str = Form("")):
     page, err = _page_or_404(request, slug)
     if err:
         return err
@@ -228,6 +249,12 @@ def intake(request: Request, slug: str,
     if database.find_recent_prospect_by_phone(advisor_email, phone_e164):
         return RedirectResponse(f"/a/{slug}?m=dupe", status_code=303)
 
+    # --- invitation attribution (posted token wins; session is the fallback) ---
+    token = (invite_token or request.session.get("invite_token") or "").strip()
+    invitation = database.get_invitation_by_token(token) if token else None
+    if invitation and invitation.get("advisor_email") != advisor_email:
+        invitation = None
+
     # --- consent record (write BEFORE the scrub and the dial) ---
     now = datetime.utcnow()
     letter_id = database.create_prospect_letter(
@@ -239,12 +266,16 @@ def intake(request: Request, slug: str,
         consent_text=dnc_engine.consent_text_for(page.get("display_name"), page.get("firm_name")),
         consent_at=now, consent_ip=ip,
         consent_user_agent=(request.headers.get("user-agent") or "")[:300],
-        status="consented", call_attempts=0)
+        status="consented", call_attempts=0,
+        invitation_id=(invitation or {}).get("id"))
     if not letter_id:
         return RedirectResponse(f"/a/{slug}?m=call_fail", status_code=303)
     _remember(request, letter_id)
+    if invitation:
+        database.mark_invitation_responded(invitation["id"], letter_id)
     audit_engine.log_event(advisor_email, "Prospect Consent Captured",
-                           metadata={"letter_id": letter_id, "phone_last4": phone_e164[-4:], "ip": ip})
+                           metadata={"letter_id": letter_id, "phone_last4": phone_e164[-4:], "ip": ip,
+                                     "invitation_id": (invitation or {}).get("id")})
 
     # --- DNC scrub before dialing ---
     scrub = dnc_engine.scrub(phone_e164)
@@ -391,10 +422,11 @@ def finalize_recording(letter_id):
     now = datetime.utcnow()
     database.update_prospect_letter(letter_id, letter_text=polished, letter_version=LETTER_VERSION,
                                     status="Approved", queued_at=now)
-    # Consume the credit only now that a printable letter exists. If the
-    # advisor's balance already hit zero (race inside the reservation window)
-    # the ledger goes negative rather than stranding a recorded story.
-    database.add_prospect_credits(letter["advisor_email"], -1, "consume", f"letter:{letter_id}")
+    # NOTE: no ledger write here. The billable unit is the INVITATION mailed
+    # (campaign_engine consumes one credit per PostGrid-accepted letter); the
+    # story letter a responder earns is included in that price. The landing
+    # page is gated by database.prospect_story_allowance instead, so a link
+    # shared beyond the mailing can't produce unlimited free stories.
     audit_engine.log_event(letter["advisor_email"], "Prospect Letter Queued",
                            metadata={"letter_id": letter_id, "chars": len(polished)})
 
@@ -412,7 +444,7 @@ def finalize_recording(letter_id):
         email_engine.send_advisor_prospect_letter_alert(
             advisor_email=letter["advisor_email"], advisor_name=page.get("display_name") or "there",
             prospect_name=letter["prospect_name"], recipient_name=letter["recipient_name"],
-            letters_left=database.prospect_credit_balance(letter["advisor_email"]))
+            letters_left=database.prospect_credit_balance(letter["advisor_email"]))  # invitations left
     except Exception as e:
         logger.error(f"Advisor alert failed for prospect letter {letter_id}: {e}")
     return "Approved"

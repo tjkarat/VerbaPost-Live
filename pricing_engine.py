@@ -39,8 +39,10 @@ def calculate_total(tier, is_intl=False, is_certified=False, qty=1):
 # ==========================================
 # 🆕 PROSPECT ACQUISITION PRICING (advisor-branded free letter)
 # ==========================================
-# $20 per letter. An advisor's FIRST campaign is a flat $500 that unlocks
-# exactly 25 letters. Every campaign after that is full price per letter.
+# The billable unit is the INVITATION mailed to the advisor's uploaded list.
+# $20 per invitation. An advisor's FIRST campaign is a flat $500 for exactly
+# 25 invitations; every campaign after that is full price. The story letter
+# produced when a prospect responds is included at no extra charge.
 
 PROSPECT_LETTER_PRICE_CENTS = 2000
 FIRST_CAMPAIGN_PRICE_CENTS = 50000
@@ -61,7 +63,7 @@ def prospect_quote(has_prior_purchase, letters=None):
             "letters": FIRST_CAMPAIGN_LETTERS,
             "unit_cents": FIRST_CAMPAIGN_PRICE_CENTS // FIRST_CAMPAIGN_LETTERS,
             "total_cents": FIRST_CAMPAIGN_PRICE_CENTS,
-            "label": f"First Prospect Campaign — {FIRST_CAMPAIGN_LETTERS} letters",
+            "label": f"First Prospect Campaign — {FIRST_CAMPAIGN_LETTERS} invitations mailed",
         }
     try:
         qty = int(letters or REPEAT_MIN_LETTERS)
@@ -73,5 +75,5 @@ def prospect_quote(has_prior_purchase, letters=None):
         "letters": qty,
         "unit_cents": PROSPECT_LETTER_PRICE_CENTS,
         "total_cents": PROSPECT_LETTER_PRICE_CENTS * qty,
-        "label": f"Prospect Letters — {qty} × ${PROSPECT_LETTER_PRICE_CENTS / 100:.0f}",
+        "label": f"Prospect Invitations — {qty} × ${PROSPECT_LETTER_PRICE_CENTS / 100:.0f}",
     }

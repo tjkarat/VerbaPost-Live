@@ -69,6 +69,11 @@
 {% block content %}
     <section class="hero">
         <span class="gift">A GIFT FROM {{ advisor_name|upper }}</span>
+        {% if invitation %}
+        <p style="margin-top:14px; color:var(--slate); font-size:1.02rem;">
+            {{ invitation.first_name or invitation.full_name }}, this is the letter {{ advisor_name }} mailed you.
+        </p>
+        {% endif %}
         <h1 style="margin-top:16px;">{{ page.headline or "Tell someone you love a story they'll keep forever." }}</h1>
         <p class="lede">
             {{ page.intro or "We'll call you. You talk for a few minutes. We turn your words into a letter on linen paper, with a code they can scan to hear your voice, and mail it to whoever you name. No cost to you." }}
@@ -85,6 +90,7 @@
 
     {% if open %}
     <form class="intake card" method="post" action="/a/{{ page.slug }}" autocomplete="on">
+        {% if invitation %}<input type="hidden" name="invite_token" value="{{ invitation.token }}">{% endif %}
         <h2 style="margin-bottom:4px;">Request your free letter</h2>
         <p style="color:var(--slate); font-size:0.92rem;">Three things. That's all we need.</p>
 

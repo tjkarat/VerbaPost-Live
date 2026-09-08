@@ -301,10 +301,10 @@ def send_advisor_prospect_letter_alert(advisor_email, advisor_name, prospect_nam
     left_html = ""
     if letters_left is not None:
         try:
-            left_html = f"<p>Letters remaining in your campaign: <strong>{int(letters_left)}</strong>.</p>"
+            left_html = f"<p>Invitations remaining in your campaign: <strong>{int(letters_left)}</strong>.</p>"
             if int(letters_left) <= 0:
-                left_html += ("<p style='color:#b45309;'><strong>Your page is now closed to new "
-                              "requests.</strong> Buy more letters from your portal to reopen it.</p>")
+                left_html += ("<p style='color:#b45309;'><strong>You have no invitations left to mail.</strong> "
+                              "Buy more from your portal to run another mailing.</p>")
         except (TypeError, ValueError):
             pass
     html_content = f"""

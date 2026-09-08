@@ -52,7 +52,7 @@ jobs:
       # test_transcription) import retired modules like ui_main and fail at
       # collection — they belong to the app being retired at this cutover.
       - name: Run test suite
-        run: python -m pytest tests/test_app_scaffold.py tests/test_phase1_webhooks.py tests/test_phase2_auth_pages.py tests/test_phase3_product.py tests/test_phase4_admin.py tests/test_phase5_prospect.py -v
+        run: python -m pytest tests/test_app_scaffold.py tests/test_phase1_webhooks.py tests/test_phase2_auth_pages.py tests/test_phase3_product.py tests/test_phase4_admin.py tests/test_phase5_prospect.py tests/test_phase6_campaigns.py -v
 
   deploy:
     name: Build & deploy to PRODUCTION

@@ -381,7 +381,7 @@ def test_webhook_routes_prospect_sid_to_finalize():
     assert log.call_args[0][1] == "Prospect Recording Processed"
 
 
-def test_finalize_recording_polishes_consumes_credit_and_queues():
+def test_finalize_recording_polishes_and_queues_without_extra_billing():
     letter = {"id": 42, "status": "recorded", "advisor_email": "ada@wealth.com",
               "transcript_raw": "Um, so, when your grandmother and I first met at the lake house in 1971...",
               "prospect_name": "Pat", "recipient_name": "Sam", "recipient_line1": "12 Oak",
@@ -401,7 +401,9 @@ def test_finalize_recording_polishes_consumes_credit_and_queues():
     kw = update.call_args.kwargs
     assert kw["status"] == "Approved" and kw["letter_text"].startswith("When your")
     assert kw["letter_version"] == prospect_mod.LETTER_VERSION
-    ledger.assert_called_once_with("ada@wealth.com", -1, "consume", "letter:42")
+    # The story letter is INCLUDED with the invitation that produced it —
+    # billing happens once, when the invitation is mailed.
+    ledger.assert_not_called()
     admin_mail.assert_called_once()
     assert admin_mail.call_args.kwargs["mailing_list"][0]["name"] == "Sam"
     adv_mail.assert_called_once()
@@ -552,13 +554,18 @@ def test_advisor_portal_shows_campaign_section():
          patch("app.advisor.database.get_advisor_projects_for_media", return_value=[]), \
          patch("app.advisor.database.get_advisor_page_by_email", return_value=dict(PAGE)), \
          patch("app.advisor.database.prospect_has_prior_purchase", return_value=False), \
-         patch("app.advisor.database.prospect_credit_balance", return_value=25):
+         patch("app.advisor.database.prospect_credit_balance", return_value=25), \
+         patch("app.advisor.database.list_campaigns", return_value=[]), \
+         patch("app.advisor.database.list_prospect_letters", return_value=[]):
         r = c.get("/advisor")
     assert r.status_code == 200
     assert "Prospect Campaign" in r.text
     assert "/a/ada" in r.text
-    assert "Start first campaign ($500 · 25 letters)" in r.text
+    assert "Start first campaign ($500 · 25 invitations)" in r.text
     assert "/advisor/campaign/export.csv" in r.text
+    # the mailing-list uploader is the mass-mail entry point
+    assert "/advisor/campaign/upload" in r.text
+    assert "Invitations remaining" in r.text
 
 
 def test_save_campaign_page_validates_slug_and_uploads_photo():
@@ -569,6 +576,8 @@ def test_save_campaign_page_validates_slug_and_uploads_photo():
          patch("app.advisor.database.get_advisor_page_by_email", return_value={}), \
          patch("app.advisor.database.prospect_has_prior_purchase", return_value=False), \
          patch("app.advisor.database.prospect_credit_balance", return_value=0), \
+         patch("app.advisor.database.list_campaigns", return_value=[]), \
+         patch("app.advisor.database.list_prospect_letters", return_value=[]), \
          patch("app.advisor.audit_engine.log_event"), \
          patch("app.advisor.database.upsert_advisor_page", return_value=(True, "Saved")) as up:
         r = c.post("/advisor/campaign/page", data={"slug": "Bad Slug!", "display_name": "Ada"})
