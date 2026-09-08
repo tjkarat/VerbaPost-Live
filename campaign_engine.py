@@ -2,12 +2,13 @@
 Invitation campaigns — the mass-mail side of the prospect acquisition path.
 
     advisor uploads CSV  ->  parse_mailing_list()  ->  draft campaign
-    advisor clicks Send  ->  send_campaign()       ->  one PostGrid letter per row
+    advisor clicks Send  ->  send_campaign()       ->  one mailer.send_invitation_letter() per row
 
 Billing rule (financial atomicity, per AI_RULES.md): a ledger credit is
-consumed ONLY after PostGrid accepts the letter. Rows that fail stay
-'failed' and cost nothing; rows that can't be sent because the balance ran
-out are 'skipped' so the advisor can top up and re-send.
+consumed ONLY after the mail provider (PCM, or PostGrid as fallback) accepts
+the letter. Rows that fail stay 'failed' and cost nothing; rows that can't be
+sent because the balance ran out are 'skipped' so the advisor can top up and
+re-send.
 """
 
 import csv
@@ -200,10 +201,12 @@ def send_campaign(campaign_id, base_url):
             continue
         to_addr = {"name": inv["full_name"], "line1": inv["line1"], "line2": inv.get("line2"),
                    "city": inv["city"], "state": inv["state"], "zip": inv["zip_code"]}
+        pdf_url = f"{base_url.rstrip('/')}/a/{page['slug']}/i/{inv['token']}/pdf"
         pg_id, err = mailer.send_invitation_letter(
             pdf, to_addr, from_addr,
             description=f"VerbaPost invitation {campaign_id}/{inv['id']} for {advisor_email}",
-            idempotency_key=f"invite:{inv['id']}")
+            idempotency_key=f"invite:{inv['id']}",
+            pdf_url=pdf_url)
         if pg_id:
             # Artifact secured (PostGrid accepted) -> now, and only now, the ledger.
             database.update_invitation(inv["id"], status="sent", postgrid_id=pg_id,

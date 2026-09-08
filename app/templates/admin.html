@@ -132,7 +132,11 @@
                 <input class="f" name="note" placeholder="Invoice #, pilot, refund…"></div>
             <button class="btn btn-primary btn-sm" type="submit" style="margin-bottom:2px;">Grant</button>
         </form>
-        <p style="margin-top:14px;"><a class="btn btn-outline btn-sm" href="/admin/prospect/export.csv">Export all advisors' send log (CSV)</a></p>
+        <p style="margin-top:14px;">
+            <a class="btn btn-outline btn-sm" href="/admin/prospect/export.csv">Export all advisors' send log (CSV)</a>
+            <a class="btn btn-outline btn-sm" href="/admin/pcm/probe" target="_blank" rel="noopener" style="margin-left:8px;"
+               onclick="return confirm('Place ONE real letter order at PCM, addressed to VerbaPost itself. If PCM_API_KEY/PCM_API_SECRET are Sandbox credentials this is safe; if they are Production credentials this prints and mails a real letter. Continue?');">PCM live test order</a>
+        </p>
     </div>
 
     <div class="section card">

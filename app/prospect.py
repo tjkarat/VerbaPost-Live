@@ -11,6 +11,9 @@ GET  /a/{slug}                 advisor-branded landing page + intake form
 GET  /a/{slug}/i/{token}       same page reached from a mailed invitation's personal
                                link/QR — greets them by name and attributes the response
 GET  /a/{slug}/photo           advisor photo (served from the DB)
+GET  /a/{slug}/i/{token}/pdf   the invitation PDF itself — unauthenticated, on purpose:
+                               PCM's mail API fetches artwork by URL, and this token
+                               is already the whole security model of the personal link
 POST /a/{slug}                 intake: validate -> consent record -> DNC scrub -> dial
 GET  /a/{slug}/thanks/{id}     "your phone will ring" page (session-bound)
 POST /a/{slug}/again/{id}      re-dial if the prospect missed the call (max 3)
@@ -23,6 +26,7 @@ Abuse controls (every submission costs a Twilio call and a letter credit):
 
 import base64
 import logging
+import os
 import sys
 import time
 from datetime import datetime, timedelta
@@ -35,6 +39,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
 import ai_engine
 import audit_engine
+import campaign_engine
 import database
 import dnc_engine
 
@@ -180,6 +185,28 @@ def landing_from_invitation(request: Request, slug: str, token: str):
     request.session["invite_token"] = inv["token"]
     return _render_page(request, page, invitation=inv,
                         form={"prospect_name": inv.get("full_name") or ""})
+
+
+@router.get("/{slug}/i/{token}/pdf")
+def invitation_pdf(slug: str, token: str):
+    """Serves the exact PDF mailed to this one person. No auth: this is the
+    URL PCM's DirectMail API fetches the artwork from (their `letter` field
+    takes a URL, never a binary upload — see mailer.py), and the token is
+    already unguessable and single-purpose, same as the personal link itself.
+    Regenerated on the fly rather than stored, so it always matches what
+    campaign_engine.build_invitation_pdf produces."""
+    inv = database.get_invitation_by_token(token)
+    if not inv:
+        return Response(status_code=404)
+    page = database.get_advisor_page_by_slug(slug)
+    if not page or page.get("advisor_email") != inv.get("advisor_email"):
+        return Response(status_code=404)
+    base_url = os.environ.get("BASE_URL", "https://app.verbapost.com").rstrip("/")
+    pdf = campaign_engine.build_invitation_pdf(page, inv, base_url)
+    if not pdf:
+        return Response(status_code=500)
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="invitation_{token}.pdf"'})
 
 
 @router.get("/{slug}/photo")

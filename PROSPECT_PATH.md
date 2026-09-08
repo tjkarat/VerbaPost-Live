@@ -84,14 +84,57 @@ PostGrid id or failure reason, and the story letter it produced.
 
 ## Mailing mechanics
 
-* `mailer.send_invitation_letter` posts to PostGrid Print & Mail with
-  `addressPlacement=top_first_page`; `invitation_format` leaves the top 115mm
-  of page one clear for it, per the window-envelope rule in `AI_RULES.md`.
-* `mailer.is_test_mode()` is true for a `test_` PostGrid key. The portal says
-  so in plain words before and after a send, so a staging run is never
-  mistaken for real mail.
+Two providers behind one function. `MAIL_PROVIDER` picks (`pcm` | `postgrid`);
+with no explicit value it is PCM whenever `PCM_API_KEY` exists.
+
+* **PCM (PostcardMania)** — confirmed against PCM's own OpenAPI 3.0 spec
+  (DirectMail API v3), not inference:
+  1. `POST {PCM_BASE_URL}/auth/login` with `{apiKey, apiSecret}` returns a
+     short-lived JWT (`{token, expires}`). Every other PCM call authenticates
+     with that JWT as `Authorization: Bearer`, not with the API key/secret
+     directly. `mailer.py` caches the token and re-logs-in ~60s before it
+     expires.
+  2. `POST {PCM_BASE_URL}/order/letter`, `Authorization: Bearer <token>`,
+     JSON body -> `201 {batchID, orderID, extRefNbr}`. We store `orderID` and
+     pass `invite:{id}` as `extRefNbr` (both on the order and on the one
+     recipient in it), which comes back on every PCM webhook about that
+     piece, so mail-tracking events can be joined to the invitation.
+  3. PCM's `letter` field — the artwork — takes **raw HTML or a URL it
+     fetches**, never a binary/base64 upload, and it is one value for the
+     whole order, not per recipient. Since every prospect's invitation is
+     personalized (their own QR + link), each PCM order carries exactly one
+     recipient, and `letter` points at
+     `{BASE_URL}/a/{slug}/i/{token}/pdf` — a new, unauthenticated route that
+     regenerates that one person's exact PDF on request. Unauthenticated is
+     deliberate: PCM's servers fetch it, not a logged-in advisor, and the
+     token is already the entire security model of the personal link itself.
+  4. `insertAddressingPage: true` + `envelope.type: "fullWindow"` tells PCM
+     to generate its own address page rather than requiring us to pre-print
+     the address into the artwork, so `invitation_format.py`'s blank top
+     zone (built for PostGrid's overlay convention) is simply unused space
+     on a PCM send — harmless, not wrong.
+  5. Sandbox vs Production is **which `apiKey`/`apiSecret` pair you used**,
+     not a different host — PCM's spec lists exactly one server. There is no
+     API-visible way to ask which environment a key belongs to, so
+     `PCM_ENVIRONMENT=sandbox|production` is set by hand to match whichever
+     pair is in `PCM_API_KEY`/`PCM_API_SECRET`, purely so the portal can
+     label a run "test mode" truthfully.
+* **PostGrid** — the previous path, kept as fallback:
+  `addressPlacement=top_first_page` plus an `Idempotency-Key` header.
+* `mailer.is_test_mode()` follows `PCM_ENVIRONMENT` for PCM, or a `test_`
+  PostGrid key. The portal says so in plain words before and after a send, so
+  a staging run is never mistaken for real mail.
 * Sends run as a FastAPI background task, so a 200-name list does not hold the
   request open. The portal's mailing table shows progress on refresh.
+
+### Before mailing a real advisor list
+
+`GET /admin/pcm/probe` (admin only) places one real letter order addressed to
+VerbaPost itself and returns PCM's raw status and body — a live smoke test
+of credentials, login, and the order call together, now that the schema
+itself is confirmed rather than guessed. Point `PCM_API_KEY`/`PCM_API_SECRET`
+at a **Sandbox** key pair the first time you run it; only re-run it against
+Production once you're ready for a real, billed test letter.
 
 ## Consent and DNC
 
@@ -118,12 +161,14 @@ PostGrid id or failure reason, and the story letter it produced.
 
 * No external DNC vendor was wired or tested against a live API; the hook is
   generic and covered by mocked tests only.
-* PostGrid was never called for real. The request shape was written from the
-  Print & Mail conventions already in this repo and is covered by mocked
-  tests; the first live mailing should be one row with a `test_` key, then one
-  row to your own address with a live key, before any advisor's list.
-* Twilio, Whisper, Stripe, PostGrid and Resend are mocked in tests. The full
-  path was exercised end-to-end against SQLite with only those mocked.
+* Neither mail provider has been called for real yet. The PCM request/response
+  shapes above are confirmed from PCM's own OpenAPI spec, not inference, but
+  that is not the same as a live order having actually succeeded. Sequence
+  for going live: `/admin/pcm/probe` against a Sandbox `apiKey`/`apiSecret`
+  pair until it returns `ok`, then one row addressed to yourself with a
+  Production pair, then an advisor's list.
+* Twilio, Whisper, Stripe, PCM, PostGrid and Resend are mocked in tests. The
+  full path was exercised end-to-end against SQLite with only those mocked.
 * Nothing verifies that an uploaded list was lawfully sourced, or suppresses
   against a mail preference service. That is the advisor's representation to
   make; consider putting it in your advisor agreement.
