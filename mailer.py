@@ -179,11 +179,23 @@ def send_letter(pdf_bytes, to_addr, from_addr, description="VerbaPost Letter"):
 #   `{BASE_URL}/a/{slug}/i/{token}/pdf` (see app/prospect.py) and PCM fetches
 #   it while processing the order.
 #
-#   `insertAddressingPage: true` + `envelope.type: "fullWindow"` tells PCM to
-#   generate and insert its own address page rather than requiring the
-#   address to be pre-printed into the artwork, so invitation_format.py's
-#   blank top zone (built for PostGrid's overlay) is simply unused space here
-#   — harmless, not wrong.
+#   `insertAddressingPage: true` tells PCM to generate and insert its own
+#   address page rather than requiring the address to be pre-printed into
+#   the artwork, so invitation_format.py's blank top zone (built for
+#   PostGrid's overlay) is simply unused space here — harmless, not wrong.
+#
+#   envelope.type is "Regular" (opaque, no window) rather than "fullWindow":
+#   a windowed envelope reads as a bill or bulk mail and is the single
+#   biggest reason a piece never gets opened. We don't have documentation
+#   confirming PCM prints the addressing page onto the envelope face itself
+#   when there's no window to show it through — that's exactly what the
+#   Sandbox probe-and-inspect cycle below is for; don't ship a live campaign
+#   on this without looking at the actual PDF proof.
+#
+#   addons includes "Livestamping w/Cancellation Mark": PCM's default is a
+#   metered/indicia postage mark, which also reads as bulk mail. Livestamping
+#   simulates a real stamp; the cancellation-mark variant adds the postmark
+#   lines through it so it looks genuinely mailed rather than machine-run.
 # ---------------------------------------------------------------------------
 
 PCM_DEFAULT_BASE = "https://v3.pcmintegrations.com"
@@ -309,7 +321,8 @@ def _pcm_letter_payload(pdf_url, to_addr, from_addr, idempotency_key):
         "color": True,
         "printOnBothSides": False,
         "insertAddressingPage": True,
-        "envelope": {"type": "fullWindow"},
+        "envelope": {"type": "Regular"},
+        "addons": [{"addon": "Livestamping w/Cancellation Mark", "options": None}],
         "letter": pdf_url,
         "returnAddress": return_address,
         "extRefNbr": str(idempotency_key),

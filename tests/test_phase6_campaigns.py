@@ -371,7 +371,8 @@ def test_pcm_send_logs_in_then_posts_bearer_json_to_order_letter(monkeypatch):
     assert body["recipients"][0]["zipCode"] == "37064"
     assert body["recipients"][0]["extRefNbr"] == "invite:11"
     assert body["insertAddressingPage"] is True
-    assert body["envelope"] == {"type": "fullWindow"}
+    assert body["envelope"] == {"type": "Regular"}        # no window — opens more, not a bill
+    assert body["addons"] == [{"addon": "Livestamping w/Cancellation Mark", "options": None}]
     assert body["returnAddress"]["city"] == "Nashville"
     for req_field in ("mailClass", "recipients", "letterStock", "color",
                       "printOnBothSides", "insertAddressingPage", "envelope"):
