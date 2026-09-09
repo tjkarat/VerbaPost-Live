@@ -408,6 +408,32 @@ def test_finalize_recording_polishes_and_queues_without_extra_billing():
     assert admin_mail.call_args.kwargs["mailing_list"][0]["name"] == "Sam"
     adv_mail.assert_called_once()
     assert adv_mail.call_args.kwargs["letters_left"] == 24
+    # The advisor alert now carries an excerpt of the actual polished story,
+    # so it reads like a live lead alert instead of a bare status ping.
+    assert adv_mail.call_args.kwargs["excerpt"] == "When your grandmother and I first met..."
+
+
+def test_finalize_recording_excerpt_truncates_long_stories():
+    # Distinct numbered tokens so a mid-word cut is unmistakable in the result.
+    long_story = " ".join(f"word{i}" for i in range(60))
+    letter = {"id": 44, "status": "recorded", "advisor_email": "ada@wealth.com",
+              "transcript_raw": long_story, "prospect_name": "Pat", "recipient_name": "Sam",
+              "recipient_line1": "12 Oak", "recipient_city": "Franklin",
+              "recipient_state": "TN", "recipient_zip": "37064"}
+    with patch("app.prospect.database.get_prospect_letter", return_value=letter), \
+         patch("app.prospect.ai_engine.refine_text", return_value=long_story), \
+         patch("app.prospect.database.update_prospect_letter"), \
+         patch("app.prospect.database.add_prospect_credits"), \
+         patch("app.prospect.database.get_advisor_page_by_email", return_value=dict(PAGE)), \
+         patch("app.prospect.database.prospect_credit_balance", return_value=1), \
+         patch("app.prospect.audit_engine.log_event"), \
+         patch("email_engine.send_admin_print_ready_alert"), \
+         patch("email_engine.send_advisor_prospect_letter_alert") as adv_mail:
+        prospect_mod.finalize_recording(44)
+    excerpt = adv_mail.call_args.kwargs["excerpt"]
+    assert len(excerpt) <= 221 and excerpt.endswith("…")
+    last_token = excerpt[:-1].rsplit(" ", 1)[-1]      # strip the ellipsis, take the final word
+    assert last_token in long_story.split()           # a complete word from the source, never a fragment
 
 
 def test_finalize_recording_too_short_consumes_nothing():
@@ -745,3 +771,12 @@ def test_prospect_call_script_escapes_and_discloses_recording():
     assert "This call is being recorded" in twiml
     assert "on behalf of Ada Advisor at Ada Wealth" in twiml
     assert 'recordingStatusCallback="https://staging.verbapost.com/webhooks/twilio/recording"' in twiml
+
+
+def test_set_prospect_outcome_rejects_values_outside_the_fixed_set():
+    """Validation happens before any database write is attempted — a typo'd
+    or forged outcome value can never land in the column, regardless of
+    whether the row or the advisor even exist."""
+    import database
+    assert database.set_prospect_outcome(1, "ada@wealth.com", "became_a_billionaire") is False
+    assert database.set_prospect_outcome(1, "ada@wealth.com", "<script>x</script>") is False

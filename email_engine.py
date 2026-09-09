@@ -288,11 +288,19 @@ def send_admin_print_ready_alert(user_email, draft_id, content_preview, mailing_
     return send_email(admin_email, subject, html_content)
 # --- ADVISOR ALERT: PROSPECT LETTER QUEUED (acquisition path) ---
 def send_advisor_prospect_letter_alert(advisor_email, advisor_name, prospect_name,
-                                       recipient_name, letters_left=None):
+                                       recipient_name, letters_left=None, excerpt=None):
     """
     Tells the advisor a prospect recorded a story on their branded page and
-    the letter is headed to print under the advisor's name. No dashboard —
-    this email (and the CSV export) is how they know.
+    the letter is headed to print under the advisor's name. Fires from
+    finalize_recording, within moments of the call ending — this is meant to
+    read like a live lead alert, not a batch report, so the advisor still
+    has a natural reason to pick up the phone today. Full detail (and the
+    outcome tracker) lives at /advisor/dashboard; the CSV export still has
+    every field for anyone who wants to work from a spreadsheet instead.
+
+    excerpt: a short slice of the polished letter text (see
+    app/prospect.py's finalize_recording), so the advisor gets a feel for
+    what was actually said before deciding whether/when to call back.
     """
     advisor_name = _esc(advisor_name or "")
     prospect_name = _esc(prospect_name or "")
@@ -307,6 +315,10 @@ def send_advisor_prospect_letter_alert(advisor_email, advisor_name, prospect_nam
                               "Buy more from your portal to run another mailing.</p>")
         except (TypeError, ValueError):
             pass
+    excerpt_html = ""
+    if excerpt:
+        excerpt_html = (f'<blockquote style="margin:16px 0; padding:10px 16px; border-left:3px solid #166534; '
+                        f'color:#334155; font-style:italic;">&ldquo;{_esc(excerpt)}&rdquo;</blockquote>')
     html_content = f"""
     <div style="font-family: sans-serif; color: #333; max-width: 600px; padding: 20px; border: 1px solid #e2e8f0;">
         <h3 style="color: #166534;">A prospect just recorded a story</h3>
@@ -314,8 +326,11 @@ def send_advisor_prospect_letter_alert(advisor_email, advisor_name, prospect_nam
         <p><strong>{prospect_name}</strong> used your page to record a story for
         <strong>{recipient_name}</strong>. The letter is being prepared and will be mailed
         with your name on the envelope.</p>
+        {excerpt_html}
         {left_html}
-        <p>Full details are in your send log: <a href="https://app.verbapost.com/advisor/campaign/export.csv">download the CSV</a>.</p>
+        <p><a href="https://app.verbapost.com/advisor/dashboard">See it on your dashboard</a> and mark what
+        happens after you follow up — full detail is also in your
+        <a href="https://app.verbapost.com/advisor/campaign/export.csv">send log CSV</a>.</p>
         <hr>
         <p style="font-size: 12px; color: #64748b;">VerbaPost Advisor Notifications</p>
     </div>

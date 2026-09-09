@@ -18,6 +18,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -578,3 +579,72 @@ def campaign_rows_csv(request: Request, campaign_id: int):
     buf.seek(0)
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"Content-Disposition": f'attachment; filename="mailing_{campaign_id}.csv"'})
+
+
+# ============================================================
+# Dashboard: the funnel past "it got mailed" — responses, and what
+# actually happened after the advisor called (self-reported, since that
+# conversation happens off this platform entirely).
+# ============================================================
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def prospect_dashboard(request: Request):
+    auth = _require_advisor(request)
+    if not auth:
+        return RedirectResponse("/login", status_code=302)
+    email, profile = auth
+    from app.main import templates
+
+    mailings = database.list_campaigns(email)
+    responses = database.list_prospect_letters(advisor_email=email)
+    # A response only "counts" toward the funnel once a story actually
+    # exists (Approved/Sent) — a DNC block or an abandoned call before the
+    # recording finished isn't something to show the advisor as a lead.
+    counted = [r for r in responses if r.get("status") in ("Approved", "Sent")]
+
+    per_campaign = []
+    for camp in mailings:
+        invs = database.list_invitations(campaign_id=camp["id"])
+        mailed = sum(1 for i in invs if i.get("status") == "sent")
+        responded = sum(1 for i in invs if i.get("responded_letter_id"))
+        per_campaign.append({
+            "id": camp["id"], "name": camp.get("name") or f"Mailing #{camp['id']}",
+            "status": camp.get("status"), "sent_at": camp.get("sent_at"),
+            "mailed": mailed, "responded": responded,
+            "response_rate": round(100 * responded / mailed, 1) if mailed else None,
+        })
+
+    mailed_total = sum(c["mailed"] for c in per_campaign)
+    responded_total = len(counted)
+    outcome_counts = database.prospect_outcome_counts(email)
+
+    return templates.TemplateResponse(request, "advisor_dashboard.html", {
+        "email": email, "advisor_name": profile.get("full_name") or email,
+        "firm_name": profile.get("advisor_firm") or "",
+        "per_campaign": per_campaign,
+        "mailed_total": mailed_total,
+        "responded_total": responded_total,
+        "response_rate": round(100 * responded_total / mailed_total, 1) if mailed_total else None,
+        "outcome_counts": outcome_counts,
+        "outcome_choices": database.PROSPECT_OUTCOME_CHOICES,
+        "outcome_labels": dict(database.PROSPECT_OUTCOME_CHOICES),
+        "responses": sorted(counted, key=lambda r: r.get("created_at") or "", reverse=True),
+        "notice": request.query_params.get("notice"),
+    })
+
+
+@router.post("/story/{letter_id}/outcome")
+def update_prospect_outcome(request: Request, letter_id: int, outcome: str = Form("")):
+    """Advisor marks what happened after a story landed. Self-reported —
+    nothing here verifies it against their CRM or calendar. Ownership is
+    enforced in database.set_prospect_outcome, not just by session email,
+    so this can never be used to annotate another advisor's response."""
+    auth = _require_advisor(request)
+    if not auth:
+        return RedirectResponse("/login", status_code=302)
+    email, _profile = auth
+    ok = database.set_prospect_outcome(letter_id, email, outcome)
+    notice = "Updated." if ok else "Couldn't update that — refresh and try again."
+    audit_engine.log_event(email, "Prospect Outcome Set" if ok else "Prospect Outcome Set Failed",
+                           metadata={"letter_id": letter_id, "outcome": outcome})
+    return RedirectResponse(f"/advisor/dashboard?notice={quote(notice)}", status_code=303)

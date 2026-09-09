@@ -237,3 +237,10 @@ ALTER TABLE campaign_invitations ENABLE ROW LEVEL SECURITY;
 
 -- Mail provider columns are reused as-is: campaign_invitations.postgrid_id
 -- holds whichever provider's id came back (PCM orderID, or PostGrid letter id).
+
+-- Advisor-reported sales outcome, added for the campaign dashboard. Nothing
+-- writes this automatically; the advisor sets it by hand after they
+-- follow up, since whether a call became a client happens entirely off
+-- this platform. NULL means "no outcome recorded yet," not "not interested."
+ALTER TABLE prospect_letters ADD COLUMN IF NOT EXISTS outcome text;
+ALTER TABLE prospect_letters ADD COLUMN IF NOT EXISTS outcome_updated_at timestamp;

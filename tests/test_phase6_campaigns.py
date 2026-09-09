@@ -771,3 +771,80 @@ def test_pricing_labels_speak_of_invitations():
     assert "invitations" in first["label"]
     repeat = pricing_engine.prospect_quote(True, 40)
     assert repeat["total_cents"] == 80000 and "Invitations" in repeat["label"]
+
+
+# ============================================================
+# Dashboard: the funnel past "it got mailed" — responses and
+# advisor-reported outcomes (contacted / meeting booked / became a client)
+# ============================================================
+
+RESPONSE_ROW = {"id": 90, "advisor_email": "ada@wealth.com", "prospect_name": "Margaret Wilson",
+                "recipient_name": "Sam Recipient", "status": "Approved", "outcome": None,
+                "created_at": datetime(2026, 9, 1)}
+
+CAMPAIGN_ROW = {"id": 5, "advisor_email": "ada@wealth.com", "name": "Fall mailing",
+                "status": "sent", "sent_at": datetime(2026, 8, 20)}
+
+
+def test_dashboard_requires_login():
+    r = _client().get("/advisor/dashboard", follow_redirects=False)
+    assert r.status_code == 302
+
+
+def test_dashboard_computes_funnel_and_shows_responses():
+    invs = [dict(INVITE_ROW, id=1, status="sent", responded_letter_id=90),
+            dict(INVITE_ROW, id=2, status="sent", responded_letter_id=None),
+            dict(INVITE_ROW, id=3, status="failed", responded_letter_id=None)]
+    with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
+         patch("app.advisor.database.list_campaigns", return_value=[dict(CAMPAIGN_ROW)]), \
+         patch("app.advisor.database.list_invitations", return_value=invs), \
+         patch("app.advisor.database.list_prospect_letters", return_value=[dict(RESPONSE_ROW)]), \
+         patch("app.advisor.database.prospect_outcome_counts",
+               return_value={"contacted": 0, "meeting_booked": 0, "client": 0,
+                             "not_interested": 0, "unmarked": 1}):
+        r = _advisor_client().get("/advisor/dashboard")
+    assert r.status_code == 200
+    assert "Fall mailing" in r.text
+    assert "Margaret Wilson" in r.text and "Sam Recipient" in r.text
+
+
+def test_dashboard_response_rate_handles_zero_mailed():
+    """A brand-new advisor with no sends yet shouldn't 500 on a division by
+    zero, and shouldn't be shown a fabricated 0% rate either."""
+    with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
+         patch("app.advisor.database.list_campaigns", return_value=[]), \
+         patch("app.advisor.database.list_prospect_letters", return_value=[]), \
+         patch("app.advisor.database.prospect_outcome_counts",
+               return_value={"contacted": 0, "meeting_booked": 0, "client": 0,
+                             "not_interested": 0, "unmarked": 0}):
+        r = _advisor_client().get("/advisor/dashboard")
+    assert r.status_code == 200
+
+
+def test_outcome_update_requires_login():
+    r = _client().post("/advisor/story/90/outcome", data={"outcome": "client"}, follow_redirects=False)
+    assert r.status_code == 302
+
+
+def test_outcome_update_calls_database_with_session_email_not_client_input():
+    """The advisor can only ever annotate their OWN responses — ownership is
+    enforced by passing the session's email, never anything the client
+    could forge, straight to database.set_prospect_outcome."""
+    with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
+         patch("app.advisor.database.set_prospect_outcome", return_value=True) as setter, \
+         patch("app.advisor.audit_engine.log_event"):
+        r = _advisor_client().post("/advisor/story/90/outcome", data={"outcome": "meeting_booked"},
+                                   follow_redirects=False)
+    assert r.status_code == 303
+    setter.assert_called_once_with(90, "ada@wealth.com", "meeting_booked")
+
+
+def test_outcome_update_surfaces_failure_in_the_redirect_notice():
+    with patch("app.advisor.database.get_user_profile", return_value=ADVISOR_PROFILE), \
+         patch("app.advisor.database.set_prospect_outcome", return_value=False), \
+         patch("app.advisor.audit_engine.log_event"):
+        r = _advisor_client().post("/advisor/story/999/outcome", data={"outcome": "client"},
+                                   follow_redirects=False)
+    assert r.status_code == 303 and "location" in r.headers
+    from urllib.parse import unquote
+    assert "try again" in unquote(r.headers["location"])

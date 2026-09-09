@@ -212,6 +212,7 @@
             <p class="lbl" style="margin-top:8px;">
                 <strong>{{ mailed_total }}</strong> invitations mailed · <strong>{{ response_total }}</strong> stories recorded
                 {%- if mailed_total %} · {{ (100 * response_total / mailed_total)|round(1) }}% response{% endif %}
+                · <a href="/advisor/dashboard">Full dashboard &rarr;</a>
             </p>
             {% endif %}
         </div>

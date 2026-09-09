@@ -468,10 +468,17 @@ def finalize_recording(letter_id):
     except Exception as e:
         logger.error(f"Admin print alert failed for prospect letter {letter_id}: {e}")
     try:
+        # First sentence or so — enough for the advisor to feel what was
+        # said before they decide whether today is the day to call back.
+        excerpt = polished.strip()
+        if len(excerpt) > 220:
+            cut = excerpt.rfind(" ", 0, 220)
+            excerpt = excerpt[:cut if cut > 0 else 220].rstrip() + "…"
         email_engine.send_advisor_prospect_letter_alert(
             advisor_email=letter["advisor_email"], advisor_name=page.get("display_name") or "there",
             prospect_name=letter["prospect_name"], recipient_name=letter["recipient_name"],
-            letters_left=database.prospect_credit_balance(letter["advisor_email"]))  # invitations left
+            letters_left=database.prospect_credit_balance(letter["advisor_email"]),  # invitations left
+            excerpt=excerpt)
     except Exception as e:
         logger.error(f"Advisor alert failed for prospect letter {letter_id}: {e}")
     return "Approved"

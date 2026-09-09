@@ -279,6 +279,26 @@ class ProspectLetter(Base):
     sent_at = Column(DateTime)
     invitation_id = Column(Integer)      # set when the prospect arrived via a mailed invitation's personal link
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Advisor-reported sales outcome (see PROSPECT_OUTCOME_CHOICES below).
+    # Nothing here is automated — the advisor sets this by hand in their
+    # dashboard, because whether a call turned into a client happens off
+    # this platform entirely (their own CRM, their own follow-up call).
+    # Without this the send log can prove "X people responded" but never
+    # "and Y became clients," which is the number that actually sells a
+    # renewal to a skeptical advisor.
+    outcome = Column(String)             # None | contacted | meeting_booked | client | not_interested
+    outcome_updated_at = Column(DateTime)
+
+
+# Advisor-facing labels for ProspectLetter.outcome. Order matters: this is
+# the natural progression shown in the dashboard's dropdown, not just a set.
+PROSPECT_OUTCOME_CHOICES = [
+    ("contacted", "Contacted"),
+    ("meeting_booked", "Meeting booked"),
+    ("client", "Became a client"),
+    ("not_interested", "Not interested"),
+]
+_PROSPECT_OUTCOME_VALUES = {v for v, _ in PROSPECT_OUTCOME_CHOICES}
 
 
 class ProspectCampaign(Base):
@@ -969,6 +989,50 @@ def update_prospect_letter(letter_id, **fields):
     except Exception as e:
         logger.error(f"Update prospect letter failed: {e}")
         return False
+
+
+def set_prospect_outcome(letter_id, advisor_email, outcome):
+    """
+    Advisor marks what happened after a story landed — Contacted, Meeting
+    booked, Became a client, Not interested, or "" to clear it back to
+    unset. This is entirely self-reported; nothing here verifies it against
+    an outside system. Returns True on success, False if the row doesn't
+    exist, belongs to a different advisor, or `outcome` isn't one of
+    PROSPECT_OUTCOME_CHOICES (empty string is the one allowed way to clear).
+    """
+    outcome = (outcome or "").strip()
+    if outcome and outcome not in _PROSPECT_OUTCOME_VALUES:
+        return False
+    try:
+        with get_db_session() as session:
+            row = session.query(ProspectLetter).filter_by(id=int(letter_id)).first()
+            if not row or row.advisor_email != (advisor_email or "").strip().lower():
+                return False
+            row.outcome = outcome or None
+            row.outcome_updated_at = datetime.utcnow()
+            return True
+    except Exception as e:
+        logger.error(f"Set prospect outcome failed: {e}")
+        return False
+
+
+def prospect_outcome_counts(advisor_email):
+    """{"contacted": n, "meeting_booked": n, "client": n, "not_interested": n,
+    "unmarked": n} across every response this advisor has ever gotten
+    (status Approved or Sent — i.e., a story actually got produced, not
+    just a form abandoned mid-DNC-check). Powers the dashboard tiles."""
+    counts = {v: 0 for v, _ in PROSPECT_OUTCOME_CHOICES}
+    counts["unmarked"] = 0
+    try:
+        with get_db_session() as session:
+            rows = session.query(ProspectLetter.outcome).filter(
+                ProspectLetter.advisor_email == (advisor_email or "").strip().lower(),
+                ProspectLetter.status.in_(["Approved", "Sent"])).all()
+            for (outcome,) in rows:
+                counts[outcome if outcome in _PROSPECT_OUTCOME_VALUES else "unmarked"] += 1
+    except Exception as e:
+        logger.error(f"Prospect outcome counts failed: {e}")
+    return counts
 
 
 def find_recent_prospect_by_phone(advisor_email, phone_e164, days=90):
