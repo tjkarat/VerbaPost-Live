@@ -4,14 +4,14 @@
 
 {% block extra_css %}
         .h-ok { color:#166534; } .h-warn { color:#b45309; } .h-fail { color:#b91c1c; }
-        .health-row { font-family:Helvetica,Arial,sans-serif; font-size:0.9rem; padding:4px 0; }
+        .health-row { font-family:'IBM Plex Mono',monospace; font-size:0.9rem; padding:4px 0; }
         .q-item { border:1px solid var(--line); border-radius:10px; background:#fff; padding:18px 22px; margin:14px 0; }
         .q-item .meta { color:var(--slate); font-size:0.85rem; }
         .q-content { background:var(--paper); border:1px solid var(--line); border-radius:8px;
             padding:12px; font-size:0.92rem; max-height:130px; overflow-y:auto; margin:10px 0; white-space:pre-wrap; }
         .btn-sm { padding:7px 14px; font-size:0.85rem; }
         .addr-list { background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:10px 14px; font-size:0.88rem; margin:8px 0; }
-        label.f { display:block; font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; font-weight:600; margin:12px 0 4px; }
+        label.f { display:block; font-family:'IBM Plex Mono',monospace; font-size:0.85rem; font-weight:600; margin:12px 0 4px; }
         input.f, textarea.f { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; box-sizing:border-box; font-family:inherit; }
         .section { margin-top:36px; }
 {% endblock %}
@@ -95,7 +95,7 @@
         <a class="btn btn-outline btn-sm" href="/admin?scan=1">Scan Twilio Logs</a>
         {% if ghosts is not none %}
             {% if not ghosts %}
-            <p style="color:#166534; font-family:Helvetica,Arial,sans-serif; font-size:0.9rem; margin-top:10px;">All calls accounted for.</p>
+            <p style="color:#166534; font-family:'IBM Plex Mono',monospace; font-size:0.9rem; margin-top:10px;">All calls accounted for.</p>
             {% endif %}
             {% for g in ghosts %}
             <div style="border-top:1px solid var(--line); padding:10px 0; margin-top:10px;">

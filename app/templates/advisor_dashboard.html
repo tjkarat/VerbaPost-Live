@@ -6,12 +6,12 @@
         .tiles { display:flex; flex-wrap:wrap; gap:16px; margin:20px 0 32px; }
         .tile {
             flex:1; min-width:150px; background:#fff; border:1px solid var(--line);
-            border-radius:12px; padding:18px 20px; font-family:Helvetica,Arial,sans-serif;
+            border-radius:12px; padding:18px 20px; font-family:'IBM Plex Mono',monospace;
         }
         .tile .num { font-size:1.9rem; font-weight:700; color:var(--ink); line-height:1.1; }
         .tile .label { font-size:0.82rem; color:var(--slate); margin-top:4px; }
         .tile.win .num { color:#166534; }
-        table.dash { width:100%; border-collapse:collapse; font-family:Helvetica,Arial,sans-serif; font-size:0.9rem; }
+        table.dash { width:100%; border-collapse:collapse; font-family:'IBM Plex Mono',monospace; font-size:0.9rem; }
         table.dash th { text-align:left; color:var(--slate); font-weight:600; font-size:0.78rem;
             text-transform:uppercase; letter-spacing:0.04em; padding:6px 10px; border-bottom:2px solid var(--line); }
         table.dash td { padding:10px; border-bottom:1px solid var(--line); vertical-align:top; }
@@ -22,17 +22,17 @@
         .badge.meeting_booked { background:#fef3c7; color:#92400e; }
         .badge.client { background:#dcfce7; color:#166534; }
         .badge.not_interested { background:#fee2e2; color:#991b1b; }
-        select.outcome-select { font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; padding:5px 8px;
+        select.outcome-select { font-family:'IBM Plex Mono',monospace; font-size:0.85rem; padding:5px 8px;
             border-radius:6px; border:1px solid var(--line); }
         .section { margin-top:36px; }
         .notice { background:#eff6ff; border:1px solid #bfdbfe; color:#1e3a8a; padding:10px 16px;
-            border-radius:8px; margin-bottom:20px; font-family:Helvetica,Arial,sans-serif; font-size:0.9rem; }
-        .empty { color:var(--slate); font-family:Helvetica,Arial,sans-serif; font-size:0.9rem; padding:14px 0; }
+            border-radius:8px; margin-bottom:20px; font-family:'IBM Plex Mono',monospace; font-size:0.9rem; }
+        .empty { color:var(--slate); font-family:'IBM Plex Mono',monospace; font-size:0.9rem; padding:14px 0; }
 {% endblock %}
 
 {% block content %}
     <h1>Campaign Dashboard</h1>
-    <p style="color:var(--slate); font-family:Helvetica,Arial,sans-serif; font-size:0.92rem;">
+    <p style="color:var(--slate); font-family:'IBM Plex Mono',monospace; font-size:0.92rem;">
         {{ firm_name or advisor_name }} &middot; <a href="/advisor">Back to portal</a>
     </p>
 
@@ -61,7 +61,7 @@
         </div>
     </div>
 
-    <p style="color:var(--slate); font-family:Helvetica,Arial,sans-serif; font-size:0.85rem; margin-top:-20px; margin-bottom:24px;">
+    <p style="color:var(--slate); font-family:'IBM Plex Mono',monospace; font-size:0.85rem; margin-top:-20px; margin-bottom:24px;">
         The outcome numbers above are only as current as you keep them — mark each
         response below once you know what happened. Nobody but you can see or set them.
     </p>
