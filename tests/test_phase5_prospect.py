@@ -8,6 +8,7 @@ admin queue/grant. All external services mocked.
 Run: python -m pytest tests/test_phase5_prospect.py -v
 """
 
+import xml.dom.minidom
 import os
 import sys
 from datetime import datetime, timedelta
@@ -762,7 +763,8 @@ def test_prospect_call_script_escapes_and_discloses_recording():
          patch("twilio.rest.Client", return_value=fake_client):
         sid, err = ai_engine.trigger_prospect_call(
             to_phone="+16155550142", prospect_name="Pat Prospect", advisor_name="Ada Advisor",
-            firm_name="Ada Wealth", recipient_name="Sam <Dial>+1900</Dial>", question_text=None)
+            firm_name="Ada Wealth", recipient_name="Sam <Dial>+1900</Dial>", question_text=None,
+            letter_id=42)
     assert sid == "CA777" and err is None
     kw = fake_client.calls.create.call_args.kwargs
     assert kw["to"] == "+16155550142" and kw["timeout"] == ai_engine.PROSPECT_CALL_TIMEOUT_SECONDS
@@ -770,7 +772,21 @@ def test_prospect_call_script_escapes_and_discloses_recording():
     assert "<Dial>" not in twiml and "&lt;Dial&gt;" in twiml        # injection neutralized
     assert "This call is being recorded" in twiml
     assert "on behalf of Ada Advisor at Ada Wealth" in twiml
-    assert 'recordingStatusCallback="https://staging.verbapost.com/webhooks/twilio/recording"' in twiml
+
+    # Twilio rejects TwiML that is not well-formed XML, and the callback URLs
+    # carry query strings — a bare & in one of them breaks every call.
+    xml.dom.minidom.parseString(twiml)
+
+    # <Record action=...> is what hands the call back to us when a take ends,
+    # so the caller can hear it and record again. ref carries the letter id.
+    assert ('action="https://staging.verbapost.com/webhooks/twilio/review'
+            '?kind=prospect&amp;ref=42&amp;take=1&amp;max=600"') in twiml
+    # The redo is announced in the intro, before they start talking.
+    assert "you can record it again" in twiml
+    # Every take fires the status callback, discarded ones included, so it is
+    # flagged mode=safety: log only, never process. The review flow decides.
+    assert ('recordingStatusCallback="https://staging.verbapost.com'
+            '/webhooks/twilio/recording?mode=safety"') in twiml
 
 
 def test_set_prospect_outcome_rejects_values_outside_the_fixed_set():
