@@ -14,7 +14,7 @@ def render_legal_page():
             st.rerun()
             
     st.title("📜 Terms of Service & Privacy Policy")
-    st.caption("Last Updated: December 2025")
+    st.caption("Last Updated: September 2026")
     
     st.divider()
     
