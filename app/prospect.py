@@ -344,26 +344,46 @@ def _place_call(page: dict, letter_id, phone_e164, prospect_name, recipient_name
 # Confirmation + re-dial
 # ============================================================
 
-@router.get("/{slug}/thanks/{letter_id}", response_class=HTMLResponse)
-def thanks(request: Request, slug: str, letter_id: int):
-    from app.main import templates
+def _thanks_context(request, slug, letter_id):
+    """Shared by the full page and the polled card fragment.
+    Returns (context, None) or (None, redirect)."""
     page, err = _page_or_404(request, slug)
     if err:
-        return err
+        return None, err
     if not _owns(request, letter_id):
-        return RedirectResponse(f"/a/{slug}", status_code=302)
+        return None, RedirectResponse(f"/a/{slug}", status_code=302)
     letter = database.get_prospect_letter(letter_id)
     if not letter or letter.get("advisor_email") != page["advisor_email"]:
-        return RedirectResponse(f"/a/{slug}", status_code=302)
+        return None, RedirectResponse(f"/a/{slug}", status_code=302)
     code = request.query_params.get("m")
-    return templates.TemplateResponse(request, "prospect_thanks.html", {
+    return {
         "page": page, "letter": letter, "slug": slug,
         "advisor_name": page.get("display_name"), "firm_name": page.get("firm_name") or "",
         "from_number": ai_engine.get_secret("twilio.from_number") or "+16156567667",
         "can_redial": letter.get("status") in ("calling", "call_failed", "recording_too_short")
                       and int(letter.get("call_attempts") or 0) < MAX_CALL_ATTEMPTS,
         "error": MESSAGES.get(code),
-    })
+    }, None
+
+
+@router.get("/{slug}/thanks/{letter_id}", response_class=HTMLResponse)
+def thanks(request: Request, slug: str, letter_id: int):
+    from app.main import templates
+    ctx, err = _thanks_context(request, slug, letter_id)
+    if err:
+        return err
+    return templates.TemplateResponse(request, "prospect_thanks.html", ctx)
+
+
+@router.get("/{slug}/thanks/{letter_id}/card", response_class=HTMLResponse)
+def thanks_card(request: Request, slug: str, letter_id: int):
+    """Just the card. The page polls this while the call is in flight so it
+    stops saying "your phone is about to ring" the moment the story lands."""
+    from app.main import templates
+    ctx, err = _thanks_context(request, slug, letter_id)
+    if err:
+        return err
+    return templates.TemplateResponse(request, "_prospect_thanks_card.html", ctx)
 
 
 @router.post("/{slug}/again/{letter_id}")

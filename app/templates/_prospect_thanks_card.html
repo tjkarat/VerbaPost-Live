@@ -1,0 +1,65 @@
+{# Re-rendered every few seconds by /a/{slug}/thanks/{id}/card while the
+   call is in flight, so the page stops saying "about to ring" once the
+   story is recorded. When the status is settled no hx-trigger is
+   emitted and the polling stops on its own. #}
+<div class="box card" id="thanks-card"{% if letter.status in ("consented", "calling") %}
+     hx-get="/a/{{ slug }}/thanks/{{ letter.id }}/card"
+     hx-swap="outerHTML"
+     hx-trigger="every 4s"{% endif %}>
+        {% if error %}<div class="msg-error">{{ error }}</div>{% endif %}
+
+        {% if letter.status == "recording_too_short" %}
+            <h1>We didn't catch a story.</h1>
+            <p style="color:var(--slate);">The recording was too short to print. Happy to try again whenever you're ready.</p>
+            {% if can_redial %}
+            <form method="post" action="/a/{{ slug }}/again/{{ letter.id }}" style="margin-top:18px;">
+                <button class="btn btn-primary" type="submit">Call me again</button>
+            </form>
+            {% endif %}
+
+        {% elif letter.status in ("calling", "call_failed") %}
+            <h1>Your phone is about to ring.</h1>
+            <p style="color:var(--slate);">Answer the call from</p>
+            <div class="num">{{ from_number }}</div>
+            <div class="tips">
+                <p>1. Our biographer will greet you and ask one question.</p>
+                <p>2. Speak after the beep. Take your time. Up to ten minutes.</p>
+                <p>3. Press <strong>#</strong> when you're done, or just hang up.</p>
+            </div>
+            <p style="margin-top:22px; color:var(--slate); font-size:0.95rem;">
+                Your letter to <strong>{{ letter.recipient_name }}</strong> will be printed and mailed by {{ advisor_name }}.
+            </p>
+            {% if can_redial %}
+            <form method="post" action="/a/{{ slug }}/again/{{ letter.id }}" style="margin-top:18px;">
+                <button class="btn btn-outline" type="submit">Missed the call? Call me again</button>
+            </form>
+            {% endif %}
+
+        {% elif letter.status in ("recorded", "Approved", "Sent") %}
+            <h1>Got it. Thank you.</h1>
+            <p style="color:var(--slate);">Your story is recorded. Your letter to <strong>{{ letter.recipient_name }}</strong>
+            will be printed on linen paper and mailed, with the compliments of {{ advisor_name }}.</p>
+
+        {% elif letter.status == "dnc_blocked" %}
+            <h1>We can't call that number.</h1>
+            <p style="color:var(--slate);">The number you entered is on a do-not-call list, so we won't dial it.
+            If you'd still like a letter, please contact {{ advisor_name }} directly.</p>
+
+        {% elif letter.status == "opted_out" %}
+            <h1>Understood.</h1>
+            <p style="color:var(--slate);">That number will not be called.</p>
+
+        {% else %}
+            <h1>Thank you.</h1>
+            <p style="color:var(--slate);">We have your request.</p>
+        {% endif %}
+
+        {% if letter.status in ("consented", "calling", "call_failed", "recording_too_short") %}
+        <p class="fine">
+            Changed your mind?
+            <form method="post" action="/a/{{ slug }}/opt-out/{{ letter.id }}">
+                <button type="submit">Cancel this request and do not call me.</button>
+            </form>
+        </p>
+        {% endif %}
+    </div>
