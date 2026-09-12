@@ -199,7 +199,7 @@ def render_story_header(pdf, storyteller, recipient_name=None, question_text=Non
     storyteller receives — if this design changes, the sample changes with it
     instead of quietly drifting into a lie about the product.
     """
-    name = _sanitize(storyteller) or "A Family Story"
+    name = _sanitize_text(storyteller) or "A Family Story"
     when = recorded_on or datetime.now()
     rec_date = f"{when:%B} {when.day}, {when.year}"
 
@@ -225,14 +225,14 @@ def render_story_header(pdf, storyteller, recipient_name=None, question_text=Non
         pdf.set_font('Times', 'I', 12)
         pdf.set_text_color(45, 45, 45)
         pdf.set_x(margin)
-        pdf.cell(0, 6, f"For {_sanitize(recipient_name)}", align='C', ln=1)
+        pdf.cell(0, 6, f"For {_sanitize_text(recipient_name)}", align='C', ln=1)
         pdf.ln(4)
 
     if question_text:
         pdf.set_font('Times', 'I', 11)
         pdf.set_text_color(100, 100, 100)
         pdf.set_x(margin)
-        pdf.multi_cell(0, 5.5, f'"{_sanitize(question_text)}"', align='C')
+        pdf.multi_cell(0, 5.5, f'"{_sanitize_text(question_text)}"', align='C')
         pdf.ln(3)
 
     pdf.set_text_color(0, 0, 0)
