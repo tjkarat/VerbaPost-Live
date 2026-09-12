@@ -175,8 +175,12 @@ def _add_audio_qr(pdf, audio_url, w, h, margin, recipient_id=None):
             
             # Caption
             pdf.set_y(y_pos + 32)
-            pdf.set_font("Helvetica", size=8) 
+            # Times italic, matching the header and footer — Helvetica here was
+            # the last piece of the old letter's typography.
+            pdf.set_font("Times", "I", 9)
+            pdf.set_text_color(110, 110, 110)
             pdf.cell(0, 5, "Scan to listen to the original recording", align='C', ln=1)
+            pdf.set_text_color(0, 0, 0)
             
         os.unlink(tmp_qr.name)
     except Exception as e:
