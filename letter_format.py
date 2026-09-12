@@ -119,55 +119,9 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             pdf.ln(10) 
             
         else:
-            # --- HEIRLOOM HEADER ---
-            # No product name and no tagline: the page belongs to the family,
-            # not to us. A serif header against the typewriter body gives the
-            # letter a printed-document hierarchy instead of one flat slab of
-            # mono, and the labelled "Storyteller: / Question: / Recorded:"
-            # block is gone — that read like a database record, not a keepsake.
-            storyteller = _safe_get(from_addr, 'name') or "A Family Story"
-            now = datetime.now()
-            rec_date = f"{now:%B} {now.day}, {now.year}"
-
-            # The teller's name is the title — it is their story.
-            pdf.set_font('Times', '', 22)
-            pdf.set_text_color(20, 20, 20)
-            pdf.set_x(MARGIN_MM)
-            pdf.cell(0, 11, _sanitize_text(storyteller), align='C', ln=1)
-
-            pdf.set_font('Times', 'I', 10)
-            pdf.set_text_color(115, 115, 115)
-            pdf.set_x(MARGIN_MM)
-            pdf.cell(0, 5, f"Recorded {rec_date}", align='C', ln=1)
-
-            # Hairline, inset from the margins so it reads as a divider
-            # rather than a box edge.
-            pdf.ln(4)
-            y_line = pdf.get_y()
-            inset = MARGIN_MM + 32
-            pdf.set_draw_color(175, 175, 175)
-            pdf.set_line_width(0.2)
-            pdf.line(x1=inset, y1=y_line, x2=PAGE_WIDTH_MM - inset, y2=y_line)
-            pdf.ln(8)
-
-            # Dedication, set like the one in the front of a book.
-            if recipient_name:
-                pdf.set_font('Times', 'I', 12)
-                pdf.set_text_color(45, 45, 45)
-                pdf.set_x(MARGIN_MM)
-                pdf.cell(0, 6, f"For {_sanitize_text(recipient_name)}", align='C', ln=1)
-                pdf.ln(4)
-
-            # The question as a quiet epigraph, not a labelled form field.
-            if question_text:
-                pdf.set_font('Times', 'I', 11)
-                pdf.set_text_color(100, 100, 100)
-                pdf.set_x(MARGIN_MM)
-                pdf.multi_cell(0, 5.5, f'"{_sanitize_text(question_text)}"', align='C')
-                pdf.ln(3)
-
-            pdf.set_text_color(0, 0, 0)
-            pdf.ln(8) 
+            render_story_header(pdf, _safe_get(from_addr, 'name'),
+                                recipient_name=recipient_name,
+                                question_text=question_text)
 
         # --- THE BODY ---
         pdf.set_font(font_family, '', 11)
@@ -234,3 +188,52 @@ def _create_error_pdf(msg):
     pdf.set_font("Courier", size=12)
     pdf.cell(0, 10, f"Error: {msg}", ln=1)
     return pdf.output(dest='S').encode('latin-1')
+
+
+def render_story_header(pdf, storyteller, recipient_name=None, question_text=None,
+                        recorded_on=None, margin=MARGIN_MM, page_width=PAGE_WIDTH_MM):
+    """Draw the letter's header onto an existing FPDF page.
+
+    Shared with invitation_format so the sample story printed inside a
+    prospecting mailer is rendered by the same code as the letter a real
+    storyteller receives — if this design changes, the sample changes with it
+    instead of quietly drifting into a lie about the product.
+    """
+    name = _sanitize(storyteller) or "A Family Story"
+    when = recorded_on or datetime.now()
+    rec_date = f"{when:%B} {when.day}, {when.year}"
+
+    pdf.set_font('Times', '', 22)
+    pdf.set_text_color(20, 20, 20)
+    pdf.set_x(margin)
+    pdf.cell(0, 11, name, align='C', ln=1)
+
+    pdf.set_font('Times', 'I', 10)
+    pdf.set_text_color(115, 115, 115)
+    pdf.set_x(margin)
+    pdf.cell(0, 5, f"Recorded {rec_date}", align='C', ln=1)
+
+    pdf.ln(4)
+    y_line = pdf.get_y()
+    inset = margin + 32
+    pdf.set_draw_color(175, 175, 175)
+    pdf.set_line_width(0.2)
+    pdf.line(x1=inset, y1=y_line, x2=page_width - inset, y2=y_line)
+    pdf.ln(8)
+
+    if recipient_name:
+        pdf.set_font('Times', 'I', 12)
+        pdf.set_text_color(45, 45, 45)
+        pdf.set_x(margin)
+        pdf.cell(0, 6, f"For {_sanitize(recipient_name)}", align='C', ln=1)
+        pdf.ln(4)
+
+    if question_text:
+        pdf.set_font('Times', 'I', 11)
+        pdf.set_text_color(100, 100, 100)
+        pdf.set_x(margin)
+        pdf.multi_cell(0, 5.5, f'"{_sanitize(question_text)}"', align='C')
+        pdf.ln(3)
+
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(8)

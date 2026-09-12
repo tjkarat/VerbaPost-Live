@@ -44,7 +44,21 @@ DEFAULT_INVITE_BODY = (
     "isn't paperwork. It's the voices."
 )
 
-_INVITE_VERSION = "invite-v1"
+# --- the sample story bound into the mailer -------------------------------
+# A prospect who can read a finished letter understands the offer in a way no
+# description achieves. Leave SAMPLE_STORY empty and the mailer stays one page;
+# fill it and the finished letter is bound in behind the invitation, rendered
+# by letter_format's own header code so the sample always matches the real
+# product.
+#
+# Paste the transcript of a story you are happy to put in front of strangers.
+SAMPLE_STORY = ""
+SAMPLE_STORYTELLER = "Tarak J. Robbana"
+SAMPLE_PROMPT = ""          # the question that was asked, shown as the epigraph
+SAMPLE_NOTE = ("This is a real letter, printed exactly as yours would be. "
+               "The code on it plays the storyteller's own voice.")
+
+_INVITE_VERSION = "invite-v2"
 
 
 def _sanitize(text):
@@ -71,7 +85,8 @@ def _load_serif(pdf):
 
 
 def create_invitation_pdf(first_name, personal_url, advisor_name, firm_name=None,
-                          body=None, disclosure=None, date=None, compact=False):
+                          body=None, disclosure=None, date=None, compact=False,
+                          include_sample=True):
     """
     Returns PDF bytes for one invitation. Never raises: on failure returns
     None so the caller marks the row failed instead of mailing garbage.
@@ -167,6 +182,9 @@ def create_invitation_pdf(first_name, personal_url, advisor_name, firm_name=None
                        "To be removed from future mailings, write to the return address on this envelope.",
                        align="C")
 
+        if include_sample and SAMPLE_STORY.strip():
+            _append_sample_story(pdf)
+
         raw = pdf.output(dest="S")
         if isinstance(raw, str):
             return raw.encode("latin-1")
@@ -174,3 +192,42 @@ def create_invitation_pdf(first_name, personal_url, advisor_name, firm_name=None
     except Exception as e:
         logger.error(f"Invitation PDF failed: {e}")
         return None
+
+
+def _append_sample_story(pdf):
+    """Bind the finished sample letter in behind the invitation.
+
+    Drawn with letter_format.render_story_header so this page is the same
+    artifact a storyteller actually receives, not a mock-up of one. Auto page
+    break is turned on for this section: a long story runs to a second sheet
+    rather than overflowing off the page.
+    """
+    import letter_format
+
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_margins(letter_format.MARGIN_MM, letter_format.MARGIN_MM, letter_format.MARGIN_MM)
+    pdf.set_y(letter_format.MARGIN_MM)
+
+    # A small label so nobody mistakes the sample for their own letter.
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(130, 130, 130)
+    pdf.set_x(letter_format.MARGIN_MM)
+    pdf.multi_cell(0, 4, _sanitize(SAMPLE_NOTE), align="C")
+    pdf.ln(6)
+    pdf.set_text_color(0, 0, 0)
+
+    letter_format.render_story_header(
+        pdf, SAMPLE_STORYTELLER,
+        question_text=SAMPLE_PROMPT or None,
+        margin=letter_format.MARGIN_MM,
+        page_width=letter_format.PAGE_WIDTH_MM)
+
+    mono = "TypeRight" if "TypeRight" in getattr(pdf, "font_aliases", {}) else "Courier"
+    pdf.set_font(mono, "", 11)
+    pdf.set_x(letter_format.MARGIN_MM)
+    pdf.multi_cell(0, 6, _sanitize(SAMPLE_STORY.strip()))
+
+    # Leave the document as we found it for anything rendered afterwards.
+    pdf.set_auto_page_break(auto=False)
+    pdf.set_margins(MARGIN, MARGIN, MARGIN)

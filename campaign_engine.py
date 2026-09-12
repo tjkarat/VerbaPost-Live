@@ -167,7 +167,8 @@ def build_invitation_pdf(page, invitation, base_url):
         personal_url=personal_url(base_url, page["slug"], invitation["token"]),
         advisor_name=page.get("display_name"), firm_name=page.get("firm_name"),
         body=page.get("invite_body"), disclosure=page.get("disclosure"),
-        compact=(mailer.get_mail_provider() == "pcm"))
+        compact=(mailer.get_mail_provider() == "pcm"),
+        include_sample=True)
 
 
 def send_campaign(campaign_id, base_url):
