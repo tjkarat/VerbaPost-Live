@@ -43,6 +43,21 @@
             --line: #ddd0b2;
             --accent: #9a3324;
             --card-bg: #fffcf5;
+            /* Warm status palette. Replaces the Tailwind-era greens/reds/blues
+               so success, warning and error states sit inside the editorial
+               system instead of fighting it. */
+            --paper-deep: #efe6d4;
+            --moss: #4b5d3a;
+            --moss-bg: #eef2e6;
+            --moss-line: #c3d0b0;
+            --gold: #b3812f;
+            --gold-deep: #8a6420;
+            --gold-bg: #f8f0dc;
+            --gold-line: #e7d8ab;
+            --alert: #8a2418;
+            --alert-bg: #f9ece8;
+            --alert-line: #e3c3b8;
+            --line-strong: #c9b98f;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html { scroll-behavior: smooth; }
@@ -54,6 +69,11 @@
             position: relative;
         }
         h1, h2, h3, h4 { font-family: 'Fraunces', serif; font-weight: 600; }
+        /* In-content links: browser-default blue reads as unstyled on parchment.
+           Scoped to main so header/footer/button rules keep their own colors. */
+        main a { color: var(--accent); text-decoration-color: var(--line-strong); text-underline-offset: 2px; }
+        main a:hover { color: #7a2519; }
+        main a.btn, main a.btn:hover { text-decoration: none; }
         /* faint paper-grain atmosphere, everywhere in the app */
         body::before{
             content:"";
@@ -64,7 +84,7 @@
         }
         header.site, main, footer.site { position: relative; z-index: 1; }
         .staging-banner {
-            background: #b45309; color: #fff; text-align: center;
+            background: var(--gold-deep); color: var(--paper); text-align: center;
             padding: 6px; font-size: 0.8rem; letter-spacing: 2px;
             font-family: 'IBM Plex Mono', monospace; font-weight: 700;
         }
@@ -146,7 +166,7 @@
     </main>
 
     <footer class="site">
-        <a href="/legal" style="color:#94a3b8;">Terms &amp; Privacy</a> ·
+        <a href="/legal" style="color:var(--slate);">Terms &amp; Privacy</a> ·
         VerbaPost Inc. · Nashville, TN<br>
         © 2026 VerbaPost
     </footer>

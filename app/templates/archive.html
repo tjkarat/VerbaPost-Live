@@ -16,7 +16,7 @@
         <div class="card" style="margin-top:20px;">
             <h3 style="margin-top:0;">Voice Recording</h3>
             {% if released and audio_src %}
-                <p style="color:#166534; font-family:'IBM Plex Mono',monospace; font-size:0.88rem; font-weight:600;">
+                <p style="color:var(--moss); font-family:'IBM Plex Mono',monospace; font-size:0.88rem; font-weight:600;">
                     Unlocked — ready to play</p>
                 <audio controls preload="metadata" style="width:100%;" src="{{ audio_src }}"></audio>
             {% elif released %}
@@ -29,7 +29,7 @@
             {% endif %}
         </div>
 
-        <p style="text-align:center; color:#94a3b8; font-size:0.8rem; margin-top:40px;">
+        <p style="text-align:center; color:var(--slate); font-size:0.8rem; margin-top:40px;">
             Securely hosted by VerbaPost in partnership with {{ firm_name }}.</p>
     </div>
 {% endblock %}
