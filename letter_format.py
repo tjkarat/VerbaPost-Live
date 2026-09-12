@@ -39,14 +39,14 @@ class LetterPDF(FPDF):
 
         self.set_y(-20)
         
-        if 'TypeRight' in self.font_aliases:
-            self.set_font('TypeRight', '', 8)
-        else:
-            self.set_font('Courier', '', 8)
-            
-        self.set_text_color(100, 100, 100) 
-        self.cell(0, 5, self.custom_footer_text, align='C', ln=1)
-        self.cell(0, 5, f'- Page {self.page_no()} -', align='C')
+        # Serif, small, grey — a colophon line rather than a banner. The
+        # advisor's credit sits here so the top of the page can belong to
+        # the family.
+        self.set_font('Times', 'I', 8)
+        self.set_text_color(120, 120, 120)
+        self.cell(0, 4, self.custom_footer_text, align='C', ln=1)
+        self.set_font('Times', '', 7.5)
+        self.cell(0, 4, str(self.page_no()), align='C')
 
 def _sanitize_text(text):
     if not text: return ""
@@ -74,7 +74,12 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
     """
     try:
         # Disable footer for Marketing
-        footer_txt = f"Preserved by {advisor_firm}" if not is_marketing else ""
+        if is_marketing:
+            footer_txt = ""
+        elif compliments_of:
+            footer_txt = f"With the compliments of {_sanitize_text(compliments_of)}"
+        else:
+            footer_txt = f"Preserved by {advisor_firm}"
         pdf = LetterPDF(footer_text=footer_txt)
         
         # 2. Load Vintage Font
@@ -114,52 +119,55 @@ def create_pdf(body_text, to_addr, from_addr, advisor_firm="VerbaPost Archives",
             pdf.ln(10) 
             
         else:
-            # --- HEIRLOOM HEADER (Branded) ---
-            pdf.set_font(font_family, '', 16)
-            pdf.cell(0, 8, "THE FAMILY LEGACY ARCHIVE", align='C', ln=1)
+            # --- HEIRLOOM HEADER ---
+            # No product name and no tagline: the page belongs to the family,
+            # not to us. A serif header against the typewriter body gives the
+            # letter a printed-document hierarchy instead of one flat slab of
+            # mono, and the labelled "Storyteller: / Question: / Recorded:"
+            # block is gone — that read like a database record, not a keepsake.
+            storyteller = _safe_get(from_addr, 'name') or "A Family Story"
+            now = datetime.now()
+            rec_date = f"{now:%B} {now.day}, {now.year}"
 
-            # TAGLINE
-            pdf.set_font(font_family, '', 10)
-            pdf.cell(0, 5, "A letter your grandchildren will hold.", align='C', ln=1)
-            
-            pdf.set_draw_color(50, 50, 50)
-            y_line = pdf.get_y() + 2
-            pdf.line(x1=MARGIN_MM, y1=y_line, x2=PAGE_WIDTH_MM - MARGIN_MM, y2=y_line)
-            pdf.ln(6)
-            
-            storyteller = _safe_get(from_addr, 'name') or "The Family"
-            rec_date = datetime.now().strftime("%B %d, %Y")
-            
-            # --- INFO BLOCK (CENTERED & STACKED) ---
-            pdf.set_font(font_family, '', 10)
-            
-            # 1. Storyteller
-            pdf.cell(0, 5, f"Storyteller: {storyteller}", align='C', ln=1)
+            # The teller's name is the title — it is their story.
+            pdf.set_font('Times', '', 22)
+            pdf.set_text_color(20, 20, 20)
+            pdf.set_x(MARGIN_MM)
+            pdf.cell(0, 11, _sanitize_text(storyteller), align='C', ln=1)
 
-            # 1b. Recipient (gift letters only)
+            pdf.set_font('Times', 'I', 10)
+            pdf.set_text_color(115, 115, 115)
+            pdf.set_x(MARGIN_MM)
+            pdf.cell(0, 5, f"Recorded {rec_date}", align='C', ln=1)
+
+            # Hairline, inset from the margins so it reads as a divider
+            # rather than a box edge.
+            pdf.ln(4)
+            y_line = pdf.get_y()
+            inset = MARGIN_MM + 32
+            pdf.set_draw_color(175, 175, 175)
+            pdf.set_line_width(0.2)
+            pdf.line(x1=inset, y1=y_line, x2=PAGE_WIDTH_MM - inset, y2=y_line)
+            pdf.ln(8)
+
+            # Dedication, set like the one in the front of a book.
             if recipient_name:
+                pdf.set_font('Times', 'I', 12)
+                pdf.set_text_color(45, 45, 45)
                 pdf.set_x(MARGIN_MM)
-                pdf.cell(0, 5, f"For: {_sanitize_text(recipient_name)}", align='C', ln=1)
-            
-            # 2. Question
+                pdf.cell(0, 6, f"For {_sanitize_text(recipient_name)}", align='C', ln=1)
+                pdf.ln(4)
+
+            # The question as a quiet epigraph, not a labelled form field.
             if question_text:
-                pdf.set_font(font_family, '', 9)
-                pdf.multi_cell(0, 5, f"Question: {question_text}", align='C')
-                pdf.set_font(font_family, '', 10) # Reset font
-            
-            # 3. Date (FORCED CENTERING)
-            pdf.ln(2) 
-            pdf.set_x(MARGIN_MM) # <--- Force cursor back to left margin to prevent offset
-            pdf.cell(0, 5, f"Recorded: {rec_date}", align='C', ln=1)
-            
-            # 4. Preserved By (or, for gift letters, With the compliments of)
-            pdf.set_x(MARGIN_MM) # <--- Force cursor back to left margin
-            if compliments_of:
-                pdf.cell(0, 5, f"With the compliments of: {_sanitize_text(compliments_of)}", align='C', ln=1)
-            else:
-                pdf.cell(0, 5, f"Preserved by: {advisor_firm}", align='C', ln=1)
-            
-            pdf.ln(15) 
+                pdf.set_font('Times', 'I', 11)
+                pdf.set_text_color(100, 100, 100)
+                pdf.set_x(MARGIN_MM)
+                pdf.multi_cell(0, 5.5, f'"{_sanitize_text(question_text)}"', align='C')
+                pdf.ln(3)
+
+            pdf.set_text_color(0, 0, 0)
+            pdf.ln(8) 
 
         # --- THE BODY ---
         pdf.set_font(font_family, '', 11)
