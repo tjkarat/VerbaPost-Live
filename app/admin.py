@@ -154,7 +154,9 @@ def orphaned_calls():
     known = set()
     try:
         with database.get_db_session() as session:
-            for tbl in ("letter_drafts", "projects"):
+            # prospect_letters too: without it every acquisition-path call
+            # looks orphaned, even one that produced a letter perfectly.
+            for tbl in ("letter_drafts", "projects", "prospect_letters"):
                 for row in session.execute(text(
                         f"SELECT call_sid FROM {tbl} WHERE call_sid IS NOT NULL")).fetchall():
                     known.add(row[0])

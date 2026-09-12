@@ -14,6 +14,7 @@ to double-process).
 
 import logging
 import os
+import time
 import sys
 from pathlib import Path
 
@@ -275,9 +276,26 @@ def _process_recording(call_sid: str, recording_url: str):
     transcript = "[Audio captured. Transcription unavailable.]"
     tmp_path = f"/tmp/rec_{call_sid}.mp3"
 
+    # Twilio hands us the RecordingUrl the moment the take ENDS, but the media
+    # is not fetchable for a few seconds after that — an immediate GET 404s.
+    # The review flow processes on that callback (it has to; it is the only
+    # place that knows which take the caller kept), so wait for the media
+    # rather than writing the placeholder transcript over a real story.
+    resp = None
+    for attempt in range(6):
+        try:
+            resp = requests.get(audio_url, auth=(sid, token), timeout=60)
+        except Exception:
+            logger.exception(f"Recording fetch error for {call_sid}")
+            resp = None
+        if resp is not None and resp.status_code == 200:
+            break
+        code = getattr(resp, "status_code", "no response")
+        logger.warning(f"Recording not ready ({code}) for {call_sid}, attempt {attempt + 1}/6")
+        time.sleep(2)
+
     try:
-        resp = requests.get(audio_url, auth=(sid, token), timeout=60)
-        if resp.status_code == 200:
+        if resp is not None and resp.status_code == 200:
             with open(tmp_path, "wb") as f:
                 f.write(resp.content)
             try:
@@ -290,7 +308,9 @@ def _process_recording(call_sid: str, recording_url: str):
                 except OSError:
                     pass
         else:
-            logger.error(f"Recording download failed ({resp.status_code}) for {call_sid}")
+            logger.error("Recording download failed "
+                         f"({getattr(resp, 'status_code', 'no response')}) for {call_sid} "
+                         "after 6 attempts")
     except Exception:
         logger.exception(f"Recording processing error for {call_sid}")
 
