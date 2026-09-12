@@ -324,7 +324,8 @@ def _place_call(page: dict, letter_id, phone_e164, prospect_name, recipient_name
     sid, err = ai_engine.trigger_prospect_call(
         to_phone=phone_e164, prospect_name=prospect_name,
         advisor_name=page.get("display_name"), firm_name=page.get("firm_name"),
-        recipient_name=recipient_name, question_text=page.get("prompt"))
+        recipient_name=recipient_name, question_text=page.get("prompt"),
+        letter_id=letter_id)
     current = database.get_prospect_letter(letter_id) or {}
     attempts = int(current.get("call_attempts") or 0) + 1
     if not sid:
