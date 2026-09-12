@@ -7,7 +7,7 @@
     <h2 style="text-align:center;">Set a new password</h2>
 
     {% if error %}
-    <div style="background:#fef2f2; border:1px solid #fecaca; color:#b91c1c; padding:12px; border-radius:8px; margin-bottom:12px; font-size:0.9rem;">{{ error }}</div>
+    <div style="background:var(--alert-bg); border:1px solid var(--alert-line); color:var(--alert); padding:12px; border-radius:8px; margin-bottom:12px; font-size:0.9rem;">{{ error }}</div>
     {% endif %}
 
     <div class="card">
@@ -19,7 +19,7 @@
                    style="width:100%; padding:12px; border:1px solid var(--line); border-radius:8px; box-sizing:border-box;">
             <button class="btn btn-primary" type="submit" style="width:100%; margin-top:18px;">Set new password</button>
         </form>
-        <p id="rec-missing" style="display:none; color:#b91c1c; font-size:0.9rem; margin-top:12px;">
+        <p id="rec-missing" style="display:none; color:var(--alert); font-size:0.9rem; margin-top:12px;">
             This page needs to be opened from the reset link in your email.
             <a href="/login">Request a new reset email →</a>
         </p>
