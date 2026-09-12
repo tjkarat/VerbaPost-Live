@@ -317,7 +317,7 @@ def _pcm_letter_payload(pdf_url, to_addr, from_addr, idempotency_key):
     return {
         "mailClass": "FirstClass",
         "recipients": [recipient],
-        "letterStock": "Regular",
+        "letterStock": "Cougar80",
         "color": True,
         "printOnBothSides": False,
         "insertAddressingPage": True,
