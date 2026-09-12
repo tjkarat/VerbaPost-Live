@@ -43,6 +43,19 @@
             <source src="{{ audio_src }}" type="audio/mpeg">
             Your browser does not support audio playback.
         </audio>
+
+        {# The letter is permanent; the audio file is not. Say so here, where
+           the person is already listening, rather than only in the Terms. #}
+        <div style="margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line);">
+            <a class="btn btn-outline" href="{{ download_src }}" style="width: 100%;">Download this recording</a>
+            {% if retention_days %}
+            <p style="color: var(--slate); font-size: 0.82rem; margin-top: 12px; line-height: 1.6;">
+                Save a copy to keep it. We host the audio for {{ retention_days }} days from the
+                recording date{% if expires_on %}, until <strong>{{ expires_on }}</strong>{% endif %}.
+                After that the file is removed and only the printed letter remains.
+            </p>
+            {% endif %}
+        </div>
     </div>
 
     <div style="text-align: center; color: var(--slate); font-size: 0.9rem; margin-top: 40px;">

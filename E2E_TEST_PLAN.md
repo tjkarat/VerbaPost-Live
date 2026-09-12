@@ -22,7 +22,7 @@ gcloud run services logs read verbapost-web-staging --region us-central1 --limit
 ## Scene 1 — Public pages (5 min)
 
 - [ ] Splash loads fast, orange STAGING banner, **no emoji anywhere**
-- [ ] `/legal` renders (30-day window, NOT A LEGAL DOCUMENT)
+- [ ] `/legal` renders (60-day window, NOT A LEGAL DOCUMENT)
 - [ ] `/blog` lists 3 posts; open one; readable, styled
 - [ ] Legacy redirects: `/?nav=login` → login page; `/?play=demo` → demo player plays audio
 - [ ] Logged out, `/advisor` and `/heirloom` both bounce to `/login`

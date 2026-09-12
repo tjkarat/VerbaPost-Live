@@ -285,6 +285,36 @@ def fetch_recording_audio(partial_uri):
         
     return None
 
+def delete_recording(recording_url):
+    """Delete a recording at Twilio. Used by the retention job — clearing our
+    own pointer leaves the media sitting in the Twilio account, which is not
+    what the Terms promise. Returns True on success (or if it is already gone).
+    """
+    sid = get_secret("twilio.account_sid")
+    token = get_secret("twilio.auth_token")
+    if not sid or not token:
+        logger.error("Cannot delete recording: Twilio credentials missing")
+        return False
+
+    from urllib.parse import urlparse
+    path = urlparse(recording_url or "").path
+    for suffix in (".mp3", ".wav", ".json"):
+        if path.endswith(suffix):
+            path = path[: -len(suffix)]
+    if "/Recordings/" not in path:
+        logger.error(f"Not a recording URL, refusing to delete: {recording_url}")
+        return False
+
+    try:
+        resp = requests.delete(f"https://api.twilio.com{path}", auth=(sid, token), timeout=30)
+        if resp.status_code in (204, 404):        # 404: already deleted
+            return True
+        logger.error(f"Twilio delete failed ({resp.status_code}) for {path}")
+    except Exception:
+        logger.exception(f"Twilio delete error for {path}")
+    return False
+
+
 # ==========================================
 # 📞 PROSPECT ACQUISITION CALL (advisor-branded free letter)
 # ==========================================

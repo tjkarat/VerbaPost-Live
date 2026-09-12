@@ -10,6 +10,7 @@ Port of ui_heirloom.render_public_player.
 import logging
 import sys
 from pathlib import Path
+from datetime import timedelta
 from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -23,17 +24,20 @@ import database
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-DEMO = {
-    "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
-    "title": "Barnaby Jones - Childhood Memories",
-    "date": "January 16, 2026",
-    "storyteller": "Barnaby Jones",
-}
+# How long a recording stays downloadable. Must match the Terms — see
+# app/templates/legal.html and ui_legal.py.
+RETENTION_DAYS = 60
+
+# The story used as the public sample: on the advisor landing page, in the
+# mailer, and anywhere marketing needs a real letter. Pointing /play/sample at
+# a real letter means the sample can never drift from the product; the purge
+# job skips this one so it does not go quiet.
+SAMPLE_LETTER_ID = 3
 
 
 def _load_story(audio_id: str):
     if audio_id in ("demo", "sample"):
-        return dict(DEMO)
+        return _load_story(f"p{SAMPLE_LETTER_ID}")
     # Prospect letters carry a "p" prefix on the QR code (/play/p123).
     # Their audio is always playable — the recipient hearing the prospect's
     # voice IS the gift; there is no advisor release gate on this path.
@@ -45,7 +49,15 @@ def _load_story(audio_id: str):
             # landing on an unbranded page loses that, and leaves the visitor
             # with nowhere to go but a login screen they have no account for.
             page = database.get_advisor_page_by_email(letter.get("advisor_email") or "") or {}
+            # The public sample is exempt from the purge, so it must not
+            # advertise an expiry date it will never reach.
+            permanent = int(letter.get("id") or 0) == int(SAMPLE_LETTER_ID)
+            expires = None
+            if hasattr(created, "strftime") and not permanent:
+                expires = (created + timedelta(days=RETENTION_DAYS)).strftime("%B %d, %Y")
             return {
+                "permanent": permanent,
+                "expires_on": expires,
                 "id": audio_id,
                 "url": letter["audio_url"],
                 "title": f"A story from {letter.get('prospect_name') or 'a friend'}",
@@ -108,12 +120,15 @@ def public_player(request: Request, audio_id: str):
             "advisor_name": story.get("advisor_name", ""),
             "firm_name": story.get("firm_name", ""),
             "advisor_slug": story.get("advisor_slug", ""),
+            "expires_on": story.get("expires_on"),
+            "retention_days": None if story.get("permanent") else RETENTION_DAYS,
+            "download_src": f"/play/{audio_id}/audio.mp3?download=1",
         },
     )
 
 
 @router.get("/play/{audio_id}/audio.mp3")
-def public_player_audio(audio_id: str):
+def public_player_audio(audio_id: str, download: int = 0):
     """Authenticated server-side fetch of Twilio-hosted audio."""
     story = _load_story(audio_id)
     if not story:
@@ -131,8 +146,10 @@ def public_player_audio(audio_id: str):
     if not audio_bytes:
         return Response(status_code=502)
 
-    return Response(
-        content=audio_bytes,
-        media_type="audio/mpeg",
-        headers={"Cache-Control": "private, max-age=3600"},
-    )
+    headers = {"Cache-Control": "private, max-age=3600"}
+    if download:
+        # Content-Disposition rather than the <a download> attribute alone:
+        # mobile Safari ignores the attribute and plays the file instead.
+        teller = (story.get("storyteller") or "story").replace('"', "").replace(" ", "_")
+        headers["Content-Disposition"] = f'attachment; filename="{teller}_VerbaPost.mp3"'
+    return Response(content=audio_bytes, media_type="audio/mpeg", headers=headers)

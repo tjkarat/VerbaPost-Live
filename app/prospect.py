@@ -136,6 +136,17 @@ def _page_or_404(request: Request, slug: str):
     return page, None
 
 
+def _sample_audio_src():
+    """The public sample story, if it is still playable. Returns None rather
+    than rendering a dead player when the sample is missing or purged."""
+    try:
+        from app.player import _load_story
+        return "/play/sample/audio.mp3" if _load_story("sample") else None
+    except Exception:
+        logger.exception("Sample audio lookup failed")
+        return None
+
+
 def _render_page(request: Request, page: dict, **extra):
     from app.main import templates
     available = database.prospect_letters_available(page["advisor_email"])
@@ -152,6 +163,7 @@ def _render_page(request: Request, page: dict, **extra):
         "form": {},
         "states": STATE_NAMES,
         "invitation": None,
+        "sample_src": _sample_audio_src(),
     }
     ctx.update(extra)
     return templates.TemplateResponse(request, "prospect.html", ctx)

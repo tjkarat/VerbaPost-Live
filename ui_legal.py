@@ -30,20 +30,20 @@ def render_legal_page():
     **Nature of Service:** VerbaPost acts as a **Production Studio**, not a permanent data storage facility. Our primary deliverable is the physical manuscript and the downloadable master media file.
     """)
     
-    # --- SECTION 2: DATA RETENTION (THE 30-DAY RULE) ---
+    # --- SECTION 2: DATA RETENTION (THE 60-DAY RULE) ---
     st.header("2. Data Retention & Archival Policy")
     st.warning("""
-    ⚠️ **IMPORTANT: 30-DAY ACTIVE WINDOW**
+    ⚠️ **IMPORTANT: 60-DAY ACTIVE WINDOW**
     
-    VerbaPost guarantees active hosting of your media (audio recordings and digital transcripts) for a period of **30 days** from the date of creation.
+    VerbaPost guarantees active hosting of your media (audio recordings and digital transcripts) for a period of **60 days** from the date of creation.
     """)
     
     st.markdown("""
     **User Responsibility:**
-    It is the sole responsibility of the User (The Heir or Interviewee) to **download and save** a local copy of their audio recordings and transcripts within this 30-day window.
+    It is the sole responsibility of the User (The Heir or Interviewee) to **download and save** a local copy of their audio recordings and transcripts within this 60-day window.
     
-    **Archival & Purging:**
-    After 30 days, media files are automatically moved to "Cold Storage" or permanently purged to ensure client privacy and data security. VerbaPost is not liable for any data loss resulting from the failure to download content within the active window.
+    **Purging:**
+    After 60 days, audio recordings are deleted — both from VerbaPost and from our telephony provider — to protect client privacy. The printed letter and its transcript are unaffected. VerbaPost is not liable for any data loss resulting from the failure to download content within the active window.
     """)
 
     # --- SECTION 3: INTELLECTUAL PROPERTY (B2B PROTECTION) ---

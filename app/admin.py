@@ -434,3 +434,58 @@ def _parse_addr(raw: str):
     elif len(parts) >= 3:
         data["city"] = parts[2]
     return data
+
+
+# ---------- retention ----------
+#
+# The Terms promise the audio goes after a fixed window. Nothing enforced that
+# until this page existed. It is deliberately manual and dry-run-first: the
+# deletion reaches Twilio and is irreversible, so a human sees the list before
+# anything goes. The printed letter and the transcript are never touched.
+
+@router.get("/retention", response_class=HTMLResponse)
+def retention_review(request: Request):
+    if not _require_admin(request):
+        return _deny()
+    import retention
+    from app.player import RETENTION_DAYS
+    rows, _ = retention.purge_expired(dry_run=True)
+    body = "".join(
+        f"<tr><td>{r['id']}</td><td>{(r['storyteller'] or '')}</td>"
+        f"<td>{r['created_at']:%b %d, %Y}</td><td>{r['age_days']}</td></tr>"
+        for r in rows)
+    table = (f"<table border=1 cellpadding=6 cellspacing=0><tr><th>Letter</th>"
+             f"<th>Storyteller</th><th>Recorded</th><th>Days old</th></tr>{body}</table>"
+             if rows else "<p>Nothing is past the window. No audio to purge.</p>")
+    confirm = ("""
+      <form method="post" action="/admin/retention/purge"
+            onsubmit="return confirm('Delete this audio at Twilio? This cannot be undone.')">
+        <p>Type <code>purge</code> to confirm, then press the button.</p>
+        <input name="confirm" autocomplete="off" required>
+        <button type="submit">Purge audio</button>
+      </form>""" if rows else "")
+    return HTMLResponse(
+        f"""<!doctype html><meta charset="utf-8"><title>Retention</title>
+        <body style="font-family:Georgia,serif;max-width:760px;margin:40px auto;padding:0 20px">
+        <h1>Audio retention</h1>
+        <p>Recordings are kept for <strong>{RETENTION_DAYS} days</strong> from the
+        recording date. Below is what is past that window right now. Purging
+        clears our pointer and deletes the media at Twilio. The printed letter
+        and the transcript stay.</p>
+        {table}{confirm}
+        <p><a href="/admin">&larr; Back to admin</a></p></body>""")
+
+
+@router.post("/retention/purge")
+def retention_purge(request: Request, confirm: str = Form("")):
+    if not _require_admin(request):
+        return _deny()
+    if confirm.strip().lower() != "purge":
+        return RedirectResponse("/admin/retention?notice=Not+confirmed", status_code=303)
+    import retention
+    results, errors = retention.purge_expired(dry_run=False)
+    audit_engine.log_event(request.session.get("email", "admin"), "Audio Retention Purge",
+                           metadata={"purged": len(results), "errors": len(errors)})
+    return RedirectResponse(
+        f"/admin?notice=Purged+{len(results)}+recording(s),+{len(errors)}+error(s)",
+        status_code=303)
