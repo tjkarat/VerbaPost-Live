@@ -30,6 +30,46 @@ def get_openai_client():
 # 📞 B2B TELEPHONY
 # ==========================================
 
+# ============================================================
+# In-call review ("press 1 to send, press 2 to record again")
+# ============================================================
+# Both call scripts record with <Record action=...>. When the recording ends
+# Twilio POSTs that URL and CONTINUES the call with whatever TwiML we return —
+# that is the hook we use to play the take back and offer a redo.
+#
+# Note the recordingStatusCallback carries mode=safety. Every take fires that
+# callback, including discarded ones, so it must not process anything; it only
+# logs the recording for admin recovery. The action callback is the single
+# place that decides which take becomes the letter.
+
+VOICE = "Polly.Joanna-Neural"
+MAX_TAKES = 3                    # first take + up to two redos
+
+# Spoken once in the intro so the option is known BEFORE they start talking.
+REDO_PROMISE = ("When you are finished, press the pound key. "
+                "You will then hear your story back, and you can record it "
+                "again if you would like to.")
+
+
+def callback_base():
+    return (get_secret("WEBHOOK_BASE_URL") or get_secret("BASE_URL")
+            or "https://app.verbapost.com").rstrip("/")
+
+
+def record_block(kind, ref_id, take=1, max_seconds=600):
+    """The <Record> verb, wired to the review endpoint. Shared by the initial
+    call scripts and by the redo TwiML returned mid-call."""
+    base = callback_base()
+    # &amp; — these land inside XML attributes, where a bare & is a parse error
+    # and Twilio rejects the whole document.
+    action = (f"{base}/webhooks/twilio/review"
+              f"?kind={kind}&amp;ref={ref_id}&amp;take={take}&amp;max={max_seconds}")
+    safety = f"{base}/webhooks/twilio/recording?mode=safety"
+    return (f'<Record maxLength="{max_seconds}" finishOnKey="#" playBeep="true" '
+            f'action="{action}" method="POST" '
+            f'recordingStatusCallback="{safety}" recordingStatusCallbackMethod="POST" />')
+
+
 def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, question_text=None):
     """
     Triggers a Twilio call with a dynamic B2B script.
@@ -59,6 +99,7 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
     callback_base = (get_secret("WEBHOOK_BASE_URL") or get_secret("BASE_URL")
                      or "https://app.verbapost.com").rstrip("/")
     recording_callback = f"{callback_base}/webhooks/twilio/recording"
+    record_verb = record_block("heirloom", project_id, take=1, max_seconds=600)
 
     twiml = f"""
     <Response>
@@ -77,9 +118,10 @@ def trigger_outbound_call(to_phone, advisor_name, firm_name, project_id, questio
         <Pause length="2"/>
         <Say voice="Polly.Joanna-Neural">
             Please take a moment to think. Then, record your answer after the beep.
+            {REDO_PROMISE}
         </Say>
         <Pause length="1"/>
-        <Record maxLength="600" finishOnKey="#" playBeep="true" recordingStatusCallback="{recording_callback}" recordingStatusCallbackMethod="POST" />
+        {record_verb}
         <Say voice="Polly.Joanna-Neural">Thank you. Goodbye.</Say>
     </Response>
     """
@@ -252,7 +294,7 @@ PROSPECT_MAX_RECORD_SECONDS = 600
 
 
 def trigger_prospect_call(to_phone, prospect_name, advisor_name, firm_name,
-                          recipient_name, question_text=None):
+                          recipient_name, question_text=None, letter_id=None):
     """
     Outbound call to a PROSPECT who asked (with express written consent) to
     record a story for someone they named. Same Twilio plumbing as
@@ -284,6 +326,8 @@ def trigger_prospect_call(to_phone, prospect_name, advisor_name, firm_name,
     callback_base = (get_secret("WEBHOOK_BASE_URL") or get_secret("BASE_URL")
                      or "https://app.verbapost.com").rstrip("/")
     recording_callback = f"{callback_base}/webhooks/twilio/recording"
+    record_verb = record_block("prospect", letter_id or 0, take=1,
+                               max_seconds=PROSPECT_MAX_RECORD_SECONDS)
 
     twiml = f"""
     <Response>
@@ -304,11 +348,10 @@ def trigger_prospect_call(to_phone, prospect_name, advisor_name, firm_name,
         <Pause length="2"/>
         <Say voice="Polly.Joanna-Neural">
             Take a moment to think. Then speak after the beep. You have up to ten minutes.
-            When you are finished, press the pound key, or simply hang up.
+            {REDO_PROMISE}
         </Say>
         <Pause length="1"/>
-        <Record maxLength="{PROSPECT_MAX_RECORD_SECONDS}" finishOnKey="#" playBeep="true"
-                recordingStatusCallback="{recording_callback}" recordingStatusCallbackMethod="POST" />
+        {record_verb}
         <Say voice="Polly.Joanna-Neural">
             Thank you. Your letter for {safe_recipient} will be printed and mailed, with the compliments of {safe_advisor}. Goodbye.
         </Say>
