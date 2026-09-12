@@ -52,9 +52,12 @@ DEFAULT_INVITE_BODY = (
 # product.
 #
 # Paste the transcript of a story you are happy to put in front of strangers.
-SAMPLE_STORY = ""
+SAMPLE_STORY = (
+    "I want to tell you a story about your grandma and me. I was probably 11, and we had just recently moved from Southern Ohio, near the West Virginia border, to New Jersey, because grandma had gotten a job. Grandma had a Datsun. I think it was a B210. Anyways, grandma needed a new car. It was going to be a new used car, but she needed one. There was no Craigslist back then, so you often went to dealerships. She was very concerned about making a good decision. She visited a few, and I was with her. My only concern was that I wanted it to have a good stereo. I remember I just wanted it to have a cassette deck. You might not know what cassettes are, but at the time, cassette decks were the thing to have.\n\nSo we were driving around, and we had just been to a dealership. She was going to look at the car she ultimately bought, which was a Volkswagen Rabbit. We were talking about the importance of making a good decision, and right in front of us was this purple Gremlin. And not only was it purple, but it had an old metal dealer plate from Eggies. So there we were, looking at this purple Gremlin, and we both sarcastically said that the person who bought it must have taken their time, made a thoughtful decision, and bought a purple Gremlin from Eggies. And that was the best decision they thought they could have made. After that, grandma felt better about her decision. She said any decision she made would be better than that. We both laughed.\n\nThe point of the story is about not being too indecisive. Your decision can't be worse than someone who decided to buy a purple Gremlin. That's the story. If you tell that to grandma, she'll laugh. More stories to come. I love you."
+)
 SAMPLE_STORYTELLER = "Tarak R."
-SAMPLE_PROMPT = ""          # the question that was asked, shown as the epigraph
+SAMPLE_PROMPT = ("Tell Maddie about a memory you hope she will carry with her "
+                 "for the rest of her life.")
 SAMPLE_NOTE = ("This is a real letter, printed exactly as yours would be. "
                "The code on it plays the storyteller's own voice.")
 
