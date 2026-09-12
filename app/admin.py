@@ -375,7 +375,7 @@ def prospect_export_all(request: Request):
     return prospect_csv(database.list_prospect_letters(), filename="verbapost_prospect_send_log.csv")
 
 
-@router.get("/pcm/probe.pdf")
+@router.api_route("/pcm/probe.pdf", methods=["GET", "HEAD"])
 def pcm_probe_pdf():
     """The artwork the probe order below points PCM at. Unauthenticated on
     purpose, same reasoning as /a/{slug}/i/{token}/pdf: PCM's mail API fetches

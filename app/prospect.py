@@ -199,14 +199,20 @@ def landing_from_invitation(request: Request, slug: str, token: str):
                         form={"prospect_name": inv.get("full_name") or ""})
 
 
-@router.get("/{slug}/i/{token}/pdf")
+@router.api_route("/{slug}/i/{token}/pdf", methods=["GET", "HEAD"])
 def invitation_pdf(slug: str, token: str):
     """Serves the exact PDF mailed to this one person. No auth: this is the
     URL PCM's DirectMail API fetches the artwork from (their `letter` field
     takes a URL, never a binary upload — see mailer.py), and the token is
     already unguessable and single-purpose, same as the personal link itself.
     Regenerated on the fly rather than stored, so it always matches what
-    campaign_engine.build_invitation_pdf produces."""
+    campaign_engine.build_invitation_pdf produces.
+
+    HEAD is answered as well as GET. FastAPI does not add HEAD to a @get
+    route, so this URL used to return 405 to a HEAD request. A fetcher that
+    probes content-type or size before downloading would see that 405 and
+    take away no artwork, which is one way an order ends up with a blank
+    proof. Answering HEAD costs one regeneration and removes the question."""
     inv = database.get_invitation_by_token(token)
     if not inv:
         return Response(status_code=404)
