@@ -193,8 +193,13 @@ def test_legacy_root_code_param_redirects_to_callback():
 def test_legal_page_renders_key_terms():
     r = client.get("/legal")
     assert r.status_code == 200
-    assert "30-DAY ACTIVE WINDOW" in r.text
     assert "NOT A LEGAL DOCUMENT" in r.text
+    # The window the Terms promise must be the window the purge job enforces.
+    # Asserting the literal number would only prove the page still says what it
+    # said; asserting against RETENTION_DAYS makes the two impossible to drift.
+    from app.player import RETENTION_DAYS
+    assert f"{RETENTION_DAYS}-DAY ACTIVE WINDOW" in r.text
+    assert f"<strong>{RETENTION_DAYS} days</strong>" in r.text
 
 
 def test_blog_index_lists_posts():
