@@ -35,9 +35,24 @@ RETENTION_DAYS = 60
 SAMPLE_LETTER_ID = 3
 
 
+# A synthetic placeholder, kept only so /play/demo has something to show when
+# there is no database behind the app (tests, a bare environment, a screenshot).
+# It is NOT the sample: /play/sample resolves to a real letter, and returns
+# nothing when that letter is gone, because a stock music clip standing in for
+# a family's story on an advisor's page would be a lie about the product.
+DEMO = {
+    "url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
+    "title": "Barnaby Jones - Childhood Memories",
+    "date": "January 16, 2026",
+    "storyteller": "Barnaby Jones",
+}
+
+
 def _load_story(audio_id: str):
-    if audio_id in ("demo", "sample"):
+    if audio_id == "sample":
         return _load_story(f"p{SAMPLE_LETTER_ID}")
+    if audio_id == "demo":
+        return _load_story(f"p{SAMPLE_LETTER_ID}") or dict(DEMO)
     # Prospect letters carry a "p" prefix on the QR code (/play/p123).
     # Their audio is always playable — the recipient hearing the prospect's
     # voice IS the gift; there is no advisor release gate on this path.
