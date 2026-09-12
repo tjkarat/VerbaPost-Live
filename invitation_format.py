@@ -53,7 +53,7 @@ DEFAULT_INVITE_BODY = (
 #
 # Paste the transcript of a story you are happy to put in front of strangers.
 SAMPLE_STORY = ""
-SAMPLE_STORYTELLER = "Tarak J. Robbana"
+SAMPLE_STORYTELLER = "Tarak R."
 SAMPLE_PROMPT = ""          # the question that was asked, shown as the epigraph
 SAMPLE_NOTE = ("This is a real letter, printed exactly as yours would be. "
                "The code on it plays the storyteller's own voice.")
