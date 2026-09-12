@@ -6,6 +6,18 @@
         gtag('event', 'letter_qr_scan', { 'found': {{ 'true' if found else 'false' }}, 'locked': {{ 'true' if locked else 'false' }} });
 {% endblock %}
 
+{% block header %}
+    {# Every nav link here is a way out of a page with one job. Keep the brand,
+       drop the links, when this scan came from a real mailed letter. #}
+    {% if advisor_slug %}
+    <header class="site" style="justify-content: center;">
+        <span class="brand">VerbaPost</span>
+    </header>
+    {% else %}
+    {{ super() }}
+    {% endif %}
+{% endblock %}
+
 {% block content %}
     <div style="text-align: center; margin: 30px 0;">
         <h1>The Family Legacy Archive</h1>
@@ -34,9 +46,20 @@
     </div>
 
     <div style="text-align: center; color: var(--slate); font-size: 0.9rem; margin-top: 40px;">
+        {% if advisor_slug %}
+        {# Someone who scanned a mailed letter has no account. Send them to the
+           advisor's own page to record their story, not to a login screen. #}
+        <p style="margin-top: 16px; color: var(--ink); font-size: 1rem;">
+            A letter like this one is waiting for you, with the compliments of
+            <strong>{{ advisor_name }}</strong>{% if firm_name %} at {{ firm_name }}{% endif %}.
+        </p>
+        <a class="btn btn-primary" href="/a/{{ advisor_slug }}" style="margin-top: 12px;">Record your own story</a>
+        <p style="margin-top: 14px; font-size: 0.82rem;">It takes a few minutes on the phone. There is no cost.</p>
+        {% else %}
         <em>Preserved by VerbaPost</em>
         <p style="margin-top: 16px;">Do you have a story to tell?</p>
         <a class="btn btn-primary" href="/login" style="margin-top: 8px;">Claim this Memory / Log In</a>
+        {% endif %}
     </div>
     {% else %}
     <div class="card" style="max-width: 520px; margin: 0 auto; text-align: center;">

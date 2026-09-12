@@ -41,6 +41,10 @@ def _load_story(audio_id: str):
         letter = database.get_prospect_letter(audio_id[1:])
         if letter and letter.get("audio_url") and letter.get("status") in ("Approved", "Sent"):
             created = letter.get("created_at")
+            # Who gifted it. A letter arrives as a gift from a named advisor;
+            # landing on an unbranded page loses that, and leaves the visitor
+            # with nowhere to go but a login screen they have no account for.
+            page = database.get_advisor_page_by_email(letter.get("advisor_email") or "") or {}
             return {
                 "id": audio_id,
                 "url": letter["audio_url"],
@@ -48,6 +52,9 @@ def _load_story(audio_id: str):
                 "date": created.strftime("%B %d, %Y") if hasattr(created, "strftime") else "",
                 "storyteller": letter.get("prospect_name") or "Storyteller",
                 "released": True,
+                "advisor_name": page.get("display_name") or "",
+                "firm_name": page.get("firm_name") or "",
+                "advisor_slug": page.get("slug") or "",
             }
         return None
     data = database.get_public_draft(audio_id)
@@ -98,6 +105,9 @@ def public_player(request: Request, audio_id: str):
             "storyteller": story.get("storyteller", "Family Member"),
             "date": story.get("date", "Unknown Date"),
             "audio_src": audio_src,
+            "advisor_name": story.get("advisor_name", ""),
+            "firm_name": story.get("firm_name", ""),
+            "advisor_slug": story.get("advisor_slug", ""),
         },
     )
 
