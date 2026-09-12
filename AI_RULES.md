@@ -1808,3 +1808,36 @@ Added "Repair Station" with 3 distinct action buttons (Force API, Manual Queue, 
 	3	Crossville Campaign: Hand off the list of 40 locations to your distributor.
 
 
+
+---
+
+## PCM (PostcardMania DirectMail) — proof previews
+
+**A blank proof in the PCM portal is expected, not a bug.**
+
+PCM's `letter` field takes a URL that they fetch at print time; it never takes
+a binary upload. For those orders the portal's Design panel says
+"Provided art order (no preview available)" and the proof renders empty. Their
+preview only draws designs built in PCM's own Designs tool.
+
+Confirmed Sep 12 2026 on orders 74214335 (batch 88496) and 74214373 (batch
+88497). Both showed a blank proof while every other field on the order —
+letter configuration, add-ons, deliverable recipient — was correct.
+
+**Verify the artwork directly instead**, against the same URL PCM fetches:
+
+```bash
+U="https://app.verbapost.com/a/{slug}/i/{token}/pdf"
+curl -s -o /tmp/inv.pdf -w "GET  %{http_code} %{content_type} %{size_download}\n" "$U"
+curl -sI -o /dev/null -w "HEAD %{http_code}\n" "$U"
+open /tmp/inv.pdf
+```
+
+Expect `200 application/pdf` on both. That route answers HEAD as well as GET
+(`@router.api_route(..., methods=["GET", "HEAD"])`); FastAPI does not add HEAD
+to a `@router.get` route, and a public artwork URL that 405s on HEAD is wrong
+on its own terms even though it turned out not to be the cause here.
+
+The only real proof is the envelope. Check for three pages: PCM's inserted
+addressing page, the invitation, then the sample story — and scan the QR on
+the story sheet.
