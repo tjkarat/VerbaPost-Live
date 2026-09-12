@@ -44,6 +44,16 @@ def _deny():
     return RedirectResponse("/login", status_code=302)
 
 
+def _pdf(content, filename, download=0):
+    """Serve a PDF inline by default so the admin can look at it and print
+    straight from the browser's viewer; ?download=1 forces a save. Fulfillment
+    is a visual check before it is a file — you want to see the envelope before
+    you feed a real one through the printer."""
+    disp = "attachment" if download else "inline"
+    return Response(content=bytes(content), media_type="application/pdf",
+                    headers={"Content-Disposition": f'{disp}; filename="{filename}"'})
+
+
 # ---------- data helpers (ported from ui_admin) ----------
 
 QUEUE_SQL = text("""
@@ -183,7 +193,7 @@ def dashboard(request: Request):
 
 
 @router.get("/letter/{kind}/{item_id}.pdf")
-def letter_pdf(request: Request, kind: str, item_id: int):
+def letter_pdf(request: Request, kind: str, item_id: int, download: int = 0):
     if not _require_admin(request):
         return _deny()
     item = _queue_item(kind, item_id)
@@ -201,20 +211,19 @@ def letter_pdf(request: Request, kind: str, item_id: int):
             audio_url=f"p{item['id']}",          # QR -> /play/p{id} (always released)
             is_marketing=False, question_text=meta.get("prompt"),
             compliments_of=who, recipient_name=meta.get("heir_name"))
-        return Response(content=bytes(pdf), media_type="application/pdf",
-                        headers={"Content-Disposition": f'attachment; filename="prospect_letter_{item_id}.pdf"'})
+        return _pdf(pdf, f"prospect_letter_{item_id}.pdf", download)
     pdf = letter_format.create_pdf(
         body_text=item["content"], to_addr={},
         from_addr={"name": meta.get("storyteller", "The Family")},
         advisor_firm=meta.get("firm_name", "VerbaPost"),
         audio_url=str(item["id"]) if kind == "heirloom" else None,
         is_marketing=False, question_text=meta.get("prompt"))
-    return Response(content=bytes(pdf), media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="letter_{item_id}.pdf"'})
+    return _pdf(pdf, f"letter_{item_id}.pdf", download)
 
 
 @router.get("/envelope/{kind}/{item_id}.pdf")
-def envelope_pdf(request: Request, kind: str, item_id: int, recipient: int = -1):
+def envelope_pdf(request: Request, kind: str, item_id: int, recipient: int = -1,
+                 download: int = 0):
     """recipient=-1 -> the heir; 0..n -> index into the extra recipients."""
     if not _require_admin(request):
         return _deny()
@@ -264,8 +273,7 @@ def envelope_pdf(request: Request, kind: str, item_id: int, recipient: int = -1)
     env = envelope_format.create_envelope(to_obj, from_obj)
     if not env:
         return Response(status_code=500)
-    return Response(content=bytes(env), media_type="application/pdf",
-                    headers={"Content-Disposition": f'attachment; filename="envelope_{item_id}_{recipient}.pdf"'})
+    return _pdf(env, f"envelope_{item_id}_{recipient}.pdf", download)
 
 
 @router.post("/queue/{kind}/{item_id}/sent")

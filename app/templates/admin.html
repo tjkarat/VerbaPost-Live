@@ -57,7 +57,7 @@
                 <ol style="margin:6px 0 0 18px; padding:0;">
                     <li>{{ item.meta.get('heir_name') }} — {{ item.meta.get('address', {}).get('line1') or 'NO ADDRESS' }},
                         {{ item.meta.get('address', {}).get('city') or '' }} {{ item.meta.get('address', {}).get('state') or '' }} {{ item.meta.get('address', {}).get('zip') or '' }}
-                        &nbsp;<a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf">envelope</a></li>
+                        &nbsp;<a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf" target="_blank" rel="noopener">envelope</a></li>
                 </ol>
                 <div style="margin-top:6px;">Return address on envelope: <strong>{{ item.meta.get('advisor_name') }}</strong>{% if item.meta.get('firm_name') %}, {{ item.meta.get('firm_name') }}{% endif %}
                     {% if not item.meta.get('return', {}).get('line1') %}<span style="color:var(--alert);"> — advisor has NOT set a return address</span>{% endif %}</div>
@@ -70,20 +70,33 @@
                 <ol style="margin:6px 0 0 18px; padding:0;">
                     <li>{{ item.meta.get('heir_name') }} — {{ item.meta.get('address', {}).get('line1') or 'NO ADDRESS ON FILE' }},
                         {{ item.meta.get('address', {}).get('city') or '' }} {{ item.meta.get('address', {}).get('state') or '' }} {{ item.meta.get('address', {}).get('zip') or '' }}
-                        &nbsp;<a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf?recipient=-1">envelope</a></li>
+                        &nbsp;<a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf?recipient=-1" target="_blank" rel="noopener">envelope</a></li>
                     {% for r in item.meta.get('recipients', []) %}
                     <li>{{ r.get('name') }} — {{ r.get('street') }}, {{ r.get('city') }} {{ r.get('state') }} {{ r.get('zip_code') }}
-                        &nbsp;<a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf?recipient={{ loop.index0 }}">envelope</a></li>
+                        &nbsp;<a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf?recipient={{ loop.index0 }}" target="_blank" rel="noopener">envelope</a></li>
                     {% endfor %}
                 </ol>
             </div>
             {% endif %}
 
-            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:6px;">
-                <a class="btn btn-outline btn-sm" href="/admin/letter/{{ item.kind }}/{{ item.id }}.pdf">Letter PDF</a>
-                {% if item.kind not in ('heirloom', 'prospect') %}
-                <a class="btn btn-outline btn-sm" href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf">Envelope PDF</a>
+            {# Both open a preview in a new tab — the browser's PDF viewer prints
+               and saves from there. Fulfillment is a visual check first: you want
+               to see the envelope before a real one goes through the printer.
+               The download links stay for anyone who wants the file itself. #}
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:6px;">
+                <a class="btn btn-outline btn-sm" target="_blank" rel="noopener"
+                   href="/admin/letter/{{ item.kind }}/{{ item.id }}.pdf">Preview Letter</a>
+                {% if item.kind != 'heirloom' %}
+                <a class="btn btn-outline btn-sm" target="_blank" rel="noopener"
+                   href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf">Preview Envelope</a>
                 {% endif %}
+                <span class="meta" style="font-size:0.82rem;">
+                    download:
+                    <a href="/admin/letter/{{ item.kind }}/{{ item.id }}.pdf?download=1">letter</a>
+                    {% if item.kind != 'heirloom' %}
+                    · <a href="/admin/envelope/{{ item.kind }}/{{ item.id }}.pdf?download=1">envelope</a>
+                    {% endif %}
+                </span>
             </div>
         </div>
         {% endfor %}
